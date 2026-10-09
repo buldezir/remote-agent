@@ -190,3 +190,17 @@ func TestChoices(t *testing.T) {
 		t.Errorf("xhigh = %+v, opus efforts = %+v", efforts[3], models[1].Efforts)
 	}
 }
+
+func TestDescribeToolSymlinkedCwd(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	real, _ = filepath.EvalSymlinks(real)
+	input, _ := json.Marshal(map[string]string{"file_path": filepath.Join(real, "server.go")})
+	title, paths := describeTool("Edit", input, link)
+	if title != "Edit server.go" || len(paths) != 1 || paths[0] != "server.go" {
+		t.Fatalf("got %q %v", title, paths)
+	}
+}

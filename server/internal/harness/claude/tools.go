@@ -31,9 +31,14 @@ func describeTool(name string, input json.RawMessage, cwd string) (string, []str
 	var in map[string]any
 	json.Unmarshal(input, &in)
 	str := func(k string) string { s, _ := in[k].(string); return s }
+	// Claude reports resolved paths, e.g. /private/tmp/… for a cwd under /tmp on macOS.
+	dirs := []string{cwd}
+	if real, err := filepath.EvalSymlinks(cwd); err == nil && real != cwd {
+		dirs = append(dirs, real)
+	}
 	rel := func(p string) string {
-		if cwd != "" {
-			if r, err := filepath.Rel(cwd, p); err == nil && !strings.HasPrefix(r, "..") {
+		for _, d := range dirs {
+			if r, err := filepath.Rel(d, p); d != "" && err == nil && !strings.HasPrefix(r, "..") {
 				return r
 			}
 		}

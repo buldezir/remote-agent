@@ -10,6 +10,14 @@ Drive coding agents running on your computer from your iPhone.
   - answer the agent's questions
   - review per-turn git diffs and revert them
 
+<p>
+  <img src="docs/screenshots/sessions.png" width="19%" alt="Sessions on a server, with one waiting for approval">
+  <img src="docs/screenshots/new-session.png" width="19%" alt="New session: project, agent, model and permissions">
+  <img src="docs/screenshots/approval.png" width="19%" alt="Claude Code asking to edit a file, with the change and Allow / Allow all edits / Deny">
+  <img src="docs/screenshots/transcript.png" width="19%" alt="A finished turn: tool calls, approvals and the agent's summary">
+  <img src="docs/screenshots/diff.png" width="19%" alt="The diff of a file the agent changed">
+</p>
+
 Supported harnesses:
 
 | Harness | How rad talks to it |
