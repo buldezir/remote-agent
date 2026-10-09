@@ -93,3 +93,32 @@ struct ContextGauge: View {
         fraction >= 0.9 ? .red : fraction >= 0.7 ? .orange : .secondary
     }
 }
+
+struct ConnectionDot: View {
+    let state: ConnectionState
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 9, height: 9)
+            .accessibilityLabel(label)
+    }
+
+    var color: Color {
+        switch state {
+        case .connected: .green
+        case .connecting: .yellow
+        case .failed: .red
+        case .idle: .gray.opacity(0.5)
+        }
+    }
+
+    var label: String {
+        switch state {
+        case .connected: "Connected"
+        case .connecting: "Connecting"
+        case .failed(let msg): "Failed: \(msg)"
+        case .idle: "Not connected"
+        }
+    }
+}

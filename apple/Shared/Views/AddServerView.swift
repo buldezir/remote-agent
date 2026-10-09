@@ -1,6 +1,8 @@
 import RAKit
 import SwiftUI
+#if os(iOS)
 import VisionKit
+#endif
 
 struct AddServerView: View {
     @Environment(ServerStore.self) private var store
@@ -9,7 +11,7 @@ struct AddServerView: View {
     var onPaired: (SavedServer) -> Void
 
     @State private var linkText = ""
-    @State private var deviceName = UIDevice.current.name
+    @State private var deviceName = Platform.deviceName
     @State private var scanning = false
     @State private var pairing = false
     @State private var error: String?
@@ -20,6 +22,7 @@ struct AddServerView: View {
         NavigationStack {
             Form {
                 Section {
+                    #if os(iOS)
                     if DataScannerViewController.isSupported {
                         Button {
                             scanning = true
@@ -27,21 +30,22 @@ struct AddServerView: View {
                             Label("Scan QR code", systemImage: "qrcode.viewfinder")
                         }
                     }
+                    #endif
                     HStack {
-                        TextField("remoteagent://pair?…", text: $linkText, axis: .vertical)
+                        TextField("Pairing link", text: $linkText, prompt: Text("remoteagent://pair?…"), axis: .vertical)
+                            .labelsHidden()
                             .font(.footnote.monospaced())
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
+                            .plainTextInput()
                             .lineLimit(1...4)
                         Button("Paste", systemImage: "doc.on.clipboard") {
-                            linkText = UIPasteboard.general.string ?? ""
+                            linkText = Platform.pasteboardString ?? ""
                         }
                         .labelStyle(.iconOnly)
                     }
                 } header: {
                     Text("Pairing link")
                 } footer: {
-                    Text("On your computer run `rad pair`. The code is valid for 10 minutes and works once.")
+                    Text(footer)
                 }
 
                 if let link {
@@ -66,7 +70,7 @@ struct AddServerView: View {
             }
             .compactForm()
             .navigationTitle("Pair a server")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -80,6 +84,7 @@ struct AddServerView: View {
                     }
                 }
             }
+            #if os(iOS)
             .fullScreenCover(isPresented: $scanning) {
                 QRScannerView { payload in
                     if PairingLink(string: payload) != nil {
@@ -92,12 +97,23 @@ struct AddServerView: View {
                 }
                 .ignoresSafeArea()
             }
+            #else
+            .frame(minWidth: 460, minHeight: 420)
+            #endif
             .onAppear {
                 if let initialLink, linkText.isEmpty {
                     linkText = rebuild(initialLink)
                 }
             }
         }
+    }
+
+    private var footer: LocalizedStringKey {
+        #if os(iOS)
+        "On your computer run `rad pair`. The code is valid for 10 minutes and works once."
+        #else
+        "On the computer with rad, run `rad pair` and paste the link it prints. The code is valid for 10 minutes and works once."
+        #endif
     }
 
     private func rebuild(_ l: PairingLink) -> String {
@@ -119,41 +135,6 @@ struct AddServerView: View {
             onPaired(server)
         } catch {
             self.error = error.localizedDescription
-        }
-    }
-}
-
-/// Wraps VisionKit's live QR scanner.
-struct QRScannerView: UIViewControllerRepresentable {
-    var onFound: (String) -> Void
-    var onCancel: () -> Void
-
-    func makeUIViewController(context: Context) -> UINavigationController {
-        let scanner = DataScannerViewController(
-            recognizedDataTypes: [.barcode(symbologies: [.qr])],
-            qualityLevel: .balanced, isHighlightingEnabled: true)
-        scanner.delegate = context.coordinator
-        scanner.navigationItem.leftBarButtonItem = UIBarButtonItem(
-            systemItem: .cancel, primaryAction: UIAction { _ in onCancel() })
-        scanner.title = "Scan pairing code"
-        try? scanner.startScanning()
-        return UINavigationController(rootViewController: scanner)
-    }
-
-    func updateUIViewController(_ vc: UINavigationController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(onFound: onFound) }
-
-    final class Coordinator: NSObject, DataScannerViewControllerDelegate {
-        let onFound: (String) -> Void
-        init(onFound: @escaping (String) -> Void) { self.onFound = onFound }
-
-        func dataScanner(_ scanner: DataScannerViewController, didAdd items: [RecognizedItem], allItems: [RecognizedItem]) {
-            for item in items {
-                if case .barcode(let code) = item, let s = code.payloadStringValue {
-                    onFound(s)
-                }
-            }
         }
     }
 }

@@ -3,12 +3,12 @@
 *.test
 *.out
 
-# iOS (project.yml is the source of truth; regenerate with `xcodegen`)
-/ios/RemoteAgent.xcodeproj/
-/ios/Local.xcconfig
-/ios/build/
-/ios/RAKit/.build/
-/ios/RAKit/.swiftpm/
+# Apple apps (project.yml is the source of truth; regenerate with `xcodegen`)
+/apple/RemoteAgent.xcodeproj/
+/apple/Local.xcconfig
+/apple/build/
+/apple/RAKit/.build/
+/apple/RAKit/.swiftpm/
 xcuserdata/
 DerivedData/
 

@@ -50,10 +50,15 @@ struct NewSessionView: View {
                 Section {
                     if let harnesses = connection.harnesses {
                         ForEach(harnesses) { h in
-                            HarnessChoiceRow(harness: h, selected: h.id == harnessID)
-                                .contentShape(Rectangle())
-                                .onTapGesture { if h.usable { harnessID = h.id } }
-                                .disabled(!h.usable)
+                            Button {
+                                harnessID = h.id
+                            } label: {
+                                HarnessChoiceRow(harness: h, selected: h.id == harnessID)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!h.usable)
+                            .accessibilityAddTraits(h.id == harnessID ? .isSelected : [])
                         }
                         if harnesses.isEmpty {
                             Text("No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.")
@@ -77,8 +82,7 @@ struct NewSessionView: View {
                         }
                         if model == "__custom" || (harness.caps.freeModel && (harness.models ?? []).isEmpty) {
                             TextField("Model id", text: $customModel)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
+                                .plainTextInput()
                         }
                         let efforts = harness.efforts(forModel: chosenModel)
                         if !efforts.isEmpty {
@@ -105,9 +109,8 @@ struct NewSessionView: View {
                     Section {
                         Toggle("Isolated git worktree", isOn: $useWorktree)
                         if useWorktree {
-                            TextField("Branch (auto)", text: $branch)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
+                            TextField("Branch", text: $branch, prompt: Text(branchPrompt))
+                                .plainTextInput()
                             Picker("Based on", selection: $baseRef) {
                                 Text("Current HEAD").tag("")
                                 ForEach(branches, id: \.self) { Text($0).tag($0) }
@@ -122,7 +125,8 @@ struct NewSessionView: View {
                 }
 
                 Section {
-                    TextField("What should the agent do?", text: $prompt, axis: .vertical)
+                    TextField("Prompt", text: $prompt, prompt: Text("What should the agent do?"), axis: .vertical)
+                        .labelsHidden()
                         .lineLimit(4...12)
                         .focused($promptFocused)
                 } header: {
@@ -136,8 +140,11 @@ struct NewSessionView: View {
                 }
             }
             .compactForm()
+            #if os(macOS)
+            .frame(minWidth: 480, minHeight: 600)
+            #endif
             .navigationTitle("New session")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
@@ -162,6 +169,9 @@ struct NewSessionView: View {
                         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { browsing = false } }
                     }
                 }
+                #if os(macOS)
+                .frame(minWidth: 420, minHeight: 460)
+                #endif
             }
             .task {
                 if connection.harnesses == nil { await connection.refreshHarnesses() }
@@ -185,6 +195,15 @@ struct NewSessionView: View {
                 Task { branches = (try? await connection.branches(projectID: id).branches) ?? [] }
             }
         }
+    }
+
+    /// On the Mac the field's label, Branch, is shown beside it.
+    private var branchPrompt: String {
+        #if os(macOS)
+        "auto"
+        #else
+        "Branch (auto)"
+        #endif
     }
 
     /// The model id to request; nil for the harness default.
@@ -316,7 +335,7 @@ struct DirectoryBrowserView: View {
         }
         .compactForm()
         .navigationTitle(path.map { ($0 as NSString).lastPathComponent } ?? "Folders")
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineTitle()
         .toolbar {
             if let path {
                 ToolbarItem(placement: .confirmationAction) {

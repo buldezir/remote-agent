@@ -1,10 +1,12 @@
 // Renders the app icon into an .appiconset: a chat bubble with a terminal
-// prompt cut out of it, on the accent colour. iOS rounds the corners itself.
+// prompt cut out of it, on the accent colour. iOS rounds the corners itself;
+// the Mac icons are drawn in the macOS shape, with its margin and shadow.
 //
-//   cd ios && swift scripts/make-app-icon.swift RemoteAgent/Assets.xcassets/AppIcon.appiconset
+//   cd apple && swift scripts/make-app-icon.swift Shared/Assets.xcassets/AppIcon.appiconset
 import CoreGraphics
 import Foundation
 import ImageIO
+import SwiftUI
 import UniformTypeIdentifiers
 
 let size = 1024
@@ -67,19 +69,55 @@ func white(_ ctx: CGContext) {
     ctx.fill(CGRect(x: 0, y: 0, width: size, height: size))
 }
 
-func render(_ name: String, opaque: Bool, in dir: URL, draw: (CGContext) -> Void) {
-    // The App Store rejects an alpha channel in the main icon.
+func image(opaque: Bool, draw: (CGContext) -> Void) -> CGImage {
+    // The App Store rejects an alpha channel in the main iOS icon.
     let alpha: CGImageAlphaInfo = opaque ? .noneSkipLast : .premultipliedLast
     let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
                         space: srgb, bitmapInfo: alpha.rawValue)!
     ctx.translateBy(x: 0, y: CGFloat(size))
     ctx.scaleBy(x: 1, y: -1)
     draw(ctx)
+    return ctx.makeImage()!
+}
+
+func write(_ image: CGImage, _ name: String, in dir: URL, pixels: Int = size) {
+    var image = image
+    if pixels != size {
+        let ctx = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: srgb, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: pixels, height: pixels))
+        image = ctx.makeImage()!
+    }
     let url = dir.appendingPathComponent(name)
     let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil)!
-    CGImageDestinationAddImage(dest, ctx.makeImage()!, nil)
+    CGImageDestinationAddImage(dest, image, nil)
     guard CGImageDestinationFinalize(dest) else { fatalError("could not write \(url.path)") }
     print(url.path)
+}
+
+func render(_ name: String, opaque: Bool, in dir: URL, draw: (CGContext) -> Void) {
+    write(image(opaque: opaque, draw: draw), name, in: dir)
+}
+
+/// The iOS icon shrunk into the macOS shape: a rounded square 824 points
+/// wide with continuous corners, centred, over a soft shadow.
+func drawMac(_ ctx: CGContext) {
+    let square = CGRect(x: 100, y: 100, width: 824, height: 824)
+    let shape = RoundedRectangle(cornerRadius: 185.4, style: .continuous).path(in: square).cgPath
+    ctx.saveGState()
+    ctx.setShadow(offset: CGSize(width: 0, height: -10), blur: 20, color: color(0, 0, 0, 0.3))
+    ctx.addPath(shape)
+    ctx.setFillColor(color(0.85, 0.32, 0.30))
+    ctx.fillPath()
+    ctx.restoreGState()
+    ctx.addPath(shape)
+    ctx.clip()
+    ctx.translateBy(x: square.minX, y: square.minY)
+    ctx.scaleBy(x: square.width / CGFloat(size), y: square.height / CGFloat(size))
+    fillAccent(ctx)
+    ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 22, color: color(0.45, 0.08, 0.06, 0.25))
+    drawBubble(ctx, fill: white)
 }
 
 guard CommandLine.arguments.count == 2 else {
@@ -99,4 +137,10 @@ render("AppIcon-Dark.png", opaque: false, in: dir) { ctx in
 }
 render("AppIcon-Tinted.png", opaque: false, in: dir) { ctx in
     drawBubble(ctx, fill: white)
+}
+// The Mac takes a PNG per size.
+let mac = image(opaque: false, draw: drawMac)
+for points in [16, 32, 128, 256, 512] {
+    write(mac, "AppIcon-Mac-\(points).png", in: dir, pixels: points)
+    write(mac, "AppIcon-Mac-\(points)@2x.png", in: dir, pixels: points * 2)
 }

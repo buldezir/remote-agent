@@ -1,4 +1,5 @@
-// Code signing for running on an iPhone. xcodegen regenerates the Xcode
+// Code signing for running on an iPhone or iPad, and for the Mac app (which
+// is signed to run locally without a team). xcodegen regenerates the Xcode
 // project, so a team picked in Xcode's Signing UI is lost on the next run.
 // Put yours in Local.xcconfig next to this file instead (it is gitignored):
 //

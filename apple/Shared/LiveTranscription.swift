@@ -232,7 +232,11 @@ enum DictationError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        #if os(macOS)
+        case .notAllowed: "Allow Microphone and Speech Recognition for Remote Agent in System Settings › Privacy & Security."
+        #else
         case .notAllowed: "Allow Microphone and Speech Recognition for Remote Agent in Settings."
+        #endif
         case .noMicrophone: "No microphone is available."
         case .noLanguage: "Dictation doesn't support any of your keyboard languages."
         case .noModel: "The speech model for your language isn't available on this device."

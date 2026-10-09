@@ -1,9 +1,9 @@
 # Remote Agent
 
-Drive coding agents running on your computer from your iPhone or iPad.
+Drive coding agents running on your computer from your iPhone, iPad or Mac.
 
 - **`rad`**: a Go server that runs on the dev machine. It spawns agent CLIs as child processes, normalizes what they do into one event model, persists it in SQLite, and serves it over a WebSocket.
-- **Remote Agent**: a native SwiftUI app for iPhone and iPad. You pair it by QR code. On iPad, a server's sessions stay in a sidebar next to the one you have open. From the app you can:
+- **Remote Agent**: a native SwiftUI app for iPhone, iPad and Mac. You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, a server's sessions stay in a sidebar next to the one you have open. From the app you can:
   - start sessions in any project
   - watch agents stream their work
   - dictate prompts, in any of your keyboard languages
@@ -44,7 +44,7 @@ go build -o bin/rad ./cmd/rad
 ./bin/rad serve          # first run writes ~/.config/remote-agent/config.yaml and prints a pairing QR
 ```
 
-On the phone, open Remote Agent and tap **Pair a server**, then scan the QR code. In the simulator, paste the link from `rad pair --print-url` instead.
+On the phone, open Remote Agent and tap **Pair a server**, then scan the QR code. On the Mac, or in the simulator, paste the link that `rad pair` prints instead.
 
 `rad serve` and `rad pair` list the agents that are ready, and any installed agent that still needs a login. The phone only sees agents installed on the server.
 
@@ -86,18 +86,18 @@ You need an iPhone or iPad on iOS 27 or later, Xcode, an Apple ID and, for the f
 2. Generate and open the project (commands here run from the repo root):
 
    ```bash
-   (cd ios && xcodegen) && open ios/RemoteAgent.xcodeproj
+   (cd apple && xcodegen) && open apple/RemoteAgent.xcodeproj
    ```
 
-3. Select the **RemoteAgent** target → Signing & Capabilities, and choose your team.
+3. Select the **RemoteAgent-iOS** target → Signing & Capabilities, and choose your team.
    - If Xcode says the bundle ID is taken, see step 4.
-   - xcodegen regenerates the project and forgets this choice. Save the team in the gitignored `ios/Local.xcconfig` so it survives:
+   - xcodegen regenerates the project and forgets this choice. Save the team in the gitignored `apple/Local.xcconfig` so it survives:
 
      ```bash
-     grep -m1 -o 'DEVELOPMENT_TEAM = [A-Z0-9]*' ios/RemoteAgent.xcodeproj/project.pbxproj > ios/Local.xcconfig
+     grep -m1 -o 'DEVELOPMENT_TEAM = [A-Z0-9]*' apple/RemoteAgent.xcodeproj/project.pbxproj > apple/Local.xcconfig
      ```
 
-4. If the bundle ID was taken, add `PRODUCT_BUNDLE_IDENTIFIER = com.yourname.remote-agent` to `ios/Local.xcconfig`, then run `xcodegen` again.
+4. If the bundle ID was taken, add `PRODUCT_BUNDLE_IDENTIFIER = com.yourname.remote-agent` to `apple/Local.xcconfig`, then run `xcodegen` again.
 5. Prepare the device:
    1. Connect it, unlock it and tap **Trust**.
    2. Turn on Settings → Privacy & Security → **Developer Mode**. The switch appears once Xcode has seen the phone, and turning it on restarts the phone.
@@ -110,11 +110,28 @@ You need an iPhone or iPad on iOS 27 or later, Xcode, an Apple ID and, for the f
    2. In the app, tap **Pair a server** (or **+**) and scan the QR code. The Camera app can scan it too.
    3. Allow Local Network access when iOS asks.
 
-The app icon is drawn by `ios/scripts/make-app-icon.swift`. Run it again after changing it:
+The app icon is drawn by `apple/scripts/make-app-icon.swift`. Run it again after changing it:
 
 ```bash
-cd ios && swift scripts/make-app-icon.swift RemoteAgent/Assets.xcassets/AppIcon.appiconset
+cd apple && swift scripts/make-app-icon.swift Shared/Assets.xcassets/AppIcon.appiconset
 ```
+
+## Running the Mac app
+
+The Mac app is built from the same code as the iPhone app, as its own target, **RemoteAgent-macOS**. You need macOS 27 or later and Xcode.
+
+1. Generate the project and build the app (commands here run from the repo root):
+
+   ```bash
+   (cd apple && xcodegen) && xcodebuild -project apple/RemoteAgent.xcodeproj -scheme RemoteAgent-macOS -configuration Release -derivedDataPath apple/build build
+   cp -R "apple/build/Build/Products/Release/Remote Agent.app" /Applications/
+   ```
+
+   Or open `apple/RemoteAgent.xcodeproj`, pick the **RemoteAgent-macOS** scheme and press ⌘R.
+2. Signing uses the team saved in `apple/Local.xcconfig` (step 3 for the iPhone). Without one, the app is signed to run on this Mac only. That works, but macOS may ask you to let each new build read the pairing tokens it saved in your keychain.
+3. Pair it: run `server/bin/rad pair`, then paste the link in **File › Pair a Server…**. When rad runs on the same Mac, `open "$(server/bin/rad pair --print-url)"` opens the link in the app.
+
+On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the composer, Return sends, ⌥Return starts a new line and ⌘. stops the agent. The server menu at the foot of the sidebar switches servers. Dictation listens in your preferred languages from System Settings.
 
 ## Using it
 
@@ -195,7 +212,10 @@ server/                  Go module for rad
   internal/gitx          worktrees, checkpoints, diffs, revert (git CLI)
   internal/api           HTTP pairing + WebSocket JSON-RPC
 protocol/                PROTOCOL.md + golden fixtures shared by Go and Swift tests
-ios/                     XcodeGen project; RAKit (protocol, client, stores) + SwiftUI app
+apple/                   XcodeGen project for the iPhone, iPad and Mac apps
+  RAKit/                 Swift package: protocol, network client, stores
+  Shared/                SwiftUI app code both apps build
+  iOS/  macOS/           what only one platform uses: Info.plist, QR scanner, Mac menu bar…
 ```
 
 ## Development
@@ -203,8 +223,9 @@ ios/                     XcodeGen project; RAKit (protocol, client, stores) + Sw
 ```bash
 cd server && go test ./... -race              # server tests (adapters replay recorded CLI transcripts)
 cd server && go test ./internal/api -update   # regenerate protocol/fixtures after changing wire types
-cd ios/RAKit && swift test                    # client protocol and sync tests
-cd ios && xcodegen && xcodebuild -scheme RemoteAgent -destination 'platform=iOS Simulator,name=iPhone 17' build
+cd apple/RAKit && swift test                  # client protocol and sync tests
+cd apple && xcodegen && xcodebuild -scheme RemoteAgent-iOS -destination 'platform=iOS Simulator,name=iPhone 17' build
+cd apple && xcodebuild -scheme RemoteAgent-macOS -destination 'platform=macOS' build
 ```
 
 To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fake (scripted)**. Its prompt keywords are:

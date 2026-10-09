@@ -83,40 +83,6 @@ struct ServersView: View {
     }
 }
 
-/// Navigation value for a session on a given server.
-struct SessionRoute: Hashable {
-    let serverID: String
-    let sessionID: String
-}
-
-extension View {
-    /// Confirmation before forgetting a server.
-    func removeServerDialog(_ server: Binding<SavedServer?>, onRemove: @escaping () -> Void = {}) -> some View {
-        modifier(RemoveServerDialog(server: server, onRemove: onRemove))
-    }
-}
-
-private struct RemoveServerDialog: ViewModifier {
-    @Environment(ServerStore.self) private var store
-    @Binding var server: SavedServer?
-    var onRemove: () -> Void
-
-    func body(content: Content) -> some View {
-        content.confirmationDialog(
-            "Remove \(server?.name ?? "server")?",
-            isPresented: .init(get: { server != nil }, set: { if !$0 { server = nil } }),
-            titleVisibility: .visible, presenting: server
-        ) { s in
-            Button("Remove", role: .destructive) {
-                onRemove()
-                store.remove(s)
-            }
-        } message: { _ in
-            Text("This device is unpaired from the server. Run `rad pair` on the computer to add it again.")
-        }
-    }
-}
-
 struct ServerRow: View {
     let connection: ServerConnection
 
@@ -133,35 +99,6 @@ struct ServerRow: View {
             }
             Spacer()
             ConnectionDot(state: connection.state)
-        }
-    }
-}
-
-struct ConnectionDot: View {
-    let state: ConnectionState
-
-    var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 9, height: 9)
-            .accessibilityLabel(label)
-    }
-
-    var color: Color {
-        switch state {
-        case .connected: .green
-        case .connecting: .yellow
-        case .failed: .red
-        case .idle: .gray.opacity(0.5)
-        }
-    }
-
-    var label: String {
-        switch state {
-        case .connected: "Connected"
-        case .connecting: "Connecting"
-        case .failed(let msg): "Failed: \(msg)"
-        case .idle: "Not connected"
         }
     }
 }

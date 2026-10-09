@@ -2,13 +2,16 @@ import AVFoundation
 import Observation
 import OSLog
 import Speech
+#if os(iOS)
 import UIKit
+#endif
 
 private let log = Logger(subsystem: "dev.remote-agent.app", category: "dictation")
 
 /// Live speech-to-text for the composer, on device with the models behind
 /// keyboard dictation. It listens in each of the user's keyboard languages (up
-/// to three) and keeps the one it understood best.
+/// to three; on the Mac, their preferred languages) and keeps the one it
+/// understood best.
 @MainActor @Observable
 final class Dictation {
     enum Phase { case idle, starting, downloading, listening, finishing }
@@ -104,7 +107,13 @@ final class Dictation {
     /// and the preferred one first. Falls back to the app's language.
     private func languages() async -> [Locale] {
         var out: [Locale] = []
-        for id in UITextInputMode.activeInputModes.compactMap(\.primaryLanguage) {
+        #if os(iOS)
+        let ids = UITextInputMode.activeInputModes.compactMap(\.primaryLanguage)
+        #else
+        // Keyboard layouts on the Mac don't name a language.
+        let ids = Locale.preferredLanguages
+        #endif
+        for id in ids {
             // "emoji" and the like map to nothing.
             guard let locale = await DictationTranscriber.supportedLocale(equivalentTo: Locale(identifier: id)),
                   !out.contains(where: { $0.language.languageCode == locale.language.languageCode })
@@ -122,11 +131,13 @@ final class Dictation {
     }
 
     private func startAudio(feeding feed: AudioFeed) throws {
+        #if os(iOS)
         let session = AVAudioSession.sharedInstance()
         // The default mode keeps the system's input processing (gain, noise),
         // which .measurement turns off.
         try session.setCategory(.record, mode: .default, options: .duckOthers)
         try session.setActive(true, options: .notifyOthersOnDeactivation)
+        #endif
         let engine = AVAudioEngine()
         self.engine = engine
         try Self.installTap(on: engine.inputNode, feed: feed)
@@ -139,7 +150,9 @@ final class Dictation {
         self.engine = nil
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
+        #if os(iOS)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
 
     // The audio tap runs on a background thread, so it is built outside the

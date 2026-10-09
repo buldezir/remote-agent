@@ -63,11 +63,11 @@ struct DiffView: View {
         }
         .compactForm()
         .navigationTitle("Changes")
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineTitle()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             if canRevert {
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItem(placement: revertPlacement) {
                     Menu {
                         ForEach(store.sortedTurns.filter { $0.checkpointBefore != nil }.reversed()) { t in
                             Button("Before turn \(t.n)") { revertTurn = t }
@@ -90,6 +90,14 @@ struct DiffView: View {
         }
         .task(id: scope) { await load() }
         .refreshable { await load() }
+    }
+
+    private var revertPlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        .bottomBar
+        #else
+        .automatic
+        #endif
     }
 
     private func load() async {
@@ -191,9 +199,10 @@ struct FileDiffView: View {
             .textSelection(.enabled)
         }
         .navigationTitle((file.path as NSString).lastPathComponent)
-        .navigationBarTitleDisplayMode(.inline)
+        .inlineTitle()
         .toolbar {
-            Toggle(isOn: $wrap) { Image(systemName: "text.word.spacing") }
+            Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
+                .toggleStyle(.button)
         }
     }
 }

@@ -2,7 +2,7 @@ import RAKit
 import SwiftUI
 
 /// A server's sessions. On iPhone it is pushed and pushes sessions; in the
-/// iPad sidebar, selection says which session the detail column shows.
+/// iPad and Mac sidebar, selection says which session the detail column shows.
 struct ServerHomeView: View {
     let connection: ServerConnection
     var selection: Binding<SessionRoute?>?
@@ -21,7 +21,11 @@ struct ServerHomeView: View {
                 List { sections }
             }
         }
+        #if os(macOS)
+        .listStyle(.sidebar)
+        #else
         .listStyle(.plain)
+        #endif
         .overlay {
             if connection.indexSynced && connection.sessions.isEmpty {
                 ContentUnavailableView {
@@ -40,16 +44,22 @@ struct ServerHomeView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("New session", systemImage: "square.and.pencil") { showNew = true }
-                    .keyboardShortcut("n")
+                    #if os(iOS)
+                    .keyboardShortcut("n") // On the Mac, File › New Session has it.
+                    #endif
                     .disabled(connection.state != .connected)
             }
+            // On the Mac these are in the server menu at the foot of the sidebar.
+            #if os(iOS)
             ToolbarItem(placement: .secondaryAction) {
                 Button("Reconnect", systemImage: "arrow.clockwise") { connection.retry() }
             }
             ToolbarItem(placement: .secondaryAction) {
                 Button("Remove server", systemImage: "trash", role: .destructive) { removing = connection.server }
             }
+            #endif
         }
+        .focusedSceneValue(\.newSession, connection.state == .connected ? $showNew : nil)
         // In the sidebar there is nothing to go back to; the split view picks another server.
         .removeServerDialog($removing) { if selection == nil { dismiss() } }
         .sheet(isPresented: $showNew) {
@@ -107,6 +117,14 @@ struct ServerHomeView: View {
         }
         let archived = connection.archivedSessions
         if !archived.isEmpty {
+            #if os(macOS)
+            // Sidebar sections show their own disclosure control.
+            Section(isExpanded: $showArchived) {
+                ForEach(archived) { row($0) }
+            } header: {
+                Text("Archived \(Text("\(archived.count)").foregroundStyle(.tertiary))")
+            }
+            #else
             Section(isExpanded: $showArchived) {
                 ForEach(archived) { row($0) }
             } header: {
@@ -125,6 +143,7 @@ struct ServerHomeView: View {
                 }
                 .buttonStyle(.plain)
             }
+            #endif
         }
     }
 
@@ -132,11 +151,18 @@ struct ServerHomeView: View {
         NavigationLink(value: SessionRoute(serverID: connection.server.id, sessionID: s.id)) {
             SessionRow(session: s, project: connection.projects[s.projectId], harness: connection.harness(s.harness))
         }
+        #if os(iOS)
         .listRowInsets(Metrics.rowInsets)
+        #endif
         .swipeActions {
             if !s.archived {
                 Button("Archive", systemImage: "archivebox") { archiveTarget = s }
                     .tint(.indigo)
+            }
+        }
+        .contextMenu {
+            if !s.archived {
+                Button("Archive…", systemImage: "archivebox") { archiveTarget = s }
             }
         }
     }
@@ -180,6 +206,40 @@ struct SessionRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+/// Navigation value for a session on a given server.
+struct SessionRoute: Hashable {
+    let serverID: String
+    let sessionID: String
+}
+
+extension View {
+    /// Confirmation before forgetting a server.
+    func removeServerDialog(_ server: Binding<SavedServer?>, onRemove: @escaping () -> Void = {}) -> some View {
+        modifier(RemoveServerDialog(server: server, onRemove: onRemove))
+    }
+}
+
+private struct RemoveServerDialog: ViewModifier {
+    @Environment(ServerStore.self) private var store
+    @Binding var server: SavedServer?
+    var onRemove: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            "Remove \(server?.name ?? "server")?",
+            isPresented: .init(get: { server != nil }, set: { if !$0 { server = nil } }),
+            titleVisibility: .visible, presenting: server
+        ) { s in
+            Button("Remove", role: .destructive) {
+                onRemove()
+                store.remove(s)
+            }
+        } message: { _ in
+            Text("This device is unpaired from the server. Run `rad pair` on the computer to add it again.")
         }
     }
 }

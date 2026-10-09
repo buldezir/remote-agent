@@ -427,9 +427,9 @@ struct FlowChips: View {
 }
 
 extension MarkdownUI.Theme {
-    /// GitHub-like, sized for a phone transcript.
+    /// GitHub-like, sized for a transcript.
     @MainActor static let agent = Theme.gitHub
-        .text { FontSize(15) }
+        .text { FontSize(Metrics.textSize) }
         // GitHub leaves 16pt after paragraphs and 24pt above headings; a
         // transcript reads better tighter.
         .paragraph { configuration in

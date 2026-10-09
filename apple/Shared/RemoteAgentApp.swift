@@ -7,24 +7,36 @@ struct RemoteAgentApp: App {
     @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             WindowRoot()
                 .environment(store)
         }
+        #if os(macOS)
+        .defaultSize(width: 1100, height: 760)
+        .commands { AppCommands() }
+        #endif
         .onChange(of: phase) { _, newPhase in
+            #if os(macOS)
+            // A Mac window stays in view while another app is in front.
+            store.setActive(newPhase != .background)
+            #else
             // Sockets don't survive backgrounding; reconnect and resync on return.
             store.setActive(newPhase == .active)
+            #endif
         }
     }
 }
 
-/// One window. On iPad there can be several, and a pairing link opens in the
-/// window that received it.
+/// One window. On iPad and the Mac there can be several, and a pairing link
+/// opens in the window that received it.
 private struct WindowRoot: View {
     @State private var pendingLink: PairingLink?
 
     var body: some View {
         Group {
+            #if os(macOS)
+            ServerSplitView(pendingLink: $pendingLink)
+            #else
             // By device, not size class: the split view collapses in a narrow
             // iPad window by itself, and swapping roots would drop the navigation.
             if UIDevice.current.userInterfaceIdiom == .pad {
@@ -32,9 +44,21 @@ private struct WindowRoot: View {
             } else {
                 ServersView(pendingLink: $pendingLink)
             }
+            #endif
         }
         .onOpenURL { url in
             pendingLink = PairingLink(string: url.absoluteString)
         }
+        #if os(macOS)
+        // Otherwise the Mac opens a new window for every link.
+        .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+        #endif
     }
+}
+
+extension FocusedValues {
+    /// Shows the New session sheet in the front window, while its server is connected.
+    @Entry var newSession: Binding<Bool>?
+    /// Shows the pairing sheet in the front window.
+    @Entry var pairServer: Binding<Bool>?
 }

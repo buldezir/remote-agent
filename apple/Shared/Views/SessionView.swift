@@ -62,7 +62,10 @@ struct SessionView: View {
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) { composer }
         .navigationTitle(session?.title ?? "Session")
-        .navigationBarTitleDisplayMode(.inline)
+        #if os(macOS)
+        .navigationSubtitle(session.map(macSubtitle) ?? "")
+        #endif
+        .inlineTitle()
         .toolbar { toolbar }
         .sheet(isPresented: $showDiff) {
             NavigationStack {
@@ -117,8 +120,12 @@ struct SessionView: View {
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField(placeholder, text: $draft, axis: .vertical)
+                .textFieldStyle(.plain)
                 .lineLimit(1...6)
                 .focused($composerFocused)
+                #if os(macOS)
+                .onSubmit { if mainAction == .send { mainButtonTapped() } }
+                #endif
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(.background.secondary, in: RoundedRectangle(cornerRadius: Metrics.Corner.field))
@@ -128,7 +135,9 @@ struct SessionView: View {
                 } label: {
                     Image(systemName: "stop.circle.fill").font(.system(size: 26))
                 }
+                .buttonStyle(.borderless)
                 .tint(.red)
+                .keyboardShortcut(".")
                 .accessibilityLabel("Stop")
             }
             Button(action: mainButtonTapped) {
@@ -137,6 +146,7 @@ struct SessionView: View {
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.variableColor.iterative, isActive: dictation.phase == .listening)
             }
+            .buttonStyle(.borderless)
             .tint(mainAction == .stopDictation ? .red : .accentColor)
             .keyboardShortcut(mainAction == .send ? KeyboardShortcut(.return) : nil)
             // While dictation finishes, the final pass is still rewriting the draft.
@@ -149,10 +159,12 @@ struct SessionView: View {
         .frame(maxWidth: Metrics.readableWidth)
         .frame(maxWidth: .infinity)
         .background(.bar)
+        #if os(iOS)
         .onChange(of: composerFocused) { _, focused in
             // The keyboard has its own dictation key.
             if focused { dictation.stop() }
         }
+        #endif
     }
 
     private enum MainAction {
@@ -175,10 +187,15 @@ struct SessionView: View {
         }
     }
 
-    /// The mic is the main button until the keyboard is up or there is text to send.
+    /// The mic is the main button until the keyboard is up or there is text to
+    /// send. On the Mac the field keeps focus, so only the text counts.
     private var mainAction: MainAction {
         if dictation.phase != .idle { return .stopDictation }
+        #if os(macOS)
+        return draftIsEmpty ? .dictate : .send
+        #else
         return composerFocused || !draftIsEmpty ? .send : .dictate
+        #endif
     }
 
     private var draftIsEmpty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -216,6 +233,7 @@ struct SessionView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
+        #if os(iOS)
         ToolbarItem(placement: .principal) {
             VStack(spacing: 0) {
                 Text(session?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1)
@@ -233,6 +251,7 @@ struct SessionView: View {
                 .foregroundStyle(.secondary)
             }
         }
+        #endif
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 if let modes = harness?.modes, !modes.isEmpty {
@@ -276,6 +295,14 @@ struct SessionView: View {
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
     }
+
+    #if os(macOS)
+    /// The subtitle under the window title, with the context use at the end.
+    private func macSubtitle(_ s: Session) -> String {
+        let context = s.context?.fraction.map { "\($0.formatted(.percent.precision(.fractionLength(0)))) context" }
+        return [subtitle(s), context].compactMap { $0 }.joined(separator: " · ")
+    }
+    #endif
 
     private var modeName: String? {
         guard let m = session?.mode, !m.isEmpty else { return nil }

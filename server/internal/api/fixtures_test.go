@@ -17,7 +17,7 @@ import (
 
 var update = flag.Bool("update", false, "rewrite protocol/fixtures")
 
-// Golden frames shared with the Swift client tests (ios/RAKit). They are
+// Golden frames shared with the Swift client tests (apple/RAKit). They are
 // generated from the Go types so the two sides cannot drift silently.
 func fixtures() map[string]any {
 	t0 := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
