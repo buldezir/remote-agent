@@ -150,7 +150,7 @@ Approval {
 |---|---|---|
 | `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId}` |
 | `device.unpair` | — | `{}` (revokes the calling device's token) |
-| `harness.list` | `{refresh?}` | `{harnesses: [HarnessInfo]}` |
+| `harness.list` | `{refresh?}` | `{harnesses: [HarnessInfo]}`, only the ones installed on the server |
 | `fs.list` | `{path?}` (omit for roots) | `{path, parent?, entries: [{name, path, isGitRepo}]}` |
 | `project.list` | — | `{projects}` |
 | `project.add` | `{path}` (must be under a root) | `Project` |
@@ -172,7 +172,7 @@ Approval {
 ```ts
 HarnessInfo {
   id, name, protocol: "claude"|"codex"|"acp"|"fake",
-  installed, version?, authOk, hint?,          // hint explains what's missing
+  installed, version?, authOk, hint?,          // usable when authOk; hint explains what's missing
   models?: [{id, name, description?, efforts?: [Choice]}],  // a model's efforts, when listed, replace the harness's
   efforts?: [Choice],                          // reasoning efforts for the default model; absent: not selectable
   modes?: [Choice], defaultMode?,              // Choice = {id, name, description?}

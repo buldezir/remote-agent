@@ -17,7 +17,8 @@ public final class ServerConnection {
     public private(set) var info: ServerInfo?
     public private(set) var projects: [String: Project] = [:]
     public private(set) var sessions: [String: Session] = [:]
-    public private(set) var harnesses: [HarnessInfo] = []
+    /// The agents installed on the server; nil until first loaded.
+    public private(set) var harnesses: [HarnessInfo]?
     public private(set) var indexSynced = false
 
     private let client: RPCClient
@@ -230,7 +231,7 @@ public final class ServerConnection {
         }
     }
 
-    public func harness(_ id: String) -> HarnessInfo? { harnesses.first { $0.id == id } }
+    public func harness(_ id: String) -> HarnessInfo? { harnesses?.first { $0.id == id } }
 
     public func listDirectory(_ path: String?) async throws -> FSListing {
         try await client.call("fs.list", ["path": path ?? ""])

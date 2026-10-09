@@ -32,6 +32,8 @@ go build -o bin/rad ./cmd/rad
 
 On the phone, open Remote Agent and tap **Pair a server**, then scan the QR code. In the simulator, paste the link from `rad pair --print-url` instead.
 
+`rad serve` and `rad pair` list the agents that are ready, and any installed agent that still needs a login. The phone only sees agents installed on the server.
+
 rad listens on all interfaces (`0.0.0.0:7421`). The pairing link tells the phone which addresses to try:
 
 - **Tailscale (recommended):** the Tailscale address (100.x) is in the link by default, and WireGuard encrypts the traffic.
@@ -117,7 +119,7 @@ cd ios && swift scripts/make-app-icon.swift RemoteAgent/Assets.xcassets/AppIcon.
 
 ```
 rad serve [--lan] [--fake] [-v]   run the server (--fake adds a scripted test harness)
-rad pair [--lan] [--print-url]    new single-use pairing code (10 min); --lan adds LAN addresses to the link
+rad pair [--lan] [--print-url]    new single-use pairing code (10 min) and the agents that are ready; --lan adds LAN addresses to the link
 rad devices                       list paired devices
 rad devices revoke <id-prefix>    revoke one; its open connections close within 30s
 rad install-service [--uninstall]  run rad in the background (launchd on macOS, systemd on Linux)

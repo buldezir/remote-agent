@@ -99,7 +99,7 @@ func fixtures() map[string]any {
 				Efforts:     []model.Choice{{ID: "low", Name: "Low"}, {ID: "medium", Name: "Medium"}, {ID: "high", Name: "High"}},
 				Modes:       []model.Choice{{ID: "default", Name: "Ask"}},
 				DefaultMode: "default", Caps: model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, FreeModel: true, ModelSelect: true}},
-			{ID: "acp:gemini", Name: "Gemini", Protocol: "acp", Hint: "`gemini` not found in PATH"},
+			{ID: "codex", Name: "Codex", Protocol: "codex", Installed: true, Version: "0.161.0", Hint: "Not logged in: run `codex login` on this machine"},
 		}}},
 		"response_fs_list.json": response{ID: json.RawMessage("5"), Result: fsbrowse.Listing{Path: "/Users/me/projects", Parent: "/Users/me",
 			Entries: []fsbrowse.Entry{{Name: "app", Path: "/Users/me/projects/app", IsGitRepo: true}, {Name: "notes", Path: "/Users/me/projects/notes"}}}},

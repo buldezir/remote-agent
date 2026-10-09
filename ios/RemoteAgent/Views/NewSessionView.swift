@@ -48,13 +48,18 @@ struct NewSessionView: View {
                 }
 
                 Section {
-                    ForEach(connection.harnesses) { h in
-                        HarnessChoiceRow(harness: h, selected: h.id == harnessID)
-                            .contentShape(Rectangle())
-                            .onTapGesture { if h.usable { harnessID = h.id } }
-                            .disabled(!h.usable)
-                    }
-                    if connection.harnesses.isEmpty {
+                    if let harnesses = connection.harnesses {
+                        ForEach(harnesses) { h in
+                            HarnessChoiceRow(harness: h, selected: h.id == harnessID)
+                                .contentShape(Rectangle())
+                                .onTapGesture { if h.usable { harnessID = h.id } }
+                                .disabled(!h.usable)
+                        }
+                        if harnesses.isEmpty {
+                            Text("No agents are installed on the server. Install Claude Code, Codex or an ACP agent there.")
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
                         HStack { ProgressView(); Text("Checking installed agents…").foregroundStyle(.secondary) }
                     }
                 } header: {
@@ -158,11 +163,11 @@ struct NewSessionView: View {
                 }
             }
             .task {
-                if connection.harnesses.isEmpty { await connection.refreshHarnesses() }
+                if connection.harnesses == nil { await connection.refreshHarnesses() }
                 if projectID.isEmpty, connection.projects[lastProject] != nil { projectID = lastProject }
                 if harnessID.isEmpty {
                     harnessID = connection.harness(lastHarness)?.usable == true ? lastHarness
-                        : (connection.harnesses.first(where: \.usable)?.id ?? "")
+                        : (connection.harnesses?.first(where: \.usable)?.id ?? "")
                 }
             }
             .onChange(of: harnessID) { _, _ in restoreChoices() }

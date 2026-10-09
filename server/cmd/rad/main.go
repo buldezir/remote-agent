@@ -121,7 +121,8 @@ func serve(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	orch := orchestrator.New(st, buildRegistry(cfg), orchestrator.Options{
+	reg := buildRegistry(cfg)
+	orch := orchestrator.New(st, reg, orchestrator.Options{
 		WorktreesDir: cfg.WorktreesDir(), LogsDir: cfg.LogsDir(), IdleTimeout: cfg.IdleTimeout.Duration, Log: log,
 	})
 	if err := orch.Recover(ctx); err != nil {
@@ -151,6 +152,7 @@ func serve(args []string) error {
 		fmt.Fprintln(os.Stderr, "\nNo devices paired yet.")
 		printPairing(ctx, st, cfg, false)
 	}
+	go logAgents(ctx, log, reg) // after the QR code, so the log can't split it
 
 	select {
 	case <-ctx.Done():
@@ -185,7 +187,12 @@ func pair(args []string) error {
 		return err
 	}
 	defer st.Close()
-	return printPairing(context.Background(), st, cfg, *printURL)
+	ctx := context.Background()
+	if err := printPairing(ctx, st, cfg, *printURL); err != nil || *printURL {
+		return err
+	}
+	printAgents(ctx, os.Stderr, buildRegistry(cfg))
+	return nil
 }
 
 const pairingTTL = 10 * time.Minute

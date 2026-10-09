@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -148,6 +149,11 @@ func (r *Registry) Infos(ctx context.Context, refresh bool) []model.HarnessInfo 
 	}
 	wg.Wait()
 	return out
+}
+
+// Installed is Infos without the harnesses missing from this machine.
+func (r *Registry) Installed(ctx context.Context, refresh bool) []model.HarnessInfo {
+	return slices.DeleteFunc(r.Infos(ctx, refresh), func(i model.HarnessInfo) bool { return !i.Installed })
 }
 
 func (r *Registry) Info(ctx context.Context, h Harness, refresh bool) model.HarnessInfo {

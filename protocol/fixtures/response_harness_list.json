@@ -56,12 +56,13 @@
         }
       },
       {
-        "id": "acp:gemini",
-        "name": "Gemini",
-        "protocol": "acp",
-        "installed": false,
+        "id": "codex",
+        "name": "Codex",
+        "protocol": "codex",
+        "installed": true,
+        "version": "0.161.0",
         "authOk": false,
-        "hint": "`gemini` not found in PATH",
+        "hint": "Not logged in: run `codex login` on this machine",
         "caps": {
           "resume": false,
           "interrupt": false,

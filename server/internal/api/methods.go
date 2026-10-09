@@ -118,7 +118,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "harness.list":
 		return call(raw, func(p harnessListParams) (any, error) {
-			return map[string]any{"harnesses": o.Registry().Infos(ctx, p.Refresh)}, nil
+			return map[string]any{"harnesses": o.Registry().Installed(ctx, p.Refresh)}, nil
 		})
 
 	case "fs.list":
