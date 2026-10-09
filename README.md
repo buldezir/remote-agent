@@ -67,6 +67,8 @@ To keep rad running in the background:
 
 Both capture your current `PATH`, so rad finds the agent CLIs the way your shell does. Run `install-service` again after rebuilding rad, or after installing an agent CLI somewhere new.
 
+On a Mac, the [Remote Agent Server app](#running-rad-as-a-mac-app) can run rad in the background instead, and lets you give agents the macOS permissions they need.
+
 To remove rad completely, run `./bin/rad uninstall`. It lists everything first and asks before removing. It removes:
 - the service
 - the config
@@ -74,6 +76,35 @@ To remove rad completely, run `./bin/rad uninstall`. It lists everything first a
 - the `refs/ra/*` checkpoints in your project repos
 
 It keeps the session branches and the rad binary.
+
+## Running rad as a Mac app
+
+**Remote Agent Server** is a menu bar app that runs rad. rad and the agents it starts are the app's children, so macOS asks for their privacy permissions in the app's name, and you can grant them up front while you're at the Mac. Otherwise a prompt that comes up while you're driving an agent from your phone holds that agent until someone answers it at the Mac. The app also starts rad with the environment of your login shell, so it finds the agent CLIs.
+
+1. Build it and copy it to /Applications. You need Go and Xcode; the build compiles rad into the app.
+
+   ```bash
+   (cd apple && xcodegen) && xcodebuild -project apple/RemoteAgent.xcodeproj -scheme RemoteAgentServer -configuration Release -derivedDataPath apple/build build
+   cp -R "apple/build/Build/Products/Release/Remote Agent Server.app" /Applications/
+   ```
+
+   Run it from one place only: macOS treats each copy separately and can list both in System Settings.
+2. Signing uses the team saved in `apple/Local.xcconfig` (step 3 for the iPhone). Without one, macOS forgets the app's permissions every time you rebuild it.
+3. Open it. It runs rad with your usual config and opens **Permissions** the first time:
+   - **Desktop, Documents and Downloads:** macOS asks once for each folder. **Full Disk Access** covers them and everything else, and is switched on in System Settings.
+   - **Accessibility, Screen Recording and Automation of System Events:** for agents that click, type, take screenshots or run AppleScript. Other apps ask the first time an agent scripts them.
+   - **Local Network:** for agents that reach other devices on your network. CLIs run from Terminal get this automatically; under the app, macOS asks. Your phone reaches rad without it.
+   - **Developer Tools:** add the app under System Settings › Privacy & Security › Developer Tools, and programs your agents build skip Gatekeeper's checks.
+
+   After turning on Full Disk Access or Screen Recording, choose **Restart rad** in the menu.
+
+The menu shows whether rad is running, its addresses and the agents it found:
+- **Pair a Device…** shows the pairing QR code.
+- **Start at Login** replaces `rad install-service`. If that service is installed, the menu offers to remove it, since only one rad can serve a config at a time.
+- **Open Log** opens `~/Library/Logs/Remote Agent Server/rad.log`.
+- Quitting the app stops rad and its agents.
+
+The `rad` CLI keeps working next to the app (`rad pair`, `rad devices`); the app's copy is `/Applications/Remote Agent Server.app/Contents/MacOS/rad`.
 
 ## Installing the app on an iPhone or iPad
 
@@ -216,6 +247,7 @@ apple/                   XcodeGen project for the iPhone, iPad and Mac apps
   RAKit/                 Swift package: protocol, network client, stores
   Shared/                SwiftUI app code both apps build
   iOS/  macOS/           what only one platform uses: Info.plist, QR scanner, Mac menu bar…
+  ServerApp/             Remote Agent Server, the menu bar app that runs rad on a Mac
 ```
 
 ## Development
@@ -226,6 +258,7 @@ cd server && go test ./internal/api -update   # regenerate protocol/fixtures aft
 cd apple/RAKit && swift test                  # client protocol and sync tests
 cd apple && xcodegen && xcodebuild -scheme RemoteAgent-iOS -destination 'platform=iOS Simulator,name=iPhone 17' build
 cd apple && xcodebuild -scheme RemoteAgent-macOS -destination 'platform=macOS' build
+cd apple && xcodebuild -scheme RemoteAgentServer -destination 'platform=macOS' build
 ```
 
 To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fake (scripted)**. Its prompt keywords are:

@@ -1,8 +1,11 @@
 // Renders the app icon into an .appiconset: a chat bubble with a terminal
 // prompt cut out of it, on the accent colour. iOS rounds the corners itself;
 // the Mac icons are drawn in the macOS shape, with its margin and shadow.
+// --server draws only the Mac sizes, for Remote Agent Server: an accent
+// bubble on graphite, so the two apps are easy to tell apart.
 //
 //   cd apple && swift scripts/make-app-icon.swift Shared/Assets.xcassets/AppIcon.appiconset
+//   cd apple && swift scripts/make-app-icon.swift --server ServerApp/Assets.xcassets/AppIcon.appiconset
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -21,6 +24,12 @@ let accent = CGGradient(colorsSpace: srgb, colors: [color(0.97, 0.60, 0.47), col
 
 func fillAccent(_ ctx: CGContext) {
     ctx.drawLinearGradient(accent, start: .zero, end: CGPoint(x: size, y: size), options: [])
+}
+
+let graphite = CGGradient(colorsSpace: srgb, colors: [color(0.30, 0.32, 0.36), color(0.13, 0.14, 0.17)] as CFArray, locations: [0, 1])!
+
+func fillGraphite(_ ctx: CGContext) {
+    ctx.drawLinearGradient(graphite, start: .zero, end: CGPoint(x: size, y: size), options: [])
 }
 
 // Shapes, in a 1024-point space with the origin at the top left.
@@ -101,30 +110,52 @@ func render(_ name: String, opaque: Bool, in dir: URL, draw: (CGContext) -> Void
 }
 
 /// The iOS icon shrunk into the macOS shape: a rounded square 824 points
-/// wide with continuous corners, centred, over a soft shadow.
-func drawMac(_ ctx: CGContext) {
+/// wide with continuous corners, centred, over a soft shadow. The server
+/// app's icon swaps the colours: an accent bubble on graphite.
+func drawMac(_ ctx: CGContext, server: Bool) {
     let square = CGRect(x: 100, y: 100, width: 824, height: 824)
     let shape = RoundedRectangle(cornerRadius: 185.4, style: .continuous).path(in: square).cgPath
     ctx.saveGState()
     ctx.setShadow(offset: CGSize(width: 0, height: -10), blur: 20, color: color(0, 0, 0, 0.3))
     ctx.addPath(shape)
-    ctx.setFillColor(color(0.85, 0.32, 0.30))
+    ctx.setFillColor(server ? color(0.13, 0.14, 0.17) : color(0.85, 0.32, 0.30))
     ctx.fillPath()
     ctx.restoreGState()
     ctx.addPath(shape)
     ctx.clip()
     ctx.translateBy(x: square.minX, y: square.minY)
     ctx.scaleBy(x: square.width / CGFloat(size), y: square.height / CGFloat(size))
-    fillAccent(ctx)
-    ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 22, color: color(0.45, 0.08, 0.06, 0.25))
-    drawBubble(ctx, fill: white)
+    if server {
+        fillGraphite(ctx)
+        ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 22, color: color(0, 0, 0, 0.35))
+        drawBubble(ctx, fill: fillAccent)
+    } else {
+        fillAccent(ctx)
+        ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 22, color: color(0.45, 0.08, 0.06, 0.25))
+        drawBubble(ctx, fill: white)
+    }
 }
 
-guard CommandLine.arguments.count == 2 else {
-    print("usage: swift make-app-icon.swift <AppIcon.appiconset>")
+/// The Mac takes a PNG per size.
+func writeMac(server: Bool, in dir: URL) {
+    let mac = image(opaque: false) { drawMac($0, server: server) }
+    for points in [16, 32, 128, 256, 512] {
+        write(mac, "AppIcon-Mac-\(points).png", in: dir, pixels: points)
+        write(mac, "AppIcon-Mac-\(points)@2x.png", in: dir, pixels: points * 2)
+    }
+}
+
+let args = CommandLine.arguments.dropFirst()
+let server = args.first == "--server"
+guard args.count == (server ? 2 : 1) else {
+    print("usage: swift make-app-icon.swift [--server] <AppIcon.appiconset>")
     exit(2)
 }
-let dir = URL(fileURLWithPath: CommandLine.arguments[1])
+let dir = URL(fileURLWithPath: args.last!)
+if server {
+    writeMac(server: true, in: dir)
+    exit(0)
+}
 
 render("AppIcon.png", opaque: true, in: dir) { ctx in
     fillAccent(ctx)
@@ -138,9 +169,4 @@ render("AppIcon-Dark.png", opaque: false, in: dir) { ctx in
 render("AppIcon-Tinted.png", opaque: false, in: dir) { ctx in
     drawBubble(ctx, fill: white)
 }
-// The Mac takes a PNG per size.
-let mac = image(opaque: false, draw: drawMac)
-for points in [16, 32, 128, 256, 512] {
-    write(mac, "AppIcon-Mac-\(points).png", in: dir, pixels: points)
-    write(mac, "AppIcon-Mac-\(points)@2x.png", in: dir, pixels: points * 2)
-}
+writeMac(server: false, in: dir)

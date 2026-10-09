@@ -37,10 +37,12 @@ func agentNames(infos []model.HarnessInfo) string {
 	return strings.Join(names, ", ")
 }
 
-// logAgents probes the agents once at startup. This also fills the probe
-// cache, so the phone's first look at the agent list is quick.
-func logAgents(ctx context.Context, log *slog.Logger, reg *harness.Registry) {
-	ready, notReady := agentStatus(reg.Infos(ctx, false))
+// logAgents probes the agents once at startup and returns what it found. This
+// also fills the probe cache, so the phone's first look at the agent list is
+// quick.
+func logAgents(ctx context.Context, log *slog.Logger, reg *harness.Registry) []model.HarnessInfo {
+	infos := reg.Infos(ctx, false)
+	ready, notReady := agentStatus(infos)
 	if len(ready) > 0 {
 		log.Info("agents ready", "agents", agentNames(ready))
 	} else {
@@ -49,6 +51,7 @@ func logAgents(ctx context.Context, log *slog.Logger, reg *harness.Registry) {
 	for _, i := range notReady {
 		log.Warn("agent not ready", "agent", i.Name, "hint", i.Hint)
 	}
+	return infos
 }
 
 func printAgents(ctx context.Context, w io.Writer, reg *harness.Registry) {

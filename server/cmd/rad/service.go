@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"remote-agent/internal/config"
 )
 
 // rad runs in the background as a per-user LaunchAgent on macOS and a systemd
@@ -55,10 +57,34 @@ func installService(args []string) error {
 	if strings.Contains(exe, "go-build") {
 		return errors.New("this is a temporary `go run` binary; build rad (go build -o bin/rad ./cmd/rad) and run install-service from it")
 	}
+	// Reinstalling replaces the service's own rad. Any other running rad
+	// would make the new service fail over and over.
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		if err := checkNotRunning(); err != nil {
+			return err
+		}
+	}
 	if runtime.GOOS == "darwin" {
 		return installLaunchAgent(path, exe)
 	}
 	return installSystemdUnit(path, exe)
+}
+
+// checkNotRunning fails if a rad, such as one in a terminal or the one the
+// Remote Agent Server app runs, already serves this config's data dir.
+func checkNotRunning() error {
+	_, dataDir, err := config.Paths()
+	if err != nil {
+		return err
+	}
+	lock, err := lockDataDir(dataDir)
+	if _, busy := err.(*busyError); busy {
+		return errors.New("rad is already running with " + dataDir + " (in a terminal, or the Remote Agent Server app); stop it first")
+	}
+	if err != nil {
+		return err
+	}
+	return lock.Close()
 }
 
 // servicePath is where the LaunchAgent plist or systemd unit lives.

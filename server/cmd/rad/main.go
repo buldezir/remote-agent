@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -70,6 +71,9 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "rad:", err)
+		if _, busy := err.(*busyError); busy {
+			os.Exit(exitBusy)
+		}
 		os.Exit(1)
 	}
 }
@@ -92,6 +96,7 @@ func serve(args []string) error {
 	fakeFlag := fs.Bool("fake", false, "expose the scripted fake harness")
 	lan := fs.Bool("lan", false, "put LAN addresses in the pairing link")
 	verbose := fs.Bool("v", false, "debug logging")
+	supervised := fs.Bool("supervised", false, "run under the Remote Agent Server app: status as JSON lines on stdout, and stop when stdin closes")
 	fs.Parse(args)
 
 	cfg, err := config.Load()
@@ -107,6 +112,19 @@ func serve(args []string) error {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(log)
 
+	// Lock and bind before touching the store, so a second rad can't mark the
+	// running one's turns as interrupted on its way out.
+	lock, err := lockDataDir(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	addrs := netinfo.ListenAddrs(cfg)
+	lns, err := listen(addrs)
+	if err != nil {
+		return err
+	}
+
 	st, err := openStore(cfg)
 	if err != nil {
 		return err
@@ -120,6 +138,10 @@ func serve(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	var status *json.Encoder
+	if *supervised {
+		ctx, status = supervise(ctx)
+	}
 
 	reg := buildRegistry(cfg)
 	orch := orchestrator.New(st, reg, orchestrator.Options{
@@ -137,22 +159,27 @@ func serve(args []string) error {
 	srv := api.NewServer(st, hub, orch, fsbrowse.New(cfg.Roots), serverID, serverName(cfg), log)
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
-	addrs := netinfo.ListenAddrs(cfg)
-	errc := make(chan error, len(addrs))
-	for _, a := range addrs {
-		ln, err := net.Listen("tcp", a)
-		if err != nil {
-			return fmt.Errorf("listen %s: %w", a, err)
-		}
-		log.Info("listening", "addr", a)
+	errc := make(chan error, len(lns))
+	for _, ln := range lns {
+		log.Info("listening", "addr", ln.Addr().String())
 		go func() { errc <- httpSrv.Serve(ln) }()
 	}
 	log.Info("rad ready", "urls", netinfo.PairURLs(cfg), "config", cfg.ConfigPath, "data", cfg.DataDir, "roots", cfg.Roots)
-	if devs, _ := st.Devices(ctx); len(devs) == 0 {
+	devs, _ := st.Devices(ctx)
+	switch {
+	case status != nil:
+		status.Encode(readyStatus{Event: "ready", Version: api.Version, URLs: netinfo.PairURLs(cfg), Listen: addrs,
+			Config: cfg.ConfigPath, Data: cfg.DataDir, PairedDevices: len(devs)})
+	case len(devs) == 0:
 		fmt.Fprintln(os.Stderr, "\nNo devices paired yet.")
 		printPairing(ctx, st, cfg, false)
 	}
-	go logAgents(ctx, log, reg) // after the QR code, so the log can't split it
+	go func() { // after the QR code, so the log can't split it
+		infos := logAgents(ctx, log, reg)
+		if status != nil {
+			status.Encode(agentsStatus{Event: "agents", Agents: infos})
+		}
+	}()
 
 	select {
 	case <-ctx.Done():
@@ -167,6 +194,25 @@ func serve(args []string) error {
 	httpSrv.Shutdown(sctx)
 	orch.Shutdown()
 	return nil
+}
+
+// listen binds every address, or none: a port that's taken is a busyError.
+func listen(addrs []string) ([]net.Listener, error) {
+	var lns []net.Listener
+	for _, a := range addrs {
+		ln, err := net.Listen("tcp", a)
+		if err != nil {
+			for _, l := range lns {
+				l.Close()
+			}
+			if errors.Is(err, syscall.EADDRINUSE) {
+				return nil, &busyError{a + " is already in use; is another rad running?"}
+			}
+			return nil, fmt.Errorf("listen %s: %w", a, err)
+		}
+		lns = append(lns, ln)
+	}
+	return lns, nil
 }
 
 func pair(args []string) error {

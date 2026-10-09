@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Remote Agent Server</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Your agents can control other apps, for example through System Events or osascript.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Your agents can work with files on your Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Your agents can work with files in your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Your agents can work with files in your Downloads folder.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Your agents can reach other devices on your network, such as dev servers.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Your agents can work with files on network volumes.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Your agents can work with files on external drives.</string>
+</dict>
+</plist>

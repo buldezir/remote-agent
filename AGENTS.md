@@ -9,6 +9,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - `apple/RAKit` holds the protocol, network client and stores, all testable with `swift test`.
   - Two app targets, `RemoteAgent-iOS` (iPhone and iPad) and `RemoteAgent-macOS`, both compile `apple/Shared`, the SwiftUI app. Each adds its own folder, `apple/iOS` or `apple/macOS`, with its `Info.plist` and the views only it uses: the QR scanner and the iPhone server list, or the Mac menu bar and entitlements (App Sandbox, network client, microphone).
   - A whole file for one platform goes in its folder. A small difference inside a shared file goes in `#if os(iOS)` / `#if os(macOS)`. `Shared/Views/Platform.swift` holds the shims, such as `inlineTitle()`, `plainTextInput()` and `Platform.deviceName`.
+  - A third target, `RemoteAgentServer` in `apple/ServerApp`, is the Mac menu bar app that runs rad. It shares no code with the clients. Its last build phase, `apple/scripts/build-rad.sh`, compiles rad from `server/` into the app and signs it.
 - **Changing a wire type:** keep these in step:
   - `server/internal/model/model.go`
   - `apple/RAKit/Sources/RAKit/Protocol/Models.swift`
@@ -19,7 +20,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - `server/internal/harness/*/testdata/*.ndjson`, one `{"dir":"in"|"out","frame":…}` per line, driven by `internal/harness/replaytest`.
   - Assert on the emitted `harness.Event`s.
   - To exercise the orchestrator, extend `server/internal/harness/fake`.
-- **Xcode project:** `apple/project.yml` is the source of truth. `RemoteAgent.xcodeproj` is generated and gitignored, and both `Info.plist` files are generated from `project.yml`, so edit permissions and plist keys there. Run `xcodegen` after adding files or changing the spec.
+- **Xcode project:** `apple/project.yml` is the source of truth. `RemoteAgent.xcodeproj` is generated and gitignored, and the `Info.plist` and entitlements files are generated from `project.yml`, so edit permissions and plist keys there. Run `xcodegen` after adding files or changing the spec.
 - **Signing:** the bundle ID lives in `apple/Signing.xcconfig`. It includes the developer's gitignored `apple/Local.xcconfig`, which holds their `DEVELOPMENT_TEAM`. The Mac app shares the bundle ID; without a team it is signed ad hoc.
 - **App icon:** drawn by `apple/scripts/make-app-icon.swift`, for iOS and, in the macOS shape, for the Mac. Edit the script and rerun it; don't edit the PNGs.
 - **Swift 6 strict concurrency:**
@@ -36,6 +37,8 @@ cd apple/RAKit && swift test
 cd apple && xcodegen && xcodebuild -project RemoteAgent.xcodeproj -scheme RemoteAgent-iOS \
   -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath build build
 cd apple && xcodebuild -project RemoteAgent.xcodeproj -scheme RemoteAgent-macOS \
+  -destination 'platform=macOS' -derivedDataPath build build
+cd apple && xcodebuild -project RemoteAgent.xcodeproj -scheme RemoteAgentServer \
   -destination 'platform=macOS' -derivedDataPath build build
 ```
 
@@ -102,3 +105,19 @@ osascript -e 'tell application id "dev.remote-agent.app" to quit'      # fails w
 - **Its data is the developer's:** the app shares the iOS bundle ID, keeps its settings in `~/Library/Containers/dev.remote-agent.app` and its tokens in the login keychain. The developer may have paired it with their own server. Add your scratch server next to it, and remove it when done (server menu at the foot of the sidebar → Remove).
 - **Driving it:** with Accessibility access, a small Swift tool can press controls through the AX API (`AXUIElementPerformAction(…, kAXPressAction)`) and set text with `kAXValueAttribute`; capture the window with `screencapture -l<window id>`. Mouse events posted to the app's process don't reach SwiftUI, and special keys (Return, ⌘N) only arrive through System Events while the app is in front.
 - **Keychain:** a build signed with the team keeps reading the tokens it saved. An ad-hoc build is a new app to the keychain each time, so macOS may ask for the login password; don't answer it, pair again instead.
+
+## Server app
+
+Remote Agent Server runs `rad serve --supervised` as its child (`server/cmd/rad/supervised.go`): rad writes JSON status lines to stdout, logs to stderr, and shuts down when its stdin closes, so it never outlives the app. macOS attributes rad and its agents to the app, which is the point: the permissions granted in its Permissions window apply to them.
+
+- **rad's guards:** `serve` takes a lock on `<data>/rad.lock` and binds its ports before it touches the store. A second rad on the same config or port exits with status 75, and the app shows it as running elsewhere rather than restarting it.
+- **Test it against a scratch home,** never the developer's config:
+
+  ```bash
+  open -n --env RAD_HOME=$SCRATCH/radhome "apple/build/Build/Products/Debug/Remote Agent Server.app"
+  osascript -e 'tell application id "dev.remote-agent.app.server" to quit'
+  ```
+
+  With `RAD_HOME` set, the log is `$RAD_HOME/rad.log`. The menu lives in the menu bar extra; drive it through the AX API (the app's `AXExtrasMenuBar`).
+- **Leave the Mac's settings alone:** don't press Allow in the Permissions window, answer the system prompts, change Privacy & Security, or turn on Start at Login. They change the developer's privacy settings and login items. Checking the statuses is safe; the window only checks what macOS can report without asking.
+- **To see which app macOS holds responsible for an agent's request:** `log stream --predicate 'subsystem == "com.apple.TCC"'`.

@@ -11,8 +11,9 @@ packages:
   MarkdownUI:
     url: https://github.com/gonzalezreal/swift-markdown-ui
     from: 2.4.1
-# Both apps build Shared/ plus their own folder. Small differences inside a
-# shared file sit in #if os(iOS) / #if os(macOS).
+# Both client apps build Shared/ plus their own folder. Small differences
+# inside a shared file sit in #if os(iOS) / #if os(macOS). RemoteAgentServer
+# is the Mac menu bar app that runs rad; it shares no code with them.
 targets:
   RemoteAgent-iOS:
     type: application
@@ -107,6 +108,52 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: YES
+  RemoteAgentServer:
+    type: application
+    platform: macOS
+    sources:
+      - path: ServerApp
+        excludes: [Info.plist, RemoteAgentServer.entitlements]
+    info:
+      path: ServerApp/Info.plist
+      properties:
+        CFBundleDisplayName: Remote Agent Server
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: "1"
+        LSUIElement: true                 # menu bar only, no Dock icon
+        LSApplicationCategoryType: public.app-category.developer-tools
+        # rad and the agents it starts run as this app's children, so macOS
+        # asks for their permissions in its name.
+        NSAppleEventsUsageDescription: Your agents can control other apps, for example through System Events or osascript.
+        NSDesktopFolderUsageDescription: Your agents can work with files on your Desktop.
+        NSDocumentsFolderUsageDescription: Your agents can work with files in your Documents folder.
+        NSDownloadsFolderUsageDescription: Your agents can work with files in your Downloads folder.
+        NSRemovableVolumesUsageDescription: Your agents can work with files on external drives.
+        NSNetworkVolumesUsageDescription: Your agents can work with files on network volumes.
+        NSLocalNetworkUsageDescription: Your agents can reach other devices on your network, such as dev servers.
+    entitlements:
+      path: ServerApp/RemoteAgentServer.entitlements
+      properties:
+        com.apple.security.automation.apple-events: true
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+    settings:
+      base:
+        PRODUCT_NAME: Remote Agent Server
+        PRODUCT_MODULE_NAME: RemoteAgentServer
+        PRODUCT_BUNDLE_IDENTIFIER: $(inherited).server
+        MARKETING_VERSION: "0.1"
+        SWIFT_VERSION: "6.0"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO   # build-rad.sh reads ../server and Go's cache
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_PREVIEWS: YES
+    postBuildScripts:
+      - name: Build rad
+        script: exec "$SRCROOT/scripts/build-rad.sh"
+        basedOnDependencyAnalysis: false   # go build has its own cache
 schemes:
   RemoteAgent-iOS:
     build:
@@ -118,5 +165,11 @@ schemes:
     build:
       targets:
         RemoteAgent-macOS: all
+    run:
+      config: Debug
+  RemoteAgentServer:
+    build:
+      targets:
+        RemoteAgentServer: all
     run:
       config: Debug
