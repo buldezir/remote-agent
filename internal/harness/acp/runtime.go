@@ -269,6 +269,8 @@ type update struct {
 	Cost          *struct {
 		Amount float64 `json:"amount"`
 	} `json:"cost"`
+	Used int64 `json:"used"` // usage_update: tokens in context
+	Size int64 `json:"size"` // usage_update: context window
 }
 
 func (r *runtime) onNotify(method string, raw json.RawMessage) {
@@ -335,6 +337,9 @@ func (r *runtime) onNotify(method string, raw json.RawMessage) {
 			r.mu.Lock()
 			r.cost = u.Cost.Amount
 			r.mu.Unlock()
+		}
+		if u.Used > 0 {
+			r.emit(harness.ContextUsage{Used: u.Used, Window: u.Size})
 		}
 	}
 }

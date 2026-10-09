@@ -166,6 +166,9 @@ func TestReplayOpenCode(t *testing.T) {
 	if u := end.Usage; u == nil || u.InputTokens != 251 || u.OutputTokens != 7 || u.CacheReadTokens != 10880 {
 		t.Errorf("usage = %+v", end.Usage)
 	}
+	if got, want := turn.Contexts(), []harness.ContextUsage{{Used: 11131, Window: 200000}}; !slices.Equal(got, want) {
+		t.Errorf("context = %v, want %v", got, want)
+	}
 
 	replaytest.CloseClean(t, rt)
 }

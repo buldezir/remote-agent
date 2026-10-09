@@ -57,6 +57,12 @@ type runtime struct {
 	finals   map[string]map[string]int // assistant-frame-side counters
 	tools    map[string]*model.Item    // tool_use id -> item
 	plan     *model.Item
+
+	// Context usage of the main agent: tokens in its last request, and the
+	// window of its model (only reported in result frames).
+	ctxModel  string
+	ctxUsed   int64
+	ctxWindow int64
 }
 
 func (r *runtime) NativeID() string             { return r.nativeID }
@@ -396,7 +402,14 @@ type contentBlock struct {
 
 type message struct {
 	ID      string          `json:"id"`
+	Model   string          `json:"model"`
 	Content json.RawMessage `json:"content"`
+	Usage   *struct {
+		InputTokens              int64 `json:"input_tokens"`
+		OutputTokens             int64 `json:"output_tokens"`
+		CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+		CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	} `json:"usage"`
 }
 
 func (m *message) blocks() []contentBlock {
@@ -418,6 +431,14 @@ func (r *runtime) onAssistant(f frame) {
 	}
 	if r.finals == nil {
 		r.finals = map[string]map[string]int{}
+	}
+	// Subagents have their own context; synthetic messages have no usage.
+	if u := m.Usage; u != nil && f.ParentToolUseID == "" && m.Model != "<synthetic>" {
+		used := u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens
+		if used > 0 && used != r.ctxUsed {
+			r.ctxModel, r.ctxUsed = m.Model, used
+			r.emit(harness.ContextUsage{Used: used, Window: r.ctxWindow})
+		}
 	}
 	for _, b := range m.blocks() {
 		switch b.Type {
@@ -567,6 +588,12 @@ func (r *runtime) onResult(f frame) {
 		r.emit(harness.ItemEvent{Item: snapshot(it)})
 		delete(r.tools, id)
 	}
+	if w := contextWindow(f, r.ctxModel); w > 0 && w != r.ctxWindow {
+		r.ctxWindow = w
+		if r.ctxUsed > 0 {
+			r.emit(harness.ContextUsage{Used: r.ctxUsed, Window: w})
+		}
+	}
 	ev := harness.TurnEnded{Status: model.TurnCompleted}
 	if f.Usage != nil {
 		ev.Usage = &model.Usage{
@@ -589,6 +616,21 @@ func (r *runtime) onResult(f frame) {
 		}
 	}
 	r.emit(ev)
+}
+
+// contextWindow finds the main model's window in a result's per-model usage
+// (which also lists models used by subagents and background calls).
+func contextWindow(f frame, mainModel string) int64 {
+	var max int64
+	for name, u := range f.ModelUsage {
+		if mainModel != "" && (name == mainModel || u.CanonicalModel == mainModel) {
+			return u.ContextWindow
+		}
+		if u.ContextWindow > max {
+			max = u.ContextWindow
+		}
+	}
+	return max
 }
 
 type canUseTool struct {

@@ -157,6 +157,7 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 	n := a.lastTurnN + 1
 	turn := &model.Turn{ID: store.NewID(), SessionID: a.sess.ID, N: n, Status: model.TurnRunning, StartedAt: time.Now().UTC()}
 	turn.CheckpointBefore = a.checkpoint(ctx, n, "before")
+	a.refreshBranch(ctx)
 	a.turn, a.lastTurnN = turn, n
 	a.items = map[string]*model.Item{}
 	q.item.TurnID, q.item.Status = turn.ID, model.ItemCompleted
@@ -268,6 +269,15 @@ func (a *actor) handle(gen int, ev harness.Event) {
 	case harness.ModeChanged:
 		if ev.Mode != a.sess.Mode {
 			a.sess.Mode = ev.Mode
+			a.write(ctx, a.putSession)
+		}
+	case harness.ContextUsage:
+		c := model.ContextUsage{Used: ev.Used, Window: ev.Window}
+		if c.Window == 0 && a.sess.Context != nil {
+			c.Window = a.sess.Context.Window
+		}
+		if a.sess.Context == nil || *a.sess.Context != c {
+			a.sess.Context = &c
 			a.write(ctx, a.putSession)
 		}
 	case harness.Exited:
@@ -483,6 +493,7 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 	now := time.Now().UTC()
 	turn.Status, turn.Usage, turn.Error, turn.EndedAt = ev.Status, ev.Usage, ev.Error, &now
 	turn.CheckpointAfter = a.checkpoint(ctx, turn.N, "after")
+	a.refreshBranch(ctx)
 	if ev.Error != "" {
 		e := a.newItem(model.ItemError, model.ItemCompleted)
 		e.Text = ev.Error
@@ -632,6 +643,15 @@ func (a *actor) archive(ctx context.Context, removeWorktree bool) error {
 	a.sess.Archived = true
 	a.sess.Status = model.SessionStopped
 	return a.write(ctx, a.putSession)
+}
+
+// refreshBranch records the branch checked out in the workspace, which the
+// agent (or the user) may have switched. The caller persists the session.
+func (a *actor) refreshBranch(ctx context.Context) {
+	if a.project == nil || !a.project.IsGitRepo {
+		return
+	}
+	a.sess.Workspace.Branch = gitx.CurrentBranch(ctx, a.sess.Workspace.Path)
 }
 
 // checkpoint snapshots the workspace; it returns "" for non-git projects.

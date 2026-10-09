@@ -38,8 +38,21 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
     public var title: String
     public var error: String?
     public var archived: Bool
+    public var context: ContextUsage?
     public var createdAt: Date
     public var updatedAt: Date
+}
+
+/// How full the agent's context window was at its last model call.
+public struct ContextUsage: Codable, Hashable, Sendable {
+    public var used: Int64
+    public var window: Int64?
+
+    /// 0...1, or nil when the window is unknown.
+    public var fraction: Double? {
+        guard let w = window, w > 0 else { return nil }
+        return min(1, Double(used) / Double(w))
+    }
 }
 
 public enum TurnStatus: String, Codable, Sendable {

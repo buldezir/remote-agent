@@ -356,6 +356,17 @@ type Turn struct {
 }
 
 // ItemsOf returns the latest state of items of kind, in first-seen order.
+// Contexts returns the ContextUsage events in order.
+func (t *Turn) Contexts() []harness.ContextUsage {
+	var out []harness.ContextUsage
+	for _, ev := range t.Events {
+		if c, ok := ev.(harness.ContextUsage); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func (t *Turn) ItemsOf(kind model.ItemKind) []model.Item {
 	var out []model.Item
 	for _, k := range t.Keys {

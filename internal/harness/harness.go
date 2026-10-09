@@ -23,7 +23,7 @@ type OpenOptions struct {
 }
 
 // Event is emitted by a Runtime. Implementations: ItemEvent, ApprovalEvent,
-// ApprovalCancelled, TurnEnded, NativeID, ModeChanged, Exited.
+// ApprovalCancelled, TurnEnded, NativeID, ModeChanged, ContextUsage, Exited.
 type Event interface{ isEvent() }
 
 // ItemEvent carries the full current state of a transcript item. Item.ID and
@@ -52,6 +52,10 @@ type NativeID struct{ ID string }
 
 type ModeChanged struct{ Mode string }
 
+// ContextUsage reports how many tokens the conversation occupies in the
+// model's context window. Window is 0 if unknown; the last known one is kept.
+type ContextUsage struct{ Used, Window int64 }
+
 // Exited is the last event; the runtime is unusable afterwards.
 type Exited struct{ Err error }
 
@@ -61,6 +65,7 @@ func (ApprovalCancelled) isEvent() {}
 func (TurnEnded) isEvent()         {}
 func (NativeID) isEvent()          {}
 func (ModeChanged) isEvent()       {}
+func (ContextUsage) isEvent()      {}
 func (Exited) isEvent()            {}
 
 type Response struct {

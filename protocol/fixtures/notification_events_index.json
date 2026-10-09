@@ -36,6 +36,10 @@
           "nativeId": "n1",
           "title": "Fix the tests",
           "archived": false,
+          "context": {
+            "used": 52000,
+            "window": 200000
+          },
           "createdAt": "2026-10-09T12:00:00Z",
           "updatedAt": "2026-10-09T12:00:05Z"
         },

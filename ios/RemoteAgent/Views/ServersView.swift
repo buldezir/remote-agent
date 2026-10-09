@@ -41,6 +41,15 @@ struct ServersView: View {
             .navigationDestination(for: SavedServer.self) { server in
                 ServerHomeView(connection: store.connection(for: server))
             }
+            // Registered here, not in ServerHomeView: SwiftUI can keep a pushed
+            // view's destination closure, which would then open a session on the
+            // previously visited server.
+            .navigationDestination(for: SessionRoute.self) { route in
+                if let server = store.servers.first(where: { $0.id == route.serverID }) {
+                    let connection = store.connection(for: server)
+                    SessionView(connection: connection, store: connection.sessionStore(route.sessionID))
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Add", systemImage: "plus") { showAdd = true }
@@ -70,6 +79,12 @@ struct ServersView: View {
             }
         }
     }
+}
+
+/// Navigation value for a session on a given server.
+struct SessionRoute: Hashable {
+    let serverID: String
+    let sessionID: String
 }
 
 extension View {

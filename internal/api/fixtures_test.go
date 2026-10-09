@@ -27,6 +27,7 @@ func fixtures() map[string]any {
 		ID: "s1", ProjectID: "p1", Harness: "claude", Model: "sonnet", Mode: "default",
 		Workspace: model.Workspace{Kind: model.WorkspaceWorktree, Path: "/w/s1", Branch: "ra/fix-tests", BaseRef: "main"},
 		Status:    model.SessionAwaitingApproval, NativeID: "n1", Title: "Fix the tests", CreatedAt: t0, UpdatedAt: t1,
+		Context: &model.ContextUsage{Used: 52000, Window: 200000},
 	}
 	turn := &model.Turn{ID: "t1", SessionID: "s1", N: 1, Status: model.TurnCompleted, CheckpointBefore: "aaa", CheckpointAfter: "bbb",
 		Usage: &model.Usage{InputTokens: 10, OutputTokens: 20, CacheReadTokens: 5, CostUSD: 0.0123}, StartedAt: t0, EndedAt: &t1}

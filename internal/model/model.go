@@ -32,6 +32,13 @@ type Workspace struct {
 	BaseRef string        `json:"baseRef,omitempty"`
 }
 
+// ContextUsage is how full the agent's context window was at its last model
+// call. Window is 0 when the harness has not reported it (yet).
+type ContextUsage struct {
+	Used   int64 `json:"used"`
+	Window int64 `json:"window,omitempty"`
+}
+
 type SessionStatus string
 
 const (
@@ -54,6 +61,7 @@ type Session struct {
 	Title     string        `json:"title"`
 	Error     string        `json:"error,omitempty"`
 	Archived  bool          `json:"archived"`
+	Context   *ContextUsage `json:"context,omitempty"`
 	ItemCount int64         `json:"-"`
 	CreatedAt time.Time     `json:"createdAt"`
 	UpdatedAt time.Time     `json:"updatedAt"`

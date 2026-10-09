@@ -133,6 +133,11 @@ func TestReplayWriteWithApproval(t *testing.T) {
 		end.Usage.CacheReadTokens != 33571 || end.Usage.CacheWriteTokens != 37647 {
 		t.Errorf("usage = %+v", end.Usage)
 	}
+	// Context is the main agent's last request; the window arrives with the result.
+	want := []harness.ContextUsage{{Used: 33593}, {Used: 37652}, {Used: 37652, Window: 1000000}}
+	if got := turn.Contexts(); !slices.Equal(got, want) {
+		t.Errorf("context = %v, want %v", got, want)
+	}
 
 	replaytest.CloseClean(t, rt)
 }

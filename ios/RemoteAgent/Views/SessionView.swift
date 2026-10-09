@@ -8,7 +8,7 @@ struct SessionView: View {
     @State private var sending = false
     @State private var error: String?
     @State private var showDiff = false
-    @State private var diffTurn: Turn?
+    @State private var dictation = Dictation()
     @FocusState private var composerFocused: Bool
 
     private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
@@ -27,10 +27,7 @@ struct SessionView: View {
                         ItemView(item: item, store: store)
                             .id(item.id)
                     case .turnFooter(let turn):
-                        TurnFooter(turn: turn, canDiff: project?.isGitRepo == true) {
-                            diffTurn = turn
-                            showDiff = true
-                        }
+                        TurnFooter(turn: turn)
                     }
                 }
                 ForEach(store.outbox.sorted(by: { $0.key < $1.key }), id: \.key) { _, text in
@@ -60,7 +57,7 @@ struct SessionView: View {
         .toolbar { toolbar }
         .sheet(isPresented: $showDiff) {
             NavigationStack {
-                DiffView(store: store, initialTurn: diffTurn, canRevert: session?.workspace.kind == .worktree)
+                DiffView(store: store, initialTurn: nil, canRevert: session?.workspace.kind == .worktree)
             }
         }
         .alert("Error", isPresented: .init(get: { error != nil }, set: { if !$0 { error = nil } })) {
@@ -68,8 +65,14 @@ struct SessionView: View {
         } message: {
             Text(error ?? "")
         }
+        .onChange(of: dictation.error) { _, e in
+            if let e { error = e; dictation.error = nil }
+        }
         .onAppear { store.activate() }
-        .onDisappear { store.deactivate() }
+        .onDisappear {
+            dictation.stop()
+            store.deactivate()
+        }
     }
 
     // MARK: Rows
@@ -85,14 +88,14 @@ struct SessionView: View {
         }
     }
 
-    /// Items in order, with a footer after the last item of each finished turn.
+    /// Items in order, with a footer after the last item of each interrupted or failed turn.
     private var rows: [Row] {
         var out: [Row] = []
         let items = store.transcript
         for (i, item) in items.enumerated() {
             out.append(.item(item))
             let nextTurn = i + 1 < items.count ? items[i + 1].turnId : nil
-            if let tid = item.turnId, nextTurn != tid, let t = store.turns[tid], t.status != .running {
+            if let tid = item.turnId, nextTurn != tid, let t = store.turns[tid], t.status == .interrupted || t.status == .failed {
                 out.append(.turnFooter(t))
             }
         }
@@ -103,7 +106,7 @@ struct SessionView: View {
 
     private var composer: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField(store.isRunning ? "Queue a follow-up…" : "Message", text: $draft, axis: .vertical)
+            TextField(placeholder, text: $draft, axis: .vertical)
                 .lineLimit(1...6)
                 .focused($composerFocused)
                 .padding(.horizontal, 12)
@@ -118,19 +121,79 @@ struct SessionView: View {
                 .tint(.red)
                 .accessibilityLabel("Stop")
             }
-            Button {
-                let text = draft
-                draft = ""
-                Task { await run { try await store.send(text) } }
-            } label: {
-                Image(systemName: "arrow.up.circle.fill").font(.system(size: 30))
+            Button(action: mainButtonTapped) {
+                Image(systemName: mainAction.symbol)
+                    .font(.system(size: 30))
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.variableColor.iterative, isActive: mainAction == .stopDictation)
             }
-            .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || session?.archived == true)
-            .accessibilityLabel("Send")
+            .tint(mainAction == .stopDictation ? .red : .accentColor)
+            .disabled(session?.archived == true || (mainAction == .send && draftIsEmpty))
+            .accessibilityLabel(mainAction.label)
+            .animation(.snappy, value: mainAction)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
         .background(.bar)
+        .onChange(of: composerFocused) { _, focused in
+            // The keyboard has its own dictation key.
+            if focused { dictation.stop() }
+        }
+    }
+
+    private enum MainAction {
+        case dictate, stopDictation, send
+
+        var symbol: String {
+            switch self {
+            case .dictate: "mic.circle.fill"
+            case .stopDictation: "waveform.circle.fill"
+            case .send: "arrow.up.circle.fill"
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .dictate: "Dictate"
+            case .stopDictation: "Stop dictation"
+            case .send: "Send"
+            }
+        }
+    }
+
+    /// The mic is the main button until the keyboard is up or there is text to send.
+    private var mainAction: MainAction {
+        if dictation.isRecording { return .stopDictation }
+        return composerFocused || !draftIsEmpty ? .send : .dictate
+    }
+
+    private var draftIsEmpty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    private func mainButtonTapped() {
+        switch mainAction {
+        case .dictate:
+            startDictation()
+        case .stopDictation:
+            dictation.stop()
+        case .send:
+            let text = draft
+            draft = ""
+            Task { await run { try await store.send(text) } }
+        }
+    }
+
+    private var placeholder: String {
+        if dictation.isRecording { return "Listening…" }
+        return store.isRunning ? "Queue a follow-up…" : "Prompt"
+    }
+
+    /// Dictated text is appended to whatever was already typed.
+    private func startDictation() {
+        let prefix = draft
+        let separator = prefix.isEmpty || prefix.last?.isWhitespace == true ? "" : " "
+        Task {
+            await dictation.start { text in draft = prefix + separator + text }
+        }
     }
 
     @ToolbarContentBuilder
@@ -141,6 +204,10 @@ struct SessionView: View {
                 HStack(spacing: 4) {
                     if let s = session { HarnessBadge(id: s.harness, name: harness?.name) }
                     if let m = modeName { Text("· \(m)") }
+                    if let f = session?.context?.fraction {
+                        Text("·")
+                        ContextGauge(fraction: f)
+                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -157,13 +224,16 @@ struct SessionView: View {
                     .pickerStyle(.menu)
                 }
                 if project?.isGitRepo == true {
-                    Button("Changes", systemImage: "plusminus") {
-                        diffTurn = nil
-                        showDiff = true
-                    }
+                    Button("Changes", systemImage: "plusminus") { showDiff = true }
                 }
                 if let s = session {
-                    Section(s.workspace.kind == .worktree ? "Worktree: \(s.workspace.branch ?? "")" : (project?.name ?? "")) {
+                    Section(project?.name ?? "") {
+                        if project?.isGitRepo == true {
+                            Label(s.workspace.branch ?? "Detached HEAD", systemImage: "arrow.triangle.branch")
+                        }
+                        if s.workspace.kind == .worktree {
+                            Label("Worktree", systemImage: "square.on.square.dashed")
+                        }
                         Text(s.workspace.path)
                     }
                 }
@@ -188,29 +258,18 @@ struct SessionView: View {
     }
 }
 
+/// Marks a turn that did not finish normally.
 struct TurnFooter: View {
     let turn: Turn
-    let canDiff: Bool
-    var onDiff: () -> Void
 
     var body: some View {
-        HStack(spacing: 6) {
+        Group {
             switch turn.status {
-            case .interrupted: Label("Interrupted", systemImage: "stop.fill")
             case .failed: Label("Failed", systemImage: "xmark.octagon.fill").foregroundStyle(.red)
-            default: EmptyView()
-            }
-            if let u = turn.usage, !u.summary.isEmpty { Text(u.summary) }
-            Spacer()
-            if canDiff, turn.checkpointBefore != nil {
-                Button("Changes", systemImage: "plusminus", action: onDiff)
-                    .labelStyle(.titleAndIcon)
-                    .buttonStyle(.borderless)
+            default: Label("Interrupted", systemImage: "stop.fill")
             }
         }
         .font(.caption2)
         .foregroundStyle(.secondary)
-        .padding(.vertical, 2)
-        .overlay(alignment: .top) { Divider().offset(y: -8) }
     }
 }

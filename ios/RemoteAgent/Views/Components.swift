@@ -65,12 +65,30 @@ struct HarnessBadge: View {
     }
 }
 
-extension Usage {
-    var summary: String {
-        var parts: [String] = []
-        let tokens = (inputTokens ?? 0) + (outputTokens ?? 0) + (cacheReadTokens ?? 0) + (cacheWriteTokens ?? 0)
-        if tokens > 0 { parts.append("\(tokens.formatted(.number.notation(.compactName))) tokens") }
-        if let c = costUsd, c > 0 { parts.append(c.formatted(.currency(code: "USD").precision(.fractionLength(c < 0.1 ? 3 : 2)))) }
-        return parts.joined(separator: " · ")
+/// A small ring and percentage showing how full the agent's context is.
+struct ContextGauge: View {
+    let fraction: Double
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ZStack {
+                Circle().stroke(.quaternary, lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+            }
+            .frame(width: 9, height: 9)
+            Text(percent).monospacedDigit()
+        }
+        .foregroundStyle(color)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(percent) of context used")
+    }
+
+    var percent: String { fraction.formatted(.percent.precision(.fractionLength(0))) }
+
+    private var color: Color {
+        fraction >= 0.9 ? .red : fraction >= 0.7 ? .orange : .secondary
     }
 }

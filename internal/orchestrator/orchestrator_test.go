@@ -282,12 +282,26 @@ func TestPromptPersistsTranscript(t *testing.T) {
 		t.Error("index has no idle session")
 	}
 
-	// A second prompt reuses the runtime and starts turn 2.
+	if c := sess.Context; c == nil || *c != (model.ContextUsage{Used: 30000, Window: 200000}) {
+		t.Errorf("context = %+v", c)
+	}
+
+	// A second prompt reuses the runtime and starts turn 2. The branch was
+	// switched in between, and the session picks that up.
+	run(t, e.dir, "git", "checkout", "-q", "-b", "feature")
 	e.prompt(s.ID, "again", "c2")
 	if t2 := e.waitTurn(s.ID, 2); t2.Status != model.TurnCompleted || t2.CheckpointBefore == "" {
 		t.Errorf("turn 2 = %+v", t2)
 	}
 	checkOrder(t, e.items(s.ID), e.turns(s.ID))
+	sess = e.session(s.ID)
+	if sess.Workspace.Branch != "feature" {
+		t.Errorf("branch = %q", sess.Workspace.Branch)
+	}
+	// Turn 2 reports no window; the known one is kept.
+	if c := sess.Context; c == nil || *c != (model.ContextUsage{Used: 60000, Window: 200000}) {
+		t.Errorf("context = %+v", c)
+	}
 }
 
 func TestInvalidRequests(t *testing.T) {

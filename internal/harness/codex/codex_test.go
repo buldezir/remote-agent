@@ -102,6 +102,10 @@ func TestReplayShellCommandWithApproval(t *testing.T) {
 	if u := end.Usage; u == nil || u.InputTokens != 29281 || u.OutputTokens != 129 || u.CacheReadTokens != 25600 {
 		t.Errorf("usage = %+v", end.Usage)
 	}
+	want := []harness.ContextUsage{{Used: 14687, Window: 258400}, {Used: 14723, Window: 258400}}
+	if got := turn.Contexts(); !slices.Equal(got, want) {
+		t.Errorf("context = %v, want %v", got, want)
+	}
 
 	replaytest.CloseClean(t, rt)
 }

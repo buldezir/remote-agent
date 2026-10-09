@@ -286,10 +286,21 @@ func (r *runtime) onNotify(method string, raw json.RawMessage) {
 		var p struct {
 			TokenUsage struct {
 				Total usage `json:"total"`
+				Last  struct {
+					TotalTokens int64 `json:"totalTokens"`
+				} `json:"last"`
+				ModelContextWindow *int64 `json:"modelContextWindow"`
 			} `json:"tokenUsage"`
 		}
 		if json.Unmarshal(raw, &p) == nil {
 			r.usageTotal = &p.TokenUsage.Total
+			if used := p.TokenUsage.Last.TotalTokens; used > 0 {
+				ev := harness.ContextUsage{Used: used}
+				if w := p.TokenUsage.ModelContextWindow; w != nil {
+					ev.Window = *w
+				}
+				r.emit(ev)
+			}
 		}
 	case "error":
 		var p struct {

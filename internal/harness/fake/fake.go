@@ -90,6 +90,12 @@ func (r *runtime) turn(ctx context.Context, n int, text string) {
 		r.mu.Lock()
 		r.cancel = nil
 		r.mu.Unlock()
+		// Only the first turn reports the window, like Claude before its first result.
+		var window int64
+		if n == 1 {
+			window = 200000
+		}
+		r.emit(harness.ContextUsage{Used: int64(30000 * n), Window: window})
 		r.emit(harness.TurnEnded{Status: st, Error: errMsg, Usage: &model.Usage{InputTokens: int64(len(text)), OutputTokens: 42}})
 	}
 	delay := 30 * time.Millisecond

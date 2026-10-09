@@ -251,7 +251,11 @@ type frame struct {
 		CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 		CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 	} `json:"usage"`
-	Errors []string `json:"errors"`
+	Errors     []string `json:"errors"`
+	ModelUsage map[string]struct {
+		ContextWindow  int64  `json:"contextWindow"`
+		CanonicalModel string `json:"canonicalModel"`
+	} `json:"modelUsage"`
 }
 
 // readLoop parses stdout frames, resolving control responses itself and

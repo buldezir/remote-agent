@@ -73,9 +73,6 @@ struct ServerHomeView: View {
             }
         }
         .removeServerDialog($removing) { dismiss() }
-        .navigationDestination(for: String.self) { id in
-            SessionView(connection: connection, store: connection.sessionStore(id))
-        }
         .sheet(isPresented: $showNew) {
             NewSessionView(connection: connection) { session in
                 openSession = session.id
@@ -101,7 +98,7 @@ struct ServerHomeView: View {
     }
 
     private func row(_ s: Session) -> some View {
-        NavigationLink(value: s.id) {
+        NavigationLink(value: SessionRoute(serverID: connection.server.id, sessionID: s.id)) {
             SessionRow(session: s, project: connection.projects[s.projectId], harness: connection.harness(s.harness))
         }
         .swipeActions {

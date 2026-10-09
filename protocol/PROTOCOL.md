@@ -96,8 +96,11 @@ Session {
   id, projectId, harness,            // "claude" | "codex" | "acp:<id>" | "fake"
   model?, mode?,                     // ids from harness.list
   workspace: { kind: "root"|"worktree", path, branch?, baseRef? },
+                                     // branch: checked out in path, refreshed at each turn start/end; absent if detached
   status: "idle"|"running"|"awaiting_approval"|"stopped"|"error",
-  nativeId?, title, error?, archived, createdAt, updatedAt
+  nativeId?, title, error?, archived,
+  context?: { used, window? },       // tokens in the agent's context at its last model call; window absent if unknown
+  createdAt, updatedAt
 }
 
 Turn {

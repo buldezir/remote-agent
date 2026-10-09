@@ -67,6 +67,7 @@ struct FixtureTests {
 
         let s = try dec.decode(Response<Session>.self, from: load("response_session.json"))
         #expect(s.result?.title == "Fix the tests")
+        #expect(s.result?.context?.fraction == 0.26)
 
         let p = try dec.decode(PairResult.self, from: load("http_pair_response.json"))
         #expect(p.token == "0123abcd")

@@ -43,8 +43,10 @@ func Head(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
+// CurrentBranch returns the checked-out branch (also when it has no commits
+// yet), or "" for a detached HEAD.
 func CurrentBranch(ctx context.Context, dir string) string {
-	out, _ := run(ctx, dir, nil, "rev-parse", "--abbrev-ref", "HEAD")
+	out, _ := run(ctx, dir, nil, "symbolic-ref", "--short", "-q", "HEAD")
 	return strings.TrimSpace(out)
 }
 

@@ -32,6 +32,8 @@ targets:
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         NSCameraUsageDescription: Scan the pairing QR code printed by `rad pair`.
         NSLocalNetworkUsageDescription: Connect to rad running on your computer.
+        NSMicrophoneUsageDescription: Dictate messages to your agents.
+        NSSpeechRecognitionUsageDescription: Turn your dictation into text.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         CFBundleURLTypes:
