@@ -34,11 +34,26 @@ The phone has to reach the computer. Two ways:
 - **Tailscale (recommended):** rad listens on its Tailscale address (100.x) by default, and WireGuard encrypts the traffic.
 - **Same Wi-Fi:** run `rad serve --lan`, or set `lan = true` in the config.
 
-To keep rad running in the background on macOS:
+To keep rad running in the background:
 
 ```bash
-./bin/rad install-launchagent      # logs: ~/Library/Logs/rad.log; --uninstall to remove
+./bin/rad install-service          # --uninstall to remove
 ```
+
+- **macOS:** a LaunchAgent that starts at login. Logs go to `~/Library/Logs/rad.log`.
+- **Linux:** a systemd user unit, `remote-agent.service`. Read the logs with `journalctl --user-unit remote-agent -f`.
+  - rad turns on lingering for your user, so it starts at boot and keeps running after you log out. Without polkit (as on a minimal Debian server) that needs root: run `sudo loginctl enable-linger $USER` first.
+  - Run it from a login of that user, e.g. over SSH, not through `su` or `sudo`.
+
+Both capture your current `PATH`, so rad finds the agent CLIs the way your shell does. Run `install-service` again after rebuilding rad, or after installing an agent CLI somewhere new.
+
+To remove rad completely, run `./bin/rad uninstall`. It lists everything first and asks before removing. It removes:
+- the service
+- the config
+- the data: the database, logs and session worktrees (uncommitted changes in them are lost)
+- the `refs/ra/*` checkpoints in your project repos
+
+It keeps the session branches and the rad binary.
 
 ## Installing the app on an iPhone
 
@@ -100,6 +115,8 @@ rad serve [--lan] [--fake] [-v]   run the server (--fake adds a scripted test ha
 rad pair [--lan] [--print-url]    new single-use pairing code (10 min); --lan as for serve
 rad devices                       list paired devices
 rad devices revoke <id-prefix>    revoke one; its open connections close within 30s
+rad install-service [--uninstall]  run rad in the background (launchd on macOS, systemd on Linux)
+rad uninstall [--yes]             remove the service, config, data, worktrees and checkpoints
 rad debug run --harness claude --cwd DIR [--mode M] [--worktree] [--approve] [--diff] "prompt"
 rad debug prompt <sessionId> "…"  follow-up turn, streamed to the terminal
 rad debug call <method> '{json}'  raw RPC (see protocol/PROTOCOL.md)
@@ -107,7 +124,7 @@ rad debug call <method> '{json}'  raw RPC (see protocol/PROTOCOL.md)
 
 ## Configuration
 
-`~/.config/remote-agent/config.toml`. Set `RAD_HOME=/some/dir` to keep the config and data together, e.g. for tests.
+`~/.config/remote-agent/config.toml`. Data lives in `~/Library/Application Support/remote-agent` on macOS and `~/.local/share/remote-agent` on Linux. Set `RAD_HOME=/some/dir` to keep the config and data together, e.g. for tests.
 
 ```toml
 name = "Work laptop"            # what the app calls this server after pairing (default: host name)
@@ -139,7 +156,7 @@ command = "codex"
 ## Layout
 
 ```
-cmd/rad/                 CLI: serve, pair, devices, debug, install-launchagent
+cmd/rad/                 CLI: serve, pair, devices, debug, install-service, uninstall
 internal/model           domain types (Session, Turn, Item, Event…) = wire format
 internal/store           SQLite; per-stream change feed (latest event per entity)
 internal/events          live fan-out to subscribers

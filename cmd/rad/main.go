@@ -35,7 +35,9 @@ Usage:
   rad pair [--lan] [--print-url] show a QR code to pair a phone
   rad devices [revoke <id>]      list or revoke paired devices
   rad debug <cmd> ...            CLI client for testing (run "rad debug" for help)
-  rad install-launchagent        run rad at login (macOS)
+  rad install-service [--uninstall]
+                                 keep rad running in the background (launchd on macOS, systemd on Linux)
+  rad uninstall [--yes]          remove rad's service, config, data, worktrees and checkpoint refs
   rad version
 `
 
@@ -54,8 +56,10 @@ func main() {
 		err = devices(os.Args[2:])
 	case "debug":
 		err = debug(os.Args[2:])
-	case "install-launchagent":
-		err = installLaunchAgent(os.Args[2:])
+	case "install-service", "install-launchagent":
+		err = installService(os.Args[2:])
+	case "uninstall":
+		err = uninstall(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("rad", api.Version)
 	case "help", "-h", "--help":
@@ -132,15 +136,29 @@ func serve(args []string) error {
 	srv := api.NewServer(st, hub, orch, fsbrowse.New(cfg.Roots), serverID, serverName(cfg), log)
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
-	addrs := netinfo.ListenAddrs(cfg)
-	errc := make(chan error, len(addrs))
-	for _, a := range addrs {
+	errc := make(chan error, 1)
+	serveOn := func(ln net.Listener) {
+		log.Info("listening", "addr", "http://"+ln.Addr().String())
+		go func() {
+			if err := httpSrv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+				select {
+				case errc <- err:
+				default:
+				}
+			}
+		}()
+	}
+	bound := map[string]bool{}
+	for _, a := range netinfo.ListenAddrs(cfg) {
 		ln, err := net.Listen("tcp", a)
 		if err != nil {
 			return fmt.Errorf("listen %s: %w", a, err)
 		}
-		log.Info("listening", "addr", "http://"+a)
-		go func() { errc <- httpSrv.Serve(ln) }()
+		bound[a] = true
+		serveOn(ln)
+	}
+	if len(cfg.Listen) == 0 {
+		go watchAddrs(ctx, cfg, bound, serveOn, log)
 	}
 	log.Info("rad ready", "config", cfg.ConfigPath, "data", cfg.DataDir, "roots", cfg.Roots)
 	if devs, _ := st.Devices(ctx); len(devs) == 0 {
@@ -151,9 +169,7 @@ func serve(args []string) error {
 	select {
 	case <-ctx.Done():
 	case err := <-errc:
-		if !errors.Is(err, http.ErrServerClosed) {
-			log.Error("server error", "err", err)
-		}
+		log.Error("server error", "err", err)
 	}
 	log.Info("shutting down")
 	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -161,6 +177,36 @@ func serve(args []string) error {
 	httpSrv.Shutdown(sctx)
 	orch.Shutdown()
 	return nil
+}
+
+// watchAddrs listens on addresses that appear after startup, such as the
+// Tailscale address when rad starts at boot before Tailscale is up.
+func watchAddrs(ctx context.Context, cfg *config.Config, bound map[string]bool, serveOn func(net.Listener), log *slog.Logger) {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	warned := map[string]bool{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		for _, a := range netinfo.ListenAddrs(cfg) {
+			if bound[a] {
+				continue
+			}
+			ln, err := net.Listen("tcp", a)
+			if err != nil {
+				if !warned[a] {
+					log.Warn("listen", "addr", a, "err", err)
+					warned[a] = true
+				}
+				continue
+			}
+			bound[a] = true
+			serveOn(ln)
+		}
+	}
 }
 
 func pair(args []string) error {

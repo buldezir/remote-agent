@@ -91,7 +91,9 @@ func Defaults() *Config {
 	return c
 }
 
-func dirs() (configPath, dataDir string, err error) {
+// Paths returns where the config file and the data directory live, without
+// creating either.
+func Paths() (configPath, dataDir string, err error) {
 	if h := os.Getenv("RAD_HOME"); h != "" {
 		return filepath.Join(h, "config.toml"), filepath.Join(h, "data"), nil
 	}
@@ -117,7 +119,7 @@ func dirs() (configPath, dataDir string, err error) {
 
 // Load reads the config file, writing the default one first if it is missing.
 func Load() (*Config, error) {
-	configPath, dataDir, err := dirs()
+	configPath, dataDir, err := Paths()
 	if err != nil {
 		return nil, err
 	}

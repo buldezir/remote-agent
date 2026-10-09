@@ -75,6 +75,23 @@ func RemoveWorktree(ctx context.Context, repo, path string) error {
 	return err
 }
 
+// PruneWorktrees drops the metadata of worktrees whose directory is gone.
+func PruneWorktrees(ctx context.Context, repo string) error {
+	_, err := run(ctx, repo, nil, "worktree", "prune")
+	return err
+}
+
+func BranchExists(ctx context.Context, dir, branch string) bool {
+	_, err := run(ctx, dir, nil, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
+}
+
+// Dirty reports whether dir has uncommitted changes, untracked files included.
+func Dirty(ctx context.Context, dir string) bool {
+	out, err := run(ctx, dir, nil, "status", "--porcelain")
+	return err == nil && strings.TrimSpace(out) != ""
+}
+
 // Checkpoint snapshots dir's working tree into a commit stored at ref and returns its sha.
 func Checkpoint(ctx context.Context, dir, ref, message string) (string, error) {
 	f, err := os.CreateTemp("", "rad-index-*")
