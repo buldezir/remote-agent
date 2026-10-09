@@ -93,7 +93,7 @@ Clients must ignore unknown event types and unknown fields.
 Project { id, path, name, isGitRepo, createdAt }
 
 Session {
-  id, projectId, harness,            // "claude" | "codex" | "acp:<id>" | "fake"
+  id, projectId, harness,            // "claude" | "codex" | "pi" | "acp:<id>" | "fake"
   model?, effort?, mode?,            // ids from harness.list; model and effort are what was requested (absent: the harness default)
   workspace: { kind: "root"|"worktree", path, branch?, baseRef? },
                                      // branch: checked out in path, refreshed at each turn start/end; absent if detached
@@ -171,7 +171,7 @@ Approval {
 
 ```ts
 HarnessInfo {
-  id, name, protocol: "claude"|"codex"|"acp"|"fake",
+  id, name, protocol: "claude"|"codex"|"pi"|"acp"|"fake",
   installed, version?, authOk, hint?,          // usable when authOk; hint explains what's missing
   models?: [{id, name, description?, efforts?: [Choice]}],  // a model's efforts, when listed, replace the harness's
   efforts?: [Choice],                          // reasoning efforts for the default model; absent: not selectable

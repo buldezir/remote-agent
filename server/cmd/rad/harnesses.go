@@ -6,6 +6,7 @@ import (
 	"remote-agent/internal/harness/acp"
 	"remote-agent/internal/harness/claude"
 	"remote-agent/internal/harness/codex"
+	"remote-agent/internal/harness/pi"
 )
 
 // harnessesFor builds the real harness adapters from config.
@@ -13,6 +14,7 @@ func harnessesFor(cfg *config.Config) []harness.Harness {
 	hs := []harness.Harness{
 		claude.New(cfg.HarnessCmd("claude")),
 		codex.New(cfg.HarnessCmd("codex")),
+		pi.New(cfg.HarnessCmd("pi")),
 	}
 	for _, a := range cfg.ACP {
 		hs = append(hs, acp.New(a))

@@ -310,7 +310,7 @@ type HarnessCaps struct {
 type HarnessInfo struct {
 	ID          string      `json:"id"`
 	Name        string      `json:"name"`
-	Protocol    string      `json:"protocol"` // claude | codex | acp | fake
+	Protocol    string      `json:"protocol"` // claude | codex | pi | acp | fake
 	Installed   bool        `json:"installed"`
 	Version     string      `json:"version,omitempty"`
 	AuthOK      bool        `json:"authOk"`

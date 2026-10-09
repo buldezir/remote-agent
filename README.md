@@ -24,7 +24,8 @@ Supported harnesses:
 |---|---|
 | Claude Code | `claude --input-format stream-json --output-format stream-json --permission-prompt-tool stdio`: the same control protocol the Agent SDKs use |
 | Codex | `codex app-server` (JSON-RPC over stdio) |
-| Cursor, OpenCode, Gemini, … | [Agent Client Protocol](https://agentclientprotocol.com): `cursor-agent acp`, `opencode acp`, `gemini --acp` (configurable) |
+| Pi | `pi --mode rpc` (JSON commands and events over stdio) |
+| Cursor, OpenCode, Gemini, Oh My Pi, … | [Agent Client Protocol](https://agentclientprotocol.com): `cursor-agent acp`, `opencode acp`, `gemini --acp`, `omp acp` (configurable) |
 
 Prior art: [Happy](https://github.com/slopus/happy) (mobile client and relay for Claude Code) and [T3 Code](https://github.com/pingdotgg/t3code) (local server that owns agent processes, worktrees and checkpoints).
 
@@ -118,6 +119,8 @@ cd ios && swift scripts/make-app-icon.swift RemoteAgent/Assets.xcassets/AppIcon.
   3. Optionally choose **Isolated git worktree**, which puts the agent on its own branch in `~/Library/Application Support/remote-agent/worktrees/…`.
   4. Write the first prompt, or leave it empty to open the session and write it there.
 - **Approvals:** cards appear inline. The buttons come from the agent itself, e.g. *Allow*, *Allow all edits this session*, *Deny*. When denying, you can give the agent a reason.
+  - Pi doesn't ask before running tools. Oh My Pi asks only clients that run its file and terminal tools for it, which rad doesn't, so expect no approvals from it either.
+  - Pi extensions can still ask: their yes/no and multiple-choice dialogs show up as cards, e.g. from Pi's example `permission-gate.ts`. The app can't answer their free-text prompts yet, so those are cancelled.
 - **Questions and plans:** Claude's `AskUserQuestion` and `ExitPlanMode` show up as choice and plan cards.
 - **Changes:** rad snapshots the workspace before and after every turn into hidden git refs (`refs/ra/cp/…`), without touching your index or HEAD. You can view each turn's diff or the whole session's.
 - **Revert:** in worktree sessions you can revert to before any turn. The agent is told about it on the next prompt.
@@ -132,7 +135,7 @@ rad devices                       list paired devices
 rad devices revoke <id-prefix>    revoke one; its open connections close within 30s
 rad install-service [--uninstall]  run rad in the background (launchd on macOS, systemd on Linux)
 rad uninstall [--yes]             remove the service, config, data, worktrees and checkpoints
-rad debug run --harness claude --cwd DIR [--mode M] [--worktree] [--approve] [--diff] "prompt"
+rad debug run --harness claude --cwd DIR [--mode M] [--model M] [--effort E] [--worktree] [--approve] [--diff] "prompt"
 rad debug prompt <sessionId> "…"  follow-up turn, streamed to the terminal
 rad debug call <method> '{json}'  raw RPC (see protocol/PROTOCOL.md)
 ```
@@ -154,9 +157,11 @@ acp:                            # any ACP agent can be added here
   - {id: cursor,   name: Cursor,   command: cursor-agent, args: [acp]}
   - {id: opencode, name: OpenCode, command: opencode,     args: [acp]}
   - {id: gemini,   name: Gemini,   command: gemini,       args: [--acp]}
+  - {id: omp,      name: Oh My Pi, command: omp,          args: [acp]}
 harness:
   claude: {command: claude}     # optional: args: [...], env: {KEY: value}
   codex: {command: codex}
+  pi: {command: pi}             # e.g. args: [-e, /path/to/extension.ts] to load an extension
 ```
 
 Unknown keys are errors, so a typo stops rad with the line number rather than being ignored.
@@ -170,6 +175,7 @@ Unknown keys are errors, so a typo stops rad with the line number rather than be
 - Revoking a device closes its live sockets.
 - The phone can browse and add only folders under `roots`.
 - Permission modes are enforced by each agent itself. rad never auto-approves on the agent's behalf.
+- Pi has no permission modes: it runs tools without asking.
 
 ## Layout
 
@@ -180,7 +186,7 @@ server/                  Go module for rad
   internal/store         SQLite; per-stream change feed (latest event per entity)
   internal/events        live fan-out to subscribers
   internal/orchestrator  session actors: prompts, approvals, turns, checkpoints, recovery
-  internal/harness/      adapter interface + claude/ codex/ acp/ fake/ proc/ jsonrpc/
+  internal/harness/      adapter interface + claude/ codex/ pi/ acp/ fake/ proc/ jsonrpc/
   internal/gitx          worktrees, checkpoints, diffs, revert (git CLI)
   internal/api           HTTP pairing + WebSocket JSON-RPC
 protocol/                PROTOCOL.md + golden fixtures shared by Go and Swift tests

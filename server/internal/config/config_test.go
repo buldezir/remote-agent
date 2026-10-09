@@ -68,7 +68,7 @@ func TestLoad(t *testing.T) {
 	if b, _ := os.ReadFile(path); string(b) != defaultFile {
 		t.Errorf("wrote:\n%s", b)
 	}
-	if c.Port != 7421 || c.IdleTimeout.Duration != 30*time.Minute || len(c.ACP) != 3 || c.HarnessCmd("claude").Command != "claude" {
+	if c.Port != 7421 || c.IdleTimeout.Duration != 30*time.Minute || len(c.ACP) != 4 || c.ACP[3].Command != "omp" || c.Harness["pi"].Command != "pi" {
 		t.Errorf("defaults = %+v", c)
 	}
 	if want, _ := ExpandHome("~/projects"); !slices.Equal(c.Roots, []string{want}) {

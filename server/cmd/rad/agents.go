@@ -11,7 +11,7 @@ import (
 	"remote-agent/internal/model"
 )
 
-const noAgents = "install Claude Code, Codex or an ACP agent (see acp in the config)"
+const noAgents = "install Claude Code, Codex, Pi or an ACP agent (see acp in the config)"
 
 // agentStatus splits the installed agents into ready ones and ones that need
 // attention, such as a login. Agents that aren't installed are left out.

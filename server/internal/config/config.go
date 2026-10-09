@@ -108,11 +108,13 @@ acp:
   - {id: cursor,   name: Cursor,   command: cursor-agent, args: [acp]}
   - {id: opencode, name: OpenCode, command: opencode,     args: [acp]}
   - {id: gemini,   name: Gemini,   command: gemini,       args: [--acp]}
+  - {id: omp,      name: Oh My Pi, command: omp,          args: [acp]}
 
 # Commands for the built-in harnesses; each also takes args and env.
 harness:
   claude: {command: claude}
   codex: {command: codex}
+  pi: {command: pi}
 `
 
 func Defaults() *Config {

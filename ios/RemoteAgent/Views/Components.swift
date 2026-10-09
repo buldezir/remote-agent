@@ -39,9 +39,13 @@ struct HarnessIcon: View {
         case "acp:cursor": "cursorarrow.rays"
         case "acp:opencode": "curlybraces"
         case "acp:gemini": "diamond"
+        case "pi", "acp:omp": Self.pi
         default: "cpu"
         }
     }
+
+    /// The π symbol is new in iOS 18.4.
+    private static let pi = UIImage(systemName: "pi") != nil ? "pi" : "function"
 
     private var color: Color {
         switch id {

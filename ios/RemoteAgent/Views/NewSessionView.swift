@@ -56,7 +56,7 @@ struct NewSessionView: View {
                                 .disabled(!h.usable)
                         }
                         if harnesses.isEmpty {
-                            Text("No agents are installed on the server. Install Claude Code, Codex or an ACP agent there.")
+                            Text("No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.")
                                 .foregroundStyle(.secondary)
                         }
                     } else {

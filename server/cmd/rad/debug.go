@@ -32,6 +32,7 @@ const debugUsage = `rad debug — test client
       --cwd DIR         project directory (default ".")
       --mode MODE       permission mode
       --model MODEL
+      --effort EFFORT   reasoning effort
       --worktree        run in a new git worktree
       --approve         auto-approve (first allow option)
       --deny            auto-deny
@@ -218,6 +219,7 @@ func debugRun(ctx context.Context, cfg *config.Config, args []string) error {
 	cwd := fs.String("cwd", ".", "")
 	mode := fs.String("mode", "", "")
 	modelID := fs.String("model", "", "")
+	effort := fs.String("effort", "", "")
 	worktree := fs.Bool("worktree", false, "")
 	approve := fs.Bool("approve", false, "")
 	deny := fs.Bool("deny", false, "")
@@ -245,7 +247,7 @@ func debugRun(ctx context.Context, cfg *config.Config, args []string) error {
 	}
 	var sess model.Session
 	if err := c.call(ctx, "session.create", map[string]any{
-		"commandId": store.NewID(), "projectId": proj.ID, "harness": *harnessID, "mode": *mode, "model": *modelID, "workspace": ws,
+		"commandId": store.NewID(), "projectId": proj.ID, "harness": *harnessID, "mode": *mode, "model": *modelID, "effort": *effort, "workspace": ws,
 	}, &sess); err != nil {
 		return err
 	}

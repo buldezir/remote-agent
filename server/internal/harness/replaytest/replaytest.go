@@ -6,6 +6,9 @@
 // written to stdout (agent → adapter) and "out" frames are expected on stdin
 // (adapter → agent).
 //
+// Frames are JSON-RPC (Codex, ACP), Claude's stream-json, or pi's RPC mode,
+// whose commands carry a "type" and an "id" that its responses echo.
+//
 // Matching is loose: an expected frame matches by type/method (and, for
 // replies to agent requests, by id). Ids of the adapter's own requests are
 // learned from each matched frame and rewritten in the recorded responses.
@@ -197,7 +200,7 @@ func key(raw []byte) string {
 	case f.Type == "control_response":
 		return "control_response:" + f.Response.Subtype + ":" + f.Response.RequestID
 	case f.Type != "":
-		return "claude:" + f.Type
+		return "type:" + f.Type
 	case f.Method != "" && len(f.ID) > 0:
 		return "request:" + f.Method
 	case f.Method != "":
@@ -215,10 +218,18 @@ func requestID(raw []byte) (string, bool) {
 	switch {
 	case f.Type == "control_request":
 		return "claude:" + f.RequestID, true
+	case isPiCommand(f):
+		return "pi:" + canon(f.ID), true
 	case f.Type == "" && f.Method != "" && len(f.ID) > 0:
 		return canon(f.ID), true
 	}
 	return "", false
+}
+
+// isPiCommand reports whether f is a command to pi that expects a response.
+// Claude's frames carry no top-level id.
+func isPiCommand(f frame) bool {
+	return f.Type != "" && len(f.ID) > 0 && f.Type != "response" && f.Type != "extension_ui_response" && f.Type != "extension_ui_request"
 }
 
 func (p *player) read() ([]byte, error) {
@@ -312,6 +323,17 @@ func (p *player) send(raw []byte) error {
 			m["response"], _ = json.Marshal(resp)
 			raw, _ = json.Marshal(m)
 		}
+	case f.Type == "response" && len(f.ID) > 0:
+		rid := "pi:" + canon(f.ID)
+		if p.skipped[rid] {
+			return nil
+		}
+		if actual, ok := p.ids[rid]; ok {
+			var m map[string]json.RawMessage
+			json.Unmarshal(raw, &m)
+			m["id"] = json.RawMessage(actual)
+			raw, _ = json.Marshal(m)
+		}
 	case f.Type == "" && f.Method == "" && len(f.ID) > 0:
 		rid := canon(f.ID)
 		if p.skipped[rid] {
@@ -335,6 +357,9 @@ func (p *player) unexpected(raw []byte) {
 	case f.Type == "control_request":
 		b, _ := json.Marshal(map[string]any{"type": "control_response",
 			"response": map[string]any{"subtype": "success", "request_id": f.RequestID, "response": map[string]any{}}})
+		p.write(b)
+	case isPiCommand(f):
+		b, _ := json.Marshal(map[string]any{"type": "response", "command": f.Type, "id": f.ID, "success": true})
 		p.write(b)
 	case f.Type == "" && f.Method != "" && len(f.ID) > 0:
 		m := map[string]any{"id": f.ID, "result": map[string]any{}}
