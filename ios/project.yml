@@ -35,7 +35,11 @@ targets:
         NSMicrophoneUsageDescription: Dictate messages to your agents.
         NSSpeechRecognitionUsageDescription: Turn your dictation into text.
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
+          NSAllowsLocalNetworking: true   # http/ws to IPs and .local names
+          NSExceptionDomains:
+            ts.net:                       # Tailscale MagicDNS names; WireGuard encrypts the traffic
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         CFBundleURLTypes:
           - CFBundleURLName: dev.remote-agent.pair
             CFBundleURLSchemes: [remoteagent]

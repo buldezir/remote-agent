@@ -90,7 +90,7 @@ func buildRegistry(cfg *config.Config) *harness.Registry {
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	fakeFlag := fs.Bool("fake", false, "expose the scripted fake harness")
-	lan := fs.Bool("lan", false, "also listen on LAN addresses")
+	lan := fs.Bool("lan", false, "put LAN addresses in the pairing link")
 	verbose := fs.Bool("v", false, "debug logging")
 	fs.Parse(args)
 
@@ -136,31 +136,17 @@ func serve(args []string) error {
 	srv := api.NewServer(st, hub, orch, fsbrowse.New(cfg.Roots), serverID, serverName(cfg), log)
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
-	errc := make(chan error, 1)
-	serveOn := func(ln net.Listener) {
-		log.Info("listening", "addr", "http://"+ln.Addr().String())
-		go func() {
-			if err := httpSrv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
-				select {
-				case errc <- err:
-				default:
-				}
-			}
-		}()
-	}
-	bound := map[string]bool{}
-	for _, a := range netinfo.ListenAddrs(cfg) {
+	addrs := netinfo.ListenAddrs(cfg)
+	errc := make(chan error, len(addrs))
+	for _, a := range addrs {
 		ln, err := net.Listen("tcp", a)
 		if err != nil {
 			return fmt.Errorf("listen %s: %w", a, err)
 		}
-		bound[a] = true
-		serveOn(ln)
+		log.Info("listening", "addr", a)
+		go func() { errc <- httpSrv.Serve(ln) }()
 	}
-	if len(cfg.Listen) == 0 {
-		go watchAddrs(ctx, cfg, bound, serveOn, log)
-	}
-	log.Info("rad ready", "config", cfg.ConfigPath, "data", cfg.DataDir, "roots", cfg.Roots)
+	log.Info("rad ready", "urls", netinfo.PairURLs(cfg), "config", cfg.ConfigPath, "data", cfg.DataDir, "roots", cfg.Roots)
 	if devs, _ := st.Devices(ctx); len(devs) == 0 {
 		fmt.Fprintln(os.Stderr, "\nNo devices paired yet.")
 		printPairing(ctx, st, cfg, false)
@@ -169,7 +155,9 @@ func serve(args []string) error {
 	select {
 	case <-ctx.Done():
 	case err := <-errc:
-		log.Error("server error", "err", err)
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Error("server error", "err", err)
+		}
 	}
 	log.Info("shutting down")
 	sctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -179,44 +167,17 @@ func serve(args []string) error {
 	return nil
 }
 
-// watchAddrs listens on addresses that appear after startup, such as the
-// Tailscale address when rad starts at boot before Tailscale is up.
-func watchAddrs(ctx context.Context, cfg *config.Config, bound map[string]bool, serveOn func(net.Listener), log *slog.Logger) {
-	t := time.NewTicker(10 * time.Second)
-	defer t.Stop()
-	warned := map[string]bool{}
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
-		for _, a := range netinfo.ListenAddrs(cfg) {
-			if bound[a] {
-				continue
-			}
-			ln, err := net.Listen("tcp", a)
-			if err != nil {
-				if !warned[a] {
-					log.Warn("listen", "addr", a, "err", err)
-					warned[a] = true
-				}
-				continue
-			}
-			bound[a] = true
-			serveOn(ln)
-		}
-	}
-}
-
 func pair(args []string) error {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
 	printURL := fs.Bool("print-url", false, "print only the pairing link")
-	lan := fs.Bool("lan", false, "include LAN addresses (for a server started with serve --lan)")
+	lan := fs.Bool("lan", false, "put LAN addresses in the pairing link")
 	fs.Parse(args)
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+	if *lan && len(cfg.PairURLs) > 0 {
+		fmt.Fprintln(os.Stderr, "note: --lan has no effect because pair_urls is set in", cfg.ConfigPath)
 	}
 	cfg.LAN = cfg.LAN || *lan
 	st, err := openStore(cfg)
@@ -242,7 +203,7 @@ func printPairing(ctx context.Context, st *store.Store, cfg *config.Config, urlO
 	if err != nil {
 		return err
 	}
-	link := netinfo.PairingLink(serverName(cfg), code, netinfo.BaseURLs(netinfo.ListenAddrs(cfg)))
+	link := netinfo.PairingLink(serverName(cfg), code, netinfo.PairURLs(cfg))
 	if urlOnly {
 		fmt.Println(link)
 		return nil

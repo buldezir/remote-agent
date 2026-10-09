@@ -55,31 +55,19 @@ func Interfaces() []Addr {
 	return out
 }
 
-// ListenAddrs returns host:port pairs to bind: loopback and Tailscale, plus LAN when enabled.
+// ListenAddrs returns host:port pairs to bind: the configured list, or every
+// IPv4 interface. Which addresses a phone is told about is up to BaseURLs.
 func ListenAddrs(c *config.Config) []string {
 	if len(c.Listen) > 0 {
 		return c.Listen
 	}
-	var out []string
-	seen := map[string]bool{}
-	for _, a := range Interfaces() {
-		if a.Kind == "lan" && !c.LAN {
-			continue
-		}
-		hp := net.JoinHostPort(a.IP.String(), fmt.Sprint(c.Port))
-		if !seen[hp] {
-			seen[hp] = true
-			out = append(out, hp)
-		}
-	}
-	if len(out) == 0 {
-		out = append(out, net.JoinHostPort("127.0.0.1", fmt.Sprint(c.Port)))
-	}
-	return out
+	return []string{net.JoinHostPort("0.0.0.0", fmt.Sprint(c.Port))}
 }
 
-// BaseURLs returns http base URLs in the order a phone should try them.
-func BaseURLs(listen []string) []string {
+// BaseURLs returns http base URLs in the order a phone should try them:
+// Tailscale, LAN, loopback. A wildcard listen address stands for every
+// interface; its LAN addresses are included only when c.LAN is set.
+func BaseURLs(c *config.Config) []string {
 	rank := func(host string) int {
 		ip := net.ParseIP(host)
 		switch {
@@ -89,22 +77,21 @@ func BaseURLs(listen []string) []string {
 			return 0
 		case ip.IsLoopback():
 			return 3
-		case ip.IsUnspecified():
-			return 4
 		default:
 			return 2
 		}
 	}
 	var hosts []string
-	for _, hp := range listen {
+	for _, hp := range ListenAddrs(c) {
 		host, port, err := net.SplitHostPort(hp)
 		if err != nil {
 			continue
 		}
-		ip := net.ParseIP(host)
-		if ip != nil && ip.IsUnspecified() {
+		if ip := net.ParseIP(host); host == "" || ip != nil && ip.IsUnspecified() {
 			for _, a := range Interfaces() {
-				hosts = append(hosts, net.JoinHostPort(a.IP.String(), port))
+				if a.Kind != "lan" || c.LAN {
+					hosts = append(hosts, net.JoinHostPort(a.IP.String(), port))
+				}
 			}
 			continue
 		}
@@ -120,6 +107,15 @@ func BaseURLs(listen []string) []string {
 		out = append(out, "http://"+h)
 	}
 	return out
+}
+
+// PairURLs returns the base URLs for the pairing link: pair_urls from the
+// config, or the detected ones.
+func PairURLs(c *config.Config) []string {
+	if len(c.PairURLs) > 0 {
+		return c.PairURLs
+	}
+	return BaseURLs(c)
 }
 
 // Hostname returns the machine's short host name.

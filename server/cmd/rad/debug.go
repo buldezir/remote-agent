@@ -85,7 +85,7 @@ func dial(ctx context.Context, cfg *config.Config) (*client, error) {
 	if err != nil {
 		return nil, err
 	}
-	urls := netinfo.BaseURLs(netinfo.ListenAddrs(cfg))
+	urls := netinfo.BaseURLs(cfg)
 	base := urls[len(urls)-1] // prefer loopback
 	if u := os.Getenv("RAD_URL"); u != "" {
 		base = u

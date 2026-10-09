@@ -32,10 +32,11 @@ go build -o bin/rad ./cmd/rad
 
 On the phone, open Remote Agent and tap **Pair a server**, then scan the QR code. In the simulator, paste the link from `rad pair --print-url` instead.
 
-The phone has to reach the computer. Two ways:
+rad listens on all interfaces (`0.0.0.0:7421`). The pairing link tells the phone which addresses to try:
 
-- **Tailscale (recommended):** rad listens on its Tailscale address (100.x) by default, and WireGuard encrypts the traffic.
-- **Same Wi-Fi:** run `rad serve --lan`, or set `lan = true` in the config.
+- **Tailscale (recommended):** the Tailscale address (100.x) is in the link by default, and WireGuard encrypts the traffic.
+- **Same Wi-Fi:** run `rad serve --lan` / `rad pair --lan`, or set `lan = true` in the config, to add the LAN addresses too. Traffic on the LAN is plain HTTP.
+- **Your own choice:** set `pair_urls` in the config to put exactly those addresses in the link, in that order, e.g. a Tailscale MagicDNS name or one specific LAN IP. Plain `http://` works with IP addresses, `.local` names and `*.ts.net`; any other host name needs `https://`.
 
 To keep rad running in the background:
 
@@ -89,7 +90,7 @@ You need Xcode, an Apple ID and, for the first run, a cable.
    - After the first run, Xcode can also install over Wi-Fi.
 7. Make sure the phone can reach the computer. Use Tailscale, or set `lan = true` for the same Wi-Fi (see Quick start).
 8. Pair the phone:
-   1. Run `server/bin/rad pair` on the computer. Add `--lan` if you started `rad serve --lan`.
+   1. Run `server/bin/rad pair` on the computer. Add `--lan` if the phone will connect over Wi-Fi rather than Tailscale.
    2. In the app, tap **Pair a server** (or **+**) and scan the QR code. The iPhone Camera app can scan it too.
    3. Allow Local Network access when iOS asks.
 
@@ -115,7 +116,7 @@ cd ios && swift scripts/make-app-icon.swift RemoteAgent/Assets.xcassets/AppIcon.
 
 ```
 rad serve [--lan] [--fake] [-v]   run the server (--fake adds a scripted test harness)
-rad pair [--lan] [--print-url]    new single-use pairing code (10 min); --lan as for serve
+rad pair [--lan] [--print-url]    new single-use pairing code (10 min); --lan adds LAN addresses to the link
 rad devices                       list paired devices
 rad devices revoke <id-prefix>    revoke one; its open connections close within 30s
 rad install-service [--uninstall]  run rad in the background (launchd on macOS, systemd on Linux)
@@ -132,7 +133,10 @@ rad debug call <method> '{json}'  raw RPC (see protocol/PROTOCOL.md)
 ```toml
 name = "Work laptop"            # what the app calls this server after pairing (default: host name)
 port = 7421
-lan = false
+lan = false                     # also put LAN addresses in the pairing link
+# pair_urls = ["my-mac.tail1234.ts.net", "192.168.1.20"]   # or list the link's addresses yourself
+                                # (bare hosts get http:// and the port; also host:port, https://…)
+# listen = ["127.0.0.1:7421", "100.101.102.103:7421"]   # bind only these instead of 0.0.0.0
 roots = ["~/projects"]          # what the phone may browse and add as projects
 idle_timeout = "30m"
 acp = [                         # any ACP agent can be added here
@@ -149,7 +153,7 @@ command = "codex"
 ## Security model
 
 - A paired device can make agents run arbitrary commands on your machine. Treat device tokens like SSH keys.
-- By default rad binds only to loopback and Tailscale addresses.
+- rad listens on all interfaces, but every request except pairing needs a device token. To keep it off other networks entirely, set `listen` to loopback and your Tailscale address.
 - Pairing codes are single-use and expire after 10 minutes.
 - Tokens are 256-bit random values. Only their SHA-256 hash is stored, and the phone keeps the token in the Keychain.
 - Revoking a device closes its live sockets.

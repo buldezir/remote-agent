@@ -10,9 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,8 +39,9 @@ type ACPAgent struct {
 type Config struct {
 	Name        string             `toml:"name"` // shown in the app once paired; defaults to the host name
 	Port        int                `toml:"port"`
-	LAN         bool               `toml:"lan"`
-	Listen      []string           `toml:"listen"` // explicit host:port list; overrides port/lan discovery
+	LAN         bool               `toml:"lan"`       // put LAN addresses in the pairing link
+	PairURLs    []string           `toml:"pair_urls"` // the pairing link's addresses, instead of the detected ones
+	Listen      []string           `toml:"listen"`    // host:port list to bind instead of 0.0.0.0:port
 	Roots       []string           `toml:"roots"`
 	IdleTimeout Duration           `toml:"idle_timeout"`
 	Fake        bool               `toml:"fake"` // expose the scripted "fake" harness
@@ -63,8 +67,11 @@ const defaultFile = `# rad configuration. See README for details.
 # The server's name in the app, set when a phone pairs (default: this computer's host name).
 # name = "Work laptop"
 port = 7421
-# Also listen on LAN addresses (default: loopback + Tailscale only).
+# rad listens on all interfaces. The pairing link lists its Tailscale address;
+# set lan = true to add LAN addresses for a phone on the same Wi-Fi.
 lan = false
+# Or list the pairing link's addresses yourself; bare hosts get http:// and the port.
+# pair_urls = ["my-mac.tail1234.ts.net", "192.168.1.20"]
 # Directories the phone may browse and add as projects.
 roots = ["~/projects"]
 # Stop idle agent processes after this long (they resume on the next prompt).
@@ -154,6 +161,13 @@ func (c *Config) normalize() error {
 	if c.Port == 0 {
 		c.Port = 7421
 	}
+	for i, u := range c.PairURLs {
+		norm, err := BaseURL(u, c.Port)
+		if err != nil {
+			return fmt.Errorf("pair_urls: %w", err)
+		}
+		c.PairURLs[i] = norm
+	}
 	if c.IdleTimeout.Duration == 0 {
 		c.IdleTimeout.Duration = 30 * time.Minute
 	}
@@ -189,6 +203,25 @@ func (c *Config) HarnessCmd(id string) Command {
 		cmd.Command = id
 	}
 	return cmd
+}
+
+// BaseURL turns "host", "host:port" or "http(s)://host[:port]" into a base
+// URL. A bare host gets http:// and the given port.
+func BaseURL(s string, port int) (string, error) {
+	in := strings.TrimSpace(s)
+	s = in
+	if !strings.Contains(s, "://") {
+		if _, _, err := net.SplitHostPort(s); err != nil {
+			s = net.JoinHostPort(strings.Trim(s, "[]"), strconv.Itoa(port))
+		}
+		s = "http://" + s
+	}
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" ||
+		strings.Trim(u.Path, "/") != "" || u.RawQuery != "" || u.User != nil {
+		return "", fmt.Errorf("%q is not a host, host:port or http(s)://host[:port]", in)
+	}
+	return u.Scheme + "://" + u.Host, nil
 }
 
 func ExpandHome(p string) (string, error) {

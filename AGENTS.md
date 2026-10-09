@@ -41,7 +41,7 @@ The developer may have their own `rad serve` running on the default port 7421, w
 1. Write `$SCRATCH/radhome/config.toml`:
 
    ```toml
-   port = 7499
+   listen = ["127.0.0.1:7499"]      # loopback only, unlike the default 0.0.0.0
    fake = true                      # adds the scripted "Fake" harness (or pass --fake)
    roots = ["/path/to/scratch"]
    ```
