@@ -28,6 +28,12 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - Callbacks that run on other threads (AVAudioEngine taps, Speech results, URLSession delegates) must be created in `nonisolated` functions. A closure formed in `@MainActor` code is main-actor isolated and traps when called off the main thread.
   - Caches that view bodies fill lazily are `@ObservationIgnored`.
   - Navigation destinations are registered once at the root (`ServersView`), with values that carry the server id.
+- **Releases:** `.github/workflows/release.yml` runs on `v*` tags:
+  - The Go tests, then rad cross-compiled for linux and darwin, amd64 and arm64, on Ubuntu.
+  - `RemoteAgentServer` in Release, arm64 only and signed ad hoc, on the `xcode-27` runner. The apps target macOS 27, and the `macos-26` image has only Xcode 26.
+  - The tag sets the version: `MARKETING_VERSION` for the app, and `api.Version` for rad.
+
+  When the build changes (for example `build-rad.sh`, the schemes, or a new deployment target), change the workflow to match. Pushing tags is the developer's job.
 - **Commits:** tests green first. Don't commit `server/bin/`, `apple/build/`, the `.xcodeproj` or `apple/Local.xcconfig`.
 
 ## Testing

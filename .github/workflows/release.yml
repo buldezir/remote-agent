@@ -1,0 +1,119 @@
+# Builds rad for Linux and macOS (arm64 and x86-64) and Remote Agent Server
+# for Apple silicon. Pushing a tag like v0.2.0 publishes them as that tag's
+# release; running the workflow by hand only keeps them as run artifacts.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  rad:
+    name: rad
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Test
+        working-directory: server
+        run: |
+          unformatted=$(gofmt -l internal cmd)
+          if [ -n "$unformatted" ]; then echo "::error::gofmt: $unformatted"; exit 1; fi
+          go vet ./...
+          go test -race ./...
+      - name: Build
+        run: |
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then version=${GITHUB_REF_NAME#v}; else version=$(git describe --tags --always); fi
+          mkdir dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*} arch=${target#*/}
+            out=$RUNNER_TEMP/$os-$arch
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go -C server build -trimpath \
+              -ldflags "-s -w -X remote-agent/internal/api.Version=$version" -o "$out/rad" ./cmd/rad
+            tar -C "$out" -czf "dist/rad-$os-$arch.tar.gz" rad
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rad
+          path: dist/
+          if-no-files-found: error
+
+  server-app:
+    name: Remote Agent Server
+    # The apps target macOS 27, which needs Xcode 27; the macos-26 image only
+    # has Xcode 26. xcode-27 runs on Apple silicon.
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7   # build-rad.sh compiles rad into the app
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build
+        working-directory: apple
+        run: |
+          xcodebuild -version
+          # Tags set the app's version (and rad's inside it); other runs keep project.yml's.
+          version=()
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then version=(MARKETING_VERSION="${GITHUB_REF_NAME#v}"); fi
+          xcodegen
+          # No team or Developer ID here, so the app is signed ad hoc.
+          xcodebuild -project RemoteAgent.xcodeproj -scheme RemoteAgentServer -configuration Release \
+            -destination 'generic/platform=macOS' -derivedDataPath build \
+            ARCHS=arm64 DEVELOPMENT_TEAM= CODE_SIGN_IDENTITY=- "${version[@]}" build
+      - name: Package
+        run: |
+          app="apple/build/Build/Products/Release/Remote Agent Server.app"
+          codesign --verify --deep --strict "$app"
+          lipo -archs "$app/Contents/MacOS/Remote Agent Server"
+          lipo -archs "$app/Contents/MacOS/rad"
+          "$app/Contents/MacOS/rad" version
+          mkdir dist
+          ditto -c -k --keepParent "$app" dist/Remote-Agent-Server-macOS-arm64.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: server-app
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [rad, server-app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          NOTES: |
+            - **rad** (`rad-<os>-<arch>.tar.gz`): the server for Linux and macOS. Unpack it, put `rad` on your PATH and run `rad serve`.
+            - **Remote Agent Server** (`Remote-Agent-Server-macOS-arm64.zip`): the menu bar app that runs rad on a Mac with Apple silicon. It is signed ad hoc, not notarized, so macOS blocks the first launch: allow it under System Settings › Privacy & Security, or run `xattr -dr com.apple.quarantine "Remote Agent Server.app"`. macOS also asks for its permissions again after each update.
+        run: |
+          sums=$(sha256sum *) && echo "$sums" > SHA256SUMS
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" * --clobber
+          else
+            prerelease=()
+            if [[ $TAG == *-* ]]; then prerelease=(--prerelease); fi
+            gh release create "$TAG" --verify-tag --generate-notes --notes "$NOTES" "${prerelease[@]}" *
+          fi

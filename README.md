@@ -45,6 +45,8 @@ go build -o bin/rad ./cmd/rad
 ./bin/rad serve          # first run writes ~/.config/remote-agent/config.yaml and prints a pairing QR
 ```
 
+Or download rad for Linux or macOS, arm64 or x86-64, from [Releases](https://github.com/buldezir/remote-agent/releases), unpack it and run `rad serve`.
+
 On the phone, open Remote Agent and tap **Pair a server**, then scan the QR code. On the Mac, or in the simulator, paste the link that `rad pair` prints instead.
 
 `rad serve` and `rad pair` list the agents that are ready, and any installed agent that still needs a login. The phone only sees agents installed on the server.
@@ -90,7 +92,9 @@ It keeps the session branches and the rad binary.
    ```
 
    Run it from one place only: macOS treats each copy separately and can list both in System Settings.
-2. Signing uses the team saved in `apple/Local.xcconfig` (step 3 for the iPhone). Without one, macOS forgets the app's permissions every time you rebuild it.
+
+   Or, on Apple silicon, download `Remote-Agent-Server-macOS-arm64.zip` from [Releases](https://github.com/buldezir/remote-agent/releases). That build is signed ad hoc and not notarized, so macOS blocks its first launch. Allow it under System Settings › Privacy & Security, or run `xattr -dr com.apple.quarantine "/Applications/Remote Agent Server.app"`.
+2. Signing uses the team saved in `apple/Local.xcconfig` (step 3 for the iPhone). Without one, macOS forgets the app's permissions every time you rebuild it, or install a new release.
 3. Open it. It runs rad with your usual config and opens **Permissions** the first time:
    - **Desktop, Documents and Downloads:** macOS asks once for each folder. **Full Disk Access** covers them and everything else, and is switched on in System Settings.
    - **Accessibility, Screen Recording and Automation of System Events:** for agents that click, type, take screenshots or run AppleScript. Other apps ask the first time an agent scripts them.
@@ -275,5 +279,7 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 - `screenshot`: runs a tool that returns an image
 
 It also says how many images came with a prompt. `rad debug run --image shot.png "…"` attaches one from the command line.
+
+To release, push a tag such as `v0.2.0`. [`.github/workflows/release.yml`](.github/workflows/release.yml) runs the server tests, builds rad for Linux and macOS and the Server app for Apple silicon, and publishes them as that tag's release with a `SHA256SUMS` file. A tag with a hyphen, such as `v0.3.0-beta.1`, becomes a prerelease.
 
 The raw protocol frames for each session are logged to `<data>/logs/<sessionId>.ndjson`.
