@@ -1,0 +1,10 @@
+// Code signing for running on an iPhone. xcodegen regenerates the Xcode
+// project, so a team picked in Xcode's Signing UI is lost on the next run.
+// Put yours in Local.xcconfig next to this file instead (it is gitignored):
+//
+//   DEVELOPMENT_TEAM = ABCDE12345
+//   PRODUCT_BUNDLE_IDENTIFIER = com.yourname.remote-agent   // only if the default is taken
+
+PRODUCT_BUNDLE_IDENTIFIER = dev.remote-agent.app
+
+#include? "Local.xcconfig"

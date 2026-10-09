@@ -5,6 +5,7 @@
 
 # iOS (project.yml is the source of truth; regenerate with `xcodegen`)
 /ios/RemoteAgent.xcodeproj/
+/ios/Local.xcconfig
 /ios/build/
 /ios/RAKit/.build/
 /ios/RAKit/.swiftpm/

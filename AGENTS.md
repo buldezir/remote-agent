@@ -17,11 +17,13 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - Assert on the emitted `harness.Event`s.
   - To exercise the orchestrator, extend `internal/harness/fake`.
 - **Xcode project:** `ios/project.yml` is the source of truth. `RemoteAgent.xcodeproj` is generated and gitignored, and `Info.plist` is generated from `project.yml`, so edit permissions and plist keys there. Run `xcodegen` after adding files or changing the spec.
+- **Signing:** the bundle ID lives in `ios/Signing.xcconfig`. It includes the developer's gitignored `ios/Local.xcconfig`, which holds their `DEVELOPMENT_TEAM`.
+- **App icon:** drawn by `ios/scripts/make-app-icon.swift`. Edit the script and rerun it; don't edit the PNGs.
 - **Swift 6 strict concurrency:**
   - Callbacks that run on other threads (AVAudioEngine taps, Speech results, URLSession delegates) must be created in `nonisolated` functions. A closure formed in `@MainActor` code is main-actor isolated and traps when called off the main thread.
   - Caches that view bodies fill lazily are `@ObservationIgnored`.
   - Navigation destinations are registered once at the root (`ServersView`), with values that carry the server id.
-- **Commits:** tests green first. Don't commit `bin/`, `ios/build/` or the `.xcodeproj`.
+- **Commits:** tests green first. Don't commit `bin/`, `ios/build/`, the `.xcodeproj` or `ios/Local.xcconfig`.
 
 ## Testing
 

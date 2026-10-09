@@ -39,9 +39,11 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: dev.remote-agent.pair
             CFBundleURLSchemes: [remoteagent]
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.remote-agent.app
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic

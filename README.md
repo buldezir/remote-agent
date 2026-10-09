@@ -40,6 +40,47 @@ To keep rad running in the background on macOS:
 ./bin/rad install-launchagent      # logs: ~/Library/Logs/rad.log; --uninstall to remove
 ```
 
+## Installing the app on an iPhone
+
+You need Xcode, an Apple ID and, for the first run, a cable.
+
+- **Free Apple ID:** builds expire after 7 days; run from Xcode again to renew.
+- **Paid Developer Program membership:** builds last a year.
+
+1. In Xcode → Settings → Accounts, add your Apple ID.
+2. Generate and open the project:
+
+   ```bash
+   cd ios && xcodegen && open RemoteAgent.xcodeproj
+   ```
+
+3. Select the **RemoteAgent** target → Signing & Capabilities, and choose your team.
+   - If Xcode says the bundle ID is taken, see step 4.
+   - xcodegen regenerates the project and forgets this choice. Save the team in the gitignored `ios/Local.xcconfig` so it survives:
+
+     ```bash
+     grep -m1 -o 'DEVELOPMENT_TEAM = [A-Z0-9]*' RemoteAgent.xcodeproj/project.pbxproj > Local.xcconfig
+     ```
+
+4. If the bundle ID was taken, add `PRODUCT_BUNDLE_IDENTIFIER = com.yourname.remote-agent` to `Local.xcconfig`, then run `xcodegen` again.
+5. Prepare the iPhone:
+   1. Connect it, unlock it and tap **Trust**.
+   2. Turn on Settings → Privacy & Security → **Developer Mode**. The switch appears once Xcode has seen the phone, and turning it on restarts the phone.
+6. Pick the iPhone as the run destination and press ⌘R.
+   - With a free Apple ID, the first launch is blocked until you trust yourself as a developer: Settings → General → VPN & Device Management → your Apple ID → Trust.
+   - After the first run, Xcode can also install over Wi-Fi.
+7. Make sure the phone can reach the computer. Use Tailscale, or set `lan = true` for the same Wi-Fi (see Quick start).
+8. Pair the phone:
+   1. Run `./bin/rad pair` on the computer.
+   2. In the app, tap **Pair a server** (or **+**) and scan the QR code. The iPhone Camera app can scan it too.
+   3. Allow Local Network access when iOS asks.
+
+The app icon is drawn by `ios/scripts/make-app-icon.swift`. Run it again after changing it:
+
+```bash
+cd ios && swift scripts/make-app-icon.swift RemoteAgent/Assets.xcassets/AppIcon.appiconset
+```
+
 ## Using it
 
 - **New session:**
