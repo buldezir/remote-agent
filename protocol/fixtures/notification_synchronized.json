@@ -1,0 +1,8 @@
+{
+  "method": "synchronized",
+  "params": {
+    "stream": "session:s1",
+    "seq": 14,
+    "reset": true
+  }
+}

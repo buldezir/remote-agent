@@ -1,0 +1,7 @@
+{
+  "id": 7,
+  "error": {
+    "code": "conflict",
+    "message": "approval is no longer pending"
+  }
+}

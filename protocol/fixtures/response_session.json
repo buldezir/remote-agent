@@ -1,0 +1,22 @@
+{
+  "id": 6,
+  "result": {
+    "id": "s1",
+    "projectId": "p1",
+    "harness": "claude",
+    "model": "sonnet",
+    "mode": "default",
+    "workspace": {
+      "kind": "worktree",
+      "path": "/w/s1",
+      "branch": "ra/fix-tests",
+      "baseRef": "main"
+    },
+    "status": "awaiting_approval",
+    "nativeId": "n1",
+    "title": "Fix the tests",
+    "archived": false,
+    "createdAt": "2026-10-09T12:00:00Z",
+    "updatedAt": "2026-10-09T12:00:05Z"
+  }
+}

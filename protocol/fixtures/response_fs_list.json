@@ -1,0 +1,19 @@
+{
+  "id": 5,
+  "result": {
+    "path": "/Users/me/projects",
+    "parent": "/Users/me",
+    "entries": [
+      {
+        "name": "app",
+        "path": "/Users/me/projects/app",
+        "isGitRepo": true
+      },
+      {
+        "name": "notes",
+        "path": "/Users/me/projects/notes",
+        "isGitRepo": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": 4,
+  "result": {
+    "harnesses": [
+      {
+        "id": "claude",
+        "name": "Claude Code",
+        "protocol": "claude",
+        "installed": true,
+        "version": "2.1.295",
+        "authOk": true,
+        "models": [
+          {
+            "id": "sonnet",
+            "name": "Sonnet 5.5",
+            "description": "Fast"
+          }
+        ],
+        "modes": [
+          {
+            "id": "default",
+            "name": "Ask"
+          }
+        ],
+        "defaultMode": "default",
+        "caps": {
+          "resume": true,
+          "interrupt": true,
+          "setMode": true,
+          "freeModel": true,
+          "modelSelect": true
+        }
+      },
+      {
+        "id": "acp:gemini",
+        "name": "Gemini",
+        "protocol": "acp",
+        "installed": false,
+        "authOk": false,
+        "hint": "`gemini` not found in PATH",
+        "caps": {
+          "resume": false,
+          "interrupt": false,
+          "setMode": false,
+          "freeModel": false,
+          "modelSelect": false
+        }
+      }
+    ]
+  }
+}

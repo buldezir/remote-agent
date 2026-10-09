@@ -1,0 +1,8 @@
+{
+  "serverId": "srv1",
+  "name": "studio",
+  "protocolVersion": 1,
+  "version": "dev",
+  "token": "0123abcd",
+  "deviceId": "dev1"
+}

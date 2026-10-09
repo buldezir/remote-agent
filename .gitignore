@@ -1,0 +1,14 @@
+# Go
+/bin/
+*.test
+*.out
+
+# iOS (project.yml is the source of truth; regenerate with `xcodegen`)
+/ios/RemoteAgent.xcodeproj/
+/ios/build/
+/ios/RAKit/.build/
+/ios/RAKit/.swiftpm/
+xcuserdata/
+DerivedData/
+
+.DS_Store

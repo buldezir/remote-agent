@@ -1,0 +1,53 @@
+{
+  "method": "events",
+  "params": {
+    "stream": "index",
+    "events": [
+      {
+        "stream": "index",
+        "seq": 1,
+        "type": "project.upserted",
+        "project": {
+          "id": "p1",
+          "path": "/Users/me/projects/app",
+          "name": "app",
+          "isGitRepo": true,
+          "createdAt": "2026-10-09T12:00:00Z"
+        },
+        "ts": "2026-10-09T12:00:00Z"
+      },
+      {
+        "stream": "index",
+        "seq": 2,
+        "type": "session.upserted",
+        "session": {
+          "id": "s1",
+          "projectId": "p1",
+          "harness": "claude",
+          "model": "sonnet",
+          "mode": "default",
+          "workspace": {
+            "kind": "worktree",
+            "path": "/w/s1",
+            "branch": "ra/fix-tests",
+            "baseRef": "main"
+          },
+          "status": "awaiting_approval",
+          "nativeId": "n1",
+          "title": "Fix the tests",
+          "archived": false,
+          "createdAt": "2026-10-09T12:00:00Z",
+          "updatedAt": "2026-10-09T12:00:05Z"
+        },
+        "ts": "2026-10-09T12:00:05Z"
+      },
+      {
+        "stream": "index",
+        "seq": 3,
+        "type": "project.removed",
+        "id": "p0",
+        "ts": "2026-10-09T12:00:05Z"
+      }
+    ]
+  }
+}

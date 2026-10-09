@@ -1,0 +1,31 @@
+{
+  "id": "d1",
+  "result": {
+    "from": "aaa",
+    "to": "bbb",
+    "files": [
+      {
+        "path": "main.go",
+        "status": "modified",
+        "additions": 3,
+        "deletions": 1
+      },
+      {
+        "path": "new.go",
+        "oldPath": "old.go",
+        "status": "renamed",
+        "additions": 0,
+        "deletions": 0
+      },
+      {
+        "path": "logo.png",
+        "status": "added",
+        "additions": 0,
+        "deletions": 0,
+        "binary": true
+      }
+    ],
+    "patch": "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -1,2 +1,4 @@\n package main\n-func a() {}\n+func a() { b() }\n+func b() {}\n+\n",
+    "truncated": false
+  }
+}
