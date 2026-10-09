@@ -1,6 +1,6 @@
 import Foundation
 
-// Wire entities. Mirrors internal/model in the Go server; see protocol/PROTOCOL.md.
+// Wire entities. Mirrors server/internal/model in the Go server; see protocol/PROTOCOL.md.
 // Unknown enum values decode to `.unknown` so newer servers don't break older apps.
 
 public struct Project: Codable, Hashable, Identifiable, Sendable {

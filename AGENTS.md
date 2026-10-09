@@ -4,18 +4,18 @@ Notes for coding agents working on this repo. What the project is and how it is 
 
 ## Development process
 
-- **Server:** Go in `cmd/rad` and `internal/`.
+- **Server:** a Go module in `server/` (`cmd/rad` and `internal/`). Run Go commands from `server/`; it builds into `server/bin/rad`.
 - **iOS client:** `ios/RAKit` holds the protocol, network client and stores, all testable with `swift test`. `ios/RemoteAgent` holds the SwiftUI views.
 - **Changing a wire type:** keep these in step:
-  - `internal/model/model.go`
+  - `server/internal/model/model.go`
   - `ios/RAKit/Sources/RAKit/Protocol/Models.swift`
   - `protocol/PROTOCOL.md`
 
-  Then regenerate the fixtures with `go test ./internal/api -update`, and assert the new field in `ios/RAKit/Tests/RAKitTests/FixtureTests.swift`. Clients ignore unknown fields, so prefer adding optional fields over changing existing ones.
+  Then regenerate the fixtures with `cd server && go test ./internal/api -update`, and assert the new field in `ios/RAKit/Tests/RAKitTests/FixtureTests.swift`. Clients ignore unknown fields, so prefer adding optional fields over changing existing ones.
 - **Changing a harness adapter:** never call real agent CLIs from tests. Adapter tests replay recorded transcripts:
-  - `internal/harness/*/testdata/*.ndjson`, one `{"dir":"in"|"out","frame":…}` per line, driven by `internal/harness/replaytest`.
+  - `server/internal/harness/*/testdata/*.ndjson`, one `{"dir":"in"|"out","frame":…}` per line, driven by `internal/harness/replaytest`.
   - Assert on the emitted `harness.Event`s.
-  - To exercise the orchestrator, extend `internal/harness/fake`.
+  - To exercise the orchestrator, extend `server/internal/harness/fake`.
 - **Xcode project:** `ios/project.yml` is the source of truth. `RemoteAgent.xcodeproj` is generated and gitignored, and `Info.plist` is generated from `project.yml`, so edit permissions and plist keys there. Run `xcodegen` after adding files or changing the spec.
 - **Signing:** the bundle ID lives in `ios/Signing.xcconfig`. It includes the developer's gitignored `ios/Local.xcconfig`, which holds their `DEVELOPMENT_TEAM`.
 - **App icon:** drawn by `ios/scripts/make-app-icon.swift`. Edit the script and rerun it; don't edit the PNGs.
@@ -23,12 +23,12 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - Callbacks that run on other threads (AVAudioEngine taps, Speech results, URLSession delegates) must be created in `nonisolated` functions. A closure formed in `@MainActor` code is main-actor isolated and traps when called off the main thread.
   - Caches that view bodies fill lazily are `@ObservationIgnored`.
   - Navigation destinations are registered once at the root (`ServersView`), with values that carry the server id.
-- **Commits:** tests green first. Don't commit `bin/`, `ios/build/`, the `.xcodeproj` or `ios/Local.xcconfig`.
+- **Commits:** tests green first. Don't commit `server/bin/`, `ios/build/`, the `.xcodeproj` or `ios/Local.xcconfig`.
 
 ## Testing
 
 ```bash
-gofmt -l internal cmd && go vet ./... && go test -race ./...
+cd server && gofmt -l internal cmd && go vet ./... && go test -race ./...
 cd ios/RAKit && swift test
 cd ios && xcodegen && xcodebuild -project RemoteAgent.xcodeproj -scheme RemoteAgent \
   -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath build build
@@ -49,15 +49,15 @@ The developer may have their own `rad serve` running on the default port 7421, w
 2. Build and start the server:
 
    ```bash
-   go build -o bin/rad ./cmd/rad
-   RAD_HOME=$SCRATCH/radhome ./bin/rad serve &
+   go -C server build -o bin/rad ./cmd/rad
+   RAD_HOME=$SCRATCH/radhome server/bin/rad serve &
    ```
 
 3. Drive it:
 
    ```bash
-   RAD_HOME=$SCRATCH/radhome ./bin/rad debug run --cwd $SCRATCH/proj [--worktree] "write a.txt"
-   RAD_HOME=$SCRATCH/radhome ./bin/rad debug prompt <sessionId> "again"
+   RAD_HOME=$SCRATCH/radhome server/bin/rad debug run --cwd $SCRATCH/proj [--worktree] "write a.txt"
+   RAD_HOME=$SCRATCH/radhome server/bin/rad debug prompt <sessionId> "again"
    ```
 
 Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
@@ -69,7 +69,7 @@ The simulator reaches the host's `127.0.0.1`, so a scratch rad on loopback works
 ```bash
 APP=ios/build/Build/Products/Debug-iphonesimulator/RemoteAgent.app
 xcrun simctl install booted $APP && xcrun simctl launch booted dev.remote-agent.app
-xcrun simctl openurl booted "$(RAD_HOME=$SCRATCH/radhome ./bin/rad pair --print-url)"   # pair, then tap Pair
+xcrun simctl openurl booted "$(RAD_HOME=$SCRATCH/radhome server/bin/rad pair --print-url)"   # pair, then tap Pair
 xcrun simctl io booted screenshot /tmp/shot.png
 xcrun simctl spawn booted log show --last 2m --predicate 'subsystem == "dev.remote-agent.app"'
 ```

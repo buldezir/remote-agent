@@ -22,7 +22,10 @@ Prior art: [Happy](https://github.com/slopus/happy) (mobile client and relay for
 
 ## Quick start
 
+The server lives in `server/` and builds into `server/bin/rad`:
+
 ```bash
+cd server
 go build -o bin/rad ./cmd/rad
 ./bin/rad serve          # first run writes ~/.config/remote-agent/config.toml and prints a pairing QR
 ```
@@ -86,7 +89,7 @@ You need Xcode, an Apple ID and, for the first run, a cable.
    - After the first run, Xcode can also install over Wi-Fi.
 7. Make sure the phone can reach the computer. Use Tailscale, or set `lan = true` for the same Wi-Fi (see Quick start).
 8. Pair the phone:
-   1. Run `./bin/rad pair` on the computer. Add `--lan` if you started `rad serve --lan`.
+   1. Run `server/bin/rad pair` on the computer. Add `--lan` if you started `rad serve --lan`.
    2. In the app, tap **Pair a server** (or **+**) and scan the QR code. The iPhone Camera app can scan it too.
    3. Allow Local Network access when iOS asks.
 
@@ -156,14 +159,15 @@ command = "codex"
 ## Layout
 
 ```
-cmd/rad/                 CLI: serve, pair, devices, debug, install-service, uninstall
-internal/model           domain types (Session, Turn, Item, Event…) = wire format
-internal/store           SQLite; per-stream change feed (latest event per entity)
-internal/events          live fan-out to subscribers
-internal/orchestrator    session actors: prompts, approvals, turns, checkpoints, recovery
-internal/harness/        adapter interface + claude/ codex/ acp/ fake/ proc/ jsonrpc/
-internal/gitx            worktrees, checkpoints, diffs, revert (git CLI)
-internal/api             HTTP pairing + WebSocket JSON-RPC
+server/                  Go module for rad
+  cmd/rad/               CLI: serve, pair, devices, debug, install-service, uninstall
+  internal/model         domain types (Session, Turn, Item, Event…) = wire format
+  internal/store         SQLite; per-stream change feed (latest event per entity)
+  internal/events        live fan-out to subscribers
+  internal/orchestrator  session actors: prompts, approvals, turns, checkpoints, recovery
+  internal/harness/      adapter interface + claude/ codex/ acp/ fake/ proc/ jsonrpc/
+  internal/gitx          worktrees, checkpoints, diffs, revert (git CLI)
+  internal/api           HTTP pairing + WebSocket JSON-RPC
 protocol/                PROTOCOL.md + golden fixtures shared by Go and Swift tests
 ios/                     XcodeGen project; RAKit (protocol, client, stores) + SwiftUI app
 ```
@@ -171,9 +175,9 @@ ios/                     XcodeGen project; RAKit (protocol, client, stores) + Sw
 ## Development
 
 ```bash
-go test ./... -race                       # server tests (adapters replay recorded CLI transcripts)
-go test ./internal/api -update            # regenerate protocol/fixtures after changing wire types
-cd ios/RAKit && swift test                # client protocol and sync tests
+cd server && go test ./... -race              # server tests (adapters replay recorded CLI transcripts)
+cd server && go test ./internal/api -update   # regenerate protocol/fixtures after changing wire types
+cd ios/RAKit && swift test                    # client protocol and sync tests
 cd ios && xcodegen && xcodebuild -scheme RemoteAgent -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 

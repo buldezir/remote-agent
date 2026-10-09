@@ -1,5 +1,5 @@
 # Go
-/bin/
+/server/bin/
 *.test
 *.out
 

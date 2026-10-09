@@ -113,7 +113,7 @@ func fixtures() map[string]any {
 }
 
 func TestFixtures(t *testing.T) {
-	dir := filepath.Join("..", "..", "protocol", "fixtures")
+	dir := filepath.Join("..", "..", "..", "protocol", "fixtures")
 	for name, v := range fixtures() {
 		got, err := json.MarshalIndent(v, "", "  ")
 		if err != nil {
