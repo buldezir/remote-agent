@@ -106,13 +106,25 @@ func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 			Description string `json:"description"`
 			Hidden      bool   `json:"hidden"`
 			IsDefault   bool   `json:"isDefault"`
+			Efforts     []struct {
+				ReasoningEffort string `json:"reasoningEffort"`
+				Description     string `json:"description"`
+			} `json:"supportedReasoningEfforts"`
 		} `json:"data"`
 	}
 	if c.Call(ctx, "model/list", map[string]any{}, &models) == nil {
 		for _, m := range models.Data {
-			if !m.Hidden {
-				info.Models = append(info.Models, model.Choice{ID: m.ID, Name: m.DisplayName, Description: m.Description})
+			if m.Hidden {
+				continue
 			}
+			c := model.Choice{ID: m.ID, Name: m.DisplayName, Description: m.Description}
+			for _, e := range m.Efforts {
+				c.Efforts = append(c.Efforts, harness.EffortChoice(e.ReasoningEffort, e.Description))
+			}
+			if m.IsDefault {
+				info.Efforts = c.Efforts
+			}
+			info.Models = append(info.Models, c)
 		}
 	}
 	var acct struct {
@@ -139,7 +151,7 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	if err != nil {
 		return nil, err
 	}
-	r := &runtime{p: p, cwd: o.Cwd, mode: mode, model: o.Model, events: make(chan harness.Event, 512),
+	r := &runtime{p: p, cwd: o.Cwd, mode: mode, model: o.Model, effort: o.Effort, events: make(chan harness.Event, 512),
 		items: map[string]*model.Item{}, requests: map[string]*serverRequest{}}
 	r.conn = jsonrpc.New(p, "", jsonrpc.Handler{Notify: r.onNotify, Request: r.onRequest})
 	go r.conn.Run()
@@ -167,6 +179,8 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
+		Model           string `json:"model"`
+		ReasoningEffort string `json:"reasoningEffort"`
 	}
 	method := "thread/start"
 	if o.ResumeID != "" {
@@ -179,6 +193,14 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	}
 	r.threadID = res.Thread.ID
 	r.emit(harness.NativeID{ID: r.threadID})
+	if res.Model != "" {
+		effort := res.ReasoningEffort
+		if o.Effort != "" {
+			effort = o.Effort // sent with each turn
+		}
+		// Display names come from model/list, which clients have via harness.list.
+		r.emit(harness.ModelInfo{ID: res.Model, Effort: effort})
+	}
 	return r, nil
 }
 

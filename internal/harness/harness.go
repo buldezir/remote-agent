@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +17,7 @@ type OpenOptions struct {
 	SessionID string
 	Cwd       string
 	Model     string
+	Effort    string // reasoning effort; empty for the harness default
 	Mode      string
 	ResumeID  string // native session/thread id to resume; empty for a fresh session
 	Log       *slog.Logger
@@ -23,7 +25,8 @@ type OpenOptions struct {
 }
 
 // Event is emitted by a Runtime. Implementations: ItemEvent, ApprovalEvent,
-// ApprovalCancelled, TurnEnded, NativeID, ModeChanged, ContextUsage, Exited.
+// ApprovalCancelled, TurnEnded, NativeID, ModeChanged, ContextUsage,
+// ModelInfo, Exited.
 type Event interface{ isEvent() }
 
 // ItemEvent carries the full current state of a transcript item. Item.ID and
@@ -56,6 +59,10 @@ type ModeChanged struct{ Mode string }
 // model's context window. Window is 0 if unknown; the last known one is kept.
 type ContextUsage struct{ Used, Window int64 }
 
+// ModelInfo reports the model and reasoning effort the agent runs with, in
+// full each time; empty fields are unknown.
+type ModelInfo struct{ ID, Name, Effort string }
+
 // Exited is the last event; the runtime is unusable afterwards.
 type Exited struct{ Err error }
 
@@ -66,6 +73,7 @@ func (TurnEnded) isEvent()         {}
 func (NativeID) isEvent()          {}
 func (ModeChanged) isEvent()       {}
 func (ContextUsage) isEvent()      {}
+func (ModelInfo) isEvent()         {}
 func (Exited) isEvent()            {}
 
 type Response struct {
@@ -159,4 +167,15 @@ func (r *Registry) Info(ctx context.Context, h Harness, refresh bool) model.Harn
 	r.info[h.ID()] = cachedInfo{info, time.Now()}
 	r.mu.Unlock()
 	return info
+}
+
+var effortNames = map[string]string{"xhigh": "Extra high"}
+
+// EffortChoice names a reasoning effort level for pickers.
+func EffortChoice(id, description string) model.Choice {
+	name := effortNames[id]
+	if name == "" && id != "" {
+		name = strings.ToUpper(id[:1]) + id[1:]
+	}
+	return model.Choice{ID: id, Name: name, Description: description}
 }

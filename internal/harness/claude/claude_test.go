@@ -2,8 +2,10 @@ package claude
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -138,6 +140,53 @@ func TestReplayWriteWithApproval(t *testing.T) {
 	if got := turn.Contexts(); !slices.Equal(got, want) {
 		t.Errorf("context = %v, want %v", got, want)
 	}
+	// The recording ran Haiku, which the CLI's model list doesn't name.
+	if got, want := turn.ModelInfos(), []harness.ModelInfo{{ID: "claude-haiku-5-5", Effort: "high"}}; !slices.Equal(got, want) {
+		t.Errorf("model = %v, want %v", got, want)
+	}
 
 	replaytest.CloseClean(t, rt)
+}
+
+func TestModelName(t *testing.T) {
+	var init initResponse
+	json.Unmarshal([]byte(`{"models":[
+		{"value":"default","resolvedModel":"claude-opus-5-5","displayName":"Default (recommended)"},
+		{"value":"opus","resolvedModel":"claude-opus-5-5","displayName":"Opus 5.5"}]}`), &init)
+	for id, want := range map[string]string{"claude-opus-5-5": "Opus 5.5", "claude-haiku-5-5": ""} {
+		if got := init.modelName(id); got != want {
+			t.Errorf("modelName(%q) = %q, want %q", id, got, want)
+		}
+	}
+}
+
+func TestChoices(t *testing.T) {
+	// The initialize response recorded in the transcript.
+	data, err := os.ReadFile("testdata/write.ndjson")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var line struct {
+		Frame struct {
+			Response struct {
+				Response initResponse `json:"response"`
+			} `json:"response"`
+		} `json:"frame"`
+	}
+	json.Unmarshal([]byte(strings.Split(string(data), "\n")[3]), &line)
+	init := line.Frame.Response.Response
+	models, efforts := init.choices()
+	if len(models) != 3 || models[1].ID != "opus" || models[1].Name != "Opus 5.5" {
+		t.Fatalf("models = %+v", models)
+	}
+	var ids []string
+	for _, e := range efforts {
+		ids = append(ids, e.ID)
+	}
+	if want := []string{"low", "medium", "high", "xhigh", "max"}; !slices.Equal(ids, want) {
+		t.Errorf("efforts = %v, want %v", ids, want)
+	}
+	if efforts[3].Name != "Extra high" || !reflect.DeepEqual(models[1].Efforts, efforts) {
+		t.Errorf("xhigh = %+v, opus efforts = %+v", efforts[3], models[1].Efforts)
+	}
 }

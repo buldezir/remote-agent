@@ -1,9 +1,9 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -45,6 +45,25 @@ type env struct {
 	o    *Orchestrator
 	proj *model.Project
 	dir  string // project dir
+	log  *logBuffer
+}
+
+// logBuffer collects the orchestrator's log; actors write it concurrently.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // newEnv sets up a store, an orchestrator with the fake harness, and a project.
@@ -63,9 +82,10 @@ func newEnvAt(t *testing.T, dir string, git bool, hs ...harness.Harness) *env {
 	t.Cleanup(func() { st.Close() })
 	hub := events.NewHub()
 	st.OnCommit(hub.Publish)
+	logs := &logBuffer{}
 	o := New(st, harness.NewRegistry(hs...), Options{
 		WorktreesDir: t.TempDir(),
-		Log:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Log:          slog.New(slog.NewTextHandler(logs, nil)),
 	})
 	t.Cleanup(o.Shutdown)
 
@@ -82,7 +102,7 @@ func newEnvAt(t *testing.T, dir string, git bool, hs ...harness.Harness) *env {
 	if proj.IsGitRepo != git {
 		t.Fatalf("IsGitRepo = %v", proj.IsGitRepo)
 	}
-	return &env{t: t, st: st, o: o, proj: proj, dir: dir}
+	return &env{t: t, st: st, o: o, proj: proj, dir: dir, log: logs}
 }
 
 func run(t *testing.T, dir string, name string, args ...string) string {
@@ -301,6 +321,36 @@ func TestPromptPersistsTranscript(t *testing.T) {
 	// Turn 2 reports no window; the known one is kept.
 	if c := sess.Context; c == nil || *c != (model.ContextUsage{Used: 60000, Window: 200000}) {
 		t.Errorf("context = %+v", c)
+	}
+	if m := sess.ModelInfo; m == nil || *m != (model.ModelInfo{ID: "echo", Effort: "medium"}) {
+		t.Errorf("model info = %+v", m)
+	}
+
+	// The log describes each prompt and turn, but holds no prompt text (nor
+	// the title made from it).
+	logs := e.log.String()
+	for _, want := range []string{"msg=prompt ", "chars=23 lines=2 queued=false", `msg="turn started"`, `msg="turn ended"`,
+		"turn=2 status=completed", "model=echo effort=medium", "branch=feature"} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("log lacks %q:\n%s", want, logs)
+		}
+	}
+	for _, text := range []string{"hello", "second line", "again"} {
+		if strings.Contains(logs, text) {
+			t.Errorf("log contains prompt text %q:\n%s", text, logs)
+		}
+	}
+}
+
+func TestCreateWithEffort(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	s := e.create(CreateSessionParams{CommandID: "c1", Effort: "high", Prompt: "hi"})
+	e.waitTurn(s.ID, 1)
+	// The fake harness reports back the effort it was opened with.
+	sess := e.session(s.ID)
+	if sess.Effort != "high" || sess.ModelInfo == nil || sess.ModelInfo.Effort != "high" {
+		t.Errorf("effort = %q, model info = %+v", sess.Effort, sess.ModelInfo)
 	}
 }
 

@@ -39,6 +39,15 @@ type ContextUsage struct {
 	Window int64 `json:"window,omitempty"`
 }
 
+// ModelInfo is the model and reasoning effort the agent reported it runs
+// with, which may differ from the requested Session.Model (e.g. a default or
+// an alias). Empty fields are unknown.
+type ModelInfo struct {
+	ID     string `json:"id,omitempty"`
+	Name   string `json:"name,omitempty"`   // display name, when the agent gives one
+	Effort string `json:"effort,omitempty"` // e.g. low, medium, high
+}
+
 type SessionStatus string
 
 const (
@@ -54,6 +63,7 @@ type Session struct {
 	ProjectID string        `json:"projectId"`
 	Harness   string        `json:"harness"`
 	Model     string        `json:"model,omitempty"`
+	Effort    string        `json:"effort,omitempty"` // requested reasoning effort; empty for the default
 	Mode      string        `json:"mode,omitempty"`
 	Workspace Workspace     `json:"workspace"`
 	Status    SessionStatus `json:"status"`
@@ -62,6 +72,7 @@ type Session struct {
 	Error     string        `json:"error,omitempty"`
 	Archived  bool          `json:"archived"`
 	Context   *ContextUsage `json:"context,omitempty"`
+	ModelInfo *ModelInfo    `json:"modelInfo,omitempty"`
 	ItemCount int64         `json:"-"`
 	CreatedAt time.Time     `json:"createdAt"`
 	UpdatedAt time.Time     `json:"updatedAt"`
@@ -282,9 +293,10 @@ func (e *Event) EntityKey() string {
 // Harness descriptions returned by harness.list.
 
 type Choice struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Efforts     []Choice `json:"efforts,omitempty"` // for a model: the reasoning efforts it supports
 }
 
 type HarnessCaps struct {
@@ -304,6 +316,7 @@ type HarnessInfo struct {
 	AuthOK      bool        `json:"authOk"`
 	Hint        string      `json:"hint,omitempty"`
 	Models      []Choice    `json:"models,omitempty"`
+	Efforts     []Choice    `json:"efforts,omitempty"` // for the default model; a listed model's own efforts win
 	Modes       []Choice    `json:"modes,omitempty"`
 	DefaultMode string      `json:"defaultMode,omitempty"`
 	Caps        HarnessCaps `json:"caps"`

@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"remote-agent/internal/gitx"
 	"remote-agent/internal/harness"
@@ -18,8 +21,9 @@ import (
 const flushInterval = 100 * time.Millisecond
 
 type queuedPrompt struct {
-	item *model.Item
-	text string
+	item     *model.Item
+	text     string
+	queuedAt time.Time
 }
 
 type pendingApproval struct {
@@ -126,12 +130,39 @@ func (a *actor) prompt(ctx context.Context, text, commandID string) (*model.Item
 		return nil, err
 	}
 	a.lastActive = time.Now()
+	a.o.log.Info("prompt", a.logAttrs("chars", utf8.RuneCountInString(text), "lines", strings.Count(text, "\n")+1,
+		"queued", a.turn != nil, "device", clientOf(ctx))...)
+	q := queuedPrompt{it, text, time.Now()}
 	if a.turn != nil {
-		a.queue = append(a.queue, queuedPrompt{it, text})
+		a.queue = append(a.queue, q)
 		cp := *it // the queued item is updated when its turn starts
 		return &cp, nil
 	}
-	return it, a.startTurn(ctx, queuedPrompt{it, text})
+	return it, a.startTurn(ctx, q)
+}
+
+// logAttrs describes the session for the log, leaving out the conversation:
+// no prompt text, and no title, which is made from the first prompt.
+func (a *actor) logAttrs(extra ...any) []any {
+	s := a.sess
+	attrs := []any{"session", s.ID}
+	if a.project != nil {
+		attrs = append(attrs, "project", a.project.Name)
+	}
+	attrs = append(attrs, "harness", s.Harness)
+	m, effort := s.Model, s.Effort
+	if s.ModelInfo != nil {
+		m, effort = s.ModelInfo.ID, s.ModelInfo.Effort
+	}
+	for _, kv := range [][2]string{{"model", m}, {"effort", effort}, {"mode", s.Mode}, {"branch", s.Workspace.Branch}} {
+		if kv[1] != "" {
+			attrs = append(attrs, kv[0], kv[1])
+		}
+	}
+	if s.Workspace.Kind == model.WorkspaceWorktree {
+		attrs = append(attrs, "worktree", true)
+	}
+	return append(attrs, extra...)
 }
 
 func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
@@ -156,6 +187,7 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 	}
 	n := a.lastTurnN + 1
 	turn := &model.Turn{ID: store.NewID(), SessionID: a.sess.ID, N: n, Status: model.TurnRunning, StartedAt: time.Now().UTC()}
+	a.o.log.Info("turn started", "session", a.sess.ID, "turn", n, "waited", time.Since(q.queuedAt).Round(time.Millisecond))
 	turn.CheckpointBefore = a.checkpoint(ctx, n, "before")
 	a.refreshBranch(ctx)
 	a.turn, a.lastTurnN = turn, n
@@ -196,7 +228,7 @@ func (a *actor) open(ctx context.Context) error {
 		return fmt.Errorf("harness %q is not configured", a.sess.Harness)
 	}
 	opts := harness.OpenOptions{
-		SessionID: a.sess.ID, Cwd: a.sess.Workspace.Path, Model: a.sess.Model, Mode: a.sess.Mode,
+		SessionID: a.sess.ID, Cwd: a.sess.Workspace.Path, Model: a.sess.Model, Effort: a.sess.Effort, Mode: a.sess.Mode,
 		ResumeID: a.sess.NativeID, Log: a.o.log.With("session", a.sess.ID, "harness", a.sess.Harness),
 	}
 	if a.o.opt.LogsDir != "" {
@@ -278,6 +310,12 @@ func (a *actor) handle(gen int, ev harness.Event) {
 		}
 		if a.sess.Context == nil || *a.sess.Context != c {
 			a.sess.Context = &c
+			a.write(ctx, a.putSession)
+		}
+	case harness.ModelInfo:
+		m := model.ModelInfo{ID: ev.ID, Name: ev.Name, Effort: ev.Effort}
+		if a.sess.ModelInfo == nil || *a.sess.ModelInfo != m {
+			a.sess.ModelInfo = &m
 			a.write(ctx, a.putSession)
 		}
 	case harness.Exited:
@@ -502,6 +540,7 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 	a.turn = nil
 	a.lastActive = time.Now()
 	a.syncStatus()
+	a.logTurnEnd(turn)
 	a.write(ctx, func(w *store.W) error {
 		for _, it := range changed {
 			if err := a.putItem(w, it); err != nil {
@@ -519,6 +558,27 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 		a.queue = a.queue[1:]
 		a.startTurn(ctx, next)
 	}
+}
+
+func (a *actor) logTurnEnd(t *model.Turn) {
+	attrs := []any{"turn", t.N, "status", t.Status, "duration", t.EndedAt.Sub(t.StartedAt).Round(time.Millisecond)}
+	if c := a.sess.Context; c != nil && c.Window > 0 {
+		attrs = append(attrs, "context", fmt.Sprintf("%d%%", c.Used*100/c.Window))
+	}
+	if u := t.Usage; u != nil {
+		attrs = append(attrs, "input_tokens", u.InputTokens+u.CacheReadTokens+u.CacheWriteTokens, "output_tokens", u.OutputTokens)
+		if u.CostUSD > 0 {
+			attrs = append(attrs, "cost_usd", fmt.Sprintf("%.4f", u.CostUSD))
+		}
+	}
+	if t.Error != "" {
+		attrs = append(attrs, "error", t.Error)
+	}
+	level := slog.LevelInfo
+	if t.Status == model.TurnFailed {
+		level = slog.LevelWarn
+	}
+	a.o.log.Log(context.Background(), level, "turn ended", a.logAttrs(attrs...)...)
 }
 
 func (a *actor) failQueue(ctx context.Context) {

@@ -367,6 +367,17 @@ func (t *Turn) Contexts() []harness.ContextUsage {
 	return out
 }
 
+// ModelInfos returns the ModelInfo events in order.
+func (t *Turn) ModelInfos() []harness.ModelInfo {
+	var out []harness.ModelInfo
+	for _, ev := range t.Events {
+		if m, ok := ev.(harness.ModelInfo); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 func (t *Turn) ItemsOf(kind model.ItemKind) []model.Item {
 	var out []model.Item
 	for _, k := range t.Keys {

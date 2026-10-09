@@ -100,7 +100,7 @@ type projectIDParams struct {
 func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	// Commands outlive a dropped connection: a half-applied create or prompt
 	// is worse than finishing it. Clients retry with the same commandId.
-	ctx := context.WithoutCancel(c.ctx)
+	ctx := orchestrator.WithClient(context.WithoutCancel(c.ctx), c.device.Name)
 	o := c.s.orch
 	switch method {
 	case "server.info":

@@ -77,5 +77,6 @@ xcrun simctl spawn booted log show --last 2m --predicate 'subsystem == "dev.remo
 - **Pairing:** the camera and QR scanning don't work in the simulator. Pair with the deep link above. The pairing sheet appears on the server list, so go back to the list if a server is open.
 - **Speech:** recognition doesn't work in the simulator; it fails with `kLSRErrorDomain 300`. Dictation can only be verified on a device. The UI states and permission prompts can still be checked.
 - **Screenshots:** they can lag a push or pop animation. Wait about a second, or take a second screenshot, before concluding a tap did nothing.
+- **Keychain after signing changes:** setting or changing `DEVELOPMENT_TEAM` changes the keychain access group, so the simulator app loses tokens it saved earlier. Servers then show "Not connected", and the log shows `NSURLErrorDomain -1011` on the WebSocket. Re-pair; the server doesn't need to revoke anything.
 - **Cleanup:** the app may already be paired with the developer's own server. Add your scratch server next to it. When done, remove the scratch server in the app (… → Remove server, which also unpairs it on rad), then stop your scratch rad.
 - **Coverage:** the simulator doesn't cover Tailscale, LAN pairing, the camera or microphone input. Say so when a change depends on them.

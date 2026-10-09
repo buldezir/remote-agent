@@ -24,10 +24,11 @@ func fixtures() map[string]any {
 	t1 := t0.Add(5 * time.Second)
 	exit := 0
 	sess := &model.Session{
-		ID: "s1", ProjectID: "p1", Harness: "claude", Model: "sonnet", Mode: "default",
+		ID: "s1", ProjectID: "p1", Harness: "claude", Model: "sonnet", Effort: "high", Mode: "default",
 		Workspace: model.Workspace{Kind: model.WorkspaceWorktree, Path: "/w/s1", Branch: "ra/fix-tests", BaseRef: "main"},
 		Status:    model.SessionAwaitingApproval, NativeID: "n1", Title: "Fix the tests", CreatedAt: t0, UpdatedAt: t1,
-		Context: &model.ContextUsage{Used: 52000, Window: 200000},
+		Context:   &model.ContextUsage{Used: 52000, Window: 200000},
+		ModelInfo: &model.ModelInfo{ID: "claude-sonnet-5-5", Name: "Sonnet 5.5", Effort: "high"},
 	}
 	turn := &model.Turn{ID: "t1", SessionID: "s1", N: 1, Status: model.TurnCompleted, CheckpointBefore: "aaa", CheckpointAfter: "bbb",
 		Usage: &model.Usage{InputTokens: 10, OutputTokens: 20, CacheReadTokens: 5, CostUSD: 0.0123}, StartedAt: t0, EndedAt: &t1}
@@ -93,7 +94,10 @@ func fixtures() map[string]any {
 		"response_subscribe.json":          response{ID: json.RawMessage("3"), Result: subscribeResult{Stream: stream, Seq: seq}},
 		"response_harness_list.json": response{ID: json.RawMessage("4"), Result: map[string]any{"harnesses": []model.HarnessInfo{
 			{ID: "claude", Name: "Claude Code", Protocol: "claude", Installed: true, Version: "2.1.295", AuthOK: true,
-				Models: []model.Choice{{ID: "sonnet", Name: "Sonnet 5.5", Description: "Fast"}}, Modes: []model.Choice{{ID: "default", Name: "Ask"}},
+				Models: []model.Choice{{ID: "sonnet", Name: "Sonnet 5.5", Description: "Fast",
+					Efforts: []model.Choice{{ID: "low", Name: "Low"}, {ID: "high", Name: "High"}}}},
+				Efforts:     []model.Choice{{ID: "low", Name: "Low"}, {ID: "medium", Name: "Medium"}, {ID: "high", Name: "High"}},
+				Modes:       []model.Choice{{ID: "default", Name: "Ask"}},
 				DefaultMode: "default", Caps: model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, FreeModel: true, ModelSelect: true}},
 			{ID: "acp:gemini", Name: "Gemini", Protocol: "acp", Hint: "`gemini` not found in PATH"},
 		}}},

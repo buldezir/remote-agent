@@ -118,6 +118,10 @@ func TestReplayCursor(t *testing.T) {
 		t.Errorf("overlay = %+v", info)
 	}
 
+	// Cursor puts the effort in the model value.
+	if got, want := turn.ModelInfos(), []harness.ModelInfo{{ID: "grok-4.6[effort=high,fast=true]", Name: "grok-4.6", Effort: "high"}}; !slices.Equal(got, want) {
+		t.Errorf("model = %v, want %v", got, want)
+	}
 	replaytest.CloseClean(t, rt)
 }
 
@@ -170,5 +174,21 @@ func TestReplayOpenCode(t *testing.T) {
 		t.Errorf("context = %v, want %v", got, want)
 	}
 
+	if got, want := turn.ModelInfos(), []harness.ModelInfo{{ID: "opencode/big-pickle", Name: "OpenCode Zen/Big Pickle"}}; !slices.Equal(got, want) {
+		t.Errorf("model = %v, want %v", got, want)
+	}
 	replaytest.CloseClean(t, rt)
+}
+
+func TestValueParam(t *testing.T) {
+	for v, want := range map[string]string{
+		"grok-4.6[effort=high,fast=true]":                    "high",
+		"grok-4.7[context=256k,reasoning_effort=xhigh,fast]": "xhigh",
+		"default[]":           "",
+		"opencode/big-pickle": "",
+	} {
+		if got := valueParam(v, "effort", "reasoning_effort"); got != want {
+			t.Errorf("valueParam(%q) = %q, want %q", v, got, want)
+		}
+	}
 }

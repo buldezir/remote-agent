@@ -12,6 +12,7 @@
           "projectId": "p1",
           "harness": "claude",
           "model": "sonnet",
+          "effort": "high",
           "mode": "default",
           "workspace": {
             "kind": "worktree",
@@ -26,6 +27,11 @@
           "context": {
             "used": 52000,
             "window": 200000
+          },
+          "modelInfo": {
+            "id": "claude-sonnet-5-5",
+            "name": "Sonnet 5.5",
+            "effort": "high"
           },
           "createdAt": "2026-10-09T12:00:00Z",
           "updatedAt": "2026-10-09T12:00:05Z"

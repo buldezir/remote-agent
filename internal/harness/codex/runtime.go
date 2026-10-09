@@ -37,6 +37,7 @@ type runtime struct {
 	mu           sync.Mutex
 	mode         string
 	model        string
+	effort       string
 	turnID       string
 	inTurn       bool
 	interrupting bool
@@ -105,6 +106,9 @@ func (r *runtime) Prompt(ctx context.Context, text string) error {
 		"input":          []map[string]any{{"type": "text", "text": text}},
 		"approvalPolicy": pr.approval,
 		"sandboxPolicy":  pr.policy,
+	}
+	if r.effort != "" {
+		params["effort"] = r.effort
 	}
 	var res struct {
 		Turn struct {

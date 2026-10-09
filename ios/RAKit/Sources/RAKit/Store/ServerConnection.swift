@@ -257,6 +257,7 @@ public final class ServerConnection {
         public var projectId: String
         public var harness: String
         public var model: String?
+        public var effort: String?
         public var mode: String?
         public var workspace: WorkspaceParams
         public var prompt: String
@@ -272,10 +273,12 @@ public final class ServerConnection {
             }
         }
 
-        public init(projectId: String, harness: String, model: String?, mode: String?, workspace: WorkspaceParams, prompt: String) {
+        public init(projectId: String, harness: String, model: String?, effort: String? = nil, mode: String?,
+                    workspace: WorkspaceParams, prompt: String) {
             self.projectId = projectId
             self.harness = harness
             self.model = model
+            self.effort = effort
             self.mode = mode
             self.workspace = workspace
             self.prompt = prompt

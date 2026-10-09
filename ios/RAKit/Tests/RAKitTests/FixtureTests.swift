@@ -54,6 +54,11 @@ struct FixtureTests {
         #expect(h.result?.harnesses[0].usable == true)
         #expect(h.result?.harnesses[1].usable == false)
         #expect(h.result?.harnesses[1].hint?.isEmpty == false)
+        // A model's own efforts replace the harness's; others get the default model's.
+        let claude = h.result?.harnesses[0]
+        #expect(claude?.efforts(forModel: "sonnet").map(\.id) == ["low", "high"])
+        #expect(claude?.efforts(forModel: nil).map(\.id) == ["low", "medium", "high"])
+        #expect(h.result?.harnesses[1].efforts(forModel: nil).isEmpty == true)
 
         let d = try dec.decode(Response<Diff>.self, from: load("response_diff.json"))
         #expect(d.result?.files.map(\.status) == [.modified, .renamed, .added])
@@ -68,6 +73,9 @@ struct FixtureTests {
         let s = try dec.decode(Response<Session>.self, from: load("response_session.json"))
         #expect(s.result?.title == "Fix the tests")
         #expect(s.result?.context?.fraction == 0.26)
+        #expect(s.result?.modelName(in: nil) == "Sonnet 5.5")
+        #expect(s.result?.modelInfo?.effort == "high")
+        #expect(s.result?.effort == "high")
 
         let p = try dec.decode(PairResult.self, from: load("http_pair_response.json"))
         #expect(p.token == "0123abcd")

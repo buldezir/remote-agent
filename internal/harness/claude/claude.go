@@ -92,9 +92,7 @@ func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 	}
 	var init initResponse
 	json.Unmarshal(res, &init)
-	for _, m := range init.Models {
-		info.Models = append(info.Models, model.Choice{ID: m.Value, Name: m.DisplayName, Description: m.Description})
-	}
+	info.Models, info.Efforts = init.choices()
 	info.AuthOK = init.Account != nil
 	if !info.AuthOK {
 		info.Hint = "Not logged in: run `claude` on this machine and sign in"
@@ -104,9 +102,12 @@ func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 
 type initResponse struct {
 	Models []struct {
-		Value       string `json:"value"`
-		DisplayName string `json:"displayName"`
-		Description string `json:"description"`
+		Value                 string   `json:"value"`
+		ResolvedModel         string   `json:"resolvedModel"`
+		DisplayName           string   `json:"displayName"`
+		Description           string   `json:"description"`
+		SupportsEffort        bool     `json:"supportsEffort"`
+		SupportedEffortLevels []string `json:"supportedEffortLevels"`
 	} `json:"models"`
 	Account               *json.RawMessage `json:"account"`
 	CurrentPermissionMode string           `json:"current_permission_mode"`
@@ -119,6 +120,9 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	}
 	if o.Model != "" {
 		extra = append(extra, "--model", o.Model)
+	}
+	if o.Effort != "" {
+		extra = append(extra, "--effort", o.Effort)
 	}
 	nativeID := o.ResumeID
 	if nativeID != "" {
@@ -146,7 +150,8 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 
 	ictx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	if _, err := r.conn.request(ictx, map[string]any{"subtype": "initialize", "hooks": nil}); err != nil {
+	raw, err := r.conn.request(ictx, map[string]any{"subtype": "initialize", "hooks": nil})
+	if err != nil {
 		r.closing.Store(true)
 		p.Stop(time.Second)
 		if tail := strings.TrimSpace(p.StderrTail()); tail != "" {
@@ -155,7 +160,62 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		return nil, err
 	}
 	r.emit(harness.NativeID{ID: nativeID})
+	var init initResponse
+	json.Unmarshal(raw, &init)
+	r.reportModel(ictx, &init)
 	return r, nil
+}
+
+// reportModel emits the model and effort the CLI applied after resolving
+// aliases, defaults and settings. CLIs without get_settings report nothing.
+func (r *runtime) reportModel(ctx context.Context, init *initResponse) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	raw, err := r.conn.request(ctx, map[string]any{"subtype": "get_settings"})
+	var s struct {
+		Applied struct {
+			Model  string `json:"model"`
+			Effort string `json:"effort"`
+		} `json:"applied"`
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &s)
+	}
+	if err != nil || s.Applied.Model == "" {
+		if r.log != nil {
+			r.log.Debug("claude: no applied model settings", "err", err)
+		}
+		return
+	}
+	r.emit(harness.ModelInfo{ID: s.Applied.Model, Name: init.modelName(s.Applied.Model), Effort: s.Applied.Effort})
+}
+
+// choices lists the models with their effort levels, and the levels of the default model.
+func (i *initResponse) choices() (models, efforts []model.Choice) {
+	for _, m := range i.Models {
+		c := model.Choice{ID: m.Value, Name: m.DisplayName, Description: m.Description}
+		if m.SupportsEffort {
+			for _, e := range m.SupportedEffortLevels {
+				c.Efforts = append(c.Efforts, harness.EffortChoice(e, ""))
+			}
+		}
+		if m.Value == "default" {
+			efforts = c.Efforts
+		}
+		models = append(models, c)
+	}
+	return models, efforts
+}
+
+// modelName returns the display name of a resolved model id, if the CLI listed it.
+func (i *initResponse) modelName(id string) string {
+	for _, m := range i.Models {
+		// "default" is named "Default (recommended)"; the alias it resolves to has the model's name.
+		if m.ResolvedModel == id && m.Value != "default" {
+			return m.DisplayName
+		}
+	}
+	return ""
 }
 
 func lastLine(s string) string {

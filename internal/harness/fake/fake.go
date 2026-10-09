@@ -31,6 +31,7 @@ func (Harness) Probe(context.Context) model.HarnessInfo {
 	return model.HarnessInfo{
 		ID: "fake", Name: "Fake (scripted)", Protocol: "fake", Installed: true, AuthOK: true, Version: "1",
 		Models:      []model.Choice{{ID: "echo", Name: "Echo"}},
+		Efforts:     []model.Choice{harness.EffortChoice("low", ""), harness.EffortChoice("medium", ""), harness.EffortChoice("high", "")},
 		Modes:       []model.Choice{{ID: "ask", Name: "Ask"}, {ID: "auto", Name: "Auto"}},
 		DefaultMode: "ask",
 		Caps:        model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true},
@@ -44,6 +45,12 @@ func (Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runtime
 	}
 	r := &runtime{opts: o, id: id, events: make(chan harness.Event, 256), mode: o.Mode, approvals: map[string]chan harness.Response{}}
 	r.events <- harness.NativeID{ID: id}
+	// Like Codex: only an id, which clients name from the harness's model list.
+	effort := o.Effort
+	if effort == "" {
+		effort = "medium"
+	}
+	r.events <- harness.ModelInfo{ID: "echo", Effort: effort}
 	return r, nil
 }
 

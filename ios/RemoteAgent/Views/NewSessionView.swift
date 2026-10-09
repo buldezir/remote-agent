@@ -12,6 +12,7 @@ struct NewSessionView: View {
     @State private var harnessID = ""
     @State private var model = ""
     @State private var customModel = ""
+    @State private var effort = ""
     @State private var mode = ""
     @State private var useWorktree = false
     @State private var branch = ""
@@ -73,6 +74,16 @@ struct NewSessionView: View {
                             TextField("Model id", text: $customModel)
                                 .textInputAutocapitalization(.never)
                                 .autocorrectionDisabled()
+                        }
+                        let efforts = harness.efforts(forModel: chosenModel)
+                        if !efforts.isEmpty {
+                            Picker("Effort", selection: $effort) {
+                                Text("Default").tag("")
+                                ForEach(efforts) { e in Text(e.name).tag(e.id) }
+                            }
+                            if let d = efforts.first(where: { $0.id == effort })?.description, !d.isEmpty {
+                                Text(d).font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                         if let modes = harness.modes, !modes.isEmpty {
                             Picker("Permissions", selection: $mode) {
@@ -152,7 +163,14 @@ struct NewSessionView: View {
             }
             .onChange(of: harnessID) { _, _ in
                 model = ""
+                effort = ""
                 mode = harness?.defaultMode ?? harness?.modes?.first?.id ?? ""
+            }
+            .onChange(of: chosenModel) { _, m in
+                // Models support different effort levels.
+                if let harness, !harness.efforts(forModel: m).contains(where: { $0.id == effort }) {
+                    effort = ""
+                }
             }
             .onChange(of: projectID) { _, id in
                 useWorktree = false
@@ -163,12 +181,17 @@ struct NewSessionView: View {
         }
     }
 
+    /// The model id to request; nil for the harness default.
+    private var chosenModel: String? {
+        let m = model == "__custom" || model.isEmpty ? customModel : model
+        return m.isEmpty ? nil : m
+    }
+
     private func create() async {
         guard let project, let harness else { return }
         creating = true
         error = nil
         defer { creating = false }
-        let chosenModel = model == "__custom" ? customModel : (model.isEmpty ? customModel : model)
         let ws = ServerConnection.NewSession.WorkspaceParams(
             kind: useWorktree ? .worktree : .root,
             branch: useWorktree && !branch.isEmpty ? branch : nil,
@@ -176,7 +199,7 @@ struct NewSessionView: View {
         do {
             let s = try await connection.createSession(.init(
                 projectId: project.id, harness: harness.id,
-                model: chosenModel.isEmpty ? nil : chosenModel,
+                model: chosenModel, effort: effort.isEmpty ? nil : effort,
                 mode: mode.isEmpty ? nil : mode, workspace: ws, prompt: prompt))
             lastHarness = harness.id
             lastProject = project.id

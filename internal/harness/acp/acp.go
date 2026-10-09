@@ -34,6 +34,7 @@ type learned struct {
 	modes       []model.Choice
 	defaultMode string
 	models      []model.Choice
+	efforts     []model.Choice
 }
 
 func New(a config.ACPAgent) *Harness {
@@ -127,7 +128,7 @@ func (h *Harness) Overlay(info *model.HarnessInfo) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if l := h.learned; l != nil {
-		info.Modes, info.DefaultMode, info.Models = l.modes, l.defaultMode, l.models
+		info.Modes, info.DefaultMode, info.Models, info.Efforts = l.modes, l.defaultMode, l.models, l.efforts
 		info.Caps.SetMode = len(l.modes) > 0
 		info.Caps.ModelSelect = len(l.models) > 0
 	}
@@ -145,6 +146,16 @@ type sessionSetup struct {
 		} `json:"availableModes"`
 	} `json:"modes"`
 	ConfigOptions []configOption `json:"configOptions"`
+	// The older way to report models (Cursor sends both); config options win.
+	Models *modelState `json:"models"`
+}
+
+type modelState struct {
+	CurrentModelID  string `json:"currentModelId"`
+	AvailableModels []struct {
+		ModelID string `json:"modelId"`
+		Name    string `json:"name"`
+	} `json:"availableModels"`
 }
 
 type configOption struct {
@@ -177,7 +188,7 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		return nil, err
 	}
 	r := &runtime{h: h, p: p, cwd: o.Cwd, events: make(chan harness.Event, 512),
-		tools: map[string]*model.Item{}, perms: map[string]*permRequest{}}
+		tools: map[string]*model.Item{}, perms: map[string]*permRequest{}, configs: map[string]string{}}
 	r.conn = jsonrpc.New(p, "2.0", jsonrpc.Handler{Notify: r.onNotify, Request: r.onRequest})
 	go r.conn.Run()
 	go r.waitExit()
@@ -245,6 +256,11 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 			o.Log.Warn("acp: could not set model", "model", o.Model, "err", err)
 		}
 	}
+	if o.Effort != "" {
+		if err := r.setConfig(ictx, "thought_level", o.Effort); err != nil && o.Log != nil {
+			o.Log.Warn("acp: could not set effort", "effort", o.Effort, "err", err)
+		}
+	}
 	r.emit(harness.NativeID{ID: r.sessionID})
 	return r, nil
 }
@@ -260,9 +276,11 @@ func (r *runtime) applySetup(s *sessionSetup) {
 		}
 		l.defaultMode = s.Modes.CurrentModeID
 	}
-	r.configs = map[string]string{}
+	r.mu.Lock()
+	r.models = s.Models
+	r.mu.Unlock()
+	r.updateOptions(s.ConfigOptions)
 	for _, c := range s.ConfigOptions {
-		r.configs[c.Category] = c.ID
 		var choices []model.Choice
 		for _, o := range c.Options {
 			choices = append(choices, model.Choice{ID: o.Value, Name: o.Name, Description: o.Description})
@@ -275,9 +293,11 @@ func (r *runtime) applySetup(s *sessionSetup) {
 			}
 		case "model":
 			l.models = choices
+		case "thought_level":
+			l.efforts = choices
 		}
 	}
-	if len(l.modes) == 0 && len(l.models) == 0 {
+	if len(l.modes) == 0 && len(l.models) == 0 && len(l.efforts) == 0 {
 		return
 	}
 	r.h.mu.Lock()

@@ -94,12 +94,15 @@ Project { id, path, name, isGitRepo, createdAt }
 
 Session {
   id, projectId, harness,            // "claude" | "codex" | "acp:<id>" | "fake"
-  model?, mode?,                     // ids from harness.list
+  model?, effort?, mode?,            // ids from harness.list; model and effort are what was requested (absent: the harness default)
   workspace: { kind: "root"|"worktree", path, branch?, baseRef? },
                                      // branch: checked out in path, refreshed at each turn start/end; absent if detached
   status: "idle"|"running"|"awaiting_approval"|"stopped"|"error",
   nativeId?, title, error?, archived,
   context?: { used, window? },       // tokens in the agent's context at its last model call; window absent if unknown
+  modelInfo?: { id?, name?, effort? },
+                                     // the model and reasoning effort the agent reported it runs with, once it
+                                     // has started; name absent: look id up in harness.list models, else show id
   createdAt, updatedAt
 }
 
@@ -153,7 +156,7 @@ Approval {
 | `project.add` | `{path}` (must be under a root) | `Project` |
 | `project.remove` | `{id}` | `{}` (`conflict` if it has unarchived sessions) |
 | `session.list` | — | `{sessions}` |
-| `session.create` | `{commandId, projectId, harness, model?, mode?, workspace: {kind, branch?, baseRef?}, prompt?, title?}` | `Session` |
+| `session.create` | `{commandId, projectId, harness, model?, effort?, mode?, workspace: {kind, branch?, baseRef?}, prompt?, title?}` | `Session` |
 | `session.prompt` | `{commandId, sessionId, text}` | `Item` (the user message; `queued` if a turn is running) |
 | `session.interrupt` | `{sessionId, force?}` | `{}` (`force` kills the agent process) |
 | `session.setMode` | `{sessionId, mode}` | `{}` |
@@ -170,7 +173,9 @@ Approval {
 HarnessInfo {
   id, name, protocol: "claude"|"codex"|"acp"|"fake",
   installed, version?, authOk, hint?,          // hint explains what's missing
-  models?: [{id, name, description?}], modes?: [{id, name, description?}], defaultMode?,
+  models?: [{id, name, description?, efforts?: [Choice]}],  // a model's efforts, when listed, replace the harness's
+  efforts?: [Choice],                          // reasoning efforts for the default model; absent: not selectable
+  modes?: [Choice], defaultMode?,              // Choice = {id, name, description?}
   caps: { resume, interrupt, setMode, freeModel, modelSelect }
 }
 

@@ -103,6 +103,9 @@ func TestReplayShellCommandWithApproval(t *testing.T) {
 		t.Errorf("usage = %+v", end.Usage)
 	}
 	want := []harness.ContextUsage{{Used: 14687, Window: 258400}, {Used: 14723, Window: 258400}}
+	if got, want := turn.ModelInfos(), []harness.ModelInfo{{ID: "gpt-5.6-sol", Effort: "medium"}}; !slices.Equal(got, want) {
+		t.Errorf("model = %v, want %v", got, want)
+	}
 	if got := turn.Contexts(); !slices.Equal(got, want) {
 		t.Errorf("context = %v, want %v", got, want)
 	}

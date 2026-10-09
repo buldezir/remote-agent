@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +38,9 @@ type runtime struct {
 	mu           sync.Mutex
 	mode         string
 	configs      map[string]string // category -> config option id
+	options      []configOption
+	models       *modelState
+	model        harness.ModelInfo // last reported
 	inTurn       bool
 	interrupting bool
 	perms        map[string]*permRequest
@@ -187,7 +191,93 @@ func (r *runtime) setConfig(ctx context.Context, category, value string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	return r.conn.Call(ctx, "session/set_config_option", map[string]any{"sessionId": r.sessionID, "configId": id, "value": value}, nil)
+	var res struct {
+		ConfigOptions []configOption `json:"configOptions"`
+	}
+	if err := r.conn.Call(ctx, "session/set_config_option", map[string]any{"sessionId": r.sessionID, "configId": id, "value": value}, &res); err != nil {
+		return err
+	}
+	r.updateOptions(res.ConfigOptions)
+	return nil
+}
+
+// updateOptions merges config options from session setup, a
+// set_config_option reply or a config_option_update, and reports a changed
+// model or effort.
+func (r *runtime) updateOptions(opts []configOption) {
+	r.mu.Lock()
+	for _, c := range opts {
+		if i := slices.IndexFunc(r.options, func(o configOption) bool { return o.ID == c.ID }); i >= 0 {
+			r.options[i] = c
+		} else {
+			r.options = append(r.options, c)
+		}
+		r.configs[c.Category] = c.ID
+	}
+	info := modelInfo(r.options, r.models)
+	changed := info.ID != "" && info != r.model
+	r.model = info
+	r.mu.Unlock()
+	if changed {
+		r.emit(info)
+	}
+}
+
+// modelInfo reads the model and effort from config options, falling back to
+// the older models state. Cursor puts the effort in the model value, as in
+// "grok-4.6[effort=high,fast=true]".
+func modelInfo(opts []configOption, models *modelState) harness.ModelInfo {
+	var m harness.ModelInfo
+	for _, c := range opts {
+		cur, _ := c.CurrentValue.(string)
+		switch c.Category {
+		case "model":
+			m.ID, m.Name = cur, c.optionName(cur)
+		case "thought_level":
+			m.Effort = cur
+		}
+	}
+	if m.ID == "" && models != nil {
+		m.ID = models.CurrentModelID
+		for _, a := range models.AvailableModels {
+			if a.ModelID == m.ID {
+				m.Name = a.Name
+			}
+		}
+	}
+	if m.Effort == "" {
+		m.Effort = valueParam(m.ID, "effort", "reasoning_effort")
+	}
+	return m
+}
+
+func (c configOption) optionName(value string) string {
+	for _, o := range c.Options {
+		if o.Value == value {
+			return o.Name
+		}
+	}
+	return ""
+}
+
+// valueParam returns the first of keys set in a value's "[k=v,...]" suffix.
+func valueParam(v string, keys ...string) string {
+	i := strings.IndexByte(v, '[')
+	if i < 0 || !strings.HasSuffix(v, "]") {
+		return ""
+	}
+	params := map[string]string{}
+	for _, kv := range strings.Split(v[i+1:len(v)-1], ",") {
+		if k, val, ok := strings.Cut(kv, "="); ok {
+			params[strings.TrimSpace(k)] = strings.TrimSpace(val)
+		}
+	}
+	for _, k := range keys {
+		if params[k] != "" {
+			return params[k]
+		}
+	}
+	return ""
 }
 
 func (r *runtime) SetMode(ctx context.Context, mode string) error {
@@ -327,6 +417,7 @@ func (r *runtime) onNotify(method string, raw json.RawMessage) {
 	case "current_mode_update":
 		r.setMode(u.CurrentModeID)
 	case "config_option_update":
+		r.updateOptions(u.ConfigOptions)
 		for _, c := range u.ConfigOptions {
 			if v, ok := c.CurrentValue.(string); ok && c.Category == "mode" {
 				r.setMode(v)

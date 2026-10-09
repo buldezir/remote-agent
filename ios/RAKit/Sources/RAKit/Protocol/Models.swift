@@ -31,6 +31,7 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
     public var projectId: String
     public var harness: String
     public var model: String?
+    public var effort: String?
     public var mode: String?
     public var workspace: Workspace
     public var status: SessionStatus
@@ -39,8 +40,26 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
     public var error: String?
     public var archived: Bool
     public var context: ContextUsage?
+    public var modelInfo: ModelInfo?
     public var createdAt: Date
     public var updatedAt: Date
+}
+
+extension Session {
+    /// The model to show: the one the agent reported, else the requested one.
+    /// Ids are named from the harness's model list when the agent gave no name.
+    public func modelName(in harness: HarnessInfo?) -> String? {
+        if let name = modelInfo?.name, !name.isEmpty { return name }
+        guard let id = modelInfo?.id ?? model, !id.isEmpty else { return nil }
+        return harness?.models?.first(where: { $0.id == id })?.name ?? id
+    }
+}
+
+/// The model and reasoning effort the agent reported it runs with.
+public struct ModelInfo: Codable, Hashable, Sendable {
+    public var id: String?
+    public var name: String?
+    public var effort: String?
 }
 
 /// How full the agent's context window was at its last model call.
@@ -248,6 +267,7 @@ public struct Choice: Codable, Hashable, Identifiable, Sendable {
     public var id: String
     public var name: String
     public var description: String?
+    public var efforts: [Choice]?  // for a model: the reasoning efforts it supports
 }
 
 public struct HarnessCaps: Codable, Hashable, Sendable {
@@ -267,11 +287,17 @@ public struct HarnessInfo: Codable, Hashable, Identifiable, Sendable {
     public var authOk: Bool
     public var hint: String?
     public var models: [Choice]?
+    public var efforts: [Choice]?
     public var modes: [Choice]?
     public var defaultMode: String?
     public var caps: HarnessCaps
 
     public var usable: Bool { installed && authOk }
+
+    /// The reasoning efforts to offer for a model (nil or unlisted: the default model).
+    public func efforts(forModel id: String?) -> [Choice] {
+        models?.first(where: { $0.id == id })?.efforts ?? efforts ?? []
+    }
 }
 
 public struct FSEntry: Codable, Hashable, Identifiable, Sendable {

@@ -55,6 +55,18 @@ func New(st *store.Store, reg *harness.Registry, opt Options) *Orchestrator {
 
 func (o *Orchestrator) Registry() *harness.Registry { return o.reg }
 
+type clientKey struct{}
+
+// WithClient tags ctx with the name of the device a command came from, for the log.
+func WithClient(ctx context.Context, name string) context.Context {
+	return context.WithValue(ctx, clientKey{}, name)
+}
+
+func clientOf(ctx context.Context) string {
+	name, _ := ctx.Value(clientKey{}).(string)
+	return name
+}
+
 // lockCommand serializes concurrent retries of the same command id.
 func (o *Orchestrator) lockCommand(id string) func() {
 	if id == "" {
@@ -130,6 +142,7 @@ type CreateSessionParams struct {
 	ProjectID string          `json:"projectId"`
 	Harness   string          `json:"harness"`
 	Model     string          `json:"model,omitempty"`
+	Effort    string          `json:"effort,omitempty"`
 	Mode      string          `json:"mode,omitempty"`
 	Workspace WorkspaceParams `json:"workspace"`
 	Prompt    string          `json:"prompt"`
@@ -163,7 +176,7 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 	}
 
 	s := &model.Session{
-		ID: store.NewID(), ProjectID: proj.ID, Harness: p.Harness, Model: p.Model, Mode: mode,
+		ID: store.NewID(), ProjectID: proj.ID, Harness: p.Harness, Model: p.Model, Effort: p.Effort, Mode: mode,
 		Workspace: model.Workspace{Kind: model.WorkspaceRoot, Path: proj.Path},
 		Status:    model.SessionIdle, Title: p.Title, CreatedAt: time.Now().UTC(),
 	}

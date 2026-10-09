@@ -13,7 +13,31 @@
           {
             "id": "sonnet",
             "name": "Sonnet 5.5",
-            "description": "Fast"
+            "description": "Fast",
+            "efforts": [
+              {
+                "id": "low",
+                "name": "Low"
+              },
+              {
+                "id": "high",
+                "name": "High"
+              }
+            ]
+          }
+        ],
+        "efforts": [
+          {
+            "id": "low",
+            "name": "Low"
+          },
+          {
+            "id": "medium",
+            "name": "Medium"
+          },
+          {
+            "id": "high",
+            "name": "High"
           }
         ],
         "modes": [

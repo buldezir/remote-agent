@@ -202,8 +202,10 @@ struct SessionView: View {
             VStack(spacing: 0) {
                 Text(session?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1)
                 HStack(spacing: 4) {
-                    if let s = session { HarnessBadge(id: s.harness, name: harness?.name) }
-                    if let m = modeName { Text("· \(m)") }
+                    if let s = session {
+                        HarnessIcon(id: s.harness).imageScale(.small)
+                        Text(subtitle(s)).lineLimit(1)
+                    }
                     if let f = session?.context?.fraction {
                         Text("·")
                         ContextGauge(fraction: f)
@@ -246,6 +248,15 @@ struct SessionView: View {
                 Image(systemName: "ellipsis.circle")
             }
         }
+    }
+
+    /// "Opus 5.5 · high · Ask": the model (the harness until the agent reports
+    /// one), its reasoning effort and the permission mode.
+    private func subtitle(_ s: Session) -> String {
+        [s.modelName(in: harness) ?? harness?.name ?? s.harness, s.modelInfo?.effort ?? s.effort, modeName]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
     }
 
     private var modeName: String? {
