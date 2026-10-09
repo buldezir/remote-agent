@@ -11,6 +11,10 @@ struct SessionView: View {
     @State private var dictation = Dictation()
     @FocusState private var composerFocused: Bool
 
+    /// Lines longer than this are hard to read, so on iPad the transcript and
+    /// composer keep to a centered column.
+    static let readableWidth: CGFloat = 820
+
     private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
     private var harness: HarnessInfo? { session.flatMap { connection.harness($0.harness) } }
     private var project: Project? { session.flatMap { connection.projects[$0.projectId] } }
@@ -55,6 +59,8 @@ struct SessionView: View {
             }
             .padding(.horizontal)
             .padding(.vertical, 12)
+            .frame(maxWidth: Self.readableWidth)
+            .frame(maxWidth: .infinity)
         }
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
@@ -66,6 +72,7 @@ struct SessionView: View {
             NavigationStack {
                 DiffView(store: store, initialTurn: nil, canRevert: session?.workspace.kind == .worktree)
             }
+            .presentationSizing(.page)
         }
         .alert("Error", isPresented: .init(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
@@ -135,6 +142,7 @@ struct SessionView: View {
                     .symbolEffect(.variableColor.iterative, isActive: dictation.phase == .listening)
             }
             .tint(mainAction == .stopDictation ? .red : .accentColor)
+            .keyboardShortcut(mainAction == .send ? KeyboardShortcut(.return) : nil)
             // While dictation finishes, the final pass is still rewriting the draft.
             .disabled(session?.archived == true || (mainAction == .send && draftIsEmpty) || dictation.phase == .finishing)
             .accessibilityLabel(mainAction.label)
@@ -142,6 +150,8 @@ struct SessionView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+        .frame(maxWidth: Self.readableWidth)
+        .frame(maxWidth: .infinity)
         .background(.bar)
         .onChange(of: composerFocused) { _, focused in
             // The keyboard has its own dictation key.

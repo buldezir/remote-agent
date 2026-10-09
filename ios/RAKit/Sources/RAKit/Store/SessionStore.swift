@@ -16,7 +16,9 @@ public final class SessionStore {
 
     var lastSeq: Int64 = 0
     var live = false
-    private(set) var isActive = false
+    // Views showing the session. On iPad, two windows can show the same one.
+    private var viewers = 0
+    var isActive: Bool { viewers > 0 }
     private weak var connection: ServerConnection?
     private var children: [String: [Item]] = [:]
 
@@ -25,14 +27,17 @@ public final class SessionStore {
         self.connection = connection
     }
 
-    /// Start receiving updates (call from onAppear).
+    /// Start receiving updates (call from onAppear). Updates stop when every
+    /// activate() has had its deactivate().
     public func activate() {
-        isActive = true
-        connection?.activate(self)
+        viewers += 1
+        if viewers == 1 { connection?.activate(self) }
     }
 
     public func deactivate() {
-        isActive = false
+        guard viewers > 0 else { return }
+        viewers -= 1
+        guard viewers == 0 else { return }
         live = false
         connection?.deactivate(self)
     }

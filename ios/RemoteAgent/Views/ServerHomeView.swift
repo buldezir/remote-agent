@@ -1,8 +1,11 @@
 import RAKit
 import SwiftUI
 
+/// A server's sessions. On iPhone it is pushed and pushes sessions; in the
+/// iPad sidebar, selection says which session the detail column shows.
 struct ServerHomeView: View {
     let connection: ServerConnection
+    var selection: Binding<SessionRoute?>?
     @Environment(\.dismiss) private var dismiss
     @State private var removing: SavedServer?
     @State private var showNew = false
@@ -11,51 +14,11 @@ struct ServerHomeView: View {
     @State private var archiveTarget: Session?
 
     var body: some View {
-        List {
-            switch connection.state {
-            case .failed(let msg):
-                Section {
-                    Label(msg, systemImage: "wifi.exclamationmark")
-                        .foregroundStyle(.red)
-                    Button("Retry now") { connection.retry() }
-                }
-            case .connecting where connection.indexSynced:
-                Label("Reconnecting…", systemImage: "arrow.triangle.2.circlepath")
-                    .foregroundStyle(.secondary)
-            default:
-                EmptyView()
-            }
-
-            let active = connection.activeSessions
-            let attention = active.filter { $0.status == .awaitingApproval }
-            if !attention.isEmpty {
-                Section("Needs you") {
-                    ForEach(attention) { row($0) }
-                }
-            }
-            Section("Sessions") {
-                ForEach(active.filter { $0.status != .awaitingApproval }) { row($0) }
-            }
-            let archived = connection.archivedSessions
-            if !archived.isEmpty {
-                Section(isExpanded: $showArchived) {
-                    ForEach(archived) { row($0) }
-                } header: {
-                    // Inset grouped lists have no disclosure control of their own.
-                    Button {
-                        withAnimation { showArchived.toggle() }
-                    } label: {
-                        HStack {
-                            Text("Archived")
-                            Text("\(archived.count)").foregroundStyle(.tertiary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .rotationEffect(.degrees(showArchived ? 90 : 0))
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
+        Group {
+            if let selection {
+                List(selection: selection) { sections }
+            } else {
+                List { sections }
             }
         }
         .listStyle(.insetGrouped)
@@ -77,6 +40,7 @@ struct ServerHomeView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("New session", systemImage: "square.and.pencil") { showNew = true }
+                    .keyboardShortcut("n")
                     .disabled(connection.state != .connected)
             }
             ToolbarItem(placement: .secondaryAction) {
@@ -86,10 +50,15 @@ struct ServerHomeView: View {
                 Button("Remove server", systemImage: "trash", role: .destructive) { removing = connection.server }
             }
         }
-        .removeServerDialog($removing) { dismiss() }
+        // In the sidebar there is nothing to go back to; the split view picks another server.
+        .removeServerDialog($removing) { if selection == nil { dismiss() } }
         .sheet(isPresented: $showNew) {
             NewSessionView(connection: connection) { session in
-                openSession = session.id
+                if let selection {
+                    selection.wrappedValue = SessionRoute(serverID: connection.server.id, sessionID: session.id)
+                } else {
+                    openSession = session.id
+                }
             }
         }
         .confirmationDialog("Archive session?", isPresented: .init(get: { archiveTarget != nil }, set: { if !$0 { archiveTarget = nil } }),
@@ -109,6 +78,54 @@ struct ServerHomeView: View {
             SessionView(connection: connection, store: connection.sessionStore(id))
         }
         .task { connection.start() }
+    }
+
+    @ViewBuilder private var sections: some View {
+        switch connection.state {
+        case .failed(let msg):
+            Section {
+                Label(msg, systemImage: "wifi.exclamationmark")
+                    .foregroundStyle(.red)
+                Button("Retry now") { connection.retry() }
+            }
+        case .connecting where connection.indexSynced:
+            Label("Reconnecting…", systemImage: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.secondary)
+        default:
+            EmptyView()
+        }
+
+        let active = connection.activeSessions
+        let attention = active.filter { $0.status == .awaitingApproval }
+        if !attention.isEmpty {
+            Section("Needs you") {
+                ForEach(attention) { row($0) }
+            }
+        }
+        Section("Sessions") {
+            ForEach(active.filter { $0.status != .awaitingApproval }) { row($0) }
+        }
+        let archived = connection.archivedSessions
+        if !archived.isEmpty {
+            Section(isExpanded: $showArchived) {
+                ForEach(archived) { row($0) }
+            } header: {
+                // Inset grouped lists have no disclosure control of their own.
+                Button {
+                    withAnimation { showArchived.toggle() }
+                } label: {
+                    HStack {
+                        Text("Archived")
+                        Text("\(archived.count)").foregroundStyle(.tertiary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .rotationEffect(.degrees(showArchived ? 90 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private func row(_ s: Session) -> some View {

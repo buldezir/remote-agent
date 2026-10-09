@@ -55,6 +55,19 @@ struct SessionStoreTests {
         let parent = try #require(s.transcript.first)
         #expect(s.children(of: parent).map(\.id) == ["child"])
     }
+
+    @Test func staysActiveWhileAnyViewShowsIt() {
+        let s = SessionStore._testMake("s")
+        s.activate()
+        s.activate()
+        s.deactivate()
+        #expect(s.isActive)
+        s.deactivate()
+        #expect(!s.isActive)
+        s.deactivate()
+        s.activate()
+        #expect(s.isActive)
+    }
 }
 
 struct PairingTests {

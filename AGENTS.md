@@ -74,7 +74,8 @@ xcrun simctl io booted screenshot /tmp/shot.png
 xcrun simctl spawn booted log show --last 2m --predicate 'subsystem == "dev.remote-agent.app"'
 ```
 
-- **Pairing:** the camera and QR scanning don't work in the simulator. Pair with the deep link above. The pairing sheet appears on the server list, so go back to the list if a server is open.
+- **Pairing:** the camera and QR scanning don't work in the simulator. Pair with the deep link above. On iPhone the pairing sheet appears on the server list, so go back to the list if a server is open.
+- **iPad:** the app picks its layout by device. iPhone gets the stack in `ServersView`. iPad gets `ServerSplitView`: one server's sessions in the sidebar, the chosen session beside it, and the title menu to switch servers. Both reuse `ServerHomeView` and `SessionView`, so check changes to either on an iPad simulator too, such as `iPad Pro 13-inch (M5)`. With two simulators booted, use the device name in place of `booted`.
 - **Speech:** the dictation models don't run in the simulator, so the mic button ends with "The speech model for your language isn't available on this device". The UI states and permission prompts can still be checked there. Two ways to check dictation:
   - On a device.
   - On the Mac: `LiveTranscription.swift` has no UIKit, so a small driver can feed it a recording made with `say -o clip.aiff "…"`, and the Mac's installed dictation models transcribe it. Build the driver with `xcrun swiftc -swift-version 6 -parse-as-library ios/RemoteAgent/LiveTranscription.swift driver.swift`.

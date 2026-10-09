@@ -1,9 +1,9 @@
 # Remote Agent
 
-Drive coding agents running on your computer from your iPhone.
+Drive coding agents running on your computer from your iPhone or iPad.
 
 - **`rad`**: a Go server that runs on the dev machine. It spawns agent CLIs as child processes, normalizes what they do into one event model, persists it in SQLite, and serves it over a WebSocket.
-- **Remote Agent**: a native SwiftUI iOS app. You pair it by QR code. From the phone you can:
+- **Remote Agent**: a native SwiftUI app for iPhone and iPad. You pair it by QR code. On iPad, a server's sessions stay in a sidebar next to the one you have open. From the app you can:
   - start sessions in any project
   - watch agents stream their work
   - dictate prompts, in any of your keyboard languages
@@ -71,9 +71,9 @@ To remove rad completely, run `./bin/rad uninstall`. It lists everything first a
 
 It keeps the session branches and the rad binary.
 
-## Installing the app on an iPhone
+## Installing the app on an iPhone or iPad
 
-You need an iPhone on iOS 27 or later, Xcode, an Apple ID and, for the first run, a cable.
+You need an iPhone or iPad on iOS 27 or later, Xcode, an Apple ID and, for the first run, a cable.
 
 - **Free Apple ID:** builds expire after 7 days; run from Xcode again to renew.
 - **Paid Developer Program membership:** builds last a year.
@@ -94,16 +94,16 @@ You need an iPhone on iOS 27 or later, Xcode, an Apple ID and, for the first run
      ```
 
 4. If the bundle ID was taken, add `PRODUCT_BUNDLE_IDENTIFIER = com.yourname.remote-agent` to `ios/Local.xcconfig`, then run `xcodegen` again.
-5. Prepare the iPhone:
+5. Prepare the device:
    1. Connect it, unlock it and tap **Trust**.
    2. Turn on Settings → Privacy & Security → **Developer Mode**. The switch appears once Xcode has seen the phone, and turning it on restarts the phone.
-6. Pick the iPhone as the run destination and press ⌘R.
+6. Pick the device as the run destination and press ⌘R.
    - With a free Apple ID, the first launch is blocked until you trust yourself as a developer: Settings → General → VPN & Device Management → your Apple ID → Trust.
    - After the first run, Xcode can also install over Wi-Fi.
 7. Make sure the phone can reach the computer. Use Tailscale, or set `lan = true` for the same Wi-Fi (see Quick start).
 8. Pair the phone:
    1. Run `server/bin/rad pair` on the computer. Add `--lan` if the phone will connect over Wi-Fi rather than Tailscale.
-   2. In the app, tap **Pair a server** (or **+**) and scan the QR code. The iPhone Camera app can scan it too.
+   2. In the app, tap **Pair a server** (or **+**) and scan the QR code. The Camera app can scan it too.
    3. Allow Local Network access when iOS asks.
 
 The app icon is drawn by `ios/scripts/make-app-icon.swift`. Run it again after changing it:
