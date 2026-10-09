@@ -21,7 +21,7 @@ struct ServerHomeView: View {
                 List { sections }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .overlay {
             if connection.indexSynced && connection.sessions.isEmpty {
                 ContentUnavailableView {
@@ -110,7 +110,7 @@ struct ServerHomeView: View {
             Section(isExpanded: $showArchived) {
                 ForEach(archived) { row($0) }
             } header: {
-                // Inset grouped lists have no disclosure control of their own.
+                // Plain lists have no disclosure control of their own.
                 Button {
                     withAnimation { showArchived.toggle() }
                 } label: {
@@ -132,6 +132,7 @@ struct ServerHomeView: View {
         NavigationLink(value: SessionRoute(serverID: connection.server.id, sessionID: s.id)) {
             SessionRow(session: s, project: connection.projects[s.projectId], harness: connection.harness(s.harness))
         }
+        .listRowInsets(Metrics.rowInsets)
         .swipeActions {
             if !s.archived {
                 Button("Archive", systemImage: "archivebox") { archiveTarget = s }
@@ -151,13 +152,14 @@ struct SessionRow: View {
     let harness: HarnessInfo?
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
             StatusIcon(status: session.status)
-                .padding(.top, 2)
-            VStack(alignment: .leading, spacing: 3) {
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(session.title)
                     .font(.body.weight(.medium))
                     .lineLimit(2)
+                // The time sits on this line, so the title gets the full width.
                 HStack(spacing: 6) {
                     HarnessBadge(id: session.harness, name: harness?.name)
                         .fixedSize()
@@ -168,16 +170,16 @@ struct SessionRow: View {
                             Text(b).truncationMode(.middle)
                         }
                     }
+                    Spacer(minLength: 4)
+                    Text(session.updatedAt, format: .relative(presentation: .named, unitsStyle: .narrow))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize()
                 }
                 .lineLimit(1)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-            Spacer(minLength: 0)
-            Text(session.updatedAt, format: .relative(presentation: .named, unitsStyle: .narrow))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
-        .padding(.vertical, 2)
     }
 }

@@ -50,10 +50,10 @@ struct UserBubble: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(text)
                     .textSelection(.enabled)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .foregroundStyle(.white)
-                    .background(Color.accentColor.opacity(pending || cancelled ? 0.55 : 1), in: RoundedRectangle(cornerRadius: 16))
+                    .background(Color.accentColor.opacity(pending || cancelled ? 0.55 : 1), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
                 if pending {
                     Text("Queued").font(.caption2).foregroundStyle(.secondary)
                 } else if cancelled {
@@ -93,7 +93,7 @@ struct ToolCallView: View {
     private var tool: ToolCall? { item.tool }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Button {
                 withAnimation(.snappy) { expanded.toggle() }
             } label: {
@@ -120,7 +120,7 @@ struct ToolCallView: View {
                     CodeBlock(title: tool?.exitCode.map { "Output (exit \($0))" } ?? "Output", text: out)
                 }
                 if !children.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: Metrics.gap) {
                         ForEach(children) { child in
                             ItemView(item: child, store: store)
                         }
@@ -135,8 +135,9 @@ struct ToolCallView: View {
                     .padding(.leading, 26)
             }
         }
-        .padding(10)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, Metrics.padding)
+        .padding(.vertical, 6)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
     }
 
     private var icon: String {
@@ -203,8 +204,8 @@ struct EditPreview: View {
             }
         }
         .textSelection(.enabled)
-        .padding(8)
-        .background(.background, in: RoundedRectangle(cornerRadius: 6))
+        .padding(6)
+        .background(.background, in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
     }
 
     private var lines: [(text: String, added: Bool)] {
@@ -236,9 +237,9 @@ struct CodeBlock: View {
                     .font(.caption2)
             }
         }
-        .padding(8)
+        .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 6))
+        .background(.background, in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
     }
 }
 
@@ -246,7 +247,7 @@ struct PlanView: View {
     let plan: Plan?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             Label("Plan", systemImage: "list.bullet.clipboard").font(.footnote.weight(.semibold))
             if let text = plan?.text, !text.isEmpty {
                 Markdown(text).markdownTheme(.agent)
@@ -262,9 +263,9 @@ struct PlanView: View {
                 }
             }
         }
-        .padding(10)
+        .padding(Metrics.padding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
     }
 }
 
@@ -288,7 +289,7 @@ struct ApprovalView: View {
     }
 
     private func pendingCard(_ a: Approval) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Metrics.gap) {
             Label(a.title, systemImage: a.special == .question ? "questionmark.bubble" : a.special == .plan ? "list.bullet.clipboard" : "hand.raised.fill")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.orange)
@@ -306,9 +307,9 @@ struct ApprovalView: View {
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
             buttons(a)
         }
-        .padding(12)
-        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.orange.opacity(0.5)))
+        .padding(10)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
+        .overlay(RoundedRectangle(cornerRadius: Metrics.Corner.bubble).strokeBorder(.orange.opacity(0.5)))
         .alert("Reason (optional)", isPresented: .init(get: { askingReason != nil }, set: { if !$0 { askingReason = nil } })) {
             TextField("Tell the agent why", text: $denyReason)
             Button("Deny", role: .destructive) {
@@ -339,13 +340,18 @@ struct ApprovalView: View {
                 Button {
                     if o.kind == .deny && a.special != .question { askingReason = o } else { respond(o, message: nil) }
                 } label: {
-                    Text(o.label).font(.footnote.weight(.semibold)).lineLimit(2).frame(maxWidth: .infinity)
+                    Text(o.label).font(.footnote.weight(.semibold)).lineLimit(2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle(radius: Metrics.Corner.card))
+                .controlSize(.small)
                 .tint(o.kind == .deny ? .red : o.kind == .allowSession ? .indigo : .green)
                 .disabled(busy || (a.special == .question && o.kind != .deny && !allAnswered(a)))
             }
         }
+        // When one label wraps, the other buttons grow to its height.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func allAnswered(_ a: Approval) -> Bool {
@@ -410,9 +416,9 @@ struct FlowChips: View {
                         Spacer()
                     }
                     .font(.footnote)
-                    .padding(8)
+                    .padding(6)
                     .background(selected.contains(label) ? Color.accentColor.opacity(0.15) : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 8))
+                                in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
                 }
                 .buttonStyle(.plain)
             }
@@ -424,6 +430,33 @@ extension MarkdownUI.Theme {
     /// GitHub-like, sized for a phone transcript.
     @MainActor static let agent = Theme.gitHub
         .text { FontSize(15) }
+        // GitHub leaves 16pt after paragraphs and 24pt above headings; a
+        // transcript reads better tighter.
+        .paragraph { configuration in
+            configuration.label
+                .fixedSize(horizontal: false, vertical: true)
+                .relativeLineSpacing(.em(0.2))
+                .markdownMargin(top: 0, bottom: 8)
+        }
+        .heading1 { heading($0, size: 1.4) }
+        .heading2 { heading($0, size: 1.25) }
+        .heading3 { heading($0, size: 1.1) }
+        .heading4 { heading($0, size: 1) }
+        .heading5 { heading($0, size: 0.9) }
+        .heading6 { heading($0, size: 0.85) }
+        .listItem { configuration in
+            configuration.label.markdownMargin(top: .em(0.15))
+        }
+        .table { configuration in
+            configuration.label
+                .fixedSize(horizontal: false, vertical: true)
+                .markdownTableBorderStyle(.init(color: .secondary.opacity(0.3)))
+                .markdownTableBackgroundStyle(.alternatingRows(Color.clear, Color.secondary.opacity(0.08)))
+                .markdownMargin(top: 0, bottom: 8)
+        }
+        .thematicBreak {
+            Divider().markdownMargin(top: 8, bottom: 8)
+        }
         .code {
             FontFamilyVariant(.monospaced)
             FontSize(.em(0.88))
@@ -437,9 +470,19 @@ extension MarkdownUI.Theme {
                         FontFamilyVariant(.monospaced)
                         FontSize(.em(0.8))
                     }
-                    .padding(10)
+                    .padding(8)
             }
-            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
-            .markdownMargin(top: 4, bottom: 8)
+            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
+            .markdownMargin(top: 0, bottom: 8)
         }
+
+    @MainActor private static func heading(_ configuration: BlockConfiguration, size: CGFloat) -> some View {
+        configuration.label
+            .relativeLineSpacing(.em(0.125))
+            .markdownMargin(top: 12, bottom: 6)
+            .markdownTextStyle {
+                FontWeight(.semibold)
+                FontSize(.em(size))
+            }
+    }
 }

@@ -16,6 +16,7 @@ struct ServersView: View {
                     NavigationLink(value: server) {
                         ServerRow(connection: store.connection(for: server))
                     }
+                    .listRowInsets(Metrics.rowInsets)
                     .swipeActions {
                         Button("Remove", systemImage: "trash") { removing = server }
                             .tint(.red)
@@ -25,6 +26,7 @@ struct ServersView: View {
                     }
                 }
             }
+            .listStyle(.plain)
             .overlay {
                 if store.servers.isEmpty {
                     ContentUnavailableView {
@@ -132,7 +134,6 @@ struct ServerRow: View {
             Spacer()
             ConnectionDot(state: connection.state)
         }
-        .padding(.vertical, 4)
     }
 }
 

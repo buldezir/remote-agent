@@ -61,6 +61,7 @@ struct DiffView: View {
                 ProgressView().frame(maxWidth: .infinity)
             }
         }
+        .compactForm()
         .navigationTitle("Changes")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

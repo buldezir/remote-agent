@@ -11,17 +11,13 @@ struct SessionView: View {
     @State private var dictation = Dictation()
     @FocusState private var composerFocused: Bool
 
-    /// Lines longer than this are hard to read, so on iPad the transcript and
-    /// composer keep to a centered column.
-    static let readableWidth: CGFloat = 820
-
     private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
     private var harness: HarnessInfo? { session.flatMap { connection.harness($0.harness) } }
     private var project: Project? { session.flatMap { connection.projects[$0.projectId] } }
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 14) {
+            LazyVStack(alignment: .leading, spacing: Metrics.gap) {
                 if !store.synced {
                     ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
                 }
@@ -57,9 +53,9 @@ struct SessionView: View {
                         .foregroundStyle(.red)
                 }
             }
-            .padding(.horizontal)
-            .padding(.vertical, 12)
-            .frame(maxWidth: Self.readableWidth)
+            .padding(.horizontal, Metrics.margin)
+            .padding(.vertical, Metrics.gap)
+            .frame(maxWidth: Metrics.readableWidth)
             .frame(maxWidth: .infinity)
         }
         .defaultScrollAnchor(.bottom)
@@ -123,21 +119,21 @@ struct SessionView: View {
             TextField(placeholder, text: $draft, axis: .vertical)
                 .lineLimit(1...6)
                 .focused($composerFocused)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 18))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(.background.secondary, in: RoundedRectangle(cornerRadius: Metrics.Corner.field))
             if store.isRunning {
                 Button {
                     Task { await run { try await store.interrupt() } }
                 } label: {
-                    Image(systemName: "stop.circle.fill").font(.system(size: 30))
+                    Image(systemName: "stop.circle.fill").font(.system(size: 26))
                 }
                 .tint(.red)
                 .accessibilityLabel("Stop")
             }
             Button(action: mainButtonTapped) {
                 Image(systemName: mainAction.symbol)
-                    .font(.system(size: 30))
+                    .font(.system(size: 26))
                     .contentTransition(.symbolEffect(.replace))
                     .symbolEffect(.variableColor.iterative, isActive: dictation.phase == .listening)
             }
@@ -148,9 +144,9 @@ struct SessionView: View {
             .accessibilityLabel(mainAction.label)
             .animation(.snappy, value: mainAction)
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .frame(maxWidth: Self.readableWidth)
+        .padding(.horizontal, Metrics.margin)
+        .padding(.vertical, 6)
+        .frame(maxWidth: Metrics.readableWidth)
         .frame(maxWidth: .infinity)
         .background(.bar)
         .onChange(of: composerFocused) { _, focused in

@@ -64,6 +64,7 @@ struct AddServerView: View {
                     }
                 }
             }
+            .compactForm()
             .navigationTitle("Pair a server")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

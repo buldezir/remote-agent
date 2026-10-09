@@ -135,6 +135,7 @@ struct NewSessionView: View {
                     Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
                 }
             }
+            .compactForm()
             .navigationTitle("New session")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -313,6 +314,7 @@ struct DirectoryBrowserView: View {
                 ProgressView()
             }
         }
+        .compactForm()
         .navigationTitle(path.map { ($0 as NSString).lastPathComponent } ?? "Folders")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

@@ -17,6 +17,13 @@ struct ServerSplitView: View {
         store.servers.first { $0.id == serverID } ?? store.servers.first
     }
 
+    /// The open session. A session saved for a server that was removed since
+    /// doesn't carry over to the server shown in its place.
+    private var openSession: String? {
+        guard let server, server.id == serverID, !sessionID.isEmpty else { return nil }
+        return sessionID
+    }
+
     var body: some View {
         NavigationSplitView {
             // As wide as an iPhone, which the rows and toolbar were laid out for.
@@ -68,7 +75,7 @@ struct ServerSplitView: View {
 
     private func selection(on server: SavedServer) -> Binding<SessionRoute?> {
         Binding {
-            sessionID.isEmpty ? nil : SessionRoute(serverID: server.id, sessionID: sessionID)
+            openSession.map { SessionRoute(serverID: server.id, sessionID: $0) }
         } set: { route in
             serverID = server.id
             sessionID = route?.sessionID ?? ""
@@ -76,7 +83,7 @@ struct ServerSplitView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        if let server, !sessionID.isEmpty {
+        if let server, let sessionID = openSession {
             let connection = store.connection(for: server)
             if connection.indexSynced, connection.sessions[sessionID] == nil {
                 ContentUnavailableView("Session not found", systemImage: "questionmark.bubble",
