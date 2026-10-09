@@ -67,6 +67,12 @@ struct PairingTests {
         #expect(PairingLink(string: "remoteagent://pair?code=abc") == nil)
     }
 
+    @Test func decodesNameWithSpaces() throws {
+        // As written by netinfo.PairingLink for `name = "Studio Mac + iPad"`.
+        let l = try #require(PairingLink(string: "remoteagent://pair?code=abc&name=Studio%20Mac%20%2B%20iPad&url=http%3A%2F%2F127.0.0.1%3A7421&v=1"))
+        #expect(l.name == "Studio Mac + iPad")
+    }
+
     @Test func parsesGoDates() throws {
         #expect(WireCoding.parseDate("2026-10-09T01:50:59.955123456Z") != nil)
         #expect(WireCoding.parseDate("2026-10-09T01:50:59Z") != nil)

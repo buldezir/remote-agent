@@ -34,6 +34,7 @@ type ACPAgent struct {
 }
 
 type Config struct {
+	Name        string             `toml:"name"` // shown in the app once paired; defaults to the host name
 	Port        int                `toml:"port"`
 	LAN         bool               `toml:"lan"`
 	Listen      []string           `toml:"listen"` // explicit host:port list; overrides port/lan discovery
@@ -59,6 +60,8 @@ func (d *Duration) UnmarshalText(b []byte) error {
 func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
 
 const defaultFile = `# rad configuration. See README for details.
+# The server's name in the app, set when a phone pairs (default: this computer's host name).
+# name = "Work laptop"
 port = 7421
 # Also listen on LAN addresses (default: loopback + Tailscale only).
 lan = false
@@ -145,6 +148,7 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) normalize() error {
+	c.Name = strings.TrimSpace(c.Name)
 	if c.Port == 0 {
 		c.Port = 7421
 	}

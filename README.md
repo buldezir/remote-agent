@@ -110,6 +110,7 @@ rad debug call <method> '{json}'  raw RPC (see protocol/PROTOCOL.md)
 `~/.config/remote-agent/config.toml`. Set `RAD_HOME=/some/dir` to keep the config and data together, e.g. for tests.
 
 ```toml
+name = "Work laptop"            # what the app calls this server after pairing (default: host name)
 port = 7421
 lan = false
 roots = ["~/projects"]          # what the phone may browse and add as projects

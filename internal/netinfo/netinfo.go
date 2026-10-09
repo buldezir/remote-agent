@@ -140,5 +140,7 @@ func PairingLink(name, code string, baseURLs []string) string {
 	for _, u := range baseURLs {
 		q.Add("url", u)
 	}
-	return "remoteagent://pair?" + q.Encode()
+	// Encode writes spaces as "+", which URL parsers (unlike form decoders)
+	// read literally; a literal "+" is already escaped as %2B.
+	return "remoteagent://pair?" + strings.ReplaceAll(q.Encode(), "+", "%20")
 }

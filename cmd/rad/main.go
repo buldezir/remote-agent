@@ -129,7 +129,7 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	srv := api.NewServer(st, hub, orch, fsbrowse.New(cfg.Roots), serverID, netinfo.Hostname(), log)
+	srv := api.NewServer(st, hub, orch, fsbrowse.New(cfg.Roots), serverID, serverName(cfg), log)
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
 	addrs := netinfo.ListenAddrs(cfg)
@@ -183,12 +183,20 @@ func pair(args []string) error {
 
 const pairingTTL = 10 * time.Minute
 
+// serverName is what the app calls this server after pairing.
+func serverName(cfg *config.Config) string {
+	if cfg.Name != "" {
+		return cfg.Name
+	}
+	return netinfo.Hostname()
+}
+
 func printPairing(ctx context.Context, st *store.Store, cfg *config.Config, urlOnly bool) error {
 	code, err := st.CreatePairingCode(ctx, pairingTTL)
 	if err != nil {
 		return err
 	}
-	link := netinfo.PairingLink(netinfo.Hostname(), code, netinfo.BaseURLs(netinfo.ListenAddrs(cfg)))
+	link := netinfo.PairingLink(serverName(cfg), code, netinfo.BaseURLs(netinfo.ListenAddrs(cfg)))
 	if urlOnly {
 		fmt.Println(link)
 		return nil
