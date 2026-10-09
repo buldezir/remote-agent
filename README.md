@@ -48,10 +48,10 @@ You need Xcode, an Apple ID and, for the first run, a cable.
 - **Paid Developer Program membership:** builds last a year.
 
 1. In Xcode → Settings → Accounts, add your Apple ID.
-2. Generate and open the project:
+2. Generate and open the project (commands here run from the repo root):
 
    ```bash
-   cd ios && xcodegen && open RemoteAgent.xcodeproj
+   (cd ios && xcodegen) && open ios/RemoteAgent.xcodeproj
    ```
 
 3. Select the **RemoteAgent** target → Signing & Capabilities, and choose your team.
@@ -59,10 +59,10 @@ You need Xcode, an Apple ID and, for the first run, a cable.
    - xcodegen regenerates the project and forgets this choice. Save the team in the gitignored `ios/Local.xcconfig` so it survives:
 
      ```bash
-     grep -m1 -o 'DEVELOPMENT_TEAM = [A-Z0-9]*' RemoteAgent.xcodeproj/project.pbxproj > Local.xcconfig
+     grep -m1 -o 'DEVELOPMENT_TEAM = [A-Z0-9]*' ios/RemoteAgent.xcodeproj/project.pbxproj > ios/Local.xcconfig
      ```
 
-4. If the bundle ID was taken, add `PRODUCT_BUNDLE_IDENTIFIER = com.yourname.remote-agent` to `Local.xcconfig`, then run `xcodegen` again.
+4. If the bundle ID was taken, add `PRODUCT_BUNDLE_IDENTIFIER = com.yourname.remote-agent` to `ios/Local.xcconfig`, then run `xcodegen` again.
 5. Prepare the iPhone:
    1. Connect it, unlock it and tap **Trust**.
    2. Turn on Settings → Privacy & Security → **Developer Mode**. The switch appears once Xcode has seen the phone, and turning it on restarts the phone.
@@ -71,7 +71,7 @@ You need Xcode, an Apple ID and, for the first run, a cable.
    - After the first run, Xcode can also install over Wi-Fi.
 7. Make sure the phone can reach the computer. Use Tailscale, or set `lan = true` for the same Wi-Fi (see Quick start).
 8. Pair the phone:
-   1. Run `./bin/rad pair` on the computer.
+   1. Run `./bin/rad pair` on the computer. Add `--lan` if you started `rad serve --lan`.
    2. In the app, tap **Pair a server** (or **+**) and scan the QR code. The iPhone Camera app can scan it too.
    3. Allow Local Network access when iOS asks.
 
@@ -97,7 +97,7 @@ cd ios && swift scripts/make-app-icon.swift RemoteAgent/Assets.xcassets/AppIcon.
 
 ```
 rad serve [--lan] [--fake] [-v]   run the server (--fake adds a scripted test harness)
-rad pair [--print-url]            new single-use pairing code (10 min)
+rad pair [--lan] [--print-url]    new single-use pairing code (10 min); --lan as for serve
 rad devices                       list paired devices
 rad devices revoke <id-prefix>    revoke one; its open connections close within 30s
 rad debug run --harness claude --cwd DIR [--mode M] [--worktree] [--approve] [--diff] "prompt"

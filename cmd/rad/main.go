@@ -32,7 +32,7 @@ const usage = `rad — remote agent server
 
 Usage:
   rad serve [--fake] [--lan]     run the server
-  rad pair [--print-url]         show a QR code to pair a phone
+  rad pair [--lan] [--print-url] show a QR code to pair a phone
   rad devices [revoke <id>]      list or revoke paired devices
   rad debug <cmd> ...            CLI client for testing (run "rad debug" for help)
   rad install-launchagent        run rad at login (macOS)
@@ -166,11 +166,13 @@ func serve(args []string) error {
 func pair(args []string) error {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
 	printURL := fs.Bool("print-url", false, "print only the pairing link")
+	lan := fs.Bool("lan", false, "include LAN addresses (for a server started with serve --lan)")
 	fs.Parse(args)
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
+	cfg.LAN = cfg.LAN || *lan
 	st, err := openStore(cfg)
 	if err != nil {
 		return err
