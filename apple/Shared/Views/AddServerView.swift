@@ -34,7 +34,7 @@ struct AddServerView: View {
                     HStack {
                         TextField("Pairing link", text: $linkText, prompt: Text("remoteagent://pair?…"), axis: .vertical)
                             .labelsHidden()
-                            .font(.footnote.monospaced())
+                            .scaledFont(.footnote, design: .monospaced)
                             .plainTextInput()
                             .lineLimit(1...4)
                         Button("Paste", systemImage: "doc.on.clipboard") {
@@ -43,22 +43,26 @@ struct AddServerView: View {
                         .labelStyle(.iconOnly)
                     }
                 } header: {
-                    Text("Pairing link")
+                    Text("Pairing link").formHeaderFont()
                 } footer: {
-                    Text(footer)
+                    Text(footer).formFooterFont()
                 }
 
                 if let link {
-                    Section("Server") {
+                    Section {
                         LabeledContent("Name", value: link.name)
                         ForEach(link.urls, id: \.self) { url in
-                            Text(url.absoluteString).font(.footnote.monospaced()).foregroundStyle(.secondary)
+                            Text(url.absoluteString).scaledFont(.footnote, design: .monospaced).foregroundStyle(.secondary)
                         }
+                    } header: {
+                        Text("Server").formHeaderFont()
                     }
                 }
 
-                Section("This device") {
+                Section {
                     TextField("Device name", text: $deviceName)
+                } header: {
+                    Text("This device").formHeaderFont()
                 }
 
                 if let error {

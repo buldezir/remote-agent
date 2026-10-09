@@ -24,6 +24,7 @@ struct NewSessionView: View {
     @State private var browsing = false
     @State private var attachments = Attachments()
     @FocusState private var promptFocused: Bool
+    @Environment(\.messageTextSize) private var messageTextSize
 
     private var project: Project? { connection.projects[projectID] }
     private var harness: HarnessInfo? { connection.harness(harnessID) }
@@ -31,7 +32,7 @@ struct NewSessionView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Project") {
+                Section {
                     Picker("Project", selection: $projectID) {
                         Text("Choose…").tag("")
                         ForEach(connection.sortedProjects) { p in
@@ -44,8 +45,10 @@ struct NewSessionView: View {
                         Label("Add a folder…", systemImage: "folder.badge.plus")
                     }
                     if let project {
-                        Text(project.path).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        Text(project.path).scaledFont(.caption, design: .monospaced).foregroundStyle(.secondary)
                     }
+                } header: {
+                    Text("Project").formHeaderFont()
                 }
 
                 Section {
@@ -69,11 +72,11 @@ struct NewSessionView: View {
                         HStack { ProgressView(); Text("Checking installed agents…").foregroundStyle(.secondary) }
                     }
                 } header: {
-                    Text("Agent")
+                    Text("Agent").formHeaderFont()
                 }
 
                 if let harness {
-                    Section("Options") {
+                    Section {
                         if let models = harness.models, !models.isEmpty {
                             Picker("Model", selection: $model) {
                                 Text("Default").tag("")
@@ -92,7 +95,7 @@ struct NewSessionView: View {
                                 ForEach(efforts) { e in Text(e.name).tag(e.id) }
                             }
                             if let d = efforts.first(where: { $0.id == effort })?.description, !d.isEmpty {
-                                Text(d).font(.caption).foregroundStyle(.secondary)
+                                Text(d).scaledFont(.caption).foregroundStyle(.secondary)
                             }
                         }
                         if let modes = harness.modes, !modes.isEmpty {
@@ -100,9 +103,11 @@ struct NewSessionView: View {
                                 ForEach(modes) { m in Text(m.name).tag(m.id) }
                             }
                             if let d = modes.first(where: { $0.id == mode })?.description {
-                                Text(d).font(.caption).foregroundStyle(.secondary)
+                                Text(d).scaledFont(.caption).foregroundStyle(.secondary)
                             }
                         }
+                    } header: {
+                        Text("Options").formHeaderFont()
                     }
                 }
 
@@ -118,10 +123,11 @@ struct NewSessionView: View {
                             }
                         }
                     } header: {
-                        Text("Workspace")
+                        Text("Workspace").formHeaderFont()
                     } footer: {
                         Text(useWorktree ? "The agent works on its own branch in a separate checkout. You can revert its turns."
                                          : "The agent works directly in the project folder.")
+                            .formFooterFont()
                     }
                 }
 
@@ -129,6 +135,7 @@ struct NewSessionView: View {
                     TextField("Prompt", text: $prompt, prompt: Text("What should the agent do?"), axis: .vertical)
                         .labelsHidden()
                         .lineLimit(4...12)
+                        .font(.system(size: messageTextSize))
                         .focused($promptFocused)
                         .shiftReturnNewline()
                     if !attachments.isEmpty {
@@ -136,9 +143,9 @@ struct NewSessionView: View {
                     }
                     AttachMenu(attachments: attachments, connection: connection, title: "Add Images")
                 } header: {
-                    Text("Prompt")
+                    Text("Prompt").formHeaderFont()
                 } footer: {
-                    Text("Optional. Without one, the session starts empty and you write the first prompt in it.")
+                    Text("Optional. Without one, the session starts empty and you write the first prompt in it.").formFooterFont()
                 }
 
                 if let error {
@@ -179,6 +186,7 @@ struct NewSessionView: View {
                         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { browsing = false } }
                     }
                 }
+                .appTextSizes()
                 #if os(macOS)
                 .frame(minWidth: 420, minHeight: 460)
                 #endif
@@ -287,13 +295,13 @@ struct HarnessChoiceRow: View {
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(harness.name).font(.body)
+                    Text(harness.name).scaledFont(.body)
                     if let v = harness.version {
-                        Text(v).font(.caption2.monospaced()).foregroundStyle(.tertiary).lineLimit(1)
+                        Text(v).scaledFont(.caption2, design: .monospaced).foregroundStyle(.tertiary).lineLimit(1)
                     }
                 }
                 if let hint = harness.hint, !harness.usable {
-                    Text(hint).font(.caption).foregroundStyle(.orange)
+                    Text(hint).scaledFont(.caption).foregroundStyle(.orange)
                 }
             }
             Spacer()
@@ -315,7 +323,7 @@ struct DirectoryBrowserView: View {
     var body: some View {
         List {
             if let error {
-                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                Label(error, systemImage: "exclamationmark.triangle").scaledFont(.body).foregroundStyle(.red)
             }
             if let listing {
                 ForEach(listing.entries) { e in
@@ -326,7 +334,7 @@ struct DirectoryBrowserView: View {
                             HStack {
                                 Text(path == nil ? e.path : e.name)
                                 if e.isGitRepo {
-                                    Text("git").font(.caption2.weight(.semibold))
+                                    Text("git").scaledFont(.caption2, weight: .semibold)
                                         .padding(.horizontal, 5).padding(.vertical, 1)
                                         .background(.tint.opacity(0.15), in: Capsule())
                                 }
@@ -334,10 +342,11 @@ struct DirectoryBrowserView: View {
                         } icon: {
                             Image(systemName: e.isGitRepo ? "folder.fill.badge.gearshape" : "folder")
                         }
+                        .scaledFont(.body)
                     }
                 }
                 if listing.entries.isEmpty {
-                    Text("No subfolders").foregroundStyle(.secondary)
+                    Text("No subfolders").scaledFont(.body).foregroundStyle(.secondary)
                 }
             } else if error == nil {
                 ProgressView()

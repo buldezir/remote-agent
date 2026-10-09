@@ -53,6 +53,9 @@ struct ServersView: View {
                 }
             }
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    SettingsButton()
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Add", systemImage: "plus") { showAdd = true }
                 }
@@ -61,6 +64,7 @@ struct ServersView: View {
                 AddServerView(initialLink: pendingLink) { server in
                     path.append(server)
                 }
+                .appTextSizes()
             }
             .onChange(of: pendingLink) { _, link in
                 if link != nil { showAdd = true }

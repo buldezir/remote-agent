@@ -24,6 +24,16 @@ struct RemoteAgentApp: App {
             store.setActive(newPhase == .active)
             #endif
         }
+        #if os(macOS)
+        Settings {
+            SettingsView()
+                .frame(width: 460)
+                // As tall as the form, which grows with the text sizes.
+                .fixedSize(horizontal: false, vertical: true)
+                .appTextSizes()
+        }
+        .windowResizability(.contentSize)
+        #endif
     }
 }
 
@@ -31,6 +41,9 @@ struct RemoteAgentApp: App {
 /// opens in the window that received it.
 private struct WindowRoot: View {
     @State private var pendingLink: PairingLink?
+    #if os(iOS)
+    @State private var showSettings = false
+    #endif
 
     var body: some View {
         Group {
@@ -52,7 +65,14 @@ private struct WindowRoot: View {
         #if os(macOS)
         // Otherwise the Mac opens a new window for every link.
         .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
+        #else
+        .environment(\.showSettings, $showSettings)
+        .sheet(isPresented: $showSettings) {
+            NavigationStack { SettingsView() }
+                .appTextSizes()
+        }
         #endif
+        .appTextSizes()
     }
 }
 

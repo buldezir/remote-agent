@@ -1,0 +1,163 @@
+import MarkdownUI
+import SwiftUI
+
+/// The app's settings. On the Mac, the Settings window (⌘,); on iOS, a sheet.
+struct SettingsView: View {
+    @AppStorage(TextSize.interfaceKey) private var interface = TextSize.defaultInterface
+    @AppStorage(TextSize.messagesKey) private var messages = TextSize.defaultMessages
+    #if os(iOS)
+    @AppStorage(TextSize.followsSystemKey) private var followsSystem = true
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.dismiss) private var dismiss
+    #endif
+
+    var body: some View {
+        Form {
+            Section {
+                #if os(iOS)
+                Toggle("Match System", isOn: matchSystem)
+                if !followsSystem { interfaceSlider }
+                #else
+                interfaceSlider
+                #endif
+            } header: {
+                Text("Interface").formHeaderFont()
+            } footer: {
+                Text(interfaceFooter).formFooterFont()
+            }
+
+            Section {
+                SizeSlider(value: $messages, range: TextSize.messageSizes, text: "\(Int(TextSize.messages(messages))) pt")
+            } header: {
+                Text("Messages").formHeaderFont()
+            } footer: {
+                Text("Your prompts and the agent's replies.").formFooterFont()
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: Metrics.gap) {
+                    UserBubble(text: "Add tests for the parser.")
+                    Markdown("Done. The new tests cover **empty input** and `\\r\\n` line endings, and all 42 pass.")
+                        .agentMarkdown()
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("Preview").formHeaderFont()
+            }
+
+            Section {
+                Button("Restore Defaults", action: restoreDefaults)
+                    .disabled(isDefault)
+            }
+        }
+        .compactForm()
+        .navigationTitle("Settings")
+        .inlineTitle()
+        #if os(iOS)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
+        #endif
+    }
+
+    private var interfaceSlider: some View {
+        let step = TextSize.step(interface)
+        return SizeSlider(value: Binding(get: { Double(step) }, set: { interface = Int($0.rounded()) }),
+                          range: 0...Double(TextSize.interfaceSizes.count - 1),
+                          text: "\(Int(TextSize.interfaceSizes[step])) pt")
+    }
+
+    #if os(iOS)
+    /// Turning it off starts the slider at the system's size.
+    private var matchSystem: Binding<Bool> {
+        Binding {
+            followsSystem
+        } set: { follows in
+            if !follows {
+                interface = TextSize.dynamicTypeSizes.lastIndex { $0 <= dynamicTypeSize } ?? 0
+            }
+            followsSystem = follows
+        }
+    }
+
+    private var interfaceFooter: String {
+        followsSystem ? "Lists, labels and tool calls, at the text size set in the Settings app."
+                      : "Lists, labels and tool calls."
+    }
+
+    private var isDefault: Bool {
+        followsSystem && messages == TextSize.defaultMessages
+    }
+    #else
+    private var interfaceFooter: String { "Lists, labels and tool calls." }
+
+    private var isDefault: Bool {
+        interface == TextSize.defaultInterface && messages == TextSize.defaultMessages
+    }
+    #endif
+
+    private func restoreDefaults() {
+        interface = TextSize.defaultInterface
+        messages = TextSize.defaultMessages
+        #if os(iOS)
+        followsSystem = true
+        #endif
+    }
+}
+
+/// A text size slider, from a small A to a large one, with the size it gives.
+private struct SizeSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let text: String
+
+    var body: some View {
+        #if os(macOS)
+        LabeledContent("Text size") {
+            HStack {
+                slider
+                Text(text)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 40, alignment: .trailing)
+            }
+        }
+        #else
+        VStack(spacing: 4) {
+            LabeledContent("Text size", value: text)
+            slider
+        }
+        #endif
+    }
+
+    private var slider: some View {
+        Slider(value: $value, in: range, step: 1) {
+            Text("Text size")
+        } minimumValueLabel: {
+            Image(systemName: "textformat.size.smaller")
+        } maximumValueLabel: {
+            Image(systemName: "textformat.size.larger")
+        }
+        .labelsHidden()
+        .accessibilityValue(text)
+    }
+}
+
+#if os(iOS)
+extension EnvironmentValues {
+    /// Shows the Settings sheet over the window.
+    @Entry var showSettings: Binding<Bool>?
+}
+
+/// Opens Settings. The Mac has it in the app menu instead.
+struct SettingsButton: View {
+    @Environment(\.showSettings) private var showSettings
+
+    var body: some View {
+        Button("Settings", systemImage: "gearshape") { showSettings?.wrappedValue = true }
+            .keyboardShortcut(",")
+    }
+}
+#endif

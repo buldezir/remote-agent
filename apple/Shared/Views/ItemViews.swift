@@ -13,7 +13,7 @@ struct ItemView: View {
                        pending: item.status == .queued, cancelled: item.status == .cancelled)
         case .assistantMessage:
             Markdown(item.text ?? "")
-                .markdownTheme(.agent)
+                .agentMarkdown()
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .reasoning:
@@ -26,13 +26,13 @@ struct ItemView: View {
             PlanView(plan: item.plan)
         case .notice:
             Text(item.text ?? "")
-                .font(.footnote)
+                .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
         case .error:
             Label(item.text ?? "Error", systemImage: "exclamationmark.triangle.fill")
-                .font(.footnote)
+                .scaledFont(.footnote)
                 .foregroundStyle(.red)
         case .unknown:
             EmptyView()
@@ -46,6 +46,7 @@ struct UserBubble: View {
     var store: SessionStore?
     var pending = false
     var cancelled = false
+    @Environment(\.messageTextSize) private var messageTextSize
 
     var body: some View {
         HStack {
@@ -58,6 +59,7 @@ struct UserBubble: View {
                 }
                 if !text.isEmpty {
                     Text(text)
+                        .font(.system(size: messageTextSize))
                         .textSelection(.enabled)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -65,9 +67,9 @@ struct UserBubble: View {
                         .background(Color.accentColor.opacity(pending || cancelled ? 0.55 : 1), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
                 }
                 if pending {
-                    Text("Queued").font(.caption2).foregroundStyle(.secondary)
+                    Text("Queued").scaledFont(.caption2).foregroundStyle(.secondary)
                 } else if cancelled {
-                    Text("Not sent").font(.caption2).foregroundStyle(.secondary)
+                    Text("Not sent").scaledFont(.caption2).foregroundStyle(.secondary)
                 }
             }
         }
@@ -81,13 +83,13 @@ struct ReasoningView: View {
     var body: some View {
         DisclosureGroup(isExpanded: $expanded) {
             Text(item.text ?? "")
-                .font(.footnote)
+                .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } label: {
             Label(item.status == .inProgress ? "Thinking…" : "Thought", systemImage: "brain")
-                .font(.footnote)
+                .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
         }
         .tint(.secondary)
@@ -112,7 +114,7 @@ struct ToolCallView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
                     Text(tool?.title ?? tool?.name ?? "Tool")
-                        .font(.footnote.monospaced())
+                        .scaledFont(.footnote, design: .monospaced)
                         .lineLimit(expanded ? nil : 2)
                         .multilineTextAlignment(.leading)
                         .foregroundStyle(.primary)
@@ -144,7 +146,7 @@ struct ToolCallView: View {
                 }
             } else if !children.isEmpty {
                 Text("\(children.count) sub-agent step\(children.count == 1 ? "" : "s")")
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 26)
             }
@@ -206,15 +208,15 @@ struct EditPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Change").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).padding(.bottom, 4)
+            Text("Change").scaledFont(.caption2, weight: .semibold).foregroundStyle(.secondary).padding(.bottom, 4)
             ForEach(Array(lines.prefix(60).enumerated()), id: \.offset) { _, line in
                 Text(line.text.isEmpty ? " " : line.text)
-                    .font(.caption.monospaced())
+                    .scaledFont(.caption, design: .monospaced)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(line.added ? Color.green.opacity(0.14) : Color.red.opacity(0.14))
             }
             if lines.count > 60 {
-                Text("… \(lines.count - 60) more lines").font(.caption2).foregroundStyle(.secondary)
+                Text("… \(lines.count - 60) more lines").scaledFont(.caption2).foregroundStyle(.secondary)
             }
         }
         .textSelection(.enabled)
@@ -237,18 +239,18 @@ struct CodeBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            Text(title).scaledFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
             let shown = full || lines.count <= 30 ? text : lines.prefix(30).joined(separator: "\n")
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(shown)
-                    .font(.caption.monospaced())
+                    .scaledFont(.caption, design: .monospaced)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: false)
             }
             if lines.count > 30 && !full {
                 Button("Show all \(lines.count) lines") { full = true }
-                    .font(.caption2)
+                    .scaledFont(.caption2)
             }
         }
         .padding(6)
@@ -262,16 +264,16 @@ struct PlanView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("Plan", systemImage: "list.bullet.clipboard").font(.footnote.weight(.semibold))
+            Label("Plan", systemImage: "list.bullet.clipboard").scaledFont(.footnote, weight: .semibold)
             if let text = plan?.text, !text.isEmpty {
-                Markdown(text).markdownTheme(.agent)
+                Markdown(text).agentMarkdown()
             }
             ForEach(Array((plan?.entries ?? []).enumerated()), id: \.offset) { _, e in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: e.status == "completed" ? "checkmark.circle.fill" : e.status == "in_progress" ? "circle.dotted.circle" : "circle")
                         .foregroundStyle(e.status == "completed" ? .green : e.status == "in_progress" ? .orange : .secondary)
                     Text(e.content)
-                        .font(.footnote)
+                        .scaledFont(.footnote)
                         .strikethrough(e.status == "completed", color: .secondary)
                         .foregroundStyle(e.status == "completed" ? .secondary : .primary)
                 }
@@ -305,20 +307,20 @@ struct ApprovalView: View {
     private func pendingCard(_ a: Approval) -> some View {
         VStack(alignment: .leading, spacing: Metrics.gap) {
             Label(a.title, systemImage: a.special == .question ? "questionmark.bubble" : a.special == .plan ? "list.bullet.clipboard" : "hand.raised.fill")
-                .font(.subheadline.weight(.semibold))
+                .scaledFont(.subheadline, weight: .semibold)
                 .foregroundStyle(.orange)
             if let d = a.detail, !d.isEmpty {
-                Text(d).font(.footnote).foregroundStyle(.secondary)
+                Text(d).scaledFont(.footnote).foregroundStyle(.secondary)
             }
             if a.special == .plan, let plan = a.planText {
-                ScrollView { Markdown(plan).markdownTheme(.agent) }
+                ScrollView { Markdown(plan).agentMarkdown() }
                     .frame(maxHeight: 320)
             } else if a.special == .question {
                 ForEach(a.questions ?? [], id: \.question) { q in questionView(q) }
             } else if let input = a.input {
                 ToolInputPreview(name: a.toolName, input: input)
             }
-            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error { Text(error).scaledFont(.caption).foregroundStyle(.red) }
             buttons(a)
         }
         .padding(10)
@@ -335,7 +337,7 @@ struct ApprovalView: View {
 
     private func questionView(_ q: Question) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(q.question).font(.footnote.weight(.medium))
+            Text(q.question).scaledFont(.footnote, weight: .medium)
             FlowChips(options: q.options.map(\.label), selected: answers[q.question] ?? []) { label in
                 var set = answers[q.question] ?? []
                 if q.multiSelect == true {
@@ -354,7 +356,7 @@ struct ApprovalView: View {
                 Button {
                     if o.kind == .deny && a.special != .question { askingReason = o } else { respond(o, message: nil) }
                 } label: {
-                    Text(o.label).font(.footnote.weight(.semibold)).lineLimit(2)
+                    Text(o.label).scaledFont(.footnote, weight: .semibold).lineLimit(2)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -398,16 +400,16 @@ struct ApprovalView: View {
         }
         return VStack(alignment: .leading, spacing: 4) {
             Label("\(verb): \(a?.title ?? "")", systemImage: icon)
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(color)
                 .lineLimit(2)
             if let answers = a?.decision?.answers, !answers.isEmpty {
                 ForEach(answers.sorted(by: { $0.key < $1.key }), id: \.key) { q, ans in
-                    Text("\(q) → \(ans)").font(.caption2).foregroundStyle(.secondary)
+                    Text("\(q) → \(ans)").scaledFont(.caption2).foregroundStyle(.secondary)
                 }
             }
             if let m = a?.decision?.message, !m.isEmpty {
-                Text("“\(m)”").font(.caption2).foregroundStyle(.secondary)
+                Text("“\(m)”").scaledFont(.caption2).foregroundStyle(.secondary)
             }
         }
     }
@@ -429,7 +431,7 @@ struct FlowChips: View {
                         Text(label).multilineTextAlignment(.leading)
                         Spacer()
                     }
-                    .font(.footnote)
+                    .scaledFont(.footnote)
                     .padding(6)
                     .background(selected.contains(label) ? Color.accentColor.opacity(0.15) : Color.clear,
                                 in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
@@ -437,6 +439,24 @@ struct FlowChips: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+}
+
+extension View {
+    /// The transcript's Markdown, at the message text size from Settings.
+    func agentMarkdown() -> some View {
+        modifier(AgentMarkdown())
+    }
+}
+
+private struct AgentMarkdown: ViewModifier {
+    @Environment(\.messageTextSize) private var size
+
+    func body(content: Content) -> some View {
+        // Inside the theme, so it replaces the theme's text style.
+        content
+            .markdownTextStyle(\.text) { FontSize(size) }
+            .markdownTheme(.agent)
     }
 }
 

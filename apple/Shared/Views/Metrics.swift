@@ -12,7 +12,8 @@ enum Metrics {
     static let readableWidth: CGFloat = 1000
     /// Rows of the server and session lists.
     static let rowInsets = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
-    /// Assistant text: a little under the body size on iOS, the body size on the Mac.
+    /// The default size of messages, prompts and replies (Settings can change
+    /// it): a little under the body size on iOS, the body size on the Mac.
     #if os(macOS)
     static let textSize: CGFloat = 13
     #else

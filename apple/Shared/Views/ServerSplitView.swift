@@ -44,6 +44,7 @@ struct ServerSplitView: View {
             AddServerView(initialLink: pendingLink) { server in
                 serverID = server.id
             }
+            .appTextSizes()
         }
         .onChange(of: pendingLink) { _, link in
             if link != nil { showAdd = true }
@@ -76,6 +77,11 @@ struct ServerSplitView: View {
                     ToolbarItem(placement: .primaryAction) {
                         Button("Add", systemImage: "plus") { showAdd = true }
                     }
+                    #if os(iOS)
+                    ToolbarItem(placement: .secondaryAction) {
+                        SettingsButton()
+                    }
+                    #endif
                 }
         }
     }
@@ -105,10 +111,10 @@ struct ServerSplitView: View {
         } label: {
             HStack(spacing: 8) {
                 ConnectionDot(state: connection.state)
-                Text(server.name).lineLimit(1)
+                Text(server.name).lineLimit(1).scaledFont(.body)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())

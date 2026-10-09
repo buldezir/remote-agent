@@ -11,6 +11,7 @@ struct SessionView: View {
     @State private var dictation = Dictation()
     @State private var attachments = Attachments()
     @FocusState private var composerFocused: Bool
+    @Environment(\.messageTextSize) private var messageTextSize
 
     private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
     private var harness: HarnessInfo? { session.flatMap { connection.harness($0.harness) } }
@@ -36,7 +37,7 @@ struct SessionView: View {
                 }
                 if store.synced, store.transcript.isEmpty, store.outbox.isEmpty {
                     Text("No prompts yet. Write the first one below.")
-                        .font(.footnote)
+                        .scaledFont(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 40)
@@ -44,13 +45,13 @@ struct SessionView: View {
                 if session?.status == .running {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Working…").font(.footnote).foregroundStyle(.secondary)
+                        Text("Working…").scaledFont(.footnote).foregroundStyle(.secondary)
                     }
                     .padding(.leading, 4)
                 }
                 if let err = session?.error, session?.status == .error {
                     Label(err, systemImage: "exclamationmark.octagon")
-                        .font(.footnote)
+                        .scaledFont(.footnote)
                         .foregroundStyle(.red)
                 }
             }
@@ -74,6 +75,7 @@ struct SessionView: View {
                 DiffView(store: store, initialTurn: nil, canRevert: session?.workspace.kind == .worktree)
             }
             .presentationSizing(.page)
+            .appTextSizes()
         }
         .alert("Error", isPresented: .init(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
@@ -148,6 +150,7 @@ struct SessionView: View {
                 .disabled(session?.archived == true)
             TextField(placeholder, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
+                .font(.system(size: messageTextSize))
                 .lineLimit(1...6)
                 .focused($composerFocused)
                 .shiftReturnNewline()
@@ -259,7 +262,7 @@ struct SessionView: View {
         #if os(iOS)
         ToolbarItem(placement: .principal) {
             VStack(spacing: 0) {
-                Text(session?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1)
+                Text(session?.title ?? "").scaledFont(.subheadline, weight: .semibold).lineLimit(1)
                 HStack(spacing: 4) {
                     if let s = session {
                         HarnessIcon(id: s.harness).imageScale(.small)
@@ -270,7 +273,7 @@ struct SessionView: View {
                         ContextGauge(fraction: f)
                     }
                 }
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
             }
         }
@@ -348,7 +351,7 @@ struct TurnFooter: View {
             default: Label("Interrupted", systemImage: "stop.fill")
             }
         }
-        .font(.caption2)
+        .scaledFont(.caption2)
         .foregroundStyle(.secondary)
     }
 }

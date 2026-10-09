@@ -49,10 +49,14 @@ struct ServerHomeView: View {
                     #endif
                     .disabled(connection.state != .connected)
             }
-            // On the Mac these are in the server menu at the foot of the sidebar.
+            // On the Mac these are in the server menu at the foot of the
+            // sidebar, and Settings is in the app menu.
             #if os(iOS)
             ToolbarItem(placement: .secondaryAction) {
                 Button("Reconnect", systemImage: "arrow.clockwise") { connection.retry() }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                SettingsButton()
             }
             ToolbarItem(placement: .secondaryAction) {
                 Button("Remove server", systemImage: "trash", role: .destructive) { removing = connection.server }
@@ -70,6 +74,7 @@ struct ServerHomeView: View {
                     openSession = session.id
                 }
             }
+            .appTextSizes()
         }
         .confirmationDialog("Archive session?", isPresented: .init(get: { archiveTarget != nil }, set: { if !$0 { archiveTarget = nil } }),
                             presenting: archiveTarget) { s in
@@ -98,8 +103,10 @@ struct ServerHomeView: View {
                     .foregroundStyle(.red)
                 Button("Retry now") { connection.retry() }
             }
+            .scaledFont(.body)
         case .connecting where connection.indexSynced:
             Label("Reconnecting…", systemImage: "arrow.triangle.2.circlepath")
+                .scaledFont(.body)
                 .foregroundStyle(.secondary)
         default:
             EmptyView()
@@ -108,12 +115,16 @@ struct ServerHomeView: View {
         let active = connection.activeSessions
         let attention = active.filter { $0.status == .awaitingApproval }
         if !attention.isEmpty {
-            Section("Needs you") {
+            Section {
                 ForEach(attention) { row($0) }
+            } header: {
+                Text("Needs you").listHeaderFont()
             }
         }
-        Section("Sessions") {
+        Section {
             ForEach(active.filter { $0.status != .awaitingApproval }) { row($0) }
+        } header: {
+            Text("Sessions").listHeaderFont()
         }
         let archived = connection.archivedSessions
         if !archived.isEmpty {
@@ -123,6 +134,7 @@ struct ServerHomeView: View {
                 ForEach(archived) { row($0) }
             } header: {
                 Text("Archived \(Text("\(archived.count)").foregroundStyle(.tertiary))")
+                    .listHeaderFont()
             }
             #else
             Section(isExpanded: $showArchived) {
@@ -183,7 +195,7 @@ struct SessionRow: View {
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.title)
-                    .font(.body.weight(.medium))
+                    .scaledFont(.body, weight: .medium)
                     .lineLimit(2)
                 // The time sits on this line, so the title gets the full width.
                 HStack(spacing: 6) {
@@ -198,12 +210,12 @@ struct SessionRow: View {
                     }
                     Spacer(minLength: 4)
                     Text(session.updatedAt, format: .relative(presentation: .named, unitsStyle: .narrow))
-                        .font(.caption2)
+                        .scaledFont(.caption2)
                         .foregroundStyle(.tertiary)
                         .fixedSize()
                 }
                 .lineLimit(1)
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             }
         }

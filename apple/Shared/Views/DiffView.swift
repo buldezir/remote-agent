@@ -30,18 +30,19 @@ struct DiffView: View {
                         Text("Turn \(t.n)").tag(t.id)
                     }
                 }
+                .scaledFont(.body)
             }
             if let error {
-                Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                Label(error, systemImage: "exclamationmark.triangle").scaledFont(.body).foregroundStyle(.red)
             }
             if let reverted {
-                Label(reverted, systemImage: "arrow.uturn.backward.circle").foregroundStyle(.green)
+                Label(reverted, systemImage: "arrow.uturn.backward.circle").scaledFont(.body).foregroundStyle(.green)
             }
             if let diff {
                 let sections = PatchParser.split(diff.patch)
                 Section {
                     if diff.files.isEmpty {
-                        Text("No changes").foregroundStyle(.secondary)
+                        Text("No changes").scaledFont(.body).foregroundStyle(.secondary)
                     }
                     ForEach(diff.files) { f in
                         NavigationLink {
@@ -54,8 +55,9 @@ struct DiffView: View {
                     let adds = diff.files.reduce(0) { $0 + $1.additions }
                     let dels = diff.files.reduce(0) { $0 + $1.deletions }
                     Text("\(diff.files.count) file\(diff.files.count == 1 ? "" : "s")  +\(adds) −\(dels)")
+                        .listHeaderFont()
                 } footer: {
-                    if diff.truncated { Text("The patch was truncated; some files may show no lines.") }
+                    if diff.truncated { Text("The patch was truncated; some files may show no lines.").listHeaderFont() }
                 }
             } else if loading {
                 ProgressView().frame(maxWidth: .infinity)
@@ -130,24 +132,24 @@ struct FileRow: View {
         HStack(spacing: 10) {
             Image(systemName: icon).foregroundStyle(color)
             VStack(alignment: .leading, spacing: 1) {
-                Text((file.path as NSString).lastPathComponent).font(.footnote.weight(.medium))
+                Text((file.path as NSString).lastPathComponent).scaledFont(.footnote, weight: .medium)
                 let dir = (file.path as NSString).deletingLastPathComponent
                 if let old = file.oldPath {
                     Text("\(old) → \(file.path)")
-                        .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                        .scaledFont(.caption2, design: .monospaced).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.head)
                 } else if !dir.isEmpty {
                     Text(dir)
-                        .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                        .scaledFont(.caption2, design: .monospaced).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.head)
                 }
             }
             Spacer()
             if file.binary == true {
-                Text("binary").font(.caption2).foregroundStyle(.secondary)
+                Text("binary").scaledFont(.caption2).foregroundStyle(.secondary)
             } else {
-                Text("+\(file.additions)").foregroundStyle(.green).font(.caption.monospaced())
-                Text("−\(file.deletions)").foregroundStyle(.red).font(.caption.monospaced())
+                Text("+\(file.additions)").foregroundStyle(.green).scaledFont(.caption, design: .monospaced)
+                Text("−\(file.deletions)").foregroundStyle(.red).scaledFont(.caption, design: .monospaced)
             }
         }
     }
@@ -186,7 +188,7 @@ struct FileDiffView: View {
                 }
                 ForEach(lines) { line in
                     Text(line.text.isEmpty ? " " : line.text)
-                        .font(.system(size: 12, design: .monospaced))
+                        .scaledFont(size: 12, design: .monospaced)
                         .lineLimit(wrap ? nil : 1)
                         .fixedSize(horizontal: !wrap, vertical: true)
                         .frame(maxWidth: wrap ? .infinity : nil, alignment: .leading)
