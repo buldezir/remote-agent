@@ -18,6 +18,10 @@ Drive coding agents running on your computer from your iPhone or iPad.
   <img src="docs/screenshots/transcript.png" width="19%" alt="A finished turn: tool calls, approvals and the agent's summary">
   <img src="docs/screenshots/diff.png" width="19%" alt="The diff of a file the agent changed">
 </p>
+<p>
+  <img src="docs/screenshots/ipad-approval.png" width="49%" alt="iPad: the server's sessions in a sidebar, and Claude Code asking to edit a file">
+  <img src="docs/screenshots/ipad-transcript.png" width="49%" alt="iPad: a finished turn, with another session waiting for approval in the sidebar">
+</p>
 
 Supported harnesses:
 
