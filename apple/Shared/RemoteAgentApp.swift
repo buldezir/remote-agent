@@ -28,9 +28,12 @@ struct RemoteAgentApp: App {
         Settings {
             SettingsView()
                 .frame(width: 460)
-                // As tall as the form, which grows with the text sizes.
+                // As tall as the form, which grows with the text sizes. The
+                // form can still come out a fraction of a point taller, which
+                // would show a scroller.
                 .fixedSize(horizontal: false, vertical: true)
-                .appTextSizes()
+                .scrollIndicators(.never)
+                .appTextSettings()
         }
         .windowResizability(.contentSize)
         #endif
@@ -69,10 +72,10 @@ private struct WindowRoot: View {
         .environment(\.showSettings, $showSettings)
         .sheet(isPresented: $showSettings) {
             NavigationStack { SettingsView() }
-                .appTextSizes()
+                .appTextSettings()
         }
         #endif
-        .appTextSizes()
+        .appTextSettings()
     }
 }
 

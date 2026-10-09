@@ -44,7 +44,7 @@ struct ServerSplitView: View {
             AddServerView(initialLink: pendingLink) { server in
                 serverID = server.id
             }
-            .appTextSizes()
+            .appTextSettings()
         }
         .onChange(of: pendingLink) { _, link in
             if link != nil { showAdd = true }

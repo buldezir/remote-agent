@@ -5,7 +5,10 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage(TextSize.interfaceKey) private var interface = TextSize.defaultInterface
     @AppStorage(TextSize.messagesKey) private var messages = TextSize.defaultMessages
-    #if os(iOS)
+    #if os(macOS)
+    @AppStorage(FontChoice.messageKey) private var messageFont = ""
+    @AppStorage(FontChoice.codeKey) private var codeFont = ""
+    #else
     @AppStorage(TextSize.followsSystemKey) private var followsSystem = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
@@ -27,17 +30,20 @@ struct SettingsView: View {
             }
 
             Section {
+                #if os(macOS)
+                fontPickers
+                #endif
                 SizeSlider(value: $messages, range: TextSize.messageSizes, text: "\(Int(TextSize.messages(messages))) pt")
             } header: {
                 Text("Messages").formHeaderFont()
             } footer: {
-                Text("Your prompts and the agent's replies.").formFooterFont()
+                Text(messagesFooter).formFooterFont()
             }
 
             Section {
                 VStack(alignment: .leading, spacing: Metrics.gap) {
                     UserBubble(text: "Add tests for the parser.")
-                    Markdown("Done. The new tests cover **empty input** and `\\r\\n` line endings, and all 42 pass.")
+                    Markdown("Done. The new tests cover **empty input** and `\\r\\n` line endings, and all 42 pass:\n\n```\nswift test --filter ParserTests\n```")
                         .agentMarkdown()
                 }
                 .padding(.vertical, 4)
@@ -69,6 +75,42 @@ struct SettingsView: View {
                           text: "\(Int(TextSize.interfaceSizes[step])) pt")
     }
 
+    #if os(macOS)
+    private var fontPickers: some View {
+        Group {
+            Picker("Font", selection: fontBinding($messageFont, fallback: .message)) {
+                Text("System").tag("")
+                Text("System Serif").tag("system:serif")
+                Text("System Rounded").tag("system:rounded")
+                Text("System Mono").tag("system:monospaced")
+                Divider()
+                ForEach(FontChoice.installedFamilies, id: \.self) { Text($0).tag($0) }
+            }
+            Picker("Code font", selection: fontBinding($codeFont, fallback: .code)) {
+                Text("System Mono").tag("")
+                Divider()
+                ForEach(FontChoice.monospacedFamilies, id: \.self) { Text($0).tag($0) }
+            }
+        }
+    }
+
+    /// Reads a family that is no longer installed as the default, so the
+    /// picker always has a selection.
+    private func fontBinding(_ stored: Binding<String>, fallback: FontChoice) -> Binding<String> {
+        Binding {
+            FontChoice(stored: stored.wrappedValue, fallback: fallback).stored(fallback: fallback)
+        } set: {
+            stored.wrappedValue = $0
+        }
+    }
+
+    private var messagesFooter: String {
+        "Your prompts and the agent's replies. Tool calls and diffs use the code font too."
+    }
+    #else
+    private var messagesFooter: String { "Your prompts and the agent's replies." }
+    #endif
+
     #if os(iOS)
     /// Turning it off starts the slider at the system's size.
     private var matchSystem: Binding<Bool> {
@@ -95,6 +137,7 @@ struct SettingsView: View {
 
     private var isDefault: Bool {
         interface == TextSize.defaultInterface && messages == TextSize.defaultMessages
+            && messageFont.isEmpty && codeFont.isEmpty
     }
     #endif
 
@@ -103,6 +146,9 @@ struct SettingsView: View {
         messages = TextSize.defaultMessages
         #if os(iOS)
         followsSystem = true
+        #else
+        messageFont = ""
+        codeFont = ""
         #endif
     }
 }

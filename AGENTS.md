@@ -24,11 +24,11 @@ Notes for coding agents working on this repo. What the project is and how it is 
 - **Xcode project:** `apple/project.yml` is the source of truth. `RemoteAgent.xcodeproj` is generated and gitignored, and the `Info.plist` and entitlements files are generated from `project.yml`, so edit permissions and plist keys there. Run `xcodegen` after adding files or changing the spec.
 - **Signing:** the bundle ID lives in `apple/Signing.xcconfig`. It includes the developer's gitignored `apple/Local.xcconfig`, which holds their `DEVELOPMENT_TEAM`. The Mac app shares the bundle ID; without a team it is signed ad hoc.
 - **App icon:** drawn by `apple/scripts/make-app-icon.swift`, for iOS and, in the macOS shape, for the Mac. Edit the script and rerun it; don't edit the PNGs.
-- **Text sizes:** Settings scales the interface and, separately, the messages (`Shared/Views/TextSize.swift`). iOS scales the interface with Dynamic Type; the Mac has none. So that the Mac follows the setting:
-  - In shared views, set fonts with `scaledFont(.footnote)`, `scaledFont(.caption, weight: .semibold, design: .monospaced)` and so on, not `font(.footnote)`.
+- **Text sizes and fonts:** Settings scales the interface and, separately, the messages (`Shared/Views/TextSize.swift`). On the Mac it also picks a message font and a code font. iOS scales the interface with Dynamic Type; the Mac has none. So that the Mac follows the settings:
+  - In shared views, set fonts with `scaledFont(.footnote)`, `scaledFont(.caption, weight: .semibold, design: .monospaced)` and so on, not `font(.footnote)`. Monospaced `scaledFont` uses the code font.
   - Mac lists and sidebars ignore the window's default font. Give each list row `scaledFont(.body)`, and each list section header `listHeaderFont()`. Form sections take `formHeaderFont()` and `formFooterFont()`.
-  - Prompts and replies use `@Environment(\.messageTextSize)`; Markdown gets it through `agentMarkdown()`.
-  - Each sheet applies `.appTextSizes()` again, because iOS doesn't pass the Dynamic Type size into sheets.
+  - Prompt text takes `messageFont()`; Markdown gets the message and code fonts through `agentMarkdown()`.
+  - Each sheet applies `.appTextSettings()` again, because iOS doesn't pass the Dynamic Type size into sheets.
 - **Swift 6 strict concurrency:**
   - Callbacks that run on other threads (AVAudioEngine taps, Speech results, URLSession delegates) must be created in `nonisolated` functions. A closure formed in `@MainActor` code is main-actor isolated and traps when called off the main thread.
   - Caches that view bodies fill lazily are `@ObservationIgnored`.
@@ -118,7 +118,7 @@ osascript -e 'tell application id "dev.remote-agent.app" to quit'      # fails w
 ```
 
 - **Name the build:** a link opened without `-a` goes to whichever copy macOS picks, such as a release build in `/Applications`, which is the developer's.
-- **Text sizes:** `open "$APP" --args -interfaceTextSize 6 -messageTextSize 18` tries sizes without saving them. Moving the sliders in Settings saves them to the developer's settings.
+- **Text settings:** `open "$APP" --args -interfaceTextSize 6 -messageTextSize 18 -messageFont Georgia -codeFont Menlo` tries them without saving them. Changing them in Settings saves them to the developer's settings.
 - **Its data is the developer's:** the app shares the iOS bundle ID, keeps its settings in `~/Library/Containers/dev.remote-agent.app` and its tokens in the login keychain. The developer may have paired it with their own server. Add your scratch server next to it, and remove it when done (server menu at the foot of the sidebar → Remove).
 - **Driving it:** with Accessibility access, a small Swift tool can press controls through the AX API (`AXUIElementPerformAction(…, kAXPressAction)`) and set text with `kAXValueAttribute`; capture the window with `screencapture -l<window id>`. Mouse events posted to the app's process don't reach SwiftUI, and special keys (Return, ⌘N) only arrive through System Events while the app is in front.
 - **Pasting images:** the pasteboard is the developer's. Don't put test images on it. The pasteboard rules in `Platform.pasteboardImages` take a pasteboard, so test them on a private one (`NSPasteboard(name:)`) in a small driver built with `xcrun swiftc`.

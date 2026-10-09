@@ -46,7 +46,6 @@ struct UserBubble: View {
     var store: SessionStore?
     var pending = false
     var cancelled = false
-    @Environment(\.messageTextSize) private var messageTextSize
 
     var body: some View {
         HStack {
@@ -59,7 +58,7 @@ struct UserBubble: View {
                 }
                 if !text.isEmpty {
                     Text(text)
-                        .font(.system(size: messageTextSize))
+                        .messageFont()
                         .textSelection(.enabled)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -443,7 +442,8 @@ struct FlowChips: View {
 }
 
 extension View {
-    /// The transcript's Markdown, at the message text size from Settings.
+    /// The transcript's Markdown, in the message and code fonts and the
+    /// message size from Settings.
     func agentMarkdown() -> some View {
         modifier(AgentMarkdown())
     }
@@ -451,19 +451,58 @@ extension View {
 
 private struct AgentMarkdown: ViewModifier {
     @Environment(\.messageTextSize) private var size
+    @Environment(\.messageFont) private var font
+    @Environment(\.codeFont) private var codeFont
 
     func body(content: Content) -> some View {
-        // Inside the theme, so it replaces the theme's text style.
+        // Inside the theme, so they replace its text styles.
         content
-            .markdownTextStyle(\.text) { FontSize(size) }
+            .markdownTextStyle(\.text) {
+                FontSize(size)
+                FontFamily(font.markdownFamily)
+            }
+            .markdownTextStyle(\.code) {
+                FontFamily(codeFont.markdownFamily)
+                FontSize(.em(0.88))
+                BackgroundColor(Color.secondary.opacity(0.12))
+            }
             .markdownTheme(.agent)
     }
 }
 
+/// A fenced code block, in the code font.
+private struct MarkdownCodeBlock: View {
+    let configuration: CodeBlockConfiguration
+    @Environment(\.codeFont) private var codeFont
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            configuration.label
+                .relativeLineSpacing(.em(0.2))
+                .markdownTextStyle {
+                    FontFamily(codeFont.markdownFamily)
+                    FontSize(.em(0.8))
+                }
+                .padding(8)
+        }
+        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
+        .markdownMargin(top: 0, bottom: 8)
+    }
+}
+
+extension FontChoice {
+    var markdownFamily: FontProperties.Family {
+        switch self {
+        case .system(let design): .system(design)
+        case .family(let name): .custom(name)
+        }
+    }
+}
+
 extension MarkdownUI.Theme {
-    /// GitHub-like, sized for a transcript.
+    /// GitHub-like, sized for a transcript. `agentMarkdown()` sets the text
+    /// and inline code styles, which follow Settings.
     @MainActor static let agent = Theme.gitHub
-        .text { FontSize(Metrics.textSize) }
         // GitHub leaves 16pt after paragraphs and 24pt above headings; a
         // transcript reads better tighter.
         .paragraph { configuration in
@@ -491,24 +530,7 @@ extension MarkdownUI.Theme {
         .thematicBreak {
             Divider().markdownMargin(top: 8, bottom: 8)
         }
-        .code {
-            FontFamilyVariant(.monospaced)
-            FontSize(.em(0.88))
-            BackgroundColor(Color.secondary.opacity(0.12))
-        }
-        .codeBlock { configuration in
-            ScrollView(.horizontal, showsIndicators: false) {
-                configuration.label
-                    .relativeLineSpacing(.em(0.2))
-                    .markdownTextStyle {
-                        FontFamilyVariant(.monospaced)
-                        FontSize(.em(0.8))
-                    }
-                    .padding(8)
-            }
-            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
-            .markdownMargin(top: 0, bottom: 8)
-        }
+        .codeBlock { MarkdownCodeBlock(configuration: $0) }
 
     @MainActor private static func heading(_ configuration: BlockConfiguration, size: CGFloat) -> some View {
         configuration.label

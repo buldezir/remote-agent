@@ -74,7 +74,7 @@ struct ServerHomeView: View {
                     openSession = session.id
                 }
             }
-            .appTextSizes()
+            .appTextSettings()
         }
         .confirmationDialog("Archive session?", isPresented: .init(get: { archiveTarget != nil }, set: { if !$0 { archiveTarget = nil } }),
                             presenting: archiveTarget) { s in

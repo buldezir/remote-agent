@@ -53,9 +53,73 @@ enum TextSize {
     #endif
 }
 
+/// A typeface for messages or code. The Mac's Settings offers a choice of
+/// both; iOS uses the system font.
+enum FontChoice: Hashable {
+    /// The system font in one of its designs: SF Pro, New York, SF Pro Rounded or SF Mono.
+    case system(Font.Design)
+    /// An installed font family, by name.
+    case family(String)
+
+    static let message = FontChoice.system(.default)
+    static let code = FontChoice.system(.monospaced)
+
+    func font(size: CGFloat) -> Font {
+        switch self {
+        case .system(let design): .system(size: size, design: design)
+        case .family(let name): .custom(name, fixedSize: size)
+        }
+    }
+
+    #if os(macOS)
+    /// Prompts and replies.
+    static let messageKey = "messageFont"
+    /// Code in messages, tool calls and diffs.
+    static let codeKey = "codeFont"
+
+    /// The setting as stored: empty for `fallback`, "system:serif" and the like
+    /// for the system font's designs, or a family name. A family that is no
+    /// longer installed gives `fallback`.
+    @MainActor init(stored: String, fallback: FontChoice) {
+        switch stored {
+        case "system:default": self = .system(.default)
+        case "system:serif": self = .system(.serif)
+        case "system:rounded": self = .system(.rounded)
+        case "system:monospaced": self = .system(.monospaced)
+        case let name where !name.isEmpty && Self.installedFamilies.contains(name): self = .family(name)
+        default: self = fallback
+        }
+    }
+
+    func stored(fallback: FontChoice) -> String {
+        switch self {
+        case fallback: ""
+        case .system(.serif): "system:serif"
+        case .system(.rounded): "system:rounded"
+        case .system(.monospaced): "system:monospaced"
+        case .system: "system:default"
+        case .family(let name): name
+        }
+    }
+
+    /// The font families installed on this Mac, in alphabetical order.
+    @MainActor static let installedFamilies = NSFontManager.shared.availableFontFamilies
+        .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+
+    /// The installed families with fixed-width faces.
+    @MainActor static let monospacedFamilies = Set((NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? [])
+        .compactMap { NSFont(name: $0, size: 12)?.familyName })
+        .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    #endif
+}
+
 extension EnvironmentValues {
     /// The size of prompts and replies in the transcript.
     @Entry var messageTextSize: CGFloat = Metrics.textSize
+    /// The typeface of prompts and replies.
+    @Entry var messageFont: FontChoice = .message
+    /// The typeface of code: in messages, tool calls and diffs.
+    @Entry var codeFont: FontChoice = .code
     #if os(macOS)
     /// The interface text size as a multiple of the system's.
     @Entry var textScale: CGFloat = 1
@@ -63,10 +127,15 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Applies the text sizes from Settings to a window, and to each sheet:
-    /// iOS doesn't carry the Dynamic Type size into sheets.
-    func appTextSizes() -> some View {
-        modifier(AppTextSizes())
+    /// Applies the text sizes and fonts from Settings to a window,
+    /// and to each sheet: iOS doesn't carry the Dynamic Type size into sheets.
+    func appTextSettings() -> some View {
+        modifier(AppTextSettings())
+    }
+
+    /// Prompts and replies: the message font and size from Settings.
+    func messageFont() -> some View {
+        modifier(MessageFontModifier())
     }
 
     /// A text style that follows the interface text size. Use it instead of
@@ -111,10 +180,13 @@ extension View {
     }
 }
 
-private struct AppTextSizes: ViewModifier {
+private struct AppTextSettings: ViewModifier {
     @AppStorage(TextSize.interfaceKey) private var interface = TextSize.defaultInterface
     @AppStorage(TextSize.messagesKey) private var messages = TextSize.defaultMessages
-    #if os(iOS)
+    #if os(macOS)
+    @AppStorage(FontChoice.messageKey) private var messageFont = ""
+    @AppStorage(FontChoice.codeKey) private var codeFont = ""
+    #else
     @AppStorage(TextSize.followsSystemKey) private var followsSystem = true
     #endif
 
@@ -128,6 +200,8 @@ private struct AppTextSizes: ViewModifier {
             .font(scale == 1 ? nil : .system(size: NSFont.systemFontSize * scale))
             .environment(\.textScale, scale)
             .environment(\.messageTextSize, TextSize.messages(messages))
+            .environment(\.messageFont, FontChoice(stored: messageFont, fallback: .message))
+            .environment(\.codeFont, FontChoice(stored: codeFont, fallback: .code))
         #else
         let size = TextSize.dynamicTypeSizes[step]
         content
@@ -137,19 +211,31 @@ private struct AppTextSizes: ViewModifier {
     }
 }
 
+private struct MessageFontModifier: ViewModifier {
+    @Environment(\.messageTextSize) private var size
+    @Environment(\.messageFont) private var font
+
+    func body(content: Content) -> some View {
+        content.font(font.font(size: size))
+    }
+}
+
 private struct ScaledFont: ViewModifier {
     let style: Font.TextStyle
     let weight: Font.Weight?
     let design: Font.Design?
     #if os(macOS)
     @Environment(\.textScale) private var scale
+    @Environment(\.codeFont) private var codeFont
     #endif
 
     func body(content: Content) -> some View {
         #if os(macOS)
         // The Mac's headline is bold body text, and its caption2 is medium.
         let weight = weight ?? (style == .headline ? .bold : style == .caption2 ? .medium : nil)
-        content.font(.system(size: (TextSize.styleSizes[style] ?? NSFont.systemFontSize) * scale, weight: weight, design: design))
+        let size = (TextSize.styleSizes[style] ?? NSFont.systemFontSize) * scale
+        content.font(codeFamily(design, codeFont, size: size, weight: weight)
+            ?? .system(size: size, weight: weight, design: design))
         #else
         content.font(.system(style, design: design, weight: weight))
         #endif
@@ -161,6 +247,7 @@ private struct ScaledSizeFont: ViewModifier {
     let design: Font.Design?
     #if os(macOS)
     @Environment(\.textScale) private var scale
+    @Environment(\.codeFont) private var codeFont
     #endif
 
     init(size: CGFloat, design: Font.Design?) {
@@ -170,9 +257,19 @@ private struct ScaledSizeFont: ViewModifier {
 
     func body(content: Content) -> some View {
         #if os(macOS)
-        content.font(.system(size: size * scale, design: design))
+        content.font(codeFamily(design, codeFont, size: size * scale, weight: nil)
+            ?? .system(size: size * scale, design: design))
         #else
         content.font(.system(size: size, design: design))
         #endif
     }
 }
+
+#if os(macOS)
+/// Monospaced text in the code font, when Settings names a family for it.
+private func codeFamily(_ design: Font.Design?, _ codeFont: FontChoice, size: CGFloat, weight: Font.Weight?) -> Font? {
+    guard design == .monospaced, case .family = codeFont else { return nil }
+    let font = codeFont.font(size: size)
+    return weight.map { font.weight($0) } ?? font
+}
+#endif

@@ -24,7 +24,6 @@ struct NewSessionView: View {
     @State private var browsing = false
     @State private var attachments = Attachments()
     @FocusState private var promptFocused: Bool
-    @Environment(\.messageTextSize) private var messageTextSize
 
     private var project: Project? { connection.projects[projectID] }
     private var harness: HarnessInfo? { connection.harness(harnessID) }
@@ -135,7 +134,7 @@ struct NewSessionView: View {
                     TextField("Prompt", text: $prompt, prompt: Text("What should the agent do?"), axis: .vertical)
                         .labelsHidden()
                         .lineLimit(4...12)
-                        .font(.system(size: messageTextSize))
+                        .messageFont()
                         .focused($promptFocused)
                         .shiftReturnNewline()
                     if !attachments.isEmpty {
@@ -186,7 +185,7 @@ struct NewSessionView: View {
                         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { browsing = false } }
                     }
                 }
-                .appTextSizes()
+                .appTextSettings()
                 #if os(macOS)
                 .frame(minWidth: 420, minHeight: 460)
                 #endif

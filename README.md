@@ -190,6 +190,7 @@ On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the compo
 - **Revert:** in worktree sessions you can revert to before any turn. The agent is told about it on the next prompt.
 - **Stop:** this interrupts the current turn. *Force stop* kills the agent process. Idle agents are stopped after `idle_timeout` and resume transparently on the next prompt.
 - **Text size:** Settings has two sizes: one for the interface, such as lists, labels and tool calls, and one for messages, your prompts and the agent's replies. On the Mac it is under Remote Agent › Settings… (⌘,). On iPhone and iPad, tap the gear on the server list or open a server's ⋯ menu. On iOS the interface follows the system's text size until you turn off **Match System**.
+  - On the Mac, Settings also picks the messages' font, from the system font's designs or any installed family, and a code font from the installed fixed-width ones. The code font is used for code in messages, tool calls and diffs.
 
 ## CLI
 

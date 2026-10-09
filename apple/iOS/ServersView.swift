@@ -64,7 +64,7 @@ struct ServersView: View {
                 AddServerView(initialLink: pendingLink) { server in
                     path.append(server)
                 }
-                .appTextSizes()
+                .appTextSettings()
             }
             .onChange(of: pendingLink) { _, link in
                 if link != nil { showAdd = true }

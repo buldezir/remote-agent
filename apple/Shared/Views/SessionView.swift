@@ -11,7 +11,6 @@ struct SessionView: View {
     @State private var dictation = Dictation()
     @State private var attachments = Attachments()
     @FocusState private var composerFocused: Bool
-    @Environment(\.messageTextSize) private var messageTextSize
 
     private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
     private var harness: HarnessInfo? { session.flatMap { connection.harness($0.harness) } }
@@ -75,7 +74,7 @@ struct SessionView: View {
                 DiffView(store: store, initialTurn: nil, canRevert: session?.workspace.kind == .worktree)
             }
             .presentationSizing(.page)
-            .appTextSizes()
+            .appTextSettings()
         }
         .alert("Error", isPresented: .init(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
@@ -150,7 +149,7 @@ struct SessionView: View {
                 .disabled(session?.archived == true)
             TextField(placeholder, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: messageTextSize))
+                .messageFont()
                 .lineLimit(1...6)
                 .focused($composerFocused)
                 .shiftReturnNewline()
