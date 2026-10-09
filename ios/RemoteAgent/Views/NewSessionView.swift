@@ -116,10 +116,14 @@ struct NewSessionView: View {
                     }
                 }
 
-                Section("Prompt") {
+                Section {
                     TextField("What should the agent do?", text: $prompt, axis: .vertical)
                         .lineLimit(4...12)
                         .focused($promptFocused)
+                } header: {
+                    Text("Prompt")
+                } footer: {
+                    Text("Optional. Without one, the session starts empty and you write the first prompt in it.")
                 }
 
                 if let error {
@@ -135,7 +139,7 @@ struct NewSessionView: View {
                         ProgressView()
                     } else {
                         Button("Start") { Task { await create() } }
-                            .disabled(project == nil || harness == nil || prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(project == nil || harness == nil)
                     }
                 }
             }
@@ -161,11 +165,7 @@ struct NewSessionView: View {
                         : (connection.harnesses.first(where: \.usable)?.id ?? "")
                 }
             }
-            .onChange(of: harnessID) { _, _ in
-                model = ""
-                effort = ""
-                mode = harness?.defaultMode ?? harness?.modes?.first?.id ?? ""
-            }
+            .onChange(of: harnessID) { _, _ in restoreChoices() }
             .onChange(of: chosenModel) { _, m in
                 // Models support different effort levels.
                 if let harness, !harness.efforts(forModel: m).contains(where: { $0.id == effort }) {
@@ -183,8 +183,36 @@ struct NewSessionView: View {
 
     /// The model id to request; nil for the harness default.
     private var chosenModel: String? {
-        let m = model == "__custom" || model.isEmpty ? customModel : model
+        let m = model == "__custom" || (harness?.models ?? []).isEmpty ? customModel : model
         return m.isEmpty ? nil : m
+    }
+
+    /// Starts from the model, effort and permission mode last used with this
+    /// agent, if it still offers them.
+    private func restoreChoices() {
+        model = ""
+        customModel = ""
+        effort = ""
+        mode = harness?.defaultMode ?? harness?.modes?.first?.id ?? ""
+        guard let harness else { return }
+        let defaults = UserDefaults.standard
+        let models = harness.models ?? []
+        if let m = defaults.string(forKey: "lastModel." + harness.id), !m.isEmpty {
+            if models.contains(where: { $0.id == m }) {
+                model = m
+            } else if harness.caps.freeModel {
+                model = models.isEmpty ? "" : "__custom"
+                customModel = m
+            }
+        }
+        if let e = defaults.string(forKey: "lastEffort." + harness.id),
+           harness.efforts(forModel: chosenModel).contains(where: { $0.id == e }) {
+            effort = e
+        }
+        if let m = defaults.string(forKey: "lastMode." + harness.id),
+           harness.modes?.contains(where: { $0.id == m }) == true {
+            mode = m
+        }
     }
 
     private func create() async {
@@ -203,6 +231,9 @@ struct NewSessionView: View {
                 mode: mode.isEmpty ? nil : mode, workspace: ws, prompt: prompt))
             lastHarness = harness.id
             lastProject = project.id
+            UserDefaults.standard.set(chosenModel ?? "", forKey: "lastModel." + harness.id)
+            UserDefaults.standard.set(effort, forKey: "lastEffort." + harness.id)
+            UserDefaults.standard.set(mode, forKey: "lastMode." + harness.id)
             dismiss()
             onCreated(s)
         } catch {

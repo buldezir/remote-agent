@@ -33,6 +33,13 @@ struct SessionView: View {
                 ForEach(store.outbox.sorted(by: { $0.key < $1.key }), id: \.key) { _, text in
                     UserBubble(text: text, pending: true)
                 }
+                if store.synced, store.transcript.isEmpty, store.outbox.isEmpty {
+                    Text("No prompts yet. Write the first one below.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 40)
+                }
                 if session?.status == .running {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)

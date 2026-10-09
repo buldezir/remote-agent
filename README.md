@@ -104,8 +104,9 @@ cd ios && swift scripts/make-app-icon.swift RemoteAgent/Assets.xcassets/AppIcon.
 
 - **New session:**
   1. Pick a project folder; you can browse anything under `roots` from the config.
-  2. Pick an agent, a model and a permission mode.
+  2. Pick an agent, a model, an effort and a permission mode. The app remembers what you last started each agent with.
   3. Optionally choose **Isolated git worktree**, which puts the agent on its own branch in `~/Library/Application Support/remote-agent/worktrees/…`.
+  4. Write the first prompt, or leave it empty to open the session and write it there.
 - **Approvals:** cards appear inline. The buttons come from the agent itself, e.g. *Allow*, *Allow all edits this session*, *Deny*. When denying, you can give the agent a reason.
 - **Questions and plans:** Claude's `AskUserQuestion` and `ExitPlanMode` show up as choice and plan cards.
 - **Changes:** rad snapshots the workspace before and after every turn into hidden git refs (`refs/ra/cp/…`), without touching your index or HEAD. You can view each turn's diff or the whole session's.
