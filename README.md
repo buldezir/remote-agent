@@ -7,6 +7,7 @@ Drive coding agents running on your computer from your iPhone, iPad or Mac.
   - start sessions in any project
   - watch agents stream their work
   - dictate prompts, in any of your keyboard languages
+  - attach images to prompts, and see the ones agents return, such as screenshots
   - approve or deny tool calls
   - answer the agent's questions
   - review per-turn git diffs and revert them
@@ -162,7 +163,7 @@ The Mac app is built from the same code as the iPhone app, as its own target, **
 2. Signing uses the team saved in `apple/Local.xcconfig` (step 3 for the iPhone). Without one, the app is signed to run on this Mac only. That works, but macOS may ask you to let each new build read the pairing tokens it saved in your keychain.
 3. Pair it: run `server/bin/rad pair`, then paste the link in **File › Pair a Server…**. When rad runs on the same Mac, `open "$(server/bin/rad pair --print-url)"` opens the link in the app.
 
-On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the composer, Return sends, ⌥Return starts a new line and ⌘. stops the agent. The server menu at the foot of the sidebar switches servers. Dictation listens in your preferred languages from System Settings.
+On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the composer, Return sends, ⌥Return starts a new line and ⌘. stops the agent. ⌘V pastes an image you copied, and you can drop image files on the session. The server menu at the foot of the sidebar switches servers. Dictation listens in your preferred languages from System Settings.
 
 ## Using it
 
@@ -171,6 +172,10 @@ On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the compo
   2. Pick an agent, a model, an effort and a permission mode. The app remembers what you last started each agent with.
   3. Optionally choose **Isolated git worktree**, which puts the agent on its own branch in `~/Library/Application Support/remote-agent/worktrees/…`.
   4. Write the first prompt, or leave it empty to open the session and write it there.
+- **Images:** the + beside the prompt attaches photos, image files or the clipboard's image. You can also drop images on the session. The app scales them to 2048 px and strips their metadata before uploading.
+  - Claude Code, Codex, Pi and ACP agents that accept images see them directly. Other ACP agents get the files' paths on your computer.
+  - Images agents produce show up in the transcript: an MCP tool's screenshot, an image file the agent read, or Codex viewing or generating one. Tap one to see it full size or share it.
+  - rad keeps every image in `<data>/images`, named by its content hash.
 - **Approvals:** cards appear inline. The buttons come from the agent itself, e.g. *Allow*, *Allow all edits this session*, *Deny*. When denying, you can give the agent a reason.
   - Pi doesn't ask before running tools. Oh My Pi asks only clients that run its file and terminal tools for it, which rad doesn't, so expect no approvals from it either.
   - Pi extensions can still ask: their yes/no and multiple-choice dialogs show up as cards, e.g. from Pi's example `permission-gate.ts`. The app can't answer their free-text prompts yet, so those are cancelled.
@@ -241,7 +246,8 @@ server/                  Go module for rad
   internal/orchestrator  session actors: prompts, approvals, turns, checkpoints, recovery
   internal/harness/      adapter interface + claude/ codex/ pi/ acp/ fake/ proc/ jsonrpc/
   internal/gitx          worktrees, checkpoints, diffs, revert (git CLI)
-  internal/api           HTTP pairing + WebSocket JSON-RPC
+  internal/images        images in transcripts, stored by content hash
+  internal/api           HTTP pairing and images + WebSocket JSON-RPC
 protocol/                PROTOCOL.md + golden fixtures shared by Go and Swift tests
 apple/                   XcodeGen project for the iPhone, iPad and Mac apps
   RAKit/                 Swift package: protocol, network client, stores
@@ -266,5 +272,8 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 - `question`: asks a multiple-choice question
 - `slow`: streams slowly, useful for testing interrupt
 - `fail`: makes the turn fail
+- `screenshot`: runs a tool that returns an image
+
+It also says how many images came with a prompt. `rad debug run --image shot.png "…"` attaches one from the command line.
 
 The raw protocol frames for each session are logged to `<data>/logs/<sessionId>.ndjson`.

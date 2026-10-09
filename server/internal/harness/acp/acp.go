@@ -53,7 +53,10 @@ func (h *Harness) spec(cwd string) proc.Spec {
 type initializeResult struct {
 	ProtocolVersion   int `json:"protocolVersion"`
 	AgentCapabilities struct {
-		LoadSession         bool `json:"loadSession"`
+		LoadSession        bool `json:"loadSession"`
+		PromptCapabilities struct {
+			Image bool `json:"image"`
+		} `json:"promptCapabilities"`
 		SessionCapabilities struct {
 			Resume *json.RawMessage `json:"resume"`
 		} `json:"sessionCapabilities"`
@@ -187,7 +190,7 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	if err != nil {
 		return nil, err
 	}
-	r := &runtime{h: h, p: p, cwd: o.Cwd, events: make(chan harness.Event, 512),
+	r := &runtime{h: h, p: p, cwd: o.Cwd, images: o.Images, events: make(chan harness.Event, 512),
 		tools: map[string]*model.Item{}, perms: map[string]*permRequest{}, configs: map[string]string{}}
 	r.conn = jsonrpc.New(p, "2.0", jsonrpc.Handler{Notify: r.onNotify, Request: r.onRequest})
 	go r.conn.Run()
@@ -207,6 +210,7 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	if err != nil {
 		return fail(fmt.Errorf("initialize: %w", err))
 	}
+	r.imagePrompts = init.AgentCapabilities.PromptCapabilities.Image
 
 	var setup sessionSetup
 	base := map[string]any{"cwd": o.Cwd, "mcpServers": []any{}}

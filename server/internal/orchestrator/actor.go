@@ -22,7 +22,7 @@ const flushInterval = 100 * time.Millisecond
 
 type queuedPrompt struct {
 	item     *model.Item
-	text     string
+	input    harness.Input
 	queuedAt time.Time
 }
 
@@ -97,7 +97,7 @@ func (a *actor) putSession(w *store.W) error {
 }
 
 // prompt records the user message and starts a turn, or queues it.
-func (a *actor) prompt(ctx context.Context, text, commandID string) (*model.Item, error) {
+func (a *actor) prompt(ctx context.Context, text string, refs []model.ImageRef, files []harness.Image, commandID string) (*model.Item, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.sess.Archived {
@@ -111,7 +111,7 @@ func (a *actor) prompt(ctx context.Context, text, commandID string) (*model.Item
 	}
 	it := a.newItem(model.ItemUserMessage, model.ItemQueued)
 	it.TurnID = "" // set when its turn starts
-	it.Text = text
+	it.Text, it.Images = text, refs
 	retitle := a.sess.Title == "" || a.sess.Title == "New session"
 	if retitle {
 		a.sess.Title = titleFrom(text)
@@ -130,9 +130,12 @@ func (a *actor) prompt(ctx context.Context, text, commandID string) (*model.Item
 		return nil, err
 	}
 	a.lastActive = time.Now()
-	a.o.log.Info("prompt", a.logAttrs("chars", utf8.RuneCountInString(text), "lines", strings.Count(text, "\n")+1,
-		"queued", a.turn != nil, "device", clientOf(ctx))...)
-	q := queuedPrompt{it, text, time.Now()}
+	attrs := []any{"chars", utf8.RuneCountInString(text), "lines", strings.Count(text, "\n") + 1}
+	if len(refs) > 0 {
+		attrs = append(attrs, "images", len(refs))
+	}
+	a.o.log.Info("prompt", a.logAttrs(append(attrs, "queued", a.turn != nil, "device", clientOf(ctx))...)...)
+	q := queuedPrompt{it, harness.Input{Text: text, Images: files}, time.Now()}
 	if a.turn != nil {
 		a.queue = append(a.queue, q)
 		cp := *it // the queued item is updated when its turn starts
@@ -210,12 +213,12 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 	}); err != nil {
 		return err
 	}
-	text := q.text
+	in := q.input
 	if a.note != "" {
-		text = a.note + "\n\n" + text
+		in.Text = strings.TrimSuffix(a.note+"\n\n"+in.Text, "\n\n")
 		a.note = ""
 	}
-	if err := a.rt.Prompt(ctx, text); err != nil {
+	if err := a.rt.Prompt(ctx, in); err != nil {
 		a.endTurn(ctx, harness.TurnEnded{Status: model.TurnFailed, Error: err.Error()})
 		return err
 	}
@@ -230,6 +233,9 @@ func (a *actor) open(ctx context.Context) error {
 	opts := harness.OpenOptions{
 		SessionID: a.sess.ID, Cwd: a.sess.Workspace.Path, Model: a.sess.Model, Effort: a.sess.Effort, Mode: a.sess.Mode,
 		ResumeID: a.sess.NativeID, Log: a.o.log.With("session", a.sess.ID, "harness", a.sess.Harness),
+	}
+	if a.o.opt.Images != nil {
+		opts.Images = a.o.opt.Images
 	}
 	if a.o.opt.LogsDir != "" {
 		opts.DiagPath = filepath.Join(a.o.opt.LogsDir, a.sess.ID+".ndjson")
@@ -337,7 +343,7 @@ func (a *actor) onItem(ctx context.Context, in model.Item) {
 		a.keyToID[in.ID] = it.ID
 		a.items[it.ID] = it
 	}
-	it.Kind, it.Status, it.Text, it.Tool, it.Plan = in.Kind, in.Status, in.Text, in.Tool, in.Plan
+	it.Kind, it.Status, it.Text, it.Tool, it.Plan, it.Images = in.Kind, in.Status, in.Text, in.Tool, in.Plan, in.Images
 	if in.ParentItemID != "" {
 		it.ParentItemID = a.keyToID[in.ParentItemID]
 	}

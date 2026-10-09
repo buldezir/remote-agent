@@ -12,7 +12,13 @@ public final class SessionStore {
     public private(set) var transcript: [Item] = []
     public private(set) var synced = false
     /// Optimistic user messages not yet confirmed by the server, keyed by commandId.
-    public private(set) var outbox: [String: String] = [:]
+    public private(set) var outbox: [String: Outgoing] = [:]
+
+    /// A prompt on its way to the server.
+    public struct Outgoing: Hashable, Sendable {
+        public var text: String
+        public var images: [ImageRef]
+    }
 
     var lastSeq: Int64 = 0
     var live = false
@@ -115,7 +121,7 @@ public final class SessionStore {
         top.sort { $0.order < $1.order }
         for k in kids.keys { kids[k]?.sort { $0.order < $1.order } }
         // Drop optimistic messages the server has confirmed.
-        let confirmed = Set(top.filter { $0.kind == .userMessage }.map { $0.text ?? "" })
+        let confirmed = Set(top.filter { $0.kind == .userMessage }.map { Outgoing(text: $0.text ?? "", images: $0.images ?? []) })
         outbox = outbox.filter { !confirmed.contains($0.value) }
         transcript = top
         children = kids
@@ -137,13 +143,14 @@ public final class SessionStore {
 
     // MARK: Commands
 
-    public func send(_ text: String) async throws {
+    public func send(_ text: String, images: [ImageRef] = []) async throws {
         guard let c = connection else { throw RPCError.disconnected }
         let commandID = UUID().uuidString
-        outbox[commandID] = text
-        struct P: Encodable, Sendable { var commandId: String; var sessionId: String; var text: String }
+        outbox[commandID] = Outgoing(text: text, images: images)
+        struct P: Encodable, Sendable { var commandId: String; var sessionId: String; var text: String; var images: [String]? }
         do {
-            let _: Item = try await c.call("session.prompt", P(commandId: commandID, sessionId: sessionID, text: text))
+            let _: Item = try await c.call("session.prompt", P(commandId: commandID, sessionId: sessionID, text: text,
+                                                               images: images.isEmpty ? nil : images.map(\.id)))
         } catch {
             outbox[commandID] = nil
             throw error
@@ -165,6 +172,15 @@ public final class SessionStore {
         let _: Empty = try await c.call("approval.respond", P(commandId: UUID().uuidString, sessionId: sessionID,
                                                               approvalId: approval.id, optionId: option.id, message: message, answers: answers))
     }
+
+    /// An image's bytes, from the cache or the server.
+    public func imageData(_ id: String) async throws -> Data {
+        guard let c = connection else { throw RPCError.disconnected }
+        return try await c.imageData(id)
+    }
+
+    /// The connection is up, so images can load.
+    public var isConnected: Bool { connection?.state == .connected }
 
     public func setMode(_ mode: String) async throws {
         guard let c = connection else { throw RPCError.disconnected }

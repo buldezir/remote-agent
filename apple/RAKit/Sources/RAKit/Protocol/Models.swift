@@ -205,6 +205,30 @@ public struct Plan: Codable, Hashable, Sendable {
     public var text: String?
 }
 
+/// An image rad keeps: attached to a prompt, or in a tool's output. Fetch the
+/// bytes with `ServerConnection.imageData(_:)`. The id names the content.
+public struct ImageRef: Codable, Hashable, Identifiable, Sendable {
+    public var id: String
+    public var mimeType: String
+    public var width: Int?
+    public var height: Int?
+    public var size: Int64
+
+    public init(id: String, mimeType: String, width: Int? = nil, height: Int? = nil, size: Int64) {
+        self.id = id
+        self.mimeType = mimeType
+        self.width = width
+        self.height = height
+        self.size = size
+    }
+
+    /// Width over height, when the server knows both.
+    public var aspectRatio: Double? {
+        guard let w = width, let h = height, w > 0, h > 0 else { return nil }
+        return Double(w) / Double(h)
+    }
+}
+
 public struct Item: Codable, Hashable, Identifiable, Sendable {
     public var id: String
     public var sessionId: String
@@ -217,11 +241,14 @@ public struct Item: Codable, Hashable, Identifiable, Sendable {
     public var tool: ToolCall?
     public var approval: Approval?
     public var plan: Plan?
+    /// User messages: the attached images. Tool calls: images in the output.
+    public var images: [ImageRef]?
     public var createdAt: Date
     public var updatedAt: Date
 
     public init(id: String, sessionId: String, turnId: String? = nil, parentItemId: String? = nil, order: Int64,
-                kind: ItemKind, status: ItemStatus, text: String? = nil, createdAt: Date = .now, updatedAt: Date = .now) {
+                kind: ItemKind, status: ItemStatus, text: String? = nil, images: [ImageRef]? = nil,
+                createdAt: Date = .now, updatedAt: Date = .now) {
         self.id = id
         self.sessionId = sessionId
         self.turnId = turnId
@@ -230,6 +257,7 @@ public struct Item: Codable, Hashable, Identifiable, Sendable {
         self.kind = kind
         self.status = status
         self.text = text
+        self.images = images
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

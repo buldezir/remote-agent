@@ -37,6 +37,7 @@ type runtime struct {
 	cwd      string
 	nativeID string
 	log      *slog.Logger
+	images   harness.ImageStore
 
 	events   chan harness.Event
 	emitMu   sync.Mutex
@@ -103,7 +104,11 @@ func (r *runtime) waitExit() {
 	r.emitMu.Unlock()
 }
 
-func (r *runtime) Prompt(ctx context.Context, text string) error {
+func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
+	content, err := promptContent(in)
+	if err != nil {
+		return err
+	}
 	r.mu.Lock()
 	if r.inTurn {
 		r.mu.Unlock()
@@ -112,9 +117,9 @@ func (r *runtime) Prompt(ctx context.Context, text string) error {
 	r.inTurn = true
 	r.interrupting = false
 	r.mu.Unlock()
-	err := r.conn.p.WriteJSON(map[string]any{
+	err = r.conn.p.WriteJSON(map[string]any{
 		"type":               "user",
-		"message":            map[string]any{"role": "user", "content": text},
+		"message":            map[string]any{"role": "user", "content": content},
 		"parent_tool_use_id": nil,
 		"session_id":         r.nativeID,
 	})
@@ -124,6 +129,26 @@ func (r *runtime) Prompt(ctx context.Context, text string) error {
 		r.mu.Unlock()
 	}
 	return err
+}
+
+// promptContent is the text alone, or image blocks followed by the text.
+func promptContent(in harness.Input) (any, error) {
+	if len(in.Images) == 0 {
+		return in.Text, nil
+	}
+	var blocks []map[string]any
+	for _, img := range in.Images {
+		data, err := img.Base64()
+		if err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, map[string]any{"type": "image",
+			"source": map[string]any{"type": "base64", "media_type": img.MimeType, "data": data}})
+	}
+	if in.Text != "" {
+		blocks = append(blocks, map[string]any{"type": "text", "text": in.Text})
+	}
+	return blocks, nil
 }
 
 func (r *runtime) Interrupt(ctx context.Context) error {
@@ -535,7 +560,7 @@ func (r *runtime) onUser(f frame) {
 		if it == nil {
 			continue // TodoWrite, AskUserQuestion, ExitPlanMode
 		}
-		it.Tool.Output = resultText(b.Content)
+		it.Tool.Output, it.Images = r.result(b.Content)
 		it.Status = model.ItemCompleted
 		if b.IsError {
 			it.Status = model.ItemFailed
@@ -545,28 +570,55 @@ func (r *runtime) onUser(f frame) {
 	}
 }
 
-func resultText(raw json.RawMessage) string {
+// result splits a tool result into its text and images, e.g. a screenshot
+// from an MCP tool or an image file Read returned.
+func (r *runtime) result(raw json.RawMessage) (string, []model.ImageRef) {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return s
+		return s, nil
 	}
 	var parts []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type   string `json:"type"`
+		Text   string `json:"text"`
+		Source struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+		} `json:"source"`
 	}
 	json.Unmarshal(raw, &parts)
 	var b strings.Builder
+	var images []model.ImageRef
 	for _, p := range parts {
-		if p.Type == "text" {
-			if b.Len() > 0 {
-				b.WriteByte('\n')
+		text := p.Text
+		if p.Type == "image" {
+			if ref, ok := r.keepImage(p.Source.Type, p.Source.Data); ok {
+				images = append(images, ref)
+				continue
 			}
-			b.WriteString(p.Text)
-		} else if p.Type == "image" {
-			b.WriteString("[image]")
+			text = "[image]"
+		} else if p.Type != "text" {
+			continue
 		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(text)
 	}
-	return b.String()
+	return b.String(), images
+}
+
+func (r *runtime) keepImage(sourceType, data string) (model.ImageRef, bool) {
+	if r.images == nil || sourceType != "base64" {
+		return model.ImageRef{}, false
+	}
+	ref, err := r.images.PutBase64(data)
+	if err != nil {
+		if r.log != nil {
+			r.log.Warn("could not keep an image from a tool result", "err", err)
+		}
+		return model.ImageRef{}, false
+	}
+	return ref, true
 }
 
 func (r *runtime) onResult(f frame) {

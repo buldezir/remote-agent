@@ -175,6 +175,7 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		return nil, err
 	}
 	r := newRuntime(p, o.Cwd, nativeID)
+	r.images = o.Images
 	go r.c.readLoop()
 	go r.waitExit()
 

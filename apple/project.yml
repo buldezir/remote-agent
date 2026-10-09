@@ -40,6 +40,7 @@ targets:
         NSLocalNetworkUsageDescription: Connect to rad running on your computer.
         NSMicrophoneUsageDescription: Dictate messages to your agents.
         NSSpeechRecognitionUsageDescription: Turn your dictation into text.
+        NSPhotoLibraryAddUsageDescription: Save images from your sessions, such as an agent's screenshots.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true   # http/ws to IPs and .local names
           NSExceptionDomains:
@@ -96,6 +97,7 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
         com.apple.security.device.audio-input: true
+        com.apple.security.files.user-selected.read-only: true   # images attached from Files
     configFiles:
       Debug: Signing.xcconfig
       Release: Signing.xcconfig

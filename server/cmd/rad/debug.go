@@ -2,11 +2,13 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -37,10 +39,14 @@ const debugUsage = `rad debug — test client
       --approve         auto-approve (first allow option)
       --deny            auto-deny
       --diff            print the turn diff at the end
-  rad debug prompt <sessionId> <prompt>   send a follow-up prompt and stream until idle
+      --image FILE      attach an image (repeatable)
+  rad debug prompt [--image FILE] <sessionId> <prompt>
+                                          send a follow-up prompt and stream until idle
 `
 
 type client struct {
+	base    string // http://host:port
+	token   string
 	ws      *websocket.Conn
 	next    atomic.Int64
 	mu      sync.Mutex
@@ -98,7 +104,7 @@ func dial(ctx context.Context, cfg *config.Config) (*client, error) {
 		return nil, fmt.Errorf("connect %s: %w (is `rad serve` running?)", base, err)
 	}
 	ws.SetReadLimit(64 << 20)
-	c := &client{ws: ws, pending: map[int64]chan rpcResp{}, notes: make(chan rpcNote, 1024)}
+	c := &client{base: base, token: tok, ws: ws, pending: map[int64]chan rpcResp{}, notes: make(chan rpcNote, 1024)}
 	go c.read()
 	return c, nil
 }
@@ -156,6 +162,42 @@ func (c *client) call(ctx context.Context, method string, params any, out any) e
 	}
 }
 
+// uploadImages sends image files to rad and returns their ids.
+func (c *client) uploadImages(ctx context.Context, paths []string) ([]string, error) {
+	var ids []string
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		req, _ := http.NewRequestWithContext(ctx, "POST", c.base+"/v1/images", bytes.NewReader(data))
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		var ref model.ImageRef
+		var e struct{ Message string }
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			json.Unmarshal(body, &e)
+			return nil, fmt.Errorf("upload %s: %s", path, e.Message)
+		}
+		if err := json.Unmarshal(body, &ref); err != nil {
+			return nil, err
+		}
+		ids = append(ids, ref.ID)
+	}
+	return ids, nil
+}
+
+// imageFlags collects repeated --image flags.
+type imageFlags []string
+
+func (f *imageFlags) String() string     { return strings.Join(*f, ",") }
+func (f *imageFlags) Set(v string) error { *f = append(*f, v); return nil }
+
 func debug(args []string) error {
 	if len(args) == 0 {
 		fmt.Print(debugUsage)
@@ -196,15 +238,24 @@ func debug(args []string) error {
 	case "run":
 		return debugRun(ctx, cfg, args[1:])
 	case "prompt":
-		if len(args) < 3 {
-			return errors.New("usage: rad debug prompt <sessionId> <prompt>")
+		fs := flag.NewFlagSet("prompt", flag.ExitOnError)
+		var imgs imageFlags
+		fs.Var(&imgs, "image", "")
+		fs.Parse(args[1:])
+		rest := fs.Args()
+		if len(rest) < 2 && !(len(rest) == 1 && len(imgs) > 0) {
+			return errors.New("usage: rad debug prompt [--image FILE] <sessionId> <prompt>")
 		}
 		c, err := dial(ctx, cfg)
 		if err != nil {
 			return err
 		}
-		return streamSession(ctx, c, args[1], func() error {
-			return c.call(ctx, "session.prompt", map[string]any{"sessionId": args[1], "text": strings.Join(args[2:], " "), "commandId": store.NewID()}, nil)
+		ids, err := c.uploadImages(ctx, imgs)
+		if err != nil {
+			return err
+		}
+		return streamSession(ctx, c, rest[0], func() error {
+			return c.call(ctx, "session.prompt", map[string]any{"sessionId": rest[0], "text": strings.Join(rest[1:], " "), "images": ids, "commandId": store.NewID()}, nil)
 		}, approvalPolicy{})
 	}
 	fmt.Print(debugUsage)
@@ -224,9 +275,11 @@ func debugRun(ctx context.Context, cfg *config.Config, args []string) error {
 	approve := fs.Bool("approve", false, "")
 	deny := fs.Bool("deny", false, "")
 	diff := fs.Bool("diff", false, "")
+	var imgs imageFlags
+	fs.Var(&imgs, "image", "")
 	fs.Parse(args)
 	prompt := strings.Join(fs.Args(), " ")
-	if prompt == "" {
+	if prompt == "" && len(imgs) == 0 {
 		return errors.New("missing prompt")
 	}
 	dir, err := filepath.Abs(*cwd)
@@ -234,6 +287,10 @@ func debugRun(ctx context.Context, cfg *config.Config, args []string) error {
 		return err
 	}
 	c, err := dial(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	ids, err := c.uploadImages(ctx, imgs)
 	if err != nil {
 		return err
 	}
@@ -253,7 +310,7 @@ func debugRun(ctx context.Context, cfg *config.Config, args []string) error {
 	}
 	fmt.Printf("session %s (%s, mode %s) in %s\n", sess.ID, sess.Harness, sess.Mode, sess.Workspace.Path)
 	err = streamSession(ctx, c, sess.ID, func() error {
-		return c.call(ctx, "session.prompt", map[string]any{"sessionId": sess.ID, "text": prompt, "commandId": store.NewID()}, nil)
+		return c.call(ctx, "session.prompt", map[string]any{"sessionId": sess.ID, "text": prompt, "images": ids, "commandId": store.NewID()}, nil)
 	}, approvalPolicy{*approve, *deny})
 	if err != nil {
 		return err
@@ -349,6 +406,15 @@ func streamSession(ctx context.Context, c *client, sessionID string, start func(
 	return errors.New("connection closed")
 }
 
+// imagesNote describes an item's images: " [image 640×400 image/png]".
+func imagesNote(refs []model.ImageRef) string {
+	var b strings.Builder
+	for _, r := range refs {
+		fmt.Fprintf(&b, " [image %d×%d %s %s]", r.Width, r.Height, r.MimeType, r.ID[:12])
+	}
+	return b.String()
+}
+
 func printItem(it *model.Item, printed map[string]string) {
 	switch it.Kind {
 	case model.ItemAssistantMessage, model.ItemReasoning:
@@ -393,7 +459,7 @@ func printItem(it *model.Item, printed map[string]string) {
 				out = "\n    " + strings.ReplaceAll(out, "\n", "\n    ")
 			}
 		}
-		fmt.Printf("[tool %s] %s%s\n", it.Status, title, out)
+		fmt.Printf("[tool %s] %s%s%s\n", it.Status, title, imagesNote(it.Images), out)
 	case model.ItemApproval:
 		if printed[it.ID] == string(it.Status) {
 			return
@@ -403,7 +469,7 @@ func printItem(it *model.Item, printed map[string]string) {
 	case model.ItemUserMessage:
 		if printed[it.ID] == "" {
 			printed[it.ID] = "1"
-			fmt.Printf("[user] %s\n", it.Text)
+			fmt.Printf("[user] %s%s\n", it.Text, imagesNote(it.Images))
 		}
 	case model.ItemPlan:
 		fmt.Printf("[plan]")

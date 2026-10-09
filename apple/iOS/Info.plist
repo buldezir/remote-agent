@@ -52,6 +52,8 @@
 	<string>Connect to rad running on your computer.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Dictate messages to your agents.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save images from your sessions, such as an agent's screenshots.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Turn your dictation into text.</string>
 	<key>UIApplicationSceneManifest</key>

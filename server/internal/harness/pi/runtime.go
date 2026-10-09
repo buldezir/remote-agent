@@ -119,6 +119,7 @@ type runtime struct {
 	c         *conn
 	cwd       string
 	sessionID string
+	images    harness.ImageStore
 
 	events  chan harness.Event
 	emitMu  sync.Mutex
@@ -186,7 +187,19 @@ func (r *runtime) Close() error {
 	return nil
 }
 
-func (r *runtime) Prompt(ctx context.Context, text string) error {
+func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
+	params := map[string]any{"message": in.Text}
+	if len(in.Images) > 0 {
+		var images []map[string]any
+		for _, img := range in.Images {
+			data, err := img.Base64()
+			if err != nil {
+				return err
+			}
+			images = append(images, map[string]any{"type": "image", "data": data, "mimeType": img.MimeType})
+		}
+		params["images"] = images
+	}
 	r.mu.Lock()
 	if r.inTurn {
 		r.mu.Unlock()
@@ -196,7 +209,7 @@ func (r *runtime) Prompt(ctx context.Context, text string) error {
 	turn, started := r.turn, make(chan struct{})
 	r.inTurn, r.interrupting, r.started = true, false, started
 	r.mu.Unlock()
-	res, err := r.c.send("prompt", map[string]any{"message": text})
+	res, err := r.c.send("prompt", params)
 	if err != nil {
 		r.abandon(turn)
 		return err
@@ -366,8 +379,9 @@ type block struct {
 
 type toolResult struct {
 	Content []struct {
-		Type string `json:"type"`
+		Type string `json:"type"` // text | image
 		Text string `json:"text"`
+		Data string `json:"data"`
 	} `json:"content"`
 	Details struct {
 		Diff string `json:"diff"`
@@ -385,6 +399,20 @@ func (t *toolResult) text() string {
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// keepImages stores the images in a tool result, e.g. an image file read.
+func (r *runtime) keepImages(t *toolResult) []model.ImageRef {
+	var refs []model.ImageRef
+	for _, c := range t.Content {
+		if c.Type != "image" || r.images == nil {
+			continue
+		}
+		if ref, err := r.images.PutBase64(c.Data); err == nil {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
 }
 
 type event struct {
@@ -447,6 +475,7 @@ func (r *runtime) onEvent(typ string, raw []byte) {
 		if res.Details.Diff != "" {
 			it.Tool.Output = res.Details.Diff
 		}
+		it.Images = r.keepImages(&res)
 		it.Status = model.ItemCompleted
 		if ev.IsError {
 			it.Status = model.ItemFailed

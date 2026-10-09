@@ -419,7 +419,7 @@ func RunTurn(t testing.TB, rt harness.Runtime, prompt string, choose func(harnes
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if err := rt.Prompt(ctx, prompt); err != nil {
+	if err := rt.Prompt(ctx, harness.Input{Text: prompt}); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
 	res := &Turn{Items: map[string]model.Item{}}

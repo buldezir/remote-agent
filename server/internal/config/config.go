@@ -241,6 +241,7 @@ func (c *Config) normalize() error {
 func (c *Config) DBPath() string       { return filepath.Join(c.DataDir, "rad.db") }
 func (c *Config) WorktreesDir() string { return filepath.Join(c.DataDir, "worktrees") }
 func (c *Config) LogsDir() string      { return filepath.Join(c.DataDir, "logs") }
+func (c *Config) ImagesDir() string    { return filepath.Join(c.DataDir, "images") }
 func (c *Config) HarnessCmd(id string) Command {
 	cmd := c.Harness[id]
 	if cmd.Command == "" {

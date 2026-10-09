@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -23,6 +25,7 @@ import (
 	"remote-agent/internal/fsbrowse"
 	"remote-agent/internal/harness"
 	"remote-agent/internal/harness/fake"
+	"remote-agent/internal/images"
 	"remote-agent/internal/model"
 	"remote-agent/internal/orchestrator"
 	"remote-agent/internal/store"
@@ -44,10 +47,11 @@ func startServer(t *testing.T) *testServer {
 	hub := events.NewHub()
 	st.OnCommit(hub.Publish)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	orch := orchestrator.New(st, harness.NewRegistry(fake.Harness{}), orchestrator.Options{WorktreesDir: t.TempDir(), Log: log})
+	imgs := images.New(t.TempDir())
+	orch := orchestrator.New(st, harness.NewRegistry(fake.Harness{}), orchestrator.Options{WorktreesDir: t.TempDir(), Images: imgs, Log: log})
 	t.Cleanup(orch.Shutdown)
 	root := t.TempDir()
-	srv := api.NewServer(st, hub, orch, fsbrowse.New([]string{root}), "srv-1", "test-host", log)
+	srv := api.NewServer(st, hub, orch, fsbrowse.New([]string{root}), imgs, "srv-1", "test-host", log)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return &testServer{url: ts.URL, st: st, root: root}
@@ -326,7 +330,8 @@ func TestDeviceUnpair(t *testing.T) {
 	}
 }
 
-func connect(t *testing.T, s *testServer) *client {
+// token pairs a device and returns its token.
+func (s *testServer) token(t *testing.T) string {
 	t.Helper()
 	code, err := s.st.CreatePairingCode(context.Background(), time.Minute)
 	if err != nil {
@@ -336,11 +341,87 @@ func connect(t *testing.T, s *testServer) *client {
 	if resp.StatusCode != 200 {
 		t.Fatalf("pair = %d %v", resp.StatusCode, out)
 	}
-	ws, _, err := s.dial(t, out["token"].(string))
+	return out["token"].(string)
+}
+
+func connect(t *testing.T, s *testServer) *client {
+	t.Helper()
+	ws, _, err := s.dial(t, s.token(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return newClient(t, ws)
+}
+
+// request makes an HTTP request with a device token.
+func (s *testServer) request(t *testing.T, method, path, token string, body []byte) (*http.Response, []byte) {
+	t.Helper()
+	req, _ := http.NewRequest(method, s.url+path, bytes.NewReader(body))
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return resp, data
+}
+
+func TestImages(t *testing.T) {
+	s := startServer(t)
+	token := s.token(t)
+	var b bytes.Buffer
+	png.Encode(&b, image.NewGray(image.Rect(0, 0, 12, 7)))
+	shot := b.Bytes()
+
+	if resp, _ := s.request(t, "POST", "/v1/images", "", shot); resp.StatusCode != 401 {
+		t.Errorf("upload without a token = %d", resp.StatusCode)
+	}
+	if resp, body := s.request(t, "POST", "/v1/images", token, []byte("plain text")); resp.StatusCode != 400 {
+		t.Errorf("upload of text = %d %s", resp.StatusCode, body)
+	}
+	resp, body := s.request(t, "POST", "/v1/images", token, shot)
+	var ref model.ImageRef
+	json.Unmarshal(body, &ref)
+	if resp.StatusCode != 200 || ref.MimeType != "image/png" || ref.Width != 12 || ref.Height != 7 || ref.Size != int64(len(shot)) {
+		t.Fatalf("upload = %d %s", resp.StatusCode, body)
+	}
+
+	if resp, _ := s.request(t, "GET", "/v1/images/"+ref.ID, "", nil); resp.StatusCode != 401 {
+		t.Errorf("download without a token = %d", resp.StatusCode)
+	}
+	resp, body = s.request(t, "GET", "/v1/images/"+ref.ID, token, nil)
+	if resp.StatusCode != 200 || !bytes.Equal(body, shot) || resp.Header.Get("Content-Type") != "image/png" ||
+		!strings.Contains(resp.Header.Get("Cache-Control"), "immutable") {
+		t.Errorf("download = %d %v (%d bytes)", resp.StatusCode, resp.Header, len(body))
+	}
+	if resp, _ := s.request(t, "GET", "/v1/images/"+strings.Repeat("0", 64)+".png", token, nil); resp.StatusCode != 404 {
+		t.Errorf("missing image = %d", resp.StatusCode)
+	}
+
+	// The image goes with a prompt.
+	c := connect(t, s)
+	dir := filepath.Join(s.root, "proj")
+	os.Mkdir(dir, 0o755)
+	var proj model.Project
+	c.mustCall("project.add", map[string]any{"path": dir}, &proj)
+	var sess model.Session
+	c.mustCall("session.create", map[string]any{"commandId": "c1", "projectId": proj.ID, "harness": "fake",
+		"workspace": map[string]any{"kind": "root"}, "prompt": "what is this?", "images": []string{ref.ID}}, &sess)
+	var user *model.Item
+	for _, ev := range c.subscribe(model.SessionStream(sess.ID), 0).replay {
+		if ev.Item != nil && ev.Item.Kind == model.ItemUserMessage {
+			user = ev.Item
+		}
+	}
+	if user == nil || user.Text != "what is this?" || len(user.Images) != 1 || user.Images[0] != ref {
+		t.Errorf("user message = %+v", user)
+	}
+	if _, e := c.call("session.prompt", map[string]any{"commandId": "p1", "sessionId": sess.ID, "images": []string{"x.png"}}); e == nil || e.Code != "invalid" {
+		t.Errorf("prompt with an unknown image: %+v", e)
+	}
 }
 
 func TestSessionOverWebSocket(t *testing.T) {

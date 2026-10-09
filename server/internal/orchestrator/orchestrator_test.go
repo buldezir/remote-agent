@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/png"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -21,6 +23,7 @@ import (
 	"remote-agent/internal/harness/claude"
 	"remote-agent/internal/harness/fake"
 	"remote-agent/internal/harness/replaytest"
+	"remote-agent/internal/images"
 	"remote-agent/internal/model"
 	"remote-agent/internal/store"
 )
@@ -46,6 +49,7 @@ type env struct {
 	proj *model.Project
 	dir  string // project dir
 	log  *logBuffer
+	imgs *images.Store
 }
 
 // logBuffer collects the orchestrator's log; actors write it concurrently.
@@ -83,8 +87,10 @@ func newEnvAt(t *testing.T, dir string, git bool, hs ...harness.Harness) *env {
 	hub := events.NewHub()
 	st.OnCommit(hub.Publish)
 	logs := &logBuffer{}
+	imgs := images.New(t.TempDir())
 	o := New(st, harness.NewRegistry(hs...), Options{
 		WorktreesDir: t.TempDir(),
+		Images:       imgs,
 		Log:          slog.New(slog.NewTextHandler(logs, nil)),
 	})
 	t.Cleanup(o.Shutdown)
@@ -102,7 +108,7 @@ func newEnvAt(t *testing.T, dir string, git bool, hs ...harness.Harness) *env {
 	if proj.IsGitRepo != git {
 		t.Fatalf("IsGitRepo = %v", proj.IsGitRepo)
 	}
-	return &env{t: t, st: st, o: o, proj: proj, dir: dir, log: logs}
+	return &env{t: t, st: st, o: o, proj: proj, dir: dir, log: logs, imgs: imgs}
 }
 
 func run(t *testing.T, dir string, name string, args ...string) string {
@@ -133,7 +139,7 @@ func (e *env) create(p CreateSessionParams) *model.Session {
 
 func (e *env) prompt(sessionID, text, cmd string) *model.Item {
 	e.t.Helper()
-	it, err := e.o.Prompt(bg, sessionID, text, cmd)
+	it, err := e.o.Prompt(bg, sessionID, text, nil, cmd)
 	if err != nil {
 		e.t.Fatalf("prompt %q: %v", text, err)
 	}
@@ -342,6 +348,54 @@ func TestPromptPersistsTranscript(t *testing.T) {
 	}
 }
 
+func TestImages(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	var b bytes.Buffer
+	png.Encode(&b, image.NewGray(image.Rect(0, 0, 8, 6)))
+	ref, err := e.imgs.Put(b.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A prompt of only an image, made with the session.
+	s := e.create(CreateSessionParams{CommandID: "c1", Images: []string{ref.ID}})
+	e.waitTurn(s.ID, 1)
+	items := e.items(s.ID)
+	if got := kinds(items); got != "user_message,reasoning,assistant_message" {
+		t.Fatalf("items = %s", got)
+	}
+	if len(items[0].Images) != 1 || items[0].Images[0] != ref || items[0].Text != "" {
+		t.Errorf("user message = %+v", items[0])
+	}
+	if items[2].Text != "Echo (1 image(s)):" {
+		t.Errorf("reply = %q (the fake counts the images it got)", items[2].Text)
+	}
+	if !strings.Contains(e.log.String(), "images=1") {
+		t.Errorf("log does not count the images:\n%s", e.log.String())
+	}
+
+	// A tool that returns an image.
+	e.prompt(s.ID, "take a screenshot", "")
+	e.waitTurn(s.ID, 2)
+	var shot *model.Item
+	for _, it := range e.items(s.ID) {
+		if it.Kind == model.ItemToolCall {
+			shot = it
+		}
+	}
+	if shot == nil || len(shot.Images) != 1 || shot.Images[0].Width != 640 || shot.Images[0].MimeType != "image/png" {
+		t.Fatalf("screenshot item = %+v", shot)
+	}
+	if _, _, err := e.imgs.Get(shot.Images[0].ID); err != nil {
+		t.Errorf("screenshot not stored: %v", err)
+	}
+
+	if _, err := e.o.Prompt(bg, s.ID, "look", []string{"nope.png"}, ""); CodeOf(err) != CodeInvalid {
+		t.Errorf("unknown image: err = %v", err)
+	}
+}
+
 func TestCreateWithEffort(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, false)
@@ -374,10 +428,10 @@ func TestInvalidRequests(t *testing.T) {
 	if s.Title != "New session" {
 		t.Errorf("title = %q", s.Title)
 	}
-	if _, err := e.o.Prompt(bg, s.ID, "  \n", ""); CodeOf(err) != CodeInvalid {
+	if _, err := e.o.Prompt(bg, s.ID, "  \n", nil, ""); CodeOf(err) != CodeInvalid {
 		t.Errorf("empty prompt: %v", err)
 	}
-	if _, err := e.o.Prompt(bg, "missing", "hi", ""); CodeOf(err) != CodeNotFound {
+	if _, err := e.o.Prompt(bg, "missing", "hi", nil, ""); CodeOf(err) != CodeNotFound {
 		t.Errorf("unknown session: %v", err)
 	}
 	if _, err := e.o.TurnDiff(bg, "missing", nil); CodeOf(err) != CodeNotFound {
@@ -498,7 +552,7 @@ func TestIdempotentCommands(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			it, err := e.o.Prompt(bg, s1.ID, "second", "prompt-2")
+			it, err := e.o.Prompt(bg, s1.ID, "second", nil, "prompt-2")
 			if err != nil {
 				t.Error(err)
 				return
@@ -664,7 +718,7 @@ func TestSetModeAndArchive(t *testing.T) {
 	if refs := run(t, e.dir, "git", "for-each-ref", "refs/ra/cp/"+s.ID+"/"); refs != "" {
 		t.Errorf("checkpoint refs left: %s", refs)
 	}
-	if _, err := e.o.Prompt(bg, s.ID, "more", ""); CodeOf(err) != CodeConflict {
+	if _, err := e.o.Prompt(bg, s.ID, "more", nil, ""); CodeOf(err) != CodeConflict {
 		t.Errorf("prompt archived session: %v", err)
 	}
 	if err := e.o.RemoveProject(bg, e.proj.ID); err != nil {

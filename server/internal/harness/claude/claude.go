@@ -138,7 +138,7 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		return nil, err
 	}
 	r := &runtime{
-		conn: newConn(p), cwd: o.Cwd, nativeID: nativeID, mode: o.Mode,
+		conn: newConn(p), cwd: o.Cwd, nativeID: nativeID, mode: o.Mode, images: o.Images,
 		events: make(chan harness.Event, 512), approvals: map[string]*pending{},
 		counters: map[string]map[string]int{},
 	}

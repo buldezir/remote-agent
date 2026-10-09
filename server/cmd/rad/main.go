@@ -24,6 +24,7 @@ import (
 	"remote-agent/internal/fsbrowse"
 	"remote-agent/internal/harness"
 	"remote-agent/internal/harness/fake"
+	"remote-agent/internal/images"
 	"remote-agent/internal/netinfo"
 	"remote-agent/internal/orchestrator"
 	"remote-agent/internal/store"
@@ -144,8 +145,9 @@ func serve(args []string) error {
 	}
 
 	reg := buildRegistry(cfg)
+	imgs := images.New(cfg.ImagesDir())
 	orch := orchestrator.New(st, reg, orchestrator.Options{
-		WorktreesDir: cfg.WorktreesDir(), LogsDir: cfg.LogsDir(), IdleTimeout: cfg.IdleTimeout.Duration, Log: log,
+		WorktreesDir: cfg.WorktreesDir(), LogsDir: cfg.LogsDir(), Images: imgs, IdleTimeout: cfg.IdleTimeout.Duration, Log: log,
 	})
 	if err := orch.Recover(ctx); err != nil {
 		return fmt.Errorf("recover: %w", err)
@@ -156,7 +158,7 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
-	srv := api.NewServer(st, hub, orch, fsbrowse.New(cfg.Roots), serverID, serverName(cfg), log)
+	srv := api.NewServer(st, hub, orch, fsbrowse.New(cfg.Roots), imgs, serverID, serverName(cfg), log)
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
 	errc := make(chan error, len(lns))

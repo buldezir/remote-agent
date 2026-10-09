@@ -21,6 +21,7 @@ import (
 
 	"remote-agent/internal/gitx"
 	"remote-agent/internal/harness"
+	"remote-agent/internal/images"
 	"remote-agent/internal/model"
 	"remote-agent/internal/store"
 )
@@ -28,6 +29,7 @@ import (
 type Options struct {
 	WorktreesDir string
 	LogsDir      string
+	Images       *images.Store // nil: prompts can't carry images, and agents' images are dropped
 	IdleTimeout  time.Duration
 	Log          *slog.Logger
 }
@@ -146,6 +148,7 @@ type CreateSessionParams struct {
 	Mode      string          `json:"mode,omitempty"`
 	Workspace WorkspaceParams `json:"workspace"`
 	Prompt    string          `json:"prompt"`
+	Images    []string        `json:"images,omitempty"` // attached to the prompt
 	Title     string          `json:"title,omitempty"`
 }
 
@@ -209,12 +212,12 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(p.Prompt) != "" {
+	if strings.TrimSpace(p.Prompt) != "" || len(p.Images) > 0 {
 		cmd := ""
 		if p.CommandID != "" {
 			cmd = p.CommandID + "/prompt"
 		}
-		if _, err := o.Prompt(ctx, s.ID, p.Prompt, cmd); err != nil {
+		if _, err := o.Prompt(ctx, s.ID, p.Prompt, p.Images, cmd); err != nil {
 			o.log.Warn("initial prompt failed", "session", s.ID, "err", err)
 		}
 	}
@@ -246,15 +249,30 @@ func (o *Orchestrator) actor(ctx context.Context, sessionID string) (*actor, err
 	return a, nil
 }
 
-func (o *Orchestrator) Prompt(ctx context.Context, sessionID, text, commandID string) (*model.Item, error) {
-	if strings.TrimSpace(text) == "" {
+// Prompt sends text and the images with the given ids (from POST
+// /v1/images) to a session.
+func (o *Orchestrator) Prompt(ctx context.Context, sessionID, text string, imageIDs []string, commandID string) (*model.Item, error) {
+	if strings.TrimSpace(text) == "" && len(imageIDs) == 0 {
 		return nil, errorf(CodeInvalid, "empty prompt")
+	}
+	var refs []model.ImageRef
+	var files []harness.Image
+	for _, id := range imageIDs {
+		if o.opt.Images == nil {
+			return nil, errorf(CodeInvalid, "this server does not keep images")
+		}
+		ref, path, err := o.opt.Images.Get(id)
+		if err != nil {
+			return nil, errorf(CodeInvalid, "unknown image %q", id)
+		}
+		refs = append(refs, ref)
+		files = append(files, harness.Image{Path: path, MimeType: ref.MimeType})
 	}
 	a, err := o.actor(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	return a.prompt(ctx, text, commandID)
+	return a.prompt(ctx, text, refs, files, commandID)
 }
 
 func (o *Orchestrator) Interrupt(ctx context.Context, sessionID string, force bool) error {

@@ -136,7 +136,9 @@ const (
 )
 
 // Item is one entry of a session transcript. Exactly one of the payload
-// fields (Text, Tool, Approval, Plan) is meaningful for a given Kind.
+// fields (Text, Tool, Approval, Plan) is meaningful for a given Kind. Images
+// come with a user message (attached to the prompt) or a tool call (in its
+// output, e.g. a screenshot).
 type Item struct {
 	ID           string     `json:"id"`
 	SessionID    string     `json:"sessionId"`
@@ -149,8 +151,19 @@ type Item struct {
 	Tool         *ToolCall  `json:"tool,omitempty"`
 	Approval     *Approval  `json:"approval,omitempty"`
 	Plan         *Plan      `json:"plan,omitempty"`
+	Images       []ImageRef `json:"images,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	UpdatedAt    time.Time  `json:"updatedAt"`
+}
+
+// ImageRef points to an image rad keeps; clients fetch the bytes with
+// GET /v1/images/<id>. Width and Height are 0 when unknown (WebP).
+type ImageRef struct {
+	ID       string `json:"id"`       // SHA-256 of the bytes and an extension: "<hex>.png"
+	MimeType string `json:"mimeType"` // image/png, image/jpeg, image/gif or image/webp
+	Width    int    `json:"width,omitempty"`
+	Height   int    `json:"height,omitempty"`
+	Size     int64  `json:"size"`
 }
 
 // ToolKind is a coarse category used by the client to pick an icon.

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 #if os(iOS)
 import UIKit
 #else
@@ -23,6 +24,35 @@ enum Platform {
         NSPasteboard.general.string(forType: .string)
         #endif
     }
+
+    /// The pasteboard holds an image. Checking doesn't make iOS ask to paste.
+    @MainActor static var pasteboardHasImages: Bool {
+        #if os(iOS)
+        UIPasteboard.general.hasImages
+        #else
+        NSPasteboard.general.canReadItem(withDataConformingToTypes: [UTType.image.identifier])
+        #endif
+    }
+
+    #if os(macOS)
+    /// The images on the pasteboard: image files first, else image data. Nil
+    /// when it holds none. With `unlessText`, also nil when it holds text
+    /// alongside them (copied cells, rich text), which ⌘V should paste as text.
+    @MainActor static func pasteboardImages(_ pb: NSPasteboard = .general, unlessText: Bool = false) -> [Data]? {
+        let files = pb.readObjects(forClasses: [NSURL.self], options: [
+            .urlReadingFileURLsOnly: true,
+            .urlReadingContentsConformToTypes: [UTType.image.identifier],
+        ]) as? [URL] ?? []
+        if !files.isEmpty {
+            return files.compactMap { try? Data(contentsOf: $0) }
+        }
+        if pb.types?.contains(.fileURL) == true || (unlessText && pb.types?.contains(.string) == true) { return nil }
+        for type in [NSPasteboard.PasteboardType.png, .tiff, .init(UTType.jpeg.identifier), .init(UTType.heic.identifier)] {
+            if let data = pb.data(forType: type) { return [data] }
+        }
+        return nil
+    }
+    #endif
 }
 
 extension View {

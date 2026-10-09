@@ -27,6 +27,10 @@ struct FixtureTests {
         let items = n.params.events.compactMap(\.item)
         #expect(items.count == 11)
         #expect(items.map(\.kind) == [.userMessage, .reasoning, .toolCall, .assistantMessage, .approval, .approval, .approval, .plan, .notice, .error, .assistantMessage])
+        #expect(items[0].images?.first?.mimeType == "image/png")
+        #expect(items[0].images?.first?.aspectRatio == 1170.0 / 2532.0)
+        #expect(items[2].images?.first?.width == nil)  // WebP: no dimensions
+        #expect(items[2].images?.first?.aspectRatio == nil)
         #expect(items[2].tool?.input?["command"]?.stringValue == "go test ./...")
         #expect(items[2].tool?.exitCode == 0)
         #expect(items[4].approval?.options.map(\.kind) == [.allowOnce, .allowSession, .deny])

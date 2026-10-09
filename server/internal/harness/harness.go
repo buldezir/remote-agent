@@ -4,8 +4,11 @@ package harness
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -22,7 +25,53 @@ type OpenOptions struct {
 	Mode      string
 	ResumeID  string // native session/thread id to resume; empty for a fresh session
 	Log       *slog.Logger
-	DiagPath  string // file to append raw protocol frames to (NDJSON); empty disables
+	DiagPath  string     // file to append raw protocol frames to (NDJSON); empty disables
+	Images    ImageStore // keeps images from agent output; nil drops them
+}
+
+// ImageStore keeps images that agents return (internal/images).
+type ImageStore interface {
+	PutBase64(data string) (model.ImageRef, error)
+	PutFile(path string) (model.ImageRef, error)
+}
+
+// Input is a prompt: text and the images attached to it.
+type Input struct {
+	Text   string
+	Images []Image
+}
+
+// Image is an attached image, as a file rad keeps.
+type Image struct {
+	Path     string
+	MimeType string
+}
+
+// Base64 reads the image, for agents that take images inline.
+func (i Image) Base64() (string, error) {
+	b, err := os.ReadFile(i.Path)
+	if err != nil {
+		return "", fmt.Errorf("read attached image: %w", err)
+	}
+	return base64.StdEncoding.EncodeToString(b), nil
+}
+
+// WithPaths is the text with the images' paths added, for agents that can't
+// take images in a prompt but can open files.
+func (in Input) WithPaths() string {
+	if len(in.Images) == 0 {
+		return in.Text
+	}
+	var b strings.Builder
+	b.WriteString(in.Text)
+	if in.Text != "" {
+		b.WriteString("\n\n")
+	}
+	b.WriteString("Attached images (open them from disk):")
+	for _, img := range in.Images {
+		b.WriteString("\n- " + img.Path)
+	}
+	return b.String()
 }
 
 // Event is emitted by a Runtime. Implementations: ItemEvent, ApprovalEvent,
@@ -88,7 +137,7 @@ type Runtime interface {
 	Events() <-chan Event
 	// Prompt starts a turn and returns once the harness accepted it. The turn
 	// finishes with a TurnEnded event. Callers must not overlap turns.
-	Prompt(ctx context.Context, text string) error
+	Prompt(ctx context.Context, in Input) error
 	Interrupt(ctx context.Context) error
 	Respond(ctx context.Context, approvalID string, r Response) error
 	SetMode(ctx context.Context, mode string) error

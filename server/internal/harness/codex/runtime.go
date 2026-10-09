@@ -28,6 +28,7 @@ type runtime struct {
 	conn     *jsonrpc.Conn
 	cwd      string
 	threadID string
+	images   harness.ImageStore
 
 	events  chan harness.Event
 	emitMu  sync.Mutex
@@ -92,7 +93,14 @@ func (r *runtime) Close() error {
 	return nil
 }
 
-func (r *runtime) Prompt(ctx context.Context, text string) error {
+func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
+	var input []map[string]any
+	for _, img := range in.Images {
+		input = append(input, map[string]any{"type": "localImage", "path": img.Path})
+	}
+	if in.Text != "" || len(input) == 0 {
+		input = append(input, map[string]any{"type": "text", "text": in.Text})
+	}
 	r.mu.Lock()
 	if r.inTurn {
 		r.mu.Unlock()
@@ -103,7 +111,7 @@ func (r *runtime) Prompt(ctx context.Context, text string) error {
 	r.mu.Unlock()
 	params := map[string]any{
 		"threadId":       r.threadID,
-		"input":          []map[string]any{{"type": "text", "text": text}},
+		"input":          input,
 		"approvalPolicy": pr.approval,
 		"sandboxPolicy":  pr.policy,
 	}
@@ -218,6 +226,15 @@ type threadItem struct {
 	Query     string          `json:"query"`
 	Path      string          `json:"path"`
 	Review    string          `json:"review"`
+	// dynamicToolCall output
+	ContentItems []struct {
+		Type     string `json:"type"` // inputText | inputImage
+		Text     string `json:"text"`
+		ImageURL string `json:"imageUrl"`
+	} `json:"contentItems"`
+	// imageGeneration
+	RevisedPrompt string `json:"revisedPrompt"`
+	SavedPath     string `json:"savedPath"`
 }
 
 type commandAction struct {
@@ -464,10 +481,44 @@ func (r *runtime) onItem(ti threadItem, completed bool) {
 		}
 		it.Tool = &model.ToolCall{Name: name, Kind: model.ToolOther, Title: name, Input: ti.Arguments}
 		if len(ti.Result) > 0 && string(ti.Result) != "null" {
-			it.Tool.Output = string(ti.Result)
+			it.Tool.Output, it.Images = r.mcpResult(ti.Result)
+		}
+		if len(ti.ContentItems) > 0 {
+			var text []string
+			it.Images = nil
+			for _, c := range ti.ContentItems {
+				switch c.Type {
+				case "inputText":
+					text = append(text, c.Text)
+				case "inputImage":
+					if ref, ok := r.keepImage(c.ImageURL, ""); ok {
+						it.Images = append(it.Images, ref)
+					}
+				}
+			}
+			it.Tool.Output = strings.Join(text, "\n")
 		}
 		if len(ti.Error) > 0 && string(ti.Error) != "null" {
 			it.Tool.Output = string(ti.Error)
+		}
+	case "imageView":
+		// The model looked at an image file.
+		it.Kind, it.Status = model.ItemToolCall, st
+		path := r.rel(ti.Path)
+		it.Tool = &model.ToolCall{Name: "view_image", Kind: model.ToolRead, Title: "View " + path, Paths: []string{path}}
+		if ref, ok := r.keepImage("", ti.Path); ok {
+			it.Images = []model.ImageRef{ref}
+		}
+	case "imageGeneration":
+		it.Kind, it.Status = model.ItemToolCall, st
+		it.Tool = &model.ToolCall{Name: "image_generation", Kind: model.ToolOther, Title: "Generate an image", Output: ti.RevisedPrompt}
+		if ti.SavedPath != "" {
+			it.Tool.Paths = []string{r.rel(ti.SavedPath)}
+		}
+		var result string
+		json.Unmarshal(ti.Result, &result)
+		if ref, ok := r.keepImage(result, ti.SavedPath); ok {
+			it.Images = []model.ImageRef{ref}
 		}
 	case "webSearch":
 		it.Kind, it.Status = model.ItemToolCall, st
@@ -483,6 +534,57 @@ func (r *runtime) onItem(ti threadItem, completed bool) {
 		return
 	}
 	r.emit(harness.ItemEvent{Item: cloneItem(it)})
+}
+
+// mcpResult splits an MCP tool result into its text and images. Other
+// results (structured content only, say) are shown as JSON.
+func (r *runtime) mcpResult(raw json.RawMessage) (string, []model.ImageRef) {
+	var res struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+			Data string `json:"data"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(raw, &res) != nil || len(res.Content) == 0 {
+		return string(raw), nil
+	}
+	var text []string
+	var images []model.ImageRef
+	for _, c := range res.Content {
+		switch c.Type {
+		case "text":
+			text = append(text, c.Text)
+		case "image":
+			if ref, ok := r.keepImage(c.Data, ""); ok {
+				images = append(images, ref)
+			} else {
+				text = append(text, "[image]")
+			}
+		}
+	}
+	if len(text) == 0 && len(images) == 0 {
+		return string(raw), nil
+	}
+	return strings.Join(text, "\n"), images
+}
+
+// keepImage stores an image given as base64 or a data: URL, or else as a file.
+func (r *runtime) keepImage(data, path string) (model.ImageRef, bool) {
+	if r.images == nil {
+		return model.ImageRef{}, false
+	}
+	var ref model.ImageRef
+	var err error
+	switch {
+	case data != "" && !strings.HasPrefix(data, "http"):
+		ref, err = r.images.PutBase64(data)
+	case path != "":
+		ref, err = r.images.PutFile(path)
+	default:
+		return ref, false
+	}
+	return ref, err == nil
 }
 
 func (r *runtime) rel(p string) string {

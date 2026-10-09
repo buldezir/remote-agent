@@ -28,6 +28,9 @@ type runtime struct {
 	conn      *jsonrpc.Conn
 	cwd       string
 	sessionID string
+	images    harness.ImageStore
+	// The agent takes images in prompts; otherwise it gets their paths.
+	imagePrompts bool
 
 	events  chan harness.Event
 	emitMu  sync.Mutex
@@ -94,7 +97,11 @@ func (r *runtime) Close() error {
 	return nil
 }
 
-func (r *runtime) Prompt(ctx context.Context, text string) error {
+func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
+	prompt, err := r.promptBlocks(in)
+	if err != nil {
+		return err
+	}
 	r.mu.Lock()
 	if r.inTurn {
 		r.mu.Unlock()
@@ -116,7 +123,7 @@ func (r *runtime) Prompt(ctx context.Context, text string) error {
 		}
 		err := r.conn.Call(context.Background(), "session/prompt", map[string]any{
 			"sessionId": r.sessionID,
-			"prompt":    []map[string]any{{"type": "text", "text": text}},
+			"prompt":    prompt,
 		}, &res)
 		r.mu.Lock()
 		interrupted := r.interrupting
@@ -318,11 +325,32 @@ func (r *runtime) Respond(ctx context.Context, approvalID string, resp harness.R
 	return r.conn.Reply(p.id, map[string]any{"outcome": map[string]any{"outcome": "selected", "optionId": resp.OptionID}})
 }
 
+// promptBlocks is the prompt as ACP content: image blocks, when the agent
+// takes them, and the text.
+func (r *runtime) promptBlocks(in harness.Input) ([]map[string]any, error) {
+	if !r.imagePrompts {
+		return []map[string]any{{"type": "text", "text": in.WithPaths()}}, nil
+	}
+	var blocks []map[string]any
+	for _, img := range in.Images {
+		data, err := img.Base64()
+		if err != nil {
+			return nil, err
+		}
+		blocks = append(blocks, map[string]any{"type": "image", "mimeType": img.MimeType, "data": data})
+	}
+	if in.Text != "" || len(blocks) == 0 {
+		blocks = append(blocks, map[string]any{"type": "text", "text": in.Text})
+	}
+	return blocks, nil
+}
+
 // session/update handling (read loop).
 
 type contentBlock struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+	Data string `json:"data"` // image
 }
 
 type toolContent struct {
@@ -520,12 +548,18 @@ func (r *runtime) toolItem(u update) *model.Item {
 		var cs []toolContent
 		json.Unmarshal(u.Content, &cs)
 		var out strings.Builder
+		it.Images = nil
 		for _, c := range cs {
 			switch c.Type {
 			case "content":
 				if c.Content != nil && c.Content.Type == "text" {
 					out.WriteString(c.Content.Text)
 					out.WriteByte('\n')
+				}
+				if c.Content != nil && c.Content.Type == "image" && r.images != nil {
+					if ref, err := r.images.PutBase64(c.Content.Data); err == nil {
+						it.Images = append(it.Images, ref)
+					}
 				}
 			case "diff":
 				fmt.Fprintf(&out, "Edited %s\n", r.rel(c.Path))

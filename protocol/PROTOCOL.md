@@ -24,6 +24,24 @@ Go types in `server/internal/model` and `server/internal/api` are the source of 
    - `401 {"code":"unauthorized"}`: the code is wrong or expired.
    - `GET /v1/health` responds without auth and returns `{"serverId","name","protocolVersion","version"}`.
 
+## Images
+
+Images travel over HTTP, beside the WebSocket, with the same `Authorization: Bearer <deviceToken>` header. A missing or revoked token gets `401 {"code":"unauthorized"}`.
+
+- **Upload**: `POST /v1/images`, with the image's bytes as the body. rad tells the type from the bytes and takes PNG, JPEG, GIF and WebP up to 20 MB.
+  - `200` returns an `ImageRef`. Put its `id` in `session.prompt` or `session.create`.
+  - `400 {"code":"invalid"}` means the body isn't one of those types, and `413` means it is too large.
+  - Uploading the same bytes again returns the same `id`.
+- **Download**: `GET /v1/images/<id>` returns the bytes with their `Content-Type`, or `404`.
+  - An id names its content, so it never changes. Clients can cache it for good: the response says `Cache-Control: private, max-age=31536000, immutable`.
+- **Agents** see attached images inline where they can. Agents that can't take images in a prompt (some ACP agents) get the files' paths on the server instead.
+- **Sizing**: agents' APIs reject very large images (Claude: 5 MB, 8000 px on a side). Clients should scale and re-encode before uploading. The iOS and Mac apps send at most 2048 px on the long side.
+
+```ts
+ImageRef { id, mimeType, width?, height?, size }
+// id: SHA-256 of the bytes plus an extension, "<64 hex>.png"; width/height in pixels, absent when unknown (WebP)
+```
+
 ## Frames
 
 | Direction | Shape |
@@ -124,6 +142,7 @@ Item {
            title?, input?, output?, exitCode?, paths? },
   approval?: Approval,
   plan?: { entries?: [{content, status: "pending"|"in_progress"|"completed"}], text? },
+  images?: [ImageRef],                     // user_message: attached to the prompt; tool_call: in the tool's output (a screenshot, an image file read)
   createdAt, updatedAt
 }
 
@@ -156,8 +175,8 @@ Approval {
 | `project.add` | `{path}` (must be under a root) | `Project` |
 | `project.remove` | `{id}` | `{}` (`conflict` if it has unarchived sessions) |
 | `session.list` | — | `{sessions}` |
-| `session.create` | `{commandId, projectId, harness, model?, effort?, mode?, workspace: {kind, branch?, baseRef?}, prompt?, title?}` | `Session` |
-| `session.prompt` | `{commandId, sessionId, text}` | `Item` (the user message; `queued` if a turn is running) |
+| `session.create` | `{commandId, projectId, harness, model?, effort?, mode?, workspace: {kind, branch?, baseRef?}, prompt?, images?, title?}` | `Session` |
+| `session.prompt` | `{commandId, sessionId, text, images?}` | `Item` (the user message; `queued` if a turn is running) |
 | `session.interrupt` | `{sessionId, force?}` | `{}` (`force` kills the agent process) |
 | `session.setMode` | `{sessionId, mode}` | `{}` |
 | `session.archive` | `{sessionId, removeWorktree?}` | `{}` |
@@ -183,5 +202,6 @@ Diff { from, to, files: [FileStat], patch, truncated }   // patch: unified diff,
 FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", additions, deletions, binary? }
 ```
 
+- **Images in prompts.** `images` lists ids from `POST /v1/images`. A prompt needs text, images or both. An unknown id is `invalid`.
 - **Approval answers.** For a `question` approval, put `answers` (question text → chosen label; join multiple labels with `", "`) in the request, along with the option of kind `allow_once`.
 - **Deny reasons.** For a deny, `message` is passed to the agent where the harness supports it.

@@ -22,6 +22,7 @@ struct NewSessionView: View {
     @State private var creating = false
     @State private var error: String?
     @State private var browsing = false
+    @State private var attachments = Attachments()
     @FocusState private var promptFocused: Bool
 
     private var project: Project? { connection.projects[projectID] }
@@ -129,6 +130,10 @@ struct NewSessionView: View {
                         .labelsHidden()
                         .lineLimit(4...12)
                         .focused($promptFocused)
+                    if !attachments.isEmpty {
+                        AttachmentStrip(attachments: attachments, connection: connection)
+                    }
+                    AttachMenu(attachments: attachments, connection: connection, title: "Add Images")
                 } header: {
                     Text("Prompt")
                 } footer: {
@@ -140,6 +145,10 @@ struct NewSessionView: View {
                 }
             }
             .compactForm()
+            .acceptsImages(attachments, via: connection, pasting: promptFocused)
+            .onChange(of: attachments.error) { _, e in
+                if let e { error = e; attachments.error = nil }
+            }
             #if os(macOS)
             .frame(minWidth: 480, minHeight: 600)
             #endif
@@ -152,7 +161,7 @@ struct NewSessionView: View {
                         ProgressView()
                     } else {
                         Button("Start") { Task { await create() } }
-                            .disabled(project == nil || harness == nil)
+                            .disabled(project == nil || harness == nil || !attachments.ready)
                     }
                 }
             }
@@ -253,7 +262,7 @@ struct NewSessionView: View {
             let s = try await connection.createSession(.init(
                 projectId: project.id, harness: harness.id,
                 model: chosenModel, effort: effort.isEmpty ? nil : effort,
-                mode: mode.isEmpty ? nil : mode, workspace: ws, prompt: prompt))
+                mode: mode.isEmpty ? nil : mode, workspace: ws, prompt: prompt, images: attachments.refs))
             lastHarness = harness.id
             lastProject = project.id
             UserDefaults.standard.set(chosenModel ?? "", forKey: "lastModel." + harness.id)

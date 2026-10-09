@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 
 	"remote-agent/internal/events"
 	"remote-agent/internal/fsbrowse"
+	"remote-agent/internal/images"
 	"remote-agent/internal/model"
 	"remote-agent/internal/orchestrator"
 	"remote-agent/internal/store"
@@ -27,13 +30,14 @@ type Server struct {
 	hub      *events.Hub
 	orch     *orchestrator.Orchestrator
 	fs       *fsbrowse.Browser
+	images   *images.Store
 	log      *slog.Logger
 	serverID string
 	name     string
 }
 
-func NewServer(st *store.Store, hub *events.Hub, orch *orchestrator.Orchestrator, fs *fsbrowse.Browser, serverID, name string, log *slog.Logger) *Server {
-	return &Server{st: st, hub: hub, orch: orch, fs: fs, serverID: serverID, name: name, log: log}
+func NewServer(st *store.Store, hub *events.Hub, orch *orchestrator.Orchestrator, fs *fsbrowse.Browser, imgs *images.Store, serverID, name string, log *slog.Logger) *Server {
+	return &Server{st: st, hub: hub, orch: orch, fs: fs, images: imgs, serverID: serverID, name: name, log: log}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -41,6 +45,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/health", s.health)
 	mux.HandleFunc("POST /v1/pair", s.pair)
 	mux.HandleFunc("GET /v1/ws", s.ws)
+	mux.HandleFunc("POST /v1/images", s.uploadImage)
+	mux.HandleFunc("GET /v1/images/{id}", s.getImage)
 	return mux
 }
 
@@ -103,10 +109,67 @@ func bearer(r *http.Request) string {
 	return ""
 }
 
-func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
+// device authenticates a request by its bearer token, answering 401 if it
+// has none or a revoked one.
+func (s *Server) device(w http.ResponseWriter, r *http.Request) (store.Device, bool) {
 	dev, err := s.st.DeviceByToken(r.Context(), bearer(r))
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, rpcError{Code: "unauthorized", Message: "invalid device token"})
+		return dev, false
+	}
+	return dev, true
+}
+
+// uploadImage stores an image for a prompt. The body is the image's bytes;
+// the response is its ImageRef, whose id goes in session.prompt.
+func (s *Server) uploadImage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.device(w, r); !ok {
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, images.MaxSize))
+	if tooLarge := (*http.MaxBytesError)(nil); errors.As(err, &tooLarge) {
+		writeJSON(w, http.StatusRequestEntityTooLarge, rpcError{Code: "invalid", Message: images.ErrTooLarge.Error()})
+		return
+	} else if err != nil {
+		writeJSON(w, http.StatusBadRequest, rpcError{Code: "invalid", Message: "could not read the image"})
+		return
+	}
+	ref, err := s.images.Put(data)
+	switch {
+	case errors.Is(err, images.ErrUnsupported), errors.Is(err, images.ErrTooLarge):
+		writeJSON(w, http.StatusBadRequest, rpcError{Code: "invalid", Message: err.Error()})
+	case err != nil:
+		writeJSON(w, http.StatusInternalServerError, rpcError{Code: "internal", Message: err.Error()})
+	default:
+		writeJSON(w, http.StatusOK, ref)
+	}
+}
+
+// getImage serves a stored image. Ids name the content, so it never changes.
+func (s *Server) getImage(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.device(w, r); !ok {
+		return
+	}
+	ref, path, err := s.images.Get(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, rpcError{Code: "not_found", Message: err.Error()})
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, rpcError{Code: "not_found", Message: images.ErrNotFound.Error()})
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", ref.MimeType)
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("ETag", `"`+ref.ID+`"`)
+	http.ServeContent(w, r, "", time.Time{}, f)
+}
+
+func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
+	dev, ok := s.device(w, r)
+	if !ok {
 		return
 	}
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionContextTakeover})

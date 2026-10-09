@@ -49,9 +49,10 @@ type harnessListParams struct {
 }
 
 type promptParams struct {
-	CommandID string `json:"commandId"`
-	SessionID string `json:"sessionId"`
-	Text      string `json:"text"`
+	CommandID string   `json:"commandId"`
+	SessionID string   `json:"sessionId"`
+	Text      string   `json:"text"`
+	Images    []string `json:"images,omitempty"` // ids from POST /v1/images
 }
 
 type interruptParams struct {
@@ -160,7 +161,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 		return call(raw, func(p orchestrator.CreateSessionParams) (any, error) { return o.CreateSession(ctx, p) })
 
 	case "session.prompt":
-		return call(raw, func(p promptParams) (any, error) { return o.Prompt(ctx, p.SessionID, p.Text, p.CommandID) })
+		return call(raw, func(p promptParams) (any, error) { return o.Prompt(ctx, p.SessionID, p.Text, p.Images, p.CommandID) })
 
 	case "session.interrupt":
 		return call(raw, func(p interruptParams) (any, error) { return nil, o.Interrupt(ctx, p.SessionID, p.Force) })

@@ -44,6 +44,7 @@ public actor RPCClient {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 15
         cfg.waitsForConnectivity = false
+        cfg.urlCache = nil  // images have their own cache (ImageCache)
         session = URLSession(configuration: cfg)
         (messages, continuation) = AsyncStream.makeStream(of: ServerMessage.self, bufferingPolicy: .unbounded)
     }
@@ -199,5 +200,41 @@ public actor RPCClient {
 
     private func fail(_ id: Int, _ error: Error) {
         pending.removeValue(forKey: id)?.resume(throwing: error)
+    }
+
+    // MARK: HTTP, beside the socket
+
+    /// Uploads an image to attach to a prompt (`POST /v1/images`).
+    public func uploadImage(_ data: Data) async throws -> ImageRef {
+        var req = try httpRequest("v1/images")
+        req.httpMethod = "POST"
+        req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 60
+        let (body, resp) = try await session.upload(for: req, from: data)
+        try check(body, resp)
+        return try WireCoding.decoder().decode(ImageRef.self, from: body)
+    }
+
+    /// An image's bytes (`GET /v1/images/<id>`).
+    public func imageData(_ id: String) async throws -> Data {
+        var req = try httpRequest("v1/images/\(id)")
+        req.timeoutInterval = 60
+        let (body, resp) = try await session.data(for: req)
+        try check(body, resp)
+        return body
+    }
+
+    /// A request to the server the socket is connected to, with our token.
+    private func httpRequest(_ path: String) throws -> URLRequest {
+        guard let base = connectedURL else { throw RPCError.disconnected }
+        var req = URLRequest(url: base.appending(path: path))
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return req
+    }
+
+    private func check(_ body: Data, _ resp: URLResponse) throws {
+        guard let http = resp as? HTTPURLResponse, http.statusCode != 200 else { return }
+        throw (try? WireCoding.decoder().decode(RPCError.self, from: body))
+            ?? RPCError(code: "http", message: "The server answered \(http.statusCode)")
     }
 }

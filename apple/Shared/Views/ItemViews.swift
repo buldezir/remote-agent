@@ -9,7 +9,8 @@ struct ItemView: View {
     var body: some View {
         switch item.kind {
         case .userMessage:
-            UserBubble(text: item.text ?? "", pending: item.status == .queued, cancelled: item.status == .cancelled)
+            UserBubble(text: item.text ?? "", images: item.images ?? [], store: store,
+                       pending: item.status == .queued, cancelled: item.status == .cancelled)
         case .assistantMessage:
             Markdown(item.text ?? "")
                 .markdownTheme(.agent)
@@ -41,6 +42,8 @@ struct ItemView: View {
 
 struct UserBubble: View {
     let text: String
+    var images: [ImageRef] = []
+    var store: SessionStore?
     var pending = false
     var cancelled = false
 
@@ -48,12 +51,19 @@ struct UserBubble: View {
         HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 2) {
-                Text(text)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .foregroundStyle(.white)
-                    .background(Color.accentColor.opacity(pending || cancelled ? 0.55 : 1), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
+                if let store, !images.isEmpty {
+                    ImageGallery(images: images, store: store, height: 120, alignment: .trailing)
+                        .opacity(pending || cancelled ? 0.55 : 1)
+                        .padding(.bottom, 2)
+                }
+                if !text.isEmpty {
+                    Text(text)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .foregroundStyle(.white)
+                        .background(Color.accentColor.opacity(pending || cancelled ? 0.55 : 1), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
+                }
                 if pending {
                     Text("Queued").font(.caption2).foregroundStyle(.secondary)
                 } else if cancelled {
@@ -112,6 +122,10 @@ struct ToolCallView: View {
             }
             .buttonStyle(.plain)
 
+            // Shown without expanding: a screenshot is often the point.
+            if let images = item.images, !images.isEmpty {
+                ImageGallery(images: images, store: store, height: 160)
+            }
             if expanded {
                 if let input = tool?.input, input != .object([:]) {
                     ToolInputPreview(name: tool?.name, input: input)

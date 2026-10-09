@@ -7,12 +7,20 @@
 //	"write <file>" write <file> in the cwd (used by git tests)
 //	"fail"     end the turn with an error
 //	"slow"     stream slowly (2s), so interrupts can be tested
+//	"screenshot" run a tool that returns an image
+//
+// The reply counts the images attached to the prompt.
 package fake
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +85,12 @@ func (r *runtime) emit(e harness.Event) {
 	}
 }
 
-func (r *runtime) Prompt(ctx context.Context, text string) error {
+func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
+	for _, img := range in.Images {
+		if _, err := os.Stat(img.Path); err != nil {
+			return fmt.Errorf("attached image: %w", err)
+		}
+	}
 	r.mu.Lock()
 	if r.cancel != nil {
 		r.mu.Unlock()
@@ -88,11 +101,11 @@ func (r *runtime) Prompt(ctx context.Context, text string) error {
 	r.n++
 	n := r.n
 	r.mu.Unlock()
-	go r.turn(tctx, n, text)
+	go r.turn(tctx, n, in.Text, len(in.Images))
 	return nil
 }
 
-func (r *runtime) turn(ctx context.Context, n int, text string) {
+func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 	end := func(st model.TurnStatus, errMsg string) {
 		r.mu.Lock()
 		r.cancel = nil
@@ -169,12 +182,26 @@ func (r *runtime) turn(ctx context.Context, n int, text string) {
 		text += fmt.Sprintf(" (answer: %v)", resp.Answers)
 	}
 
+	if strings.Contains(text, "screenshot") {
+		tool := model.Item{ID: key("shot"), Kind: model.ItemToolCall, Status: model.ItemCompleted,
+			Tool: &model.ToolCall{Name: "screenshot", Kind: model.ToolOther, Title: "Take a screenshot", Output: "Captured the screen"}}
+		if r.opts.Images != nil {
+			if ref, err := r.opts.Images.PutBase64(base64.StdEncoding.EncodeToString(screenshot(n))); err == nil {
+				tool.Images = []model.ImageRef{ref}
+			}
+		}
+		r.emitItem(tool)
+	}
+
 	if strings.Contains(text, "fail") {
 		end(model.TurnFailed, "fake failure requested")
 		return
 	}
 
 	reply := "Echo: " + text
+	if images > 0 {
+		reply = fmt.Sprintf("Echo (%d image(s)): %s", images, text)
+	}
 	msg := model.Item{ID: key("msg"), Kind: model.ItemAssistantMessage, Status: model.ItemInProgress}
 	words := strings.Fields(reply)
 	for i, w := range words {
@@ -195,6 +222,23 @@ func (r *runtime) turn(ctx context.Context, n int, text string) {
 	msg.Status = model.ItemCompleted
 	r.emit(harness.ItemEvent{Item: msg})
 	end(model.TurnCompleted, "")
+}
+
+// screenshot draws a 640×400 PNG that differs per turn.
+func screenshot(n int) []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 640, 400))
+	for y := 0; y < 400; y++ {
+		for x := 0; x < 640; x++ {
+			c := color.RGBA{uint8(x * 255 / 640), uint8(y * 255 / 400), uint8(n * 60), 255}
+			if (x/40+y/40+n)%2 == 0 {
+				c.R, c.G, c.B = c.R/2, c.G/2, c.B/2
+			}
+			img.Set(x, y, c)
+		}
+	}
+	var b bytes.Buffer
+	png.Encode(&b, img)
+	return b.Bytes()
 }
 
 // emitItem sends a snapshot of it, since the turn keeps updating its ToolCall.

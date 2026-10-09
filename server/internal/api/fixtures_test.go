@@ -37,10 +37,12 @@ func fixtures() map[string]any {
 	}
 	user := item("i1", 1, model.ItemUserMessage, model.ItemCompleted)
 	user.Text = "Fix the failing tests"
+	user.Images = []model.ImageRef{{ID: "9f2c3a7d8e1b4c5a6f7e8d9c0b1a2f3e4d5c6b7a8f9e0d1c2b3a4f5e6d7c8b9a.png", MimeType: "image/png", Width: 1170, Height: 2532, Size: 482113}}
 	reasoning := item("i2", 2, model.ItemReasoning, model.ItemCompleted)
 	reasoning.Text = "Let me look at the test output."
 	tool := item("i3", 3, model.ItemToolCall, model.ItemCompleted)
 	tool.Tool = &model.ToolCall{Name: "Bash", Kind: model.ToolExecute, Title: "go test ./...", Input: json.RawMessage(`{"command":"go test ./..."}`), Output: "ok", ExitCode: &exit}
+	tool.Images = []model.ImageRef{{ID: "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9.webp", MimeType: "image/webp", Size: 20480}}
 	assistant := item("i4", 4, model.ItemAssistantMessage, model.ItemInProgress)
 	assistant.Text = "All **tests** pass now.\n\n```go\nfunc x() {}\n```"
 	approval := item("i5", 5, model.ItemApproval, model.ItemPending)

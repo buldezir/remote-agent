@@ -7,7 +7,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
 - **Server:** a Go module in `server/` (`cmd/rad` and `internal/`). Run Go commands from `server/`; it builds into `server/bin/rad`.
 - **Apple clients:** everything is in `apple/`.
   - `apple/RAKit` holds the protocol, network client and stores, all testable with `swift test`.
-  - Two app targets, `RemoteAgent-iOS` (iPhone and iPad) and `RemoteAgent-macOS`, both compile `apple/Shared`, the SwiftUI app. Each adds its own folder, `apple/iOS` or `apple/macOS`, with its `Info.plist` and the views only it uses: the QR scanner and the iPhone server list, or the Mac menu bar and entitlements (App Sandbox, network client, microphone).
+  - Two app targets, `RemoteAgent-iOS` (iPhone and iPad) and `RemoteAgent-macOS`, both compile `apple/Shared`, the SwiftUI app. Each adds its own folder, `apple/iOS` or `apple/macOS`, with its `Info.plist` and the views only it uses: the QR scanner and the iPhone server list, or the Mac menu bar and entitlements (App Sandbox, network client, microphone, files the user picks).
   - A whole file for one platform goes in its folder. A small difference inside a shared file goes in `#if os(iOS)` / `#if os(macOS)`. `Shared/Views/Platform.swift` holds the shims, such as `inlineTitle()`, `plainTextInput()` and `Platform.deviceName`.
   - A third target, `RemoteAgentServer` in `apple/ServerApp`, is the Mac menu bar app that runs rad. It shares no code with the clients. Its last build phase, `apple/scripts/build-rad.sh`, compiles rad from `server/` into the app and signs it.
 - **Changing a wire type:** keep these in step:
@@ -16,6 +16,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - `protocol/PROTOCOL.md`
 
   Then regenerate the fixtures with `cd server && go test ./internal/api -update`, and assert the new field in `apple/RAKit/Tests/RAKitTests/FixtureTests.swift`. Clients ignore unknown fields, so prefer adding optional fields over changing existing ones.
+- **Images:** users upload with `POST /v1/images`, and prompts carry the ids. Adapters store images from agent output through `OpenOptions.Images` and put the refs on the item. Clients fetch them with `GET /v1/images/<id>`. The bytes never travel over the WebSocket.
 - **Changing a harness adapter:** never call real agent CLIs from tests. Adapter tests replay recorded transcripts:
   - `server/internal/harness/*/testdata/*.ndjson`, one `{"dir":"in"|"out","frame":…}` per line, driven by `internal/harness/replaytest`.
   - Assert on the emitted `harness.Event`s.
@@ -64,11 +65,11 @@ The developer may have their own `rad serve` running on the default port 7421, w
 3. Drive it:
 
    ```bash
-   RAD_HOME=$SCRATCH/radhome server/bin/rad debug run --cwd $SCRATCH/proj [--worktree] "write a.txt"
+   RAD_HOME=$SCRATCH/radhome server/bin/rad debug run --cwd $SCRATCH/proj [--worktree] [--image a.png] "write a.txt"
    RAD_HOME=$SCRATCH/radhome server/bin/rad debug prompt <sessionId> "again"
    ```
 
-Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
+Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
 
 ## Simulator
 
@@ -104,6 +105,7 @@ osascript -e 'tell application id "dev.remote-agent.app" to quit'      # fails w
 
 - **Its data is the developer's:** the app shares the iOS bundle ID, keeps its settings in `~/Library/Containers/dev.remote-agent.app` and its tokens in the login keychain. The developer may have paired it with their own server. Add your scratch server next to it, and remove it when done (server menu at the foot of the sidebar → Remove).
 - **Driving it:** with Accessibility access, a small Swift tool can press controls through the AX API (`AXUIElementPerformAction(…, kAXPressAction)`) and set text with `kAXValueAttribute`; capture the window with `screencapture -l<window id>`. Mouse events posted to the app's process don't reach SwiftUI, and special keys (Return, ⌘N) only arrive through System Events while the app is in front.
+- **Pasting images:** the pasteboard is the developer's. Don't put test images on it. The pasteboard rules in `Platform.pasteboardImages` take a pasteboard, so test them on a private one (`NSPasteboard(name:)`) in a small driver built with `xcrun swiftc`.
 - **Keychain:** a build signed with the team keeps reading the tokens it saved. An ad-hoc build is a new app to the keychain each time, so macOS may ask for the login password; don't answer it, pair again instead.
 
 ## Server app

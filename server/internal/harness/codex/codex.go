@@ -151,7 +151,7 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	if err != nil {
 		return nil, err
 	}
-	r := &runtime{p: p, cwd: o.Cwd, mode: mode, model: o.Model, effort: o.Effort, events: make(chan harness.Event, 512),
+	r := &runtime{p: p, cwd: o.Cwd, images: o.Images, mode: mode, model: o.Model, effort: o.Effort, events: make(chan harness.Event, 512),
 		items: map[string]*model.Item{}, requests: map[string]*serverRequest{}}
 	r.conn = jsonrpc.New(p, "", jsonrpc.Handler{Notify: r.onNotify, Request: r.onRequest})
 	go r.conn.Run()

@@ -123,7 +123,7 @@ func TestReplayInterrupt(t *testing.T) {
 	rt, _ := open(t, "testdata/interrupt.ndjson", "01a12104-3979-735b-b1dd-3424002d2ec8")
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if err := rt.Prompt(ctx, "Run `sleep 20` with bash, then reply with one short sentence."); err != nil {
+	if err := rt.Prompt(ctx, harness.Input{Text: "Run `sleep 20` with bash, then reply with one short sentence."}); err != nil {
 		t.Fatal(err)
 	}
 	var tool model.Item

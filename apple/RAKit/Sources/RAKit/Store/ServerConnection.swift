@@ -233,6 +233,18 @@ public final class ServerConnection {
 
     public func harness(_ id: String) -> HarnessInfo? { harnesses?.first { $0.id == id } }
 
+    /// Uploads an image to attach to a prompt.
+    public func uploadImage(_ data: Data) async throws -> ImageRef {
+        let ref = try await client.uploadImage(data)
+        await ImageCache.shared.store(data, for: ref.id)
+        return ref
+    }
+
+    /// An image's bytes, from the cache or the server.
+    public func imageData(_ id: String) async throws -> Data {
+        try await ImageCache.shared.data(id) { [client] in try await client.imageData(id) }
+    }
+
     public func listDirectory(_ path: String?) async throws -> FSListing {
         try await client.call("fs.list", ["path": path ?? ""])
     }
@@ -262,6 +274,8 @@ public final class ServerConnection {
         public var mode: String?
         public var workspace: WorkspaceParams
         public var prompt: String
+        /// Ids of uploaded images (`uploadImage`) that go with the prompt.
+        public var images: [String]?
 
         public struct WorkspaceParams: Encodable, Sendable {
             public var kind: Workspace.Kind
@@ -275,7 +289,7 @@ public final class ServerConnection {
         }
 
         public init(projectId: String, harness: String, model: String?, effort: String? = nil, mode: String?,
-                    workspace: WorkspaceParams, prompt: String) {
+                    workspace: WorkspaceParams, prompt: String, images: [ImageRef] = []) {
             self.projectId = projectId
             self.harness = harness
             self.model = model
@@ -283,6 +297,7 @@ public final class ServerConnection {
             self.mode = mode
             self.workspace = workspace
             self.prompt = prompt
+            self.images = images.isEmpty ? nil : images.map(\.id)
         }
     }
 

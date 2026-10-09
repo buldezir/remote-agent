@@ -9,6 +9,7 @@ struct SessionView: View {
     @State private var error: String?
     @State private var showDiff = false
     @State private var dictation = Dictation()
+    @State private var attachments = Attachments()
     @FocusState private var composerFocused: Bool
 
     private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
@@ -30,8 +31,8 @@ struct SessionView: View {
                         TurnFooter(turn: turn)
                     }
                 }
-                ForEach(store.outbox.sorted(by: { $0.key < $1.key }), id: \.key) { _, text in
-                    UserBubble(text: text, pending: true)
+                ForEach(store.outbox.sorted(by: { $0.key < $1.key }), id: \.key) { _, out in
+                    UserBubble(text: out.text, images: out.images, store: store, pending: true)
                 }
                 if store.synced, store.transcript.isEmpty, store.outbox.isEmpty {
                     Text("No prompts yet. Write the first one below.")
@@ -61,6 +62,7 @@ struct SessionView: View {
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) { composer }
+        .acceptsImages(attachments, via: connection, pasting: composerFocused)
         .navigationTitle(session?.title ?? "Session")
         #if os(macOS)
         .navigationSubtitle(session.map(macSubtitle) ?? "")
@@ -80,6 +82,9 @@ struct SessionView: View {
         }
         .onChange(of: dictation.error) { _, e in
             if let e { error = e; dictation.error = nil }
+        }
+        .onChange(of: attachments.error) { _, e in
+            if let e { error = e; attachments.error = nil }
         }
         .onAppear { store.activate() }
         .onDisappear {
@@ -118,13 +123,35 @@ struct SessionView: View {
     // MARK: Composer
 
     private var composer: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !attachments.isEmpty {
+                AttachmentStrip(attachments: attachments, connection: connection)
+            }
+            composerRow
+        }
+        .padding(.horizontal, Metrics.margin)
+        .padding(.vertical, 6)
+        .frame(maxWidth: Metrics.readableWidth)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        #if os(iOS)
+        .onChange(of: composerFocused) { _, focused in
+            // The keyboard has its own dictation key.
+            if focused { dictation.stop() }
+        }
+        #endif
+    }
+
+    private var composerRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
+            AttachMenu(attachments: attachments, connection: connection)
+                .disabled(session?.archived == true)
             TextField(placeholder, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...6)
                 .focused($composerFocused)
                 #if os(macOS)
-                .onSubmit { if mainAction == .send { mainButtonTapped() } }
+                .onSubmit { if mainAction == .send && canSend { mainButtonTapped() } }
                 #endif
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -150,21 +177,10 @@ struct SessionView: View {
             .tint(mainAction == .stopDictation ? .red : .accentColor)
             .keyboardShortcut(mainAction == .send ? KeyboardShortcut(.return) : nil)
             // While dictation finishes, the final pass is still rewriting the draft.
-            .disabled(session?.archived == true || (mainAction == .send && draftIsEmpty) || dictation.phase == .finishing)
+            .disabled(session?.archived == true || (mainAction == .send && !canSend) || dictation.phase == .finishing)
             .accessibilityLabel(mainAction.label)
             .animation(.snappy, value: mainAction)
         }
-        .padding(.horizontal, Metrics.margin)
-        .padding(.vertical, 6)
-        .frame(maxWidth: Metrics.readableWidth)
-        .frame(maxWidth: .infinity)
-        .background(.bar)
-        #if os(iOS)
-        .onChange(of: composerFocused) { _, focused in
-            // The keyboard has its own dictation key.
-            if focused { dictation.stop() }
-        }
-        #endif
     }
 
     private enum MainAction {
@@ -192,13 +208,18 @@ struct SessionView: View {
     private var mainAction: MainAction {
         if dictation.phase != .idle { return .stopDictation }
         #if os(macOS)
-        return draftIsEmpty ? .dictate : .send
+        return nothingToSend ? .dictate : .send
         #else
-        return composerFocused || !draftIsEmpty ? .send : .dictate
+        return composerFocused || !nothingToSend ? .send : .dictate
         #endif
     }
 
-    private var draftIsEmpty: Bool { draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var nothingToSend: Bool {
+        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.isEmpty
+    }
+
+    /// There is something to send, and its images are on the server.
+    private var canSend: Bool { !nothingToSend && attachments.ready }
 
     private func mainButtonTapped() {
         switch mainAction {
@@ -207,9 +228,10 @@ struct SessionView: View {
         case .stopDictation:
             dictation.stop()
         case .send:
-            let text = draft
+            let text = draft, images = attachments.refs
             draft = ""
-            Task { await run { try await store.send(text) } }
+            attachments.clear()
+            Task { await run { try await store.send(text, images: images) } }
         }
     }
 
