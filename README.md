@@ -164,7 +164,9 @@ The Mac app is built from the same code as the iPhone app, as its own target, **
    ```
 
    Or open `apple/RemoteAgent.xcodeproj`, pick the **RemoteAgent-macOS** scheme and press ⌘R.
-2. Signing uses the team saved in `apple/Local.xcconfig` (step 3 for the iPhone). Without one, the app is signed to run on this Mac only. That works, but macOS may ask you to let each new build read the pairing tokens it saved in your keychain.
+
+   Or download `Remote-Agent-macOS-arm64.zip` from [Releases](https://github.com/buldezir/remote-agent/releases). Like the Server app's release build, it is signed ad hoc and not notarized, so allow its first launch under System Settings › Privacy & Security.
+2. Signing uses the team saved in `apple/Local.xcconfig` (step 3 for the iPhone). Without one, the app is signed to run on this Mac only. That works, but macOS may ask you to let each new build or release read the pairing tokens it saved in your keychain.
 3. Pair it: run `server/bin/rad pair`, then paste the link in **File › Pair a Server…**. When rad runs on the same Mac, `open "$(server/bin/rad pair --print-url)"` opens the link in the app.
 
 On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the composer, Return sends, ⌥Return starts a new line and ⌘. stops the agent. ⌘V pastes an image you copied, and you can drop image files on the session. The server menu at the foot of the sidebar switches servers. Dictation listens in your preferred languages from System Settings.
@@ -280,6 +282,6 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 
 It also says how many images came with a prompt. `rad debug run --image shot.png "…"` attaches one from the command line.
 
-To release, push a tag such as `v0.2.0`. [`.github/workflows/release.yml`](.github/workflows/release.yml) runs the server tests, builds rad for Linux and macOS and the Server app for Apple silicon, and publishes them as that tag's release with a `SHA256SUMS` file. A tag with a hyphen, such as `v0.3.0-beta.1`, becomes a prerelease.
+To release, push a tag such as `v0.2.0`. [`.github/workflows/release.yml`](.github/workflows/release.yml) runs the server tests, builds rad for Linux and macOS and both Mac apps for Apple silicon, and publishes them as that tag's release with a `SHA256SUMS` file. A tag with a hyphen, such as `v0.3.0-beta.1`, becomes a prerelease.
 
 The raw protocol frames for each session are logged to `<data>/logs/<sessionId>.ndjson`.
