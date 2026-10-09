@@ -3,10 +3,10 @@ module remote-agent
 go 1.27.0
 
 require (
-	github.com/BurntSushi/toml v1.6.0
 	github.com/coder/websocket v1.8.15
 	github.com/google/uuid v1.6.0
 	github.com/mdp/qrterminal/v3 v3.2.1
+	go.yaml.in/yaml/v3 v3.0.4
 	modernc.org/sqlite v1.60.1
 )
 

@@ -38,12 +38,12 @@ cd ios && xcodegen && xcodebuild -project RemoteAgent.xcodeproj -scheme RemoteAg
 
 The developer may have their own `rad serve` running on the default port 7421, with real sessions and paired devices. Don't stop it, don't send prompts into its sessions, and don't change `~/.config/remote-agent`. Use a scratch instance instead.
 
-1. Write `$SCRATCH/radhome/config.toml`:
+1. Write `$SCRATCH/radhome/config.yaml`:
 
-   ```toml
-   listen = ["127.0.0.1:7499"]      # loopback only, unlike the default 0.0.0.0
-   fake = true                      # adds the scripted "Fake" harness (or pass --fake)
-   roots = ["/path/to/scratch"]
+   ```yaml
+   listen: ["127.0.0.1:7499"]       # loopback only, unlike the default 0.0.0.0
+   fake: true                       # adds the scripted "Fake" harness (or pass --fake)
+   roots: [/path/to/scratch]
    ```
 
 2. Build and start the server:

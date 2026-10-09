@@ -36,7 +36,7 @@ func TestUninstall(t *testing.T) {
 	radHome := filepath.Join(tmp, "radhome")
 	t.Setenv("RAD_HOME", radHome)
 	os.MkdirAll(radHome, 0o700)
-	os.WriteFile(filepath.Join(radHome, "config.toml"), []byte("port = 1\n"), 0o600)
+	os.WriteFile(filepath.Join(radHome, "config.yaml"), []byte("port: 1\n"), 0o600)
 
 	repo := filepath.Join(tmp, "proj")
 	os.MkdirAll(repo, 0o755)

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBaseURL(t *testing.T) {
@@ -29,15 +30,18 @@ func TestBaseURL(t *testing.T) {
 	}
 }
 
+func writeFile(t *testing.T, path, s string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(s), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoadPairURLs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("RAD_HOME", home)
-	write := func(s string) {
-		if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(s), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write("port = 8000\npair_urls = [\"mac.ts.net\", \"https://mac.ts.net\"]\n")
+	path := filepath.Join(home, "config.yaml")
+	writeFile(t, path, "port: 8000\npair_urls: [mac.ts.net, \"https://mac.ts.net\"]\n")
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -45,8 +49,43 @@ func TestLoadPairURLs(t *testing.T) {
 	if want := []string{"http://mac.ts.net:8000", "https://mac.ts.net"}; !slices.Equal(c.PairURLs, want) {
 		t.Errorf("PairURLs = %v", c.PairURLs)
 	}
-	write("pair_urls = [\"http://mac.ts.net/v1\"]\n")
+	writeFile(t, path, "pair_urls: [\"http://mac.ts.net/v1\"]\n")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "pair_urls") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestLoad(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RAD_HOME", home)
+	path := filepath.Join(home, "config.yaml")
+
+	// First run writes the commented default file.
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != defaultFile {
+		t.Errorf("wrote:\n%s", b)
+	}
+	if c.Port != 7421 || c.IdleTimeout.Duration != 30*time.Minute || len(c.ACP) != 3 || c.HarnessCmd("claude").Command != "claude" {
+		t.Errorf("defaults = %+v", c)
+	}
+	if want, _ := ExpandHome("~/projects"); !slices.Equal(c.Roots, []string{want}) {
+		t.Errorf("roots = %v", c.Roots)
+	}
+
+	// Typos are errors rather than silently ignored.
+	writeFile(t, path, "port: 7421\npair_url: [mac]\n")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "pair_url") {
+		t.Errorf("unknown key: err = %v", err)
+	}
+	writeFile(t, path, "roots: [~]\n")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), `write "~" in quotes`) {
+		t.Errorf("bare ~: err = %v", err)
+	}
+	writeFile(t, path, "")
+	if c, err := Load(); err != nil || c.Port != 7421 {
+		t.Errorf("empty file: %+v, %v", c, err)
 	}
 }

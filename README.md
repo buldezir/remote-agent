@@ -27,7 +27,7 @@ The server lives in `server/` and builds into `server/bin/rad`:
 ```bash
 cd server
 go build -o bin/rad ./cmd/rad
-./bin/rad serve          # first run writes ~/.config/remote-agent/config.toml and prints a pairing QR
+./bin/rad serve          # first run writes ~/.config/remote-agent/config.yaml and prints a pairing QR
 ```
 
 On the phone, open Remote Agent and tap **Pair a server**, then scan the QR code. In the simulator, paste the link from `rad pair --print-url` instead.
@@ -128,27 +128,27 @@ rad debug call <method> '{json}'  raw RPC (see protocol/PROTOCOL.md)
 
 ## Configuration
 
-`~/.config/remote-agent/config.toml`. Data lives in `~/Library/Application Support/remote-agent` on macOS and `~/.local/share/remote-agent` on Linux. Set `RAD_HOME=/some/dir` to keep the config and data together, e.g. for tests.
+`~/.config/remote-agent/config.yaml`. Data lives in `~/Library/Application Support/remote-agent` on macOS and `~/.local/share/remote-agent` on Linux. Set `RAD_HOME=/some/dir` to keep the config and data together, e.g. for tests.
 
-```toml
-name = "Work laptop"            # what the app calls this server after pairing (default: host name)
-port = 7421
-lan = false                     # also put LAN addresses in the pairing link
-# pair_urls = ["my-mac.tail1234.ts.net", "192.168.1.20"]   # or list the link's addresses yourself
+```yaml
+name: Work laptop               # what the app calls this server after pairing (default: host name)
+port: 7421
+lan: false                      # also put LAN addresses in the pairing link
+# pair_urls: [my-mac.tail1234.ts.net, 192.168.1.20]   # or list the link's addresses yourself
                                 # (bare hosts get http:// and the port; also host:port, https://…)
-# listen = ["127.0.0.1:7421", "100.101.102.103:7421"]   # bind only these instead of 0.0.0.0
-roots = ["~/projects"]          # what the phone may browse and add as projects
-idle_timeout = "30m"
-acp = [                         # any ACP agent can be added here
-  { id = "cursor",   name = "Cursor",   command = "cursor-agent", args = ["acp"] },
-  { id = "opencode", name = "OpenCode", command = "opencode",     args = ["acp"] },
-  { id = "gemini",   name = "Gemini",   command = "gemini",       args = ["--acp"] },
-]
-[harness.claude]
-command = "claude"              # optional: args = [...], env = {...}
-[harness.codex]
-command = "codex"
+# listen: ["127.0.0.1:7421", "100.101.102.103:7421"]  # bind only these instead of 0.0.0.0
+roots: [~/projects]             # what the phone may browse and add as projects ("~" in quotes for home itself)
+idle_timeout: 30m
+acp:                            # any ACP agent can be added here
+  - {id: cursor,   name: Cursor,   command: cursor-agent, args: [acp]}
+  - {id: opencode, name: OpenCode, command: opencode,     args: [acp]}
+  - {id: gemini,   name: Gemini,   command: gemini,       args: [--acp]}
+harness:
+  claude: {command: claude}     # optional: args: [...], env: {KEY: value}
+  codex: {command: codex}
 ```
+
+Unknown keys are errors, so a typo stops rad with the line number rather than being ignored.
 
 ## Security model
 
