@@ -65,6 +65,21 @@ extension View {
         #endif
     }
 
+    /// For prompts. On the Mac, Return ends a multiline field and Option-Return
+    /// starts a new line; this makes Shift-Return start one too. On iOS, Return
+    /// already starts a new line.
+    func shiftReturnNewline() -> some View {
+        #if os(macOS)
+        onKeyPress(.return, phases: .down) { press in
+            guard press.modifiers.contains(.shift) else { return .ignored }
+            NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
+            return .handled
+        }
+        #else
+        self
+        #endif
+    }
+
     /// For ids, branch names and links: no capitals or corrections.
     func plainTextInput() -> some View {
         #if os(iOS)

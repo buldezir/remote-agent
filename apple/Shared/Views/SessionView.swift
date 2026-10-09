@@ -150,6 +150,7 @@ struct SessionView: View {
                 .textFieldStyle(.plain)
                 .lineLimit(1...6)
                 .focused($composerFocused)
+                .shiftReturnNewline()
                 #if os(macOS)
                 .onSubmit { if mainAction == .send && canSend { mainButtonTapped() } }
                 #endif

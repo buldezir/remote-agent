@@ -130,6 +130,7 @@ struct NewSessionView: View {
                         .labelsHidden()
                         .lineLimit(4...12)
                         .focused($promptFocused)
+                        .shiftReturnNewline()
                     if !attachments.isEmpty {
                         AttachmentStrip(attachments: attachments, connection: connection)
                     }
