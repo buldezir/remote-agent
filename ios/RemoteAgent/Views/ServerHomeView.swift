@@ -36,11 +36,25 @@ struct ServerHomeView: View {
             Section("Sessions") {
                 ForEach(active.filter { $0.status != .awaitingApproval }) { row($0) }
             }
-            if !connection.archivedSessions.isEmpty {
+            let archived = connection.archivedSessions
+            if !archived.isEmpty {
                 Section(isExpanded: $showArchived) {
-                    ForEach(connection.archivedSessions) { row($0) }
+                    ForEach(archived) { row($0) }
                 } header: {
-                    Text("Archived")
+                    // Inset grouped lists have no disclosure control of their own.
+                    Button {
+                        withAnimation { showArchived.toggle() }
+                    } label: {
+                        HStack {
+                            Text("Archived")
+                            Text("\(archived.count)").foregroundStyle(.tertiary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .rotationEffect(.degrees(showArchived ? 90 : 0))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
