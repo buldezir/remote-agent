@@ -13,7 +13,9 @@ public struct SavedServer: Codable, Hashable, Identifiable, Sendable {
 @MainActor @Observable
 public final class ServerStore {
     public private(set) var servers: [SavedServer] = []
-    private var connections: [String: ServerConnection] = [:]
+    // A cache filled lazily from view bodies; not UI state, so not observed
+    // (mutating observed state during a view update makes navigation stutter).
+    @ObservationIgnored private var connections: [String: ServerConnection] = [:]
     private let defaults: UserDefaults
     private static let key = "servers.v1"
 
@@ -54,8 +56,11 @@ public final class ServerStore {
         return s
     }
 
+    /// Forgets a server. Also asks the server to revoke this device's token
+    /// (best effort, in the background) so it can't be reused.
     public func remove(_ server: SavedServer) {
-        connections.removeValue(forKey: server.id)?.stop()
+        connection(for: server).unpairAndStop()
+        connections.removeValue(forKey: server.id)
         Keychain.delete(server.id)
         servers.removeAll { $0.id == server.id }
         save()

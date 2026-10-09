@@ -143,6 +143,7 @@ Approval {
 | method | params | result |
 |---|---|---|
 | `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId}` |
+| `device.unpair` | — | `{}` (revokes the calling device's token) |
 | `harness.list` | `{refresh?}` | `{harnesses: [HarnessInfo]}` |
 | `fs.list` | `{path?}` (omit for roots) | `{path, parent?, entries: [{name, path, isGitRepo}]}` |
 | `project.list` | — | `{projects}` |

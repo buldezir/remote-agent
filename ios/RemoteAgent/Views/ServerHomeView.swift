@@ -3,6 +3,8 @@ import SwiftUI
 
 struct ServerHomeView: View {
     let connection: ServerConnection
+    @Environment(\.dismiss) private var dismiss
+    @State private var removing: SavedServer?
     @State private var showNew = false
     @State private var openSession: String?
     @State private var showArchived = false
@@ -63,7 +65,14 @@ struct ServerHomeView: View {
                 Button("New session", systemImage: "square.and.pencil") { showNew = true }
                     .disabled(connection.state != .connected)
             }
+            ToolbarItem(placement: .secondaryAction) {
+                Button("Reconnect", systemImage: "arrow.clockwise") { connection.retry() }
+            }
+            ToolbarItem(placement: .secondaryAction) {
+                Button("Remove server", systemImage: "trash", role: .destructive) { removing = connection.server }
+            }
         }
+        .removeServerDialog($removing) { dismiss() }
         .navigationDestination(for: String.self) { id in
             SessionView(connection: connection, store: connection.sessionStore(id))
         }

@@ -110,6 +110,12 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 			"version": info.Version, "roots": c.s.fs.Roots(), "deviceId": c.device.ID,
 		}, nil
 
+	case "device.unpair":
+		// The phone forgets this server: revoke its own token. The socket is
+		// closed by the periodic revalidation (or by the client).
+		_, err := c.s.st.DeleteDevice(ctx, c.device.ID)
+		return nil, err
+
 	case "harness.list":
 		return call(raw, func(p harnessListParams) (any, error) {
 			return map[string]any{"harnesses": o.Registry().Infos(ctx, p.Refresh)}, nil

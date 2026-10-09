@@ -23,7 +23,7 @@ public final class ServerConnection {
     private let client: RPCClient
     private var indexSeq: Int64 = 0
     private var indexLive = false
-    private var sessionStores: [String: SessionStore] = [:]
+    @ObservationIgnored private var sessionStores: [String: SessionStore] = [:]
     private var wanted = false
     private var runTask: Task<Void, Never>?
     private var messagesTask: Task<Void, Never>?
@@ -51,6 +51,21 @@ public final class ServerConnection {
     public func stop() {
         wanted = false
         pause()
+    }
+
+    /// Stops for good, revoking this device on the server first if reachable.
+    func unpairAndStop() {
+        wanted = false
+        runTask?.cancel()
+        runTask = nil
+        state = .idle
+        Task { [client, server] in
+            if await !client.isConnected {
+                _ = try? await client.connect(baseURLs: server.urls)
+            }
+            let _: Empty? = try? await client.call("device.unpair", timeout: 5)
+            await client.disconnect()
+        }
     }
 
     func pause() {

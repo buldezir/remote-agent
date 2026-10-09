@@ -304,6 +304,28 @@ func TestHealthAndPairing(t *testing.T) {
 	}
 }
 
+func TestDeviceUnpair(t *testing.T) {
+	s := startServer(t)
+	code, err := s.st.CreatePairingCode(context.Background(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, out := s.pair(t, code)
+	token := out["token"].(string)
+	ws, _, err := s.dial(t, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newClient(t, ws)
+	c.mustCall("device.unpair", nil, nil)
+	if devs, _ := s.st.Devices(context.Background()); len(devs) != 0 {
+		t.Errorf("devices after unpair = %v", devs)
+	}
+	if _, resp, err := s.dial(t, token); err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("unpaired token still connects: err=%v", err)
+	}
+}
+
 func connect(t *testing.T, s *testServer) *client {
 	t.Helper()
 	code, err := s.st.CreatePairingCode(context.Background(), time.Minute)

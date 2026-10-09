@@ -6,6 +6,8 @@ struct ServersView: View {
     @Binding var pendingLink: PairingLink?
     @State private var showAdd = false
     @State private var path = NavigationPath()
+    @State private var autoOpened = false
+    @State private var removing: SavedServer?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -15,7 +17,11 @@ struct ServersView: View {
                         ServerRow(connection: store.connection(for: server))
                     }
                     .swipeActions {
-                        Button("Forget", role: .destructive) { store.remove(server) }
+                        Button("Remove", systemImage: "trash") { removing = server }
+                            .tint(.red)
+                    }
+                    .contextMenu {
+                        Button("Remove", systemImage: "trash", role: .destructive) { removing = server }
                     }
                 }
             }
@@ -51,12 +57,45 @@ struct ServersView: View {
             .onChange(of: showAdd) { _, shown in
                 if !shown { pendingLink = nil }
             }
+            .removeServerDialog($removing)
             .onAppear {
-                // With a single server, go straight to it.
+                // With a single server, open it once at launch. Not on every
+                // appearance: that would bounce the user back in when they
+                // navigate back to this list.
+                guard !autoOpened else { return }
+                autoOpened = true
                 if path.isEmpty, store.servers.count == 1, let s = store.servers.first {
                     path.append(s)
                 }
             }
+        }
+    }
+}
+
+extension View {
+    /// Confirmation before forgetting a server.
+    func removeServerDialog(_ server: Binding<SavedServer?>, onRemove: @escaping () -> Void = {}) -> some View {
+        modifier(RemoveServerDialog(server: server, onRemove: onRemove))
+    }
+}
+
+private struct RemoveServerDialog: ViewModifier {
+    @Environment(ServerStore.self) private var store
+    @Binding var server: SavedServer?
+    var onRemove: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            "Remove \(server?.name ?? "server")?",
+            isPresented: .init(get: { server != nil }, set: { if !$0 { server = nil } }),
+            titleVisibility: .visible, presenting: server
+        ) { s in
+            Button("Remove", role: .destructive) {
+                onRemove()
+                store.remove(s)
+            }
+        } message: { _ in
+            Text("This device is unpaired from the server. Run `rad pair` on the computer to add it again.")
         }
     }
 }
