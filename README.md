@@ -6,6 +6,7 @@ Drive coding agents running on your computer from your iPhone.
 - **Remote Agent**: a native SwiftUI iOS app. You pair it by QR code. From the phone you can:
   - start sessions in any project
   - watch agents stream their work
+  - dictate prompts, in any of your keyboard languages
   - approve or deny tool calls
   - answer the agent's questions
   - review per-turn git diffs and revert them
@@ -72,7 +73,7 @@ It keeps the session branches and the rad binary.
 
 ## Installing the app on an iPhone
 
-You need Xcode, an Apple ID and, for the first run, a cable.
+You need an iPhone on iOS 27 or later, Xcode, an Apple ID and, for the first run, a cable.
 
 - **Free Apple ID:** builds expire after 7 days; run from Xcode again to renew.
 - **Paid Developer Program membership:** builds last a year.

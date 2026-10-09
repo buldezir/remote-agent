@@ -2,7 +2,7 @@ name: RemoteAgent
 options:
   bundleIdPrefix: dev.remote-agent
   deploymentTarget:
-    iOS: "18.0"
+    iOS: "27.0"
   createIntermediateGroups: true
 packages:
   RAKit:

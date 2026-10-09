@@ -132,10 +132,11 @@ struct SessionView: View {
                 Image(systemName: mainAction.symbol)
                     .font(.system(size: 30))
                     .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.variableColor.iterative, isActive: mainAction == .stopDictation)
+                    .symbolEffect(.variableColor.iterative, isActive: dictation.phase == .listening)
             }
             .tint(mainAction == .stopDictation ? .red : .accentColor)
-            .disabled(session?.archived == true || (mainAction == .send && draftIsEmpty))
+            // While dictation finishes, the final pass is still rewriting the draft.
+            .disabled(session?.archived == true || (mainAction == .send && draftIsEmpty) || dictation.phase == .finishing)
             .accessibilityLabel(mainAction.label)
             .animation(.snappy, value: mainAction)
         }
@@ -170,7 +171,7 @@ struct SessionView: View {
 
     /// The mic is the main button until the keyboard is up or there is text to send.
     private var mainAction: MainAction {
-        if dictation.isRecording { return .stopDictation }
+        if dictation.phase != .idle { return .stopDictation }
         return composerFocused || !draftIsEmpty ? .send : .dictate
     }
 
@@ -190,16 +191,20 @@ struct SessionView: View {
     }
 
     private var placeholder: String {
-        if dictation.isRecording { return "Listening…" }
-        return store.isRunning ? "Queue a follow-up…" : "Prompt"
+        switch dictation.phase {
+        case .downloading: "Downloading the speech model…"
+        case .starting, .listening: "Listening…"
+        case .idle, .finishing: store.isRunning ? "Queue a follow-up…" : "Prompt"
+        }
     }
 
     /// Dictated text is appended to whatever was already typed.
     private func startDictation() {
         let prefix = draft
         let separator = prefix.isEmpty || prefix.last?.isWhitespace == true ? "" : " "
+        let hints = [project?.name, harness?.name].compactMap { $0 }
         Task {
-            await dictation.start { text in draft = prefix + separator + text }
+            await dictation.start(hints: hints) { text in draft = prefix + separator + text }
         }
     }
 

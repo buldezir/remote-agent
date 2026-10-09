@@ -75,7 +75,9 @@ xcrun simctl spawn booted log show --last 2m --predicate 'subsystem == "dev.remo
 ```
 
 - **Pairing:** the camera and QR scanning don't work in the simulator. Pair with the deep link above. The pairing sheet appears on the server list, so go back to the list if a server is open.
-- **Speech:** recognition doesn't work in the simulator; it fails with `kLSRErrorDomain 300`. Dictation can only be verified on a device. The UI states and permission prompts can still be checked.
+- **Speech:** the dictation models don't run in the simulator, so the mic button ends with "The speech model for your language isn't available on this device". The UI states and permission prompts can still be checked there. Two ways to check dictation:
+  - On a device.
+  - On the Mac: `LiveTranscription.swift` has no UIKit, so a small driver can feed it a recording made with `say -o clip.aiff "…"`, and the Mac's installed dictation models transcribe it. Build the driver with `xcrun swiftc -swift-version 6 -parse-as-library ios/RemoteAgent/LiveTranscription.swift driver.swift`.
 - **Screenshots:** they can lag a push or pop animation. Wait about a second, or take a second screenshot, before concluding a tap did nothing.
 - **Keychain after signing changes:** setting or changing `DEVELOPMENT_TEAM` changes the keychain access group, so the simulator app loses tokens it saved earlier. Servers then show "Not connected", and the log shows `NSURLErrorDomain -1011` on the WebSocket. Re-pair; the server doesn't need to revoke anything.
 - **Cleanup:** the app may already be paired with the developer's own server. Add your scratch server next to it. When done, remove the scratch server in the app (… → Remove server, which also unpairs it on rad), then stop your scratch rad.
