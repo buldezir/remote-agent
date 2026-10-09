@@ -1,4 +1,5 @@
 import PhotosUI
+import QuickLook
 import RAKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -197,19 +198,24 @@ private struct PasteCatcher: NSViewRepresentable {
 
 // MARK: Showing
 
-/// An item's images as thumbnails that wrap onto more lines; a tap opens one.
+/// An item's images as thumbnails that wrap onto more lines; a tap opens one
+/// in Quick Look, which zooms and shares it: full screen on iOS, and in a
+/// window that resizes on the Mac. The item's other images are a swipe or an
+/// arrow key away.
 struct ImageGallery: View {
     let images: [ImageRef]
     let store: SessionStore
     var height: CGFloat = 140
     var alignment: HorizontalAlignment = .leading
-    @State private var shown: ImageRef?
+    @State private var files: [URL] = []
+    @State private var shown: URL?
+    @State private var opening = false
 
     var body: some View {
         FlowLayout(spacing: 6, alignment: alignment) {
             ForEach(images) { ref in
                 Button {
-                    shown = ref
+                    Task { await open(ref) }
                 } label: {
                     RemoteImage(ref: ref, store: store, height: height)
                 }
@@ -218,9 +224,25 @@ struct ImageGallery: View {
                 .accessibilityHint("Shows the image")
             }
         }
-        .sheet(item: $shown) { ref in
-            ImageViewer(ref: ref, store: store)
+        .quickLookPreview($shown, in: files)
+    }
+
+    /// Quick Look takes files, so the images are saved first; they are
+    /// usually cached already, since their thumbnails are showing.
+    private func open(_ ref: ImageRef) async {
+        guard !opening else { return }
+        opening = true
+        defer { opening = false }
+        var files: [URL] = []
+        var target: URL?
+        for image in images {
+            guard let url = try? await store.imageFile(image.id) else { continue }
+            files.append(url)
+            if image.id == ref.id { target = url }
         }
+        guard let target else { return }
+        self.files = files
+        shown = target
     }
 }
 
@@ -288,84 +310,6 @@ struct RemoteImage: View {
             failed = thumb == nil
         } catch {
             failed = true
-        }
-    }
-}
-
-/// An image at full size: pinch or double-click to zoom, and share it.
-struct ImageViewer: View {
-    let ref: ImageRef
-    let store: SessionStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var image: CGImage?
-    @State private var failed: String?
-    @State private var zoom: CGFloat = 1
-    @GestureState private var pinch: CGFloat = 1
-
-    var body: some View {
-        NavigationStack {
-            GeometryReader { geo in
-                ScrollView([.horizontal, .vertical]) {
-                    content
-                        .frame(width: geo.size.width * zoom * pinch, height: geo.size.height * zoom * pinch)
-                }
-                .scrollIndicators(zoom > 1 ? .automatic : .hidden)
-                .gesture(MagnifyGesture()
-                    .updating($pinch) { value, state, _ in state = value.magnification }
-                    .onEnded { value in zoom = min(max(zoom * value.magnification, 1), 6) })
-                .onTapGesture(count: 2) { withAnimation(.snappy) { zoom = zoom > 1 ? 1 : 2.5 } }
-            }
-            .background(.black)
-            .navigationTitle(title)
-            .inlineTitle()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-                if let image {
-                    ToolbarItem(placement: .primaryAction) {
-                        let shared = Image(decorative: image, scale: 1)
-                        ShareLink(item: shared, preview: SharePreview("Image", image: shared))
-                    }
-                }
-            }
-        }
-        #if os(macOS)
-        .frame(minWidth: 480, idealWidth: idealSize.width, minHeight: 360, idealHeight: idealSize.height)
-        #endif
-        .task { await load() }
-    }
-
-    @ViewBuilder private var content: some View {
-        if let image {
-            Image(decorative: image, scale: 1)
-                .resizable()
-                .scaledToFit()
-        } else if let failed {
-            Label(failed, systemImage: "photo").foregroundStyle(.secondary)
-        } else {
-            ProgressView()
-        }
-    }
-
-    private var title: String {
-        guard let w = ref.width, let h = ref.height else { return "Image" }
-        return "\(w) × \(h)"
-    }
-
-    #if os(macOS)
-    /// The image at its point size, within what fits on a laptop screen.
-    private var idealSize: CGSize {
-        let w = CGFloat(ref.width ?? 900) / 2, h = CGFloat(ref.height ?? 700) / 2 + 52
-        return CGSize(width: min(max(w, 480), 1200), height: min(max(h, 360), 860))
-    }
-    #endif
-
-    private func load() async {
-        do {
-            let data = try await store.imageData(ref.id)
-            image = await Task.detached { ImageCoding.thumbnail(data, maxPixels: 8192) }.value
-            if image == nil { failed = "This image can't be shown." }
-        } catch {
-            failed = error.localizedDescription
         }
     }
 }

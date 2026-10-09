@@ -245,6 +245,11 @@ public final class ServerConnection {
         try await ImageCache.shared.data(id) { [client] in try await client.imageData(id) }
     }
 
+    /// An image as a file, for Quick Look and sharing.
+    public func imageFile(_ id: String) async throws -> URL {
+        try await ImageCache.shared.namedFile(id) { [client] in try await client.imageData(id) }
+    }
+
     public func listDirectory(_ path: String?) async throws -> FSListing {
         try await client.call("fs.list", ["path": path ?? ""])
     }

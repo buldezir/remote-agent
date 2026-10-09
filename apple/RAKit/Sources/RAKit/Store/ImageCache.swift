@@ -32,6 +32,21 @@ public actor ImageCache {
         return data
     }
 
+    /// The image as a file named for people ("Image.png") rather than by its
+    /// hash, for Quick Look and sharing. Loads the image first if needed.
+    public func namedFile(_ id: String, load: @escaping @Sendable () async throws -> Data) async throws -> URL {
+        let data = try await data(id, load: load)
+        guard let dir, let cached = file(id) else { throw CocoaError(.fileNoSuchFile) }
+        let named = dir.appending(path: "Named/\(cached.deletingPathExtension().lastPathComponent)/Image.\(cached.pathExtension)")
+        let fm = FileManager.default
+        if !fm.fileExists(atPath: named.path) {
+            try fm.createDirectory(at: named.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // A link to the cached file takes no space; it may be missing, though.
+            if (try? fm.linkItem(at: cached, to: named)) == nil { try data.write(to: named, options: .atomic) }
+        }
+        return named
+    }
+
     /// Keeps bytes this device already has, e.g. an image it uploaded.
     public func store(_ data: Data, for id: String) {
         memory.setObject(data as NSData, forKey: id as NSString, cost: data.count)

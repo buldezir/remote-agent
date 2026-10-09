@@ -179,6 +179,12 @@ public final class SessionStore {
         return try await c.imageData(id)
     }
 
+    /// An image as a file, for Quick Look and sharing.
+    public func imageFile(_ id: String) async throws -> URL {
+        guard let c = connection else { throw RPCError.disconnected }
+        return try await c.imageFile(id)
+    }
+
     /// The connection is up, so images can load.
     public var isConnected: Bool { connection?.state == .connected }
 
