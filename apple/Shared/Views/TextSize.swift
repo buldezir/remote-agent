@@ -1,6 +1,9 @@
+import CoreText
 import SwiftUI
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 
 /// The text sizes chosen in Settings: one for the interface, one for messages.
@@ -71,6 +74,53 @@ enum FontChoice: Hashable {
         }
     }
 
+    /// The size of `code` in text set in this font, as a fraction of the
+    /// text's: the size at which their lowercase letters stand as tall, so
+    /// neither looks smaller. 1 when they are the same font.
+    @MainActor func codeScale(_ code: FontChoice) -> CGFloat {
+        guard self != code else { return 1 }
+        if let scale = Self.codeScales[[self, code]] { return scale }
+        var scale: CGFloat = 1
+        if let text = xHeight, let codeX = code.xHeight, text > 0, codeX > 0 {
+            scale = min(max(text / codeX, 0.85), 1.15)
+        }
+        Self.codeScales[[self, code]] = scale
+        return scale
+    }
+
+    @MainActor private static var codeScales: [[FontChoice]: CGFloat] = [:]
+
+    /// The height of a lowercase x at 100 pt, from the glyph: some fonts'
+    /// x-height metric is wrong.
+    private var xHeight: CGFloat? {
+        guard let font = platformFont(size: 100) else { return nil }
+        var char: UniChar = 0x78, glyph: CGGlyph = 0
+        guard CTFontGetGlyphsForCharacters(font, &char, &glyph, 1) else { return nil }
+        return CTFontGetBoundingRectsForGlyphs(font, .default, &glyph, nil, 1).height
+    }
+
+    private func platformFont(size: CGFloat) -> CTFont? {
+        #if os(macOS)
+        switch self {
+        case .system(let design):
+            let system = NSFont.systemFont(ofSize: size)
+            let font = system.fontDescriptor.withDesign(design.systemDesign).flatMap { NSFont(descriptor: $0, size: size) }
+            return (font ?? system) as CTFont
+        case .family(let name):
+            return NSFontManager.shared.font(withFamily: name, traits: [], weight: 5, size: size).map { $0 as CTFont }
+        }
+        #else
+        switch self {
+        case .system(let design):
+            let system = UIFont.systemFont(ofSize: size)
+            let font = system.fontDescriptor.withDesign(design.systemDesign).map { UIFont(descriptor: $0, size: size) }
+            return (font ?? system) as CTFont
+        case .family(let name):
+            return UIFont(descriptor: UIFontDescriptor(fontAttributes: [.family: name]), size: size) as CTFont
+        }
+        #endif
+    }
+
     #if os(macOS)
     /// Prompts and replies.
     static let messageKey = "messageFont"
@@ -110,6 +160,28 @@ enum FontChoice: Hashable {
     @MainActor static let monospacedFamilies = Set((NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? [])
         .compactMap { NSFont(name: $0, size: 12)?.familyName })
         .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    #endif
+}
+
+private extension Font.Design {
+    #if os(macOS)
+    var systemDesign: NSFontDescriptor.SystemDesign {
+        switch self {
+        case .serif: .serif
+        case .rounded: .rounded
+        case .monospaced: .monospaced
+        default: .default
+        }
+    }
+    #else
+    var systemDesign: UIFontDescriptor.SystemDesign {
+        switch self {
+        case .serif: .serif
+        case .rounded: .rounded
+        case .monospaced: .monospaced
+        default: .default
+        }
+    }
     #endif
 }
 

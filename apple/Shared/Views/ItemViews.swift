@@ -457,15 +457,16 @@ private struct AgentMarkdown: ViewModifier {
     @Environment(\.codeFont) private var codeFont
 
     func body(content: Content) -> some View {
+        let codeScale = font.codeScale(codeFont)
         // Inside the theme, so they replace its text styles.
-        content
+        return content
             .markdownTextStyle(\.text) {
                 FontSize(size)
                 FontFamily(font.markdownFamily)
             }
             .markdownTextStyle(\.code) {
                 FontFamily(codeFont.markdownFamily)
-                FontSize(.em(0.88))
+                FontSize(.em(codeScale))
                 BackgroundColor(Palette.surface0)
             }
             .markdownTheme(.agent)
@@ -475,15 +476,17 @@ private struct AgentMarkdown: ViewModifier {
 /// A fenced code block, in the code font.
 private struct MarkdownCodeBlock: View {
     let configuration: CodeBlockConfiguration
+    @Environment(\.messageFont) private var font
     @Environment(\.codeFont) private var codeFont
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        let codeScale = font.codeScale(codeFont)
+        return ScrollView(.horizontal, showsIndicators: false) {
             configuration.label
                 .relativeLineSpacing(.em(0.2))
                 .markdownTextStyle {
                     FontFamily(codeFont.markdownFamily)
-                    FontSize(.em(0.8))
+                    FontSize(.em(codeScale))
                 }
                 .padding(8)
         }
