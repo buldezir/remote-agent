@@ -35,6 +35,7 @@ Images travel over HTTP, beside the WebSocket, with the same `Authorization: Bea
 - **Download**: `GET /v1/images/<id>` returns the bytes with their `Content-Type`, or `404`.
   - An id names its content, so it never changes. Clients can cache it for good: the response says `Cache-Control: private, max-age=31536000, immutable`.
 - **Agents** see attached images inline where they can. Agents that can't take images in a prompt (some ACP agents) get the files' paths on the server instead.
+- **Images in replies**: rad tells agents that the user isn't at the server, and to show an image file as a Markdown image with its path, such as `![Screenshot](/tmp/shot.png)`, rather than read it. rad keeps a copy of each PNG, JPEG, GIF or WebP file a reply links to that way (outside code), points the link at it as `rad-image:<id>`, and lists it in the item's `images`. A link to anything else stays as the agent wrote it.
 - **Sizing**: agents' APIs reject very large images (Claude: 5 MB, 8000 px on a side). Clients should scale and re-encode before uploading. The iOS and Mac apps send at most 2048 px on the long side.
 
 ```ts
@@ -142,7 +143,8 @@ Item {
            title?, input?, output?, exitCode?, paths? },
   approval?: Approval,
   plan?: { entries?: [{content, status: "pending"|"in_progress"|"completed"}], text? },
-  images?: [ImageRef],                     // user_message: attached to the prompt; tool_call: in the tool's output (a screenshot, an image file read)
+  images?: [ImageRef],                     // user_message: attached to the prompt; tool_call: in the tool's output (a screenshot, an image file read);
+                                           // assistant_message: the rad-image:<id> links in its text, in order
   createdAt, updatedAt
 }
 

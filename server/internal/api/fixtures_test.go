@@ -44,7 +44,8 @@ func fixtures() map[string]any {
 	tool.Tool = &model.ToolCall{Name: "Bash", Kind: model.ToolExecute, Title: "go test ./...", Input: json.RawMessage(`{"command":"go test ./..."}`), Output: "ok", ExitCode: &exit}
 	tool.Images = []model.ImageRef{{ID: "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9.webp", MimeType: "image/webp", Size: 20480}}
 	assistant := item("i4", 4, model.ItemAssistantMessage, model.ItemInProgress)
-	assistant.Text = "All **tests** pass now.\n\n```go\nfunc x() {}\n```"
+	assistant.Text = "All **tests** pass now.\n\n```go\nfunc x() {}\n```\n\n![Screenshot](rad-image:5e6d7c8b9a0f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9.png)"
+	assistant.Images = []model.ImageRef{{ID: "5e6d7c8b9a0f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9.png", MimeType: "image/png", Width: 2880, Height: 1800, Size: 1048576}}
 	approval := item("i5", 5, model.ItemApproval, model.ItemPending)
 	approval.Approval = &model.Approval{ToolItemID: "i3", ToolName: "Write", Title: "Write main.go", Input: json.RawMessage(`{"file_path":"main.go"}`),
 		Options: []model.ApprovalOption{{ID: "allow", Label: "Allow", Kind: model.OptionAllowOnce}, {ID: "allow_session", Label: "Allow all edits this session", Kind: model.OptionAllowSession}, {ID: "deny", Label: "Deny", Kind: model.OptionDeny}}}

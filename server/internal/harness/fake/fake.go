@@ -8,6 +8,8 @@
 //	"fail"     end the turn with an error
 //	"slow"     stream slowly (2s), so interrupts can be tested
 //	"screenshot" run a tool that returns an image
+//	"picture"  write picture-<turn>.png in the cwd and show it in the reply,
+//	           as a Markdown image with its path, as agents are told to
 //
 // The reply counts the images attached to the prompt.
 package fake
@@ -218,6 +220,12 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 		}
 		msg.Text += w
 		r.emit(harness.ItemEvent{Item: msg})
+	}
+	if strings.Contains(text, "picture") {
+		path := filepath.Join(r.opts.Cwd, fmt.Sprintf("picture-%d.png", n))
+		if err := os.WriteFile(path, screenshot(n), 0o644); err == nil {
+			msg.Text += "\n\n![Picture](" + path + ")"
+		}
 	}
 	msg.Status = model.ItemCompleted
 	r.emit(harness.ItemEvent{Item: msg})

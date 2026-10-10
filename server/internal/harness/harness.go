@@ -27,6 +27,9 @@ type OpenOptions struct {
 	Log       *slog.Logger
 	DiagPath  string     // file to append raw protocol frames to (NDJSON); empty disables
 	Images    ImageStore // keeps images from agent output; nil drops them
+	// Instructions are added to the agent's system prompt, or put before the
+	// first prompt of a session where there is none to add to.
+	Instructions string
 }
 
 // ImageStore keeps images that agents return (internal/images).

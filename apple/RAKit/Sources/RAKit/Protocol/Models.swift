@@ -205,8 +205,9 @@ public struct Plan: Codable, Hashable, Sendable {
     public var text: String?
 }
 
-/// An image rad keeps: attached to a prompt, or in a tool's output. Fetch the
-/// bytes with `ServerConnection.imageData(_:)`. The id names the content.
+/// An image rad keeps: attached to a prompt, in a tool's output, or shown in
+/// a reply. Fetch the bytes with `ServerConnection.imageData(_:)`. The id
+/// names the content.
 public struct ImageRef: Codable, Hashable, Identifiable, Sendable {
     public var id: String
     public var mimeType: String
@@ -227,6 +228,14 @@ public struct ImageRef: Codable, Hashable, Identifiable, Sendable {
         guard let w = width, let h = height, w > 0, h > 0 else { return nil }
         return Double(w) / Double(h)
     }
+
+    /// The id in a reply's link to one of rad's images: rad points the
+    /// Markdown images in agents' replies at its copies, `rad-image:<id>`.
+    public static func id(linkedBy url: URL) -> String? {
+        guard url.scheme == "rad-image" else { return nil }
+        let id = url.absoluteString.dropFirst("rad-image:".count)
+        return id.isEmpty ? nil : String(id)
+    }
 }
 
 public struct Item: Codable, Hashable, Identifiable, Sendable {
@@ -242,6 +251,7 @@ public struct Item: Codable, Hashable, Identifiable, Sendable {
     public var approval: Approval?
     public var plan: Plan?
     /// User messages: the attached images. Tool calls: images in the output.
+    /// Agent messages: the images the text links to (`ImageRef.id(linkedBy:)`).
     public var images: [ImageRef]?
     public var createdAt: Date
     public var updatedAt: Date

@@ -175,6 +175,9 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	if o.Model != "" {
 		params["model"] = o.Model
 	}
+	if o.Instructions != "" {
+		params["developerInstructions"] = o.Instructions
+	}
 	var res struct {
 		Thread struct {
 			ID string `json:"id"`

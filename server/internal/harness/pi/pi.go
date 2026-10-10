@@ -168,6 +168,9 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	if o.Effort != "" {
 		extra = append(extra, "--thinking", o.Effort)
 	}
+	if o.Instructions != "" {
+		extra = append(extra, "--append-system-prompt", o.Instructions)
+	}
 	spec := h.spec(o.Cwd, extra...)
 	spec.DiagPath = o.DiagPath
 	p, err := proc.Start(spec)

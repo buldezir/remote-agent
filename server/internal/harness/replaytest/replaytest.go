@@ -489,3 +489,31 @@ func CloseClean(t testing.TB, rt harness.Runtime) []harness.Event {
 		}
 	}
 }
+
+// Diag reads a log an adapter wrote to OpenOptions.DiagPath: the command
+// line it started the agent with, Go-quoted, and the frames it sent, as
+// decoded JSON.
+func Diag(t testing.TB, path string) (command string, sent []map[string]any) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(b), []byte("\n")) {
+		var e struct {
+			Dir   string         `json:"dir"`
+			Raw   string         `json:"raw"`
+			Frame map[string]any `json:"frame"`
+		}
+		if err := json.Unmarshal(line, &e); err != nil {
+			t.Fatalf("diag line %s: %v", line, err)
+		}
+		switch e.Dir {
+		case "meta":
+			command = e.Raw
+		case "out":
+			sent = append(sent, e.Frame)
+		}
+	}
+	return command, sent
+}

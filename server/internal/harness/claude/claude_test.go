@@ -41,7 +41,12 @@ func openReplay(t *testing.T, transcript, ws string, o harness.OpenOptions) (har
 }
 
 func TestReplayWriteWithApproval(t *testing.T) {
-	rt, _ := openReplay(t, "testdata/write.ndjson", "claude-rec/ws", harness.OpenOptions{SessionID: "local-session", Mode: "default"})
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, _ := openReplay(t, "testdata/write.ndjson", "claude-rec/ws", harness.OpenOptions{SessionID: "local-session", Mode: "default",
+		Instructions: "Show images as Markdown.", DiagPath: diag})
+	if command, _ := replaytest.Diag(t, diag); !strings.Contains(command, `"--append-system-prompt" "Show images as Markdown."`) {
+		t.Errorf("command = %s, want the instructions in the system prompt", command)
+	}
 
 	turn := replaytest.RunTurn(t, rt, "Create a file hello.txt containing the word hi. Then reply with one short sentence.",
 		func(harness.ApprovalEvent) string { return "allow" })

@@ -33,6 +33,11 @@ struct FixtureTests {
         #expect(items[2].images?.first?.aspectRatio == nil)
         #expect(items[2].tool?.input?["command"]?.stringValue == "go test ./...")
         #expect(items[2].tool?.exitCode == 0)
+        // A reply links to the images it shows as rad-image:<id>.
+        let shown = try #require(items[3].images?.first)
+        #expect(items[3].text?.hasSuffix("![Screenshot](rad-image:\(shown.id))") == true)
+        #expect(ImageRef.id(linkedBy: try #require(URL(string: "rad-image:\(shown.id)"))) == shown.id)
+        #expect(ImageRef.id(linkedBy: try #require(URL(string: "https://example.com/a.png"))) == nil)
         #expect(items[4].approval?.options.map(\.kind) == [.allowOnce, .allowSession, .deny])
         #expect(items[5].approval?.special == .question)
         #expect(items[5].approval?.decision?.answers?["Which DB?"] == "SQLite")

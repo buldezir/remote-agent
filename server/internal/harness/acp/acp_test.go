@@ -20,7 +20,8 @@ func TestMain(m *testing.M) {
 
 const prompt = "Create hello.txt containing hi, then reply with one short sentence."
 
-func openReplay(t *testing.T, id, transcript, ws string) (*Harness, harness.Runtime) {
+// openReplay also returns the diag log, which records what the adapter sent.
+func openReplay(t *testing.T, id, transcript, ws string) (*Harness, harness.Runtime, string) {
 	t.Helper()
 	root := t.TempDir()
 	cwd := filepath.Join(root, ws)
@@ -29,11 +30,13 @@ func openReplay(t *testing.T, id, transcript, ws string) (*Harness, harness.Runt
 	}
 	exe, env := replaytest.Command(t, transcript, root)
 	h := New(config.ACPAgent{ID: id, Command: exe, Args: []string{"acp"}, Env: env})
-	rt, err := h.Open(context.Background(), harness.OpenOptions{SessionID: "local", Cwd: cwd})
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, err := h.Open(context.Background(), harness.OpenOptions{SessionID: "local", Cwd: cwd,
+		Instructions: "Show images as Markdown.", DiagPath: diag})
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	return h, rt
+	return h, rt, diag
 }
 
 // allowOnce picks the first allow_once option (neither transcript asks, though).
@@ -66,12 +69,25 @@ func checkFinal(t *testing.T, turn *replaytest.Turn) {
 }
 
 func TestReplayCursor(t *testing.T) {
-	h, rt := openReplay(t, "cursor", "testdata/cursor.ndjson", "acp-rec/ws")
+	h, rt, diag := openReplay(t, "cursor", "testdata/cursor.ndjson", "acp-rec/ws")
 	if rt.NativeID() != "814aab6f-57ff-49f2-a32c-492fb2ff0b98" {
 		t.Errorf("NativeID() = %q", rt.NativeID())
 	}
 
 	turn := replaytest.RunTurn(t, rt, prompt, allowOnce)
+
+	// ACP has no system prompt, so the instructions go before the first prompt.
+	_, sent := replaytest.Diag(t, diag)
+	var blocks []any
+	for _, f := range sent {
+		if f["method"] == "session/prompt" {
+			blocks = f["params"].(map[string]any)["prompt"].([]any)
+			break
+		}
+	}
+	if len(blocks) != 2 || blocks[0].(map[string]any)["text"] != "Show images as Markdown." || blocks[1].(map[string]any)["text"] != prompt {
+		t.Errorf("first prompt = %v, want the instructions, then the prompt", blocks)
+	}
 
 	if got := texts(turn.ItemsOf(model.ItemReasoning)); !slices.Equal(got, []string{
 		`Creating hello.txt with "hi" and replying with one short sentence.`,
@@ -126,7 +142,7 @@ func TestReplayCursor(t *testing.T) {
 }
 
 func TestReplayOpenCode(t *testing.T) {
-	_, rt := openReplay(t, "opencode", "testdata/opencode.ndjson", "acp-rec/ws2")
+	_, rt, _ := openReplay(t, "opencode", "testdata/opencode.ndjson", "acp-rec/ws2")
 	if rt.NativeID() != "ses_ee207f6aeffehxs1Ib9mB62GAR" {
 		t.Errorf("NativeID() = %q", rt.NativeID())
 	}

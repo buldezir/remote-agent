@@ -14,6 +14,7 @@ struct ItemView: View {
         case .assistantMessage:
             Markdown(item.text ?? "")
                 .agentMarkdown()
+                .replyImages(item.images ?? [], store: store)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .reasoning:
@@ -457,6 +458,23 @@ extension View {
     /// message size from Settings.
     func agentMarkdown() -> some View {
         modifier(AgentMarkdown())
+    }
+
+    /// Draws the images a reply links to, which rad keeps (`ReplyImageProvider`).
+    func replyImages(_ images: [ImageRef], store: SessionStore) -> some View {
+        modifier(ReplyImages(images: images, store: store))
+    }
+}
+
+private struct ReplyImages: ViewModifier {
+    let images: [ImageRef]
+    let store: SessionStore
+    @Environment(\.displayScale) private var scale
+
+    func body(content: Content) -> some View {
+        content
+            .markdownImageProvider(ReplyImageProvider(images: images, store: store))
+            .markdownInlineImageProvider(ReplyInlineImageProvider(store: store, scale: scale))
     }
 }
 

@@ -26,9 +26,16 @@ func TestReplayShellCommandWithApproval(t *testing.T) {
 	}
 	exe, env := replaytest.Command(t, "testdata/run.ndjson", root)
 	h := New(config.Command{Command: exe, Env: env})
-	rt, err := h.Open(context.Background(), harness.OpenOptions{SessionID: "local", Cwd: cwd, Mode: "untrusted"})
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, err := h.Open(context.Background(), harness.OpenOptions{SessionID: "local", Cwd: cwd, Mode: "untrusted",
+		Instructions: "Show images as Markdown.", DiagPath: diag})
 	if err != nil {
 		t.Fatalf("open: %v", err)
+	}
+	_, sent := replaytest.Diag(t, diag)
+	if i := slices.IndexFunc(sent, func(f map[string]any) bool { return f["method"] == "thread/start" }); i < 0 ||
+		sent[i]["params"].(map[string]any)["developerInstructions"] != "Show images as Markdown." {
+		t.Errorf("thread/start lacks the instructions: %v", sent)
 	}
 	const threadID = "01a11df1-fdad-7021-bc6b-dfdb9956398c"
 	if rt.NativeID() != threadID {

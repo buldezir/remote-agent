@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,10 +31,15 @@ func open(t *testing.T, transcript, sessionID string) (harness.Runtime, string) 
 		t.Fatal(err)
 	}
 	exe, env := replaytest.Command(t, transcript, root)
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
 	rt, err := New(config.Command{Command: exe, Env: env}).Open(context.Background(),
-		harness.OpenOptions{SessionID: sessionID, Cwd: cwd, Model: "cursor/composer-2"})
+		harness.OpenOptions{SessionID: sessionID, Cwd: cwd, Model: "cursor/composer-2",
+			Instructions: "Show images as Markdown.", DiagPath: diag})
 	if err != nil {
 		t.Fatalf("open: %v", err)
+	}
+	if command, _ := replaytest.Diag(t, diag); !strings.Contains(command, `"--append-system-prompt" "Show images as Markdown."`) {
+		t.Errorf("command = %s, want the instructions in the system prompt", command)
 	}
 	if rt.NativeID() != sessionID {
 		t.Errorf("NativeID() = %q, want the session id", rt.NativeID())

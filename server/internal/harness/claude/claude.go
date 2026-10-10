@@ -124,6 +124,9 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	if o.Effort != "" {
 		extra = append(extra, "--effort", o.Effort)
 	}
+	if o.Instructions != "" {
+		extra = append(extra, "--append-system-prompt", o.Instructions)
+	}
 	nativeID := o.ResumeID
 	if nativeID != "" {
 		extra = append(extra, "--resume", nativeID)

@@ -31,6 +31,8 @@ type runtime struct {
 	images    harness.ImageStore
 	// The agent takes images in prompts; otherwise it gets their paths.
 	imagePrompts bool
+	// Goes before the first prompt: ACP has no system prompt to add it to.
+	instructions string
 
 	events  chan harness.Event
 	emitMu  sync.Mutex
@@ -108,6 +110,10 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 		return fmt.Errorf("a turn is already running")
 	}
 	r.inTurn, r.interrupting, r.cost = true, false, 0
+	if r.instructions != "" {
+		prompt = append([]map[string]any{{"type": "text", "text": r.instructions}}, prompt...)
+		r.instructions = ""
+	}
 	r.mu.Unlock()
 	r.turnSeq.Add(1)
 	// session/prompt resolves only when the turn ends, so run it in the background.

@@ -391,6 +391,22 @@ func TestImages(t *testing.T) {
 		t.Errorf("screenshot not stored: %v", err)
 	}
 
+	// A reply that shows an image file as a Markdown image: rad keeps the
+	// file and points the link at its copy.
+	e.prompt(s.ID, "show me a picture", "")
+	e.waitTurn(s.ID, 3)
+	items = e.items(s.ID)
+	reply := items[len(items)-1]
+	if reply.Kind != model.ItemAssistantMessage || len(reply.Images) != 1 || reply.Images[0].Width != 640 {
+		t.Fatalf("reply = %+v", reply)
+	}
+	if want := "![Picture](rad-image:" + reply.Images[0].ID + ")"; !strings.HasSuffix(reply.Text, want) {
+		t.Errorf("reply text = %q, want it to end with %q", reply.Text, want)
+	}
+	if _, _, err := e.imgs.Get(reply.Images[0].ID); err != nil {
+		t.Errorf("picture not stored: %v", err)
+	}
+
 	if _, err := e.o.Prompt(bg, s.ID, "look", []string{"nope.png"}, ""); CodeOf(err) != CodeInvalid {
 		t.Errorf("unknown image: err = %v", err)
 	}

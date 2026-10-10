@@ -238,6 +238,7 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		err = errors.New("agent cannot resume sessions")
 	default:
 		err = call("session/new", base)
+		r.instructions = o.Instructions // a resumed session has them already
 	}
 	if err != nil {
 		return fail(err)

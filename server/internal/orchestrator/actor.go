@@ -49,6 +49,7 @@ type actor struct {
 	items     map[string]*model.Item     // live items of the current turn, by id
 	flushed   map[string]bool            // ids persisted at least once
 	approvals map[string]pendingApproval // approval item id -> adapter id
+	linked    map[string]linkedImage     // image files replies linked to, by path
 	dirty     []string
 	timer     *time.Timer
 
@@ -233,6 +234,7 @@ func (a *actor) open(ctx context.Context) error {
 	opts := harness.OpenOptions{
 		SessionID: a.sess.ID, Cwd: a.sess.Workspace.Path, Model: a.sess.Model, Effort: a.sess.Effort, Mode: a.sess.Mode,
 		ResumeID: a.sess.NativeID, Log: a.o.log.With("session", a.sess.ID, "harness", a.sess.Harness),
+		Instructions: instructions,
 	}
 	if a.o.opt.Images != nil {
 		opts.Images = a.o.opt.Images
@@ -344,6 +346,11 @@ func (a *actor) onItem(ctx context.Context, in model.Item) {
 		a.items[it.ID] = it
 	}
 	it.Kind, it.Status, it.Text, it.Tool, it.Plan, it.Images = in.Kind, in.Status, in.Text, in.Tool, in.Plan, in.Images
+	if it.Kind == model.ItemAssistantMessage {
+		var linked []model.ImageRef
+		it.Text, linked = a.linkImages(it.Text)
+		it.Images = append(slices.Clip(it.Images), linked...)
+	}
 	if in.ParentItemID != "" {
 		it.ParentItemID = a.keyToID[in.ParentItemID]
 	}

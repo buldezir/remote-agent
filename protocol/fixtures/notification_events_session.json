@@ -147,7 +147,16 @@
           "order": 4,
           "kind": "assistant_message",
           "status": "in_progress",
-          "text": "All **tests** pass now.\n\n```go\nfunc x() {}\n```",
+          "text": "All **tests** pass now.\n\n```go\nfunc x() {}\n```\n\n![Screenshot](rad-image:5e6d7c8b9a0f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9.png)",
+          "images": [
+            {
+              "id": "5e6d7c8b9a0f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9.png",
+              "mimeType": "image/png",
+              "width": 2880,
+              "height": 1800,
+              "size": 1048576
+            }
+          ],
           "createdAt": "2026-10-09T12:00:00Z",
           "updatedAt": "2026-10-09T12:00:05Z"
         },

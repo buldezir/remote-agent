@@ -181,6 +181,7 @@ On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the compo
 - **Images:** the + beside the prompt attaches photos, image files or the clipboard's image. You can also drop images on the session. The app scales them to 2048 px and strips their metadata before uploading.
   - Claude Code, Codex, Pi and ACP agents that accept images see them directly. Other ACP agents get the files' paths on your computer.
   - Images agents produce show up in the transcript: an MCP tool's screenshot, an image file the agent read, or Codex viewing or generating one. Tap one to open it in Quick Look: zoom in, share it or mark it up. On iPhone and iPad it fills the screen; on the Mac it opens in a window you can resize.
+  - Asked for a screenshot, an agent can show it without reading it, which would cost context. rad tells every agent that you aren't at the computer, and to put an image file in its reply as a Markdown image with its path, such as `![Screenshot](/tmp/shot.png)`. rad then sends the file to the app, which shows it in the reply. Claude Code and Pi get this in their system prompt, Codex as developer instructions, and ACP agents before the first prompt.
   - rad keeps every image in `<data>/images`, named by its content hash.
 - **Approvals:** cards appear inline. The buttons come from the agent itself, e.g. *Allow*, *Allow all edits this session*, *Deny*. When denying, you can give the agent a reason.
   - Pi doesn't ask before running tools. Oh My Pi asks only clients that run its file and terminal tools for it, which rad doesn't, so expect no approvals from it either.
@@ -282,6 +283,7 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 - `slow`: streams slowly, useful for testing interrupt
 - `fail`: makes the turn fail
 - `screenshot`: runs a tool that returns an image
+- `picture`: writes `picture-<turn>.png` in the working directory and shows it in the reply, as agents are told to
 
 It also says how many images came with a prompt. `rad debug run --image shot.png "…"` attaches one from the command line.
 

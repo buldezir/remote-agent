@@ -1,3 +1,4 @@
+import MarkdownUI
 import PhotosUI
 import QuickLook
 import RAKit
@@ -211,6 +212,9 @@ struct ImageGallery: View {
     let store: SessionStore
     var height: CGFloat = 140
     var alignment: HorizontalAlignment = .leading
+    /// The images Quick Look pages through, when the gallery shows only some
+    /// of the item's: a reply shows each where its text links to it.
+    var browsing: [ImageRef]?
     @State private var files: [URL] = []
     @State private var shown: URL?
     @State private var opening = false
@@ -239,7 +243,7 @@ struct ImageGallery: View {
         defer { opening = false }
         var files: [URL] = []
         var target: URL?
-        for image in images {
+        for image in browsing ?? images {
             guard let url = try? await store.imageFile(image.id) else { continue }
             files.append(url)
             if image.id == ref.id { target = url }
@@ -247,6 +251,64 @@ struct ImageGallery: View {
         guard let target else { return }
         self.files = files
         shown = target
+    }
+}
+
+/// An image an agent's reply links to: as large as fits the transcript's
+/// width, up to a height that leaves the text around it in view.
+struct ReplyImage: View {
+    let ref: ImageRef
+    let images: [ImageRef]
+    let store: SessionStore
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            gallery(height: 320)
+            gallery(height: 240)
+            gallery(height: 180)
+            gallery(height: 120)
+        }
+    }
+
+    private func gallery(height: CGFloat) -> some View {
+        ImageGallery(images: [ref], store: store, height: height, browsing: images)
+    }
+}
+
+/// Draws the images in an agent's reply: rad points the reply's Markdown
+/// images at its copies, `rad-image:<id>`. Other images load as before.
+@MainActor
+struct ReplyImageProvider: @preconcurrency ImageProvider {
+    let images: [ImageRef]
+    let store: SessionStore
+
+    @ViewBuilder func makeImage(url: URL?) -> some View {
+        if let id = url.flatMap(ImageRef.id(linkedBy:)) {
+            ReplyImage(ref: images.first { $0.id == id } ?? ImageRef(id: id, mimeType: "", size: 0),
+                       images: images, store: store)
+        } else {
+            DefaultImageProvider.default.makeImage(url: url)
+        }
+    }
+}
+
+/// An image in a line of a reply's text, which can't be tapped or resized,
+/// so it is drawn small.
+struct ReplyInlineImageProvider: InlineImageProvider {
+    let store: SessionStore
+    let scale: CGFloat
+    static let height: CGFloat = 120
+
+    func image(with url: URL, label: String) async throws -> Image {
+        guard let id = ImageRef.id(linkedBy: url) else {
+            return try await DefaultInlineImageProvider.default.image(with: url, label: label)
+        }
+        let data = try await store.imageData(id)
+        let pixels = Int(Self.height * scale)
+        guard let image = await Task.detached(operation: { ImageCoding.thumbnail(data, maxPixels: pixels) }).value else {
+            throw URLError(.cannotDecodeContentData)
+        }
+        return Image(image, scale: scale, label: Text(label))
     }
 }
 
