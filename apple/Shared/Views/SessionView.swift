@@ -126,18 +126,16 @@ struct SessionView: View {
     // MARK: Composer
 
     #if os(macOS)
-    /// A card over the foot of the transcript: the prompt, with the buttons
-    /// in a row under it.
+    /// A card over the foot of the transcript, around the prompt and its buttons.
     private var composer: some View {
         let card = RoundedRectangle(cornerRadius: Metrics.Corner.composer)
         return VStack(alignment: .leading, spacing: 10) {
             if !attachments.isEmpty {
                 AttachmentStrip(attachments: attachments, connection: connection)
             }
-            promptField
-            HStack(spacing: 8) {
+            ComposerLayout {
                 attachMenu
-                Spacer()
+                promptField
                 actionButtons
             }
         }
@@ -187,7 +185,7 @@ struct SessionView: View {
             .messageFont()
             .paletteText()
             #if os(macOS)
-            .lineLimit(2...12)
+            .lineLimit(1...12)
             #else
             .lineLimit(1...6)
             #endif
@@ -385,6 +383,63 @@ struct SessionView: View {
         do { try await f() } catch { self.error = error.localizedDescription }
     }
 }
+
+#if os(macOS)
+/// The Mac composer's prompt between its buttons while it fits on one line;
+/// longer, it spans the card with the buttons in a row under it. A layout
+/// rather than two stacks, so the field keeps its focus when it switches.
+///
+/// Subviews: the add menu, the prompt, then the buttons on the right.
+private struct ComposerLayout: Layout {
+    var spacing: CGFloat = 8
+    var rowSpacing: CGFloat = 10
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.replacingUnspecifiedDimensions().width
+        return CGSize(width: width, height: arrange(width: width, subviews).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (subview, frame) in zip(subviews, arrange(width: bounds.width, subviews).frames) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                          proposal: ProposedViewSize(frame.size))
+        }
+    }
+
+    private func arrange(width: CGFloat, _ subviews: Subviews) -> (frames: [CGRect], height: CGFloat) {
+        guard subviews.count >= 2 else { return ([], 0) }
+        let field = subviews[1]
+        let left = subviews[0].sizeThatFits(.unspecified)
+        let right = subviews.dropFirst(2).map { $0.sizeThatFits(.unspecified) }
+        let rightWidth = right.reduce(0) { $0 + $1.width + spacing }
+        let buttonsHeight = ([left] + right).map(\.height).max() ?? 0
+
+        // The buttons in a row of their own height, from `y`.
+        func buttons(centeredIn rowHeight: CGFloat, at y: CGFloat) -> [CGRect] {
+            var x = width - rightWidth
+            return [CGRect(origin: CGPoint(x: 0, y: y + (rowHeight - left.height) / 2), size: left)]
+                + right.map { size in
+                    defer { x += size.width + spacing }
+                    return CGRect(origin: CGPoint(x: x + spacing, y: y + (rowHeight - size.height) / 2), size: size)
+                }
+        }
+
+        let between = max(width - left.width - spacing - rightWidth, 0)
+        let inRow = field.dimensions(in: ProposedViewSize(width: between, height: nil))
+        if abs(inRow[.lastTextBaseline] - inRow[.firstTextBaseline]) < 1 {
+            let height = max(buttonsHeight, inRow.height)
+            var frames = buttons(centeredIn: height, at: 0)
+            frames.insert(CGRect(x: left.width + spacing, y: (height - inRow.height) / 2,
+                                 width: between, height: inRow.height), at: 1)
+            return (frames, height)
+        }
+        let fieldHeight = field.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        var frames = buttons(centeredIn: buttonsHeight, at: fieldHeight + rowSpacing)
+        frames.insert(CGRect(x: 0, y: 0, width: width, height: fieldHeight), at: 1)
+        return (frames, fieldHeight + rowSpacing + buttonsHeight)
+    }
+}
+#endif
 
 /// Marks a turn that did not finish normally.
 struct TurnFooter: View {
