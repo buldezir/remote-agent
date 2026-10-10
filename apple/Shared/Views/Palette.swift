@@ -75,12 +75,30 @@ private extension NSColor {
 }
 #endif
 
+/// Light or dark, from Settings, or as the system is: Latte or Frappé.
+enum Appearance: String, CaseIterable, Identifiable {
+    case system, dark, light
+
+    static let key = "appearance"
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .system: "System"
+        case .dark: "Dark"
+        case .light: "Light"
+        }
+    }
+}
+
 extension View {
-    /// The app's look, for a window and again for each sheet: the text sizes
-    /// and fonts from Settings, and the palette's accent and sheet background.
-    /// iOS doesn't carry the Dynamic Type size into sheets.
+    /// The app's look, for a window and again for each sheet: the appearance,
+    /// text sizes and fonts from Settings, and the palette's accent and sheet
+    /// background. iOS doesn't carry the Dynamic Type size into sheets.
     func appStyle() -> some View {
         textSettings()
+            .modifier(AppAppearance())
             .tint(Palette.accent)
             .presentationBackground(Palette.mantle)
     }
@@ -106,6 +124,34 @@ extension View {
     /// rows, not whole screens: it also overrides the tint of buttons inside.
     func paletteText() -> some View {
         modifier(PaletteText())
+    }
+}
+
+private struct AppAppearance: ViewModifier {
+    @AppStorage(Appearance.key) private var appearance = Appearance.system
+
+    // The whole app's rather than `preferredColorScheme`, which leaves an
+    // open sheet in the old scheme when set back to nil. This way sheets,
+    // menus and alerts follow too, and the Mac's Settings window.
+    func body(content: Content) -> some View {
+        content.onChange(of: appearance, initial: true) { _, appearance in
+            #if os(macOS)
+            NSApp.appearance = switch appearance {
+            case .system: nil
+            case .dark: NSAppearance(named: .darkAqua)
+            case .light: NSAppearance(named: .aqua)
+            }
+            #else
+            let style: UIUserInterfaceStyle = switch appearance {
+            case .system: .unspecified
+            case .dark: .dark
+            case .light: .light
+            }
+            for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+                for window in scene.windows { window.overrideUserInterfaceStyle = style }
+            }
+            #endif
+        }
     }
 }
 

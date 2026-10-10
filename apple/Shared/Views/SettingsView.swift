@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage(TextSize.interfaceKey) private var interface = TextSize.defaultInterface
     @AppStorage(TextSize.messagesKey) private var messages = TextSize.defaultMessages
+    @AppStorage(Appearance.key) private var appearance = Appearance.system
     #if os(macOS)
     @AppStorage(FontChoice.messageKey) private var messageFont = ""
     @AppStorage(FontChoice.codeKey) private var codeFont = ""
@@ -17,6 +18,18 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Group {
+                Section {
+                    // A pop-up, like the font pickers: a Mac segmented control
+                    // writes its selected label in white on the accent.
+                    Picker("Theme", selection: $appearance) {
+                        ForEach(Appearance.allCases) { Text($0.title).tag($0) }
+                    }
+                } header: {
+                    Text("Appearance").formHeaderFont()
+                } footer: {
+                    Text("Catppuccin Latte when light, Frappé when dark.").formFooterFont()
+                }
+
                 Section {
                     #if os(iOS)
                     Toggle("Match System", isOn: matchSystem)
@@ -134,18 +147,19 @@ struct SettingsView: View {
     }
 
     private var isDefault: Bool {
-        followsSystem && messages == TextSize.defaultMessages
+        appearance == .system && followsSystem && messages == TextSize.defaultMessages
     }
     #else
     private var interfaceFooter: String { "Lists and labels." }
 
     private var isDefault: Bool {
-        interface == TextSize.defaultInterface && messages == TextSize.defaultMessages
+        appearance == .system && interface == TextSize.defaultInterface && messages == TextSize.defaultMessages
             && messageFont.isEmpty && codeFont.isEmpty
     }
     #endif
 
     private func restoreDefaults() {
+        appearance = .system
         interface = TextSize.defaultInterface
         messages = TextSize.defaultMessages
         #if os(iOS)
