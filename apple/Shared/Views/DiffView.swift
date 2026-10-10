@@ -56,9 +56,9 @@ struct DiffView: View {
                         let adds = diff.files.reduce(0) { $0 + $1.additions }
                         let dels = diff.files.reduce(0) { $0 + $1.deletions }
                         Text("\(diff.files.count) file\(diff.files.count == 1 ? "" : "s")  +\(adds) −\(dels)")
-                            .listHeaderFont()
+                            .listHeaderStyle()
                     } footer: {
-                        if diff.truncated { Text("The patch was truncated; some files may show no lines.").listHeaderFont() }
+                        if diff.truncated { Text("The patch was truncated; some files may show no lines.").listHeaderStyle() }
                     }
                 } else if loading {
                     ProgressView().frame(maxWidth: .infinity)
@@ -221,13 +221,14 @@ struct DiffLine: Identifiable {
             switch self {
             case .add: Palette.green.opacity(0.15)
             case .del: Palette.red.opacity(0.15)
-            case .hunk: Palette.blue.opacity(0.12)
             default: .clear
             }
         }
         var foreground: Color {
             switch self {
-            case .hunk, .meta: Palette.subtext
+            // As in Catppuccin's style guide.
+            case .hunk: Palette.peach
+            case .meta: Palette.subtext
             default: Palette.text
             }
         }

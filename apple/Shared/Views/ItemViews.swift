@@ -459,9 +459,12 @@ private struct AgentMarkdown: ViewModifier {
 
     func body(content: Content) -> some View {
         let codeScale = font.codeScale(codeFont)
-        // Inside the theme, so they replace its text styles.
+        // Inside the theme, so they replace its text styles. The text needs its
+        // colour here: Markdown sets the style's colour on its blocks, and with
+        // none it falls back to the system's rather than `paletteText()`.
         return content
             .markdownTextStyle(\.text) {
+                ForegroundColor(Palette.text)
                 FontSize(size)
                 FontFamily(font.markdownFamily)
             }

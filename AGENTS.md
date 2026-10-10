@@ -26,13 +26,14 @@ Notes for coding agents working on this repo. What the project is and how it is 
 - **App icon:** drawn by `apple/scripts/make-app-icon.swift`, for iOS and, in the macOS shape, for the Mac. Edit the script and rerun it; don't edit the PNGs.
 - **Text sizes and fonts:** Settings scales the interface and, separately, the messages (`Shared/Views/TextSize.swift`). On the Mac it also picks a message font and a code font. iOS scales the interface with Dynamic Type; the Mac has none. So that the Mac follows the settings:
   - In shared views, set fonts with `scaledFont(.footnote)`, `scaledFont(.caption, weight: .semibold, design: .monospaced)` and so on, not `font(.footnote)`. Monospaced `scaledFont` uses the code font.
-  - Mac lists and sidebars ignore the window's default font. Give each list row `scaledFont(.body)`, and each list section header `listHeaderFont()`. Form sections take `formHeaderFont()` and `formFooterFont()`.
+  - Mac lists and sidebars ignore the window's default font. Give each list row `scaledFont(.body)`, and each list section header `listHeaderStyle()`. Form sections take `formHeaderFont()` and `formFooterFont()`.
   - Prompt text takes `messageFont()`; Markdown gets the message and code fonts through `agentMarkdown()`. Tool calls follow the message size too, with `messageRelativeFont(_:)`.
   - Each sheet applies `.appStyle()` again, which sets the text sizes, fonts and colours, because iOS doesn't pass the Dynamic Type size into sheets.
 - **Colours:** Catppuccin, Frappé in dark mode and Latte in light mode (`Shared/Views/Palette.swift`). The `AccentColor` asset matches `Palette.accent`.
   - Take colours from `Palette`, not `.red`, `Color.accentColor` or the system backgrounds.
   - Lists and forms set their background with `listBackground(_:)` (forms get it from `compactForm()`). iOS draws each row on the system's background, so the rows need `paletteRows()`: on the rows, or on a `Group` around a form's sections. A list ignores it on itself.
-  - A row background also hides the list's selection, so a list with selection draws it, as the iPad sidebar does in `ServerHomeView`.
+  - A row background also hides the list's selection, so a list with selection draws it, as the iPad and Mac sidebar does in `ServerHomeView`. On the Mac this also keeps the selection off the system accent.
+  - Markdown sets its text style's colour on its blocks, and with none it uses the system's, so `paletteText()` doesn't reach Markdown. `agentMarkdown()` sets `Palette.text` in its text style; a block style that changes the colour does it with `ForegroundColor`.
   - `paletteText()` gives text the palette's colours. Use it on the transcript and list rows, not whole screens: it also overrides the tint of buttons inside.
   - Text on an accent colour, such as a prominent button's label, takes `Palette.onAccent`.
 - **Swift 6 strict concurrency:**

@@ -126,13 +126,13 @@ struct ServerHomeView: View {
             Section {
                 ForEach(attention) { row($0) }
             } header: {
-                Text("Needs you").listHeaderFont()
+                Text("Needs you").listHeaderStyle()
             }
         }
         Section {
             ForEach(active.filter { $0.status != .awaitingApproval }) { row($0) }
         } header: {
-            Text("Sessions").listHeaderFont()
+            Text("Sessions").listHeaderStyle()
         }
         let archived = connection.archivedSessions
         if !archived.isEmpty {
@@ -142,7 +142,7 @@ struct ServerHomeView: View {
                 ForEach(archived) { row($0) }
             } header: {
                 Text("Archived \(Text("\(archived.count)").foregroundStyle(.tertiary))")
-                    .listHeaderFont()
+                    .listHeaderStyle()
             }
             #else
             Section(isExpanded: $showArchived) {
@@ -171,11 +171,14 @@ struct ServerHomeView: View {
         let route = SessionRoute(serverID: connection.server.id, sessionID: s.id)
         return NavigationLink(value: route) {
             SessionRow(session: s, project: connection.projects[s.projectId], harness: connection.harness(s.harness))
+                // The selection drawn below is a surface, not the system's
+                // accent, so the row keeps the palette's text colours on it.
+                .environment(\.backgroundProminence, .standard)
         }
         #if os(iOS)
         .listRowInsets(Metrics.rowInsets)
-        .listRowBackground(rowBackground(selected: selection?.wrappedValue == route))
         #endif
+        .listRowBackground(rowBackground(selected: selection?.wrappedValue == route))
         .swipeActions {
             if !s.archived {
                 Button("Archive", systemImage: "archivebox") { archiveTarget = s }
@@ -189,9 +192,9 @@ struct ServerHomeView: View {
         }
     }
 
-    #if os(iOS)
     /// The list's colour, which iOS would otherwise cover with the system's.
-    /// It also covers the selection, so the iPad sidebar draws that itself.
+    /// It also covers the selection, which the sidebar draws itself in a
+    /// surface colour: the Mac's would be the system accent.
     private func rowBackground(selected: Bool) -> some View {
         listColor.overlay {
             if selected {
@@ -201,7 +204,6 @@ struct ServerHomeView: View {
             }
         }
     }
-    #endif
 
     private func archive(_ s: Session, removeWorktree: Bool) {
         Task { try? await connection.archive(s.id, removeWorktree: removeWorktree) }

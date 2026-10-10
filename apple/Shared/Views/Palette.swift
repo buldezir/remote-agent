@@ -27,7 +27,8 @@ enum Palette {
     // Text, from the most to the least prominent.
     static let text = Color(latte: 0x4c4f69, frappe: 0xc6d0f5)
     static let subtext = Color(latte: 0x6c6f85, frappe: 0xa5adce)
-    static let overlay = Color(latte: 0x9ca0b0, frappe: 0x737994)
+    /// Subtle text, such as placeholders and times: Overlay 1, as the style guide says.
+    static let overlay = Color(latte: 0x8c8fa1, frappe: 0x838ba7)
 
     // Surfaces. In Frappé, from the lightest to the darkest.
     static let surface1 = Color(latte: 0xbcc0cc, frappe: 0x51576d)

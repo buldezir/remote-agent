@@ -248,10 +248,12 @@ extension View {
 
     /// List section headers and footers, the sidebar's too. Mac lists keep
     /// their own fonts for rows, headers and footers, so these scale only with
-    /// a font set on each: this one, or `scaledFont(.body)` for a row.
-    func listHeaderFont() -> some View {
+    /// a font set on each: this one, or `scaledFont(.body)` for a row. On the
+    /// Mac it also gives them the palette's colour for labels, not the system's grey.
+    func listHeaderStyle() -> some View {
         #if os(macOS)
         scaledFont(.subheadline, weight: .bold)
+            .foregroundStyle(Palette.subtext)
         #else
         self
         #endif

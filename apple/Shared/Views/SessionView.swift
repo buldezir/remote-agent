@@ -182,7 +182,9 @@ struct SessionView: View {
     #endif
 
     private var promptField: some View {
-        TextField(placeholder, text: $draft, axis: .vertical)
+        TextField(text: $draft, prompt: Text(placeholder).foregroundStyle(Palette.overlay), axis: .vertical) {
+            Text(placeholder)
+        }
             .textFieldStyle(.plain)
             .messageFont()
             .paletteText()
