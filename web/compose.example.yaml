@@ -1,0 +1,24 @@
+# The web client, served on port 8080. rad runs elsewhere, as usual.
+#
+#   cp compose.example.yaml compose.yaml && docker compose up -d
+#
+# Then, in rad's config, let the page in by the address you open it at, and
+# pair it with the link `rad pair --web` prints:
+#
+#   web_origins: ["localhost:*", "127.0.0.1:*", "my-server.local:8080"]
+#   rad pair --web http://my-server.local:8080
+#
+# Browsers block an https:// page from calling rad over http://. Serve this
+# over http:// like rad, or put both behind HTTPS (for example `tailscale serve`).
+services:
+  web:
+    image: ghcr.io/buldezir/remote-agent-web:latest
+    # build: .                # or build it from this folder
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true

@@ -1,0 +1,57 @@
+# Builds the web client's image (web/Dockerfile) for amd64 and arm64 and pushes
+# it to GitHub's container registry as ghcr.io/<owner>/remote-agent-web:
+# `edge` from main, and `latest` plus the version from a tag like v0.2.0.
+# Pull requests that touch web/ build it without pushing. (Path filters don't
+# work for tags, so pushes to main build it every time; the cache keeps that quick.)
+name: Web image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths: ["web/**", ".github/workflows/web-image.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: web-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # The Dockerfile builds on the runner's platform and only copies files
+      # into the nginx image, so no emulation is needed for arm64.
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/remote-agent-web
+          tags: |
+            type=edge,branch=main
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+          flavor: |
+            latest=auto
+      - uses: docker/build-push-action@v7
+        with:
+          context: web
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
