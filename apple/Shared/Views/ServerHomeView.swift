@@ -26,6 +26,7 @@ struct ServerHomeView: View {
         #else
         .listStyle(.plain)
         #endif
+        .listBackground(listColor)
         .overlay {
             if connection.indexSynced && connection.sessions.isEmpty {
                 ContentUnavailableView {
@@ -33,8 +34,10 @@ struct ServerHomeView: View {
                 } description: {
                     Text("Start an agent in one of your projects.")
                 } actions: {
-                    Button("New session") { showNew = true }
-                        .buttonStyle(.borderedProminent)
+                    Button { showNew = true } label: {
+                        Text("New session").foregroundStyle(Palette.onAccent)
+                    }
+                    .buttonStyle(.borderedProminent)
                 }
             } else if !connection.indexSynced && connection.state == .connecting {
                 ProgressView("Connecting…")
@@ -74,7 +77,7 @@ struct ServerHomeView: View {
                     openSession = session.id
                 }
             }
-            .appTextSettings()
+            .appStyle()
         }
         .confirmationDialog("Archive session?", isPresented: .init(get: { archiveTarget != nil }, set: { if !$0 { archiveTarget = nil } }),
                             presenting: archiveTarget) { s in
@@ -95,19 +98,24 @@ struct ServerHomeView: View {
         .task { connection.start() }
     }
 
+    /// A sidebar on iPad and the Mac, the main view on iPhone.
+    private var listColor: Color { selection == nil ? Palette.base : Palette.mantle }
+
     @ViewBuilder private var sections: some View {
         switch connection.state {
         case .failed(let msg):
             Section {
                 Label(msg, systemImage: "wifi.exclamationmark")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Palette.red)
                 Button("Retry now") { connection.retry() }
             }
             .scaledFont(.body)
+            .paletteRows(listColor)
         case .connecting where connection.indexSynced:
             Label("Reconnecting…", systemImage: "arrow.triangle.2.circlepath")
                 .scaledFont(.body)
                 .foregroundStyle(.secondary)
+                .paletteRows(listColor)
         default:
             EmptyView()
         }
@@ -160,16 +168,18 @@ struct ServerHomeView: View {
     }
 
     private func row(_ s: Session) -> some View {
-        NavigationLink(value: SessionRoute(serverID: connection.server.id, sessionID: s.id)) {
+        let route = SessionRoute(serverID: connection.server.id, sessionID: s.id)
+        return NavigationLink(value: route) {
             SessionRow(session: s, project: connection.projects[s.projectId], harness: connection.harness(s.harness))
         }
         #if os(iOS)
         .listRowInsets(Metrics.rowInsets)
+        .listRowBackground(rowBackground(selected: selection?.wrappedValue == route))
         #endif
         .swipeActions {
             if !s.archived {
                 Button("Archive", systemImage: "archivebox") { archiveTarget = s }
-                    .tint(.indigo)
+                    .tint(Palette.blue)
             }
         }
         .contextMenu {
@@ -178,6 +188,20 @@ struct ServerHomeView: View {
             }
         }
     }
+
+    #if os(iOS)
+    /// The list's colour, which iOS would otherwise cover with the system's.
+    /// It also covers the selection, so the iPad sidebar draws that itself.
+    private func rowBackground(selected: Bool) -> some View {
+        listColor.overlay {
+            if selected {
+                RoundedRectangle(cornerRadius: Metrics.Corner.selection)
+                    .fill(Palette.surface0)
+                    .padding(.horizontal, 8)
+            }
+        }
+    }
+    #endif
 
     private func archive(_ s: Session, removeWorktree: Bool) {
         Task { try? await connection.archive(s.id, removeWorktree: removeWorktree) }
@@ -219,6 +243,7 @@ struct SessionRow: View {
                 .foregroundStyle(.secondary)
             }
         }
+        .paletteText()
     }
 }
 

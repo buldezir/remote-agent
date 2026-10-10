@@ -39,12 +39,14 @@ struct ServerSplitView: View {
                 #endif
         } detail: {
             detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Palette.base)
         }
         .sheet(isPresented: $showAdd) {
             AddServerView(initialLink: pendingLink) { server in
                 serverID = server.id
             }
-            .appTextSettings()
+            .appStyle()
         }
         .onChange(of: pendingLink) { _, link in
             if link != nil { showAdd = true }
@@ -72,6 +74,7 @@ struct ServerSplitView: View {
                 #endif
         } else {
             List {}
+                .listBackground(Palette.mantle)
                 .navigationTitle("Servers")
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
@@ -118,6 +121,7 @@ struct ServerSplitView: View {
                     .foregroundStyle(.secondary)
             }
             .contentShape(Rectangle())
+            .paletteText()
             .accessibilityElement(children: .ignore)
         }
         .menuStyle(.button)
@@ -160,8 +164,10 @@ struct ServerSplitView: View {
                 Text("Run `rad serve` on your computer, then `rad pair` and scan the QR code.")
                 #endif
             } actions: {
-                Button("Pair a server") { showAdd = true }
-                    .buttonStyle(.borderedProminent)
+                Button { showAdd = true } label: {
+                    Text("Pair a server").foregroundStyle(Palette.onAccent)
+                }
+                .buttonStyle(.borderedProminent)
             }
         } else {
             ContentUnavailableView("No session selected", systemImage: "bubble.left.and.text.bubble.right",

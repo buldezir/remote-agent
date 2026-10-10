@@ -127,9 +127,8 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Applies the text sizes and fonts from Settings to a window,
-    /// and to each sheet: iOS doesn't carry the Dynamic Type size into sheets.
-    func appTextSettings() -> some View {
+    /// Applies the text sizes and fonts from Settings. Part of `appStyle()`.
+    func textSettings() -> some View {
         modifier(AppTextSettings())
     }
 

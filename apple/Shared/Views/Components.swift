@@ -10,9 +10,9 @@ struct StatusIcon: View {
             case .running:
                 ProgressView().controlSize(.small)
             case .awaitingApproval:
-                Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
+                Image(systemName: "hand.raised.fill").foregroundStyle(Palette.peach)
             case .error:
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.red)
             case .stopped:
                 Image(systemName: "stop.circle").foregroundStyle(.secondary)
             case .idle, .unknown:
@@ -44,12 +44,12 @@ struct HarnessIcon: View {
         }
     }
 
-    private var color: Color {
+    private var color: AnyShapeStyle {
         switch id {
-        case "claude": .orange
-        case "codex": .primary
-        case "acp:gemini": .blue
-        default: .secondary
+        case "claude": AnyShapeStyle(Palette.peach)
+        case "codex": AnyShapeStyle(.primary)
+        case "acp:gemini": AnyShapeStyle(Palette.blue)
+        default: AnyShapeStyle(.secondary)
         }
     }
 }
@@ -90,7 +90,7 @@ struct ContextGauge: View {
     var percent: String { fraction.formatted(.percent.precision(.fractionLength(0))) }
 
     private var color: Color {
-        fraction >= 0.9 ? .red : fraction >= 0.7 ? .orange : .secondary
+        fraction >= 0.9 ? Palette.red : fraction >= 0.7 ? Palette.yellow : Palette.subtext
     }
 }
 
@@ -106,10 +106,10 @@ struct ConnectionDot: View {
 
     var color: Color {
         switch state {
-        case .connected: .green
-        case .connecting: .yellow
-        case .failed: .red
-        case .idle: .gray.opacity(0.5)
+        case .connected: Palette.green
+        case .connecting: Palette.yellow
+        case .failed: Palette.red
+        case .idle: Palette.overlay
         }
     }
 

@@ -45,6 +45,9 @@ extension AttachMenu {
                 .buttonStyle(.borderless)
                 .menuIndicator(.hidden)
                 .fixedSize()
+                #if os(macOS)
+                .tint(Palette.overlay) // The symbol's colour; iOS sets it on the image.
+                #endif
         }
     }
 
@@ -67,17 +70,17 @@ extension AttachMenu {
     }
 
     /// The size of the round send and mic buttons beside it. A Mac menu draws
-    /// its label as an image and drops SwiftUI's font, so it gets a sized one.
+    /// its label as an image and drops SwiftUI's font and colour, so it gets a
+    /// sized one, in the menu's tint.
     @ViewBuilder private var plus: some View {
         #if os(macOS)
         let config = NSImage.SymbolConfiguration(pointSize: 22, weight: .regular)
-            .applying(.init(paletteColors: [.white, .tertiaryLabelColor]))
         Image(nsImage: NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: nil)!
             .withSymbolConfiguration(config)!)
         #else
         Image(systemName: "plus.circle.fill")
             .font(.system(size: 26))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Palette.overlay)
         #endif
     }
 }
@@ -117,7 +120,7 @@ struct AttachmentStrip: View {
                     } label: {
                         Image(systemName: "exclamationmark.arrow.circlepath")
                             .font(.title3)
-                            .foregroundStyle(.white, .red)
+                            .foregroundStyle(.white, Palette.red)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(.black.opacity(0.35))
                     }

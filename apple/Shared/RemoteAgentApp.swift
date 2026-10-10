@@ -33,7 +33,7 @@ struct RemoteAgentApp: App {
                 // would show a scroller.
                 .fixedSize(horizontal: false, vertical: true)
                 .scrollIndicators(.never)
-                .appTextSettings()
+                .appStyle()
         }
         .windowResizability(.contentSize)
         #endif
@@ -72,10 +72,13 @@ private struct WindowRoot: View {
         .environment(\.showSettings, $showSettings)
         .sheet(isPresented: $showSettings) {
             NavigationStack { SettingsView() }
-                .appTextSettings()
+                .appStyle()
         }
         #endif
-        .appTextSettings()
+        .appStyle()
+        #if os(macOS)
+        .containerBackground(Palette.base, for: .window)
+        #endif
     }
 }
 

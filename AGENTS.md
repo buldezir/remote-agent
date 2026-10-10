@@ -28,7 +28,13 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - In shared views, set fonts with `scaledFont(.footnote)`, `scaledFont(.caption, weight: .semibold, design: .monospaced)` and so on, not `font(.footnote)`. Monospaced `scaledFont` uses the code font.
   - Mac lists and sidebars ignore the window's default font. Give each list row `scaledFont(.body)`, and each list section header `listHeaderFont()`. Form sections take `formHeaderFont()` and `formFooterFont()`.
   - Prompt text takes `messageFont()`; Markdown gets the message and code fonts through `agentMarkdown()`.
-  - Each sheet applies `.appTextSettings()` again, because iOS doesn't pass the Dynamic Type size into sheets.
+  - Each sheet applies `.appStyle()` again, which sets the text sizes, fonts and colours, because iOS doesn't pass the Dynamic Type size into sheets.
+- **Colours:** Catppuccin, Frappé in dark mode and Latte in light mode (`Shared/Views/Palette.swift`). The `AccentColor` asset matches `Palette.accent`.
+  - Take colours from `Palette`, not `.red`, `Color.accentColor` or the system backgrounds.
+  - Lists and forms set their background with `listBackground(_:)` (forms get it from `compactForm()`). iOS draws each row on the system's background, so the rows need `paletteRows()`: on the rows, or on a `Group` around a form's sections. A list ignores it on itself.
+  - A row background also hides the list's selection, so a list with selection draws it, as the iPad sidebar does in `ServerHomeView`.
+  - `paletteText()` gives text the palette's colours. Use it on the transcript and list rows, not whole screens: it also overrides the tint of buttons inside.
+  - Text on an accent colour, such as a prominent button's label, takes `Palette.onAccent`.
 - **Swift 6 strict concurrency:**
   - Callbacks that run on other threads (AVAudioEngine taps, Speech results, URLSession delegates) must be created in `nonisolated` functions. A closure formed in `@MainActor` code is main-actor isolated and traps when called off the main thread.
   - Caches that view bodies fill lazily are `@ObservationIgnored`.

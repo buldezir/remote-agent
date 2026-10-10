@@ -29,17 +29,22 @@ enum Metrics {
         static let bubble: CGFloat = 8
         /// The composer's text field.
         static let field: CGFloat = 10
+        /// The selected row in the iPad sidebar.
+        static let selection: CGFloat = 12
     }
 }
 
 extension View {
-    /// Grouped forms with compact section spacing and narrower side margins.
+    /// Grouped forms with compact section spacing and narrower side margins,
+    /// on the palette's background. Their rows take `paletteRows()`.
     func compactForm() -> some View {
         #if os(macOS)
         formStyle(.grouped)
+            .listBackground(Palette.mantle)
         #else
         listSectionSpacing(.compact)
             .contentMargins(.horizontal, Metrics.margin, for: .scrollContent)
+            .listBackground(Palette.mantle)
         #endif
     }
 }

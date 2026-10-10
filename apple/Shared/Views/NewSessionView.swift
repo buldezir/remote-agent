@@ -31,125 +31,128 @@ struct NewSessionView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Picker("Project", selection: $projectID) {
-                        Text("Choose…").tag("")
-                        ForEach(connection.sortedProjects) { p in
-                            Text(p.name).tag(p.id)
-                        }
-                    }
-                    Button {
-                        browsing = true
-                    } label: {
-                        Label("Add a folder…", systemImage: "folder.badge.plus")
-                    }
-                    if let project {
-                        Text(project.path).scaledFont(.caption, design: .monospaced).foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text("Project").formHeaderFont()
-                }
-
-                Section {
-                    if let harnesses = connection.harnesses {
-                        ForEach(harnesses) { h in
-                            Button {
-                                harnessID = h.id
-                            } label: {
-                                HarnessChoiceRow(harness: h, selected: h.id == harnessID)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!h.usable)
-                            .accessibilityAddTraits(h.id == harnessID ? .isSelected : [])
-                        }
-                        if harnesses.isEmpty {
-                            Text("No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.")
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        HStack { ProgressView(); Text("Checking installed agents…").foregroundStyle(.secondary) }
-                    }
-                } header: {
-                    Text("Agent").formHeaderFont()
-                }
-
-                if let harness {
+                Group {
                     Section {
-                        if let models = harness.models, !models.isEmpty {
-                            Picker("Model", selection: $model) {
-                                Text("Default").tag("")
-                                ForEach(models) { m in Text(m.name).tag(m.id) }
-                                if harness.caps.freeModel { Text("Custom…").tag("__custom") }
+                        Picker("Project", selection: $projectID) {
+                            Text("Choose…").tag("")
+                            ForEach(connection.sortedProjects) { p in
+                                Text(p.name).tag(p.id)
                             }
                         }
-                        if model == "__custom" || (harness.caps.freeModel && (harness.models ?? []).isEmpty) {
-                            TextField("Model id", text: $customModel)
-                                .plainTextInput()
+                        Button {
+                            browsing = true
+                        } label: {
+                            Label("Add a folder…", systemImage: "folder.badge.plus")
                         }
-                        let efforts = harness.efforts(forModel: chosenModel)
-                        if !efforts.isEmpty {
-                            Picker("Effort", selection: $effort) {
-                                Text("Default").tag("")
-                                ForEach(efforts) { e in Text(e.name).tag(e.id) }
-                            }
-                            if let d = efforts.first(where: { $0.id == effort })?.description, !d.isEmpty {
-                                Text(d).scaledFont(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                        if let modes = harness.modes, !modes.isEmpty {
-                            Picker("Permissions", selection: $mode) {
-                                ForEach(modes) { m in Text(m.name).tag(m.id) }
-                            }
-                            if let d = modes.first(where: { $0.id == mode })?.description {
-                                Text(d).scaledFont(.caption).foregroundStyle(.secondary)
-                            }
+                        if let project {
+                            Text(project.path).scaledFont(.caption, design: .monospaced).foregroundStyle(.secondary)
                         }
                     } header: {
-                        Text("Options").formHeaderFont()
+                        Text("Project").formHeaderFont()
                     }
-                }
 
-                if project?.isGitRepo == true {
                     Section {
-                        Toggle("Isolated git worktree", isOn: $useWorktree)
-                        if useWorktree {
-                            TextField("Branch", text: $branch, prompt: Text(branchPrompt))
-                                .plainTextInput()
-                            Picker("Based on", selection: $baseRef) {
-                                Text("Current HEAD").tag("")
-                                ForEach(branches, id: \.self) { Text($0).tag($0) }
+                        if let harnesses = connection.harnesses {
+                            ForEach(harnesses) { h in
+                                Button {
+                                    harnessID = h.id
+                                } label: {
+                                    HarnessChoiceRow(harness: h, selected: h.id == harnessID)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!h.usable)
+                                .accessibilityAddTraits(h.id == harnessID ? .isSelected : [])
                             }
+                            if harnesses.isEmpty {
+                                Text("No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.")
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            HStack { ProgressView(); Text("Checking installed agents…").foregroundStyle(.secondary) }
                         }
                     } header: {
-                        Text("Workspace").formHeaderFont()
+                        Text("Agent").formHeaderFont()
+                    }
+
+                    if let harness {
+                        Section {
+                            if let models = harness.models, !models.isEmpty {
+                                Picker("Model", selection: $model) {
+                                    Text("Default").tag("")
+                                    ForEach(models) { m in Text(m.name).tag(m.id) }
+                                    if harness.caps.freeModel { Text("Custom…").tag("__custom") }
+                                }
+                            }
+                            if model == "__custom" || (harness.caps.freeModel && (harness.models ?? []).isEmpty) {
+                                TextField("Model id", text: $customModel)
+                                    .plainTextInput()
+                            }
+                            let efforts = harness.efforts(forModel: chosenModel)
+                            if !efforts.isEmpty {
+                                Picker("Effort", selection: $effort) {
+                                    Text("Default").tag("")
+                                    ForEach(efforts) { e in Text(e.name).tag(e.id) }
+                                }
+                                if let d = efforts.first(where: { $0.id == effort })?.description, !d.isEmpty {
+                                    Text(d).scaledFont(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            if let modes = harness.modes, !modes.isEmpty {
+                                Picker("Permissions", selection: $mode) {
+                                    ForEach(modes) { m in Text(m.name).tag(m.id) }
+                                }
+                                if let d = modes.first(where: { $0.id == mode })?.description {
+                                    Text(d).scaledFont(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        } header: {
+                            Text("Options").formHeaderFont()
+                        }
+                    }
+
+                    if project?.isGitRepo == true {
+                        Section {
+                            Toggle("Isolated git worktree", isOn: $useWorktree)
+                            if useWorktree {
+                                TextField("Branch", text: $branch, prompt: Text(branchPrompt))
+                                    .plainTextInput()
+                                Picker("Based on", selection: $baseRef) {
+                                    Text("Current HEAD").tag("")
+                                    ForEach(branches, id: \.self) { Text($0).tag($0) }
+                                }
+                            }
+                        } header: {
+                            Text("Workspace").formHeaderFont()
+                        } footer: {
+                            Text(useWorktree ? "The agent works on its own branch in a separate checkout. You can revert its turns."
+                                             : "The agent works directly in the project folder.")
+                                .formFooterFont()
+                        }
+                    }
+
+                    Section {
+                        TextField("Prompt", text: $prompt, prompt: Text("What should the agent do?"), axis: .vertical)
+                            .labelsHidden()
+                            .lineLimit(4...12)
+                            .messageFont()
+                            .focused($promptFocused)
+                            .shiftReturnNewline()
+                        if !attachments.isEmpty {
+                            AttachmentStrip(attachments: attachments, connection: connection)
+                        }
+                        AttachMenu(attachments: attachments, connection: connection, title: "Add Images")
+                    } header: {
+                        Text("Prompt").formHeaderFont()
                     } footer: {
-                        Text(useWorktree ? "The agent works on its own branch in a separate checkout. You can revert its turns."
-                                         : "The agent works directly in the project folder.")
-                            .formFooterFont()
+                        Text("Optional. Without one, the session starts empty and you write the first prompt in it.").formFooterFont()
+                    }
+
+                    if let error {
+                        Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red) }
                     }
                 }
-
-                Section {
-                    TextField("Prompt", text: $prompt, prompt: Text("What should the agent do?"), axis: .vertical)
-                        .labelsHidden()
-                        .lineLimit(4...12)
-                        .messageFont()
-                        .focused($promptFocused)
-                        .shiftReturnNewline()
-                    if !attachments.isEmpty {
-                        AttachmentStrip(attachments: attachments, connection: connection)
-                    }
-                    AttachMenu(attachments: attachments, connection: connection, title: "Add Images")
-                } header: {
-                    Text("Prompt").formHeaderFont()
-                } footer: {
-                    Text("Optional. Without one, the session starts empty and you write the first prompt in it.").formFooterFont()
-                }
-
-                if let error {
-                    Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red) }
-                }
+                .paletteRows()
             }
             .compactForm()
             .acceptsImages(attachments, via: connection, pasting: promptFocused)
@@ -185,7 +188,7 @@ struct NewSessionView: View {
                         ToolbarItem(placement: .cancellationAction) { Button("Cancel") { browsing = false } }
                     }
                 }
-                .appTextSettings()
+                .appStyle()
                 #if os(macOS)
                 .frame(minWidth: 420, minHeight: 460)
                 #endif
@@ -300,7 +303,7 @@ struct HarnessChoiceRow: View {
                     }
                 }
                 if let hint = harness.hint, !harness.usable {
-                    Text(hint).scaledFont(.caption).foregroundStyle(.orange)
+                    Text(hint).scaledFont(.caption).foregroundStyle(Palette.yellow)
                 }
             }
             Spacer()
@@ -308,6 +311,7 @@ struct HarnessChoiceRow: View {
                 Image(systemName: "checkmark").foregroundStyle(.tint).fontWeight(.semibold)
             }
         }
+        .paletteText()
         .opacity(harness.usable ? 1 : 0.5)
     }
 }
@@ -321,35 +325,38 @@ struct DirectoryBrowserView: View {
 
     var body: some View {
         List {
-            if let error {
-                Label(error, systemImage: "exclamationmark.triangle").scaledFont(.body).foregroundStyle(.red)
-            }
-            if let listing {
-                ForEach(listing.entries) { e in
-                    NavigationLink {
-                        DirectoryBrowserView(connection: connection, path: e.path, onPick: onPick)
-                    } label: {
-                        Label {
-                            HStack {
-                                Text(path == nil ? e.path : e.name)
-                                if e.isGitRepo {
-                                    Text("git").scaledFont(.caption2, weight: .semibold)
-                                        .padding(.horizontal, 5).padding(.vertical, 1)
-                                        .background(.tint.opacity(0.15), in: Capsule())
+            Group {
+                if let error {
+                    Label(error, systemImage: "exclamationmark.triangle").scaledFont(.body).foregroundStyle(Palette.red)
+                }
+                if let listing {
+                    ForEach(listing.entries) { e in
+                        NavigationLink {
+                            DirectoryBrowserView(connection: connection, path: e.path, onPick: onPick)
+                        } label: {
+                            Label {
+                                HStack {
+                                    Text(path == nil ? e.path : e.name)
+                                    if e.isGitRepo {
+                                        Text("git").scaledFont(.caption2, weight: .semibold)
+                                            .padding(.horizontal, 5).padding(.vertical, 1)
+                                            .background(.tint.opacity(0.15), in: Capsule())
+                                    }
                                 }
+                            } icon: {
+                                Image(systemName: e.isGitRepo ? "folder.fill.badge.gearshape" : "folder")
                             }
-                        } icon: {
-                            Image(systemName: e.isGitRepo ? "folder.fill.badge.gearshape" : "folder")
+                            .scaledFont(.body)
                         }
-                        .scaledFont(.body)
                     }
+                    if listing.entries.isEmpty {
+                        Text("No subfolders").scaledFont(.body).foregroundStyle(.secondary)
+                    }
+                } else if error == nil {
+                    ProgressView()
                 }
-                if listing.entries.isEmpty {
-                    Text("No subfolders").scaledFont(.body).foregroundStyle(.secondary)
-                }
-            } else if error == nil {
-                ProgressView()
             }
+            .paletteRows()
         }
         .compactForm()
         .navigationTitle(path.map { ($0 as NSString).lastPathComponent } ?? "Folders")

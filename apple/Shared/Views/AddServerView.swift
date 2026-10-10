@@ -21,56 +21,59 @@ struct AddServerView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    #if os(iOS)
-                    if DataScannerViewController.isSupported {
-                        Button {
-                            scanning = true
-                        } label: {
-                            Label("Scan QR code", systemImage: "qrcode.viewfinder")
-                        }
-                    }
-                    #endif
-                    HStack {
-                        TextField("Pairing link", text: $linkText, prompt: Text("remoteagent://pair?…"), axis: .vertical)
-                            .labelsHidden()
-                            .scaledFont(.footnote, design: .monospaced)
-                            .plainTextInput()
-                            .lineLimit(1...4)
-                        Button("Paste", systemImage: "doc.on.clipboard") {
-                            linkText = Platform.pasteboardString ?? ""
-                        }
-                        .labelStyle(.iconOnly)
-                    }
-                } header: {
-                    Text("Pairing link").formHeaderFont()
-                } footer: {
-                    Text(footer).formFooterFont()
-                }
-
-                if let link {
+                Group {
                     Section {
-                        LabeledContent("Name", value: link.name)
-                        ForEach(link.urls, id: \.self) { url in
-                            Text(url.absoluteString).scaledFont(.footnote, design: .monospaced).foregroundStyle(.secondary)
+                        #if os(iOS)
+                        if DataScannerViewController.isSupported {
+                            Button {
+                                scanning = true
+                            } label: {
+                                Label("Scan QR code", systemImage: "qrcode.viewfinder")
+                            }
+                        }
+                        #endif
+                        HStack {
+                            TextField("Pairing link", text: $linkText, prompt: Text("remoteagent://pair?…"), axis: .vertical)
+                                .labelsHidden()
+                                .scaledFont(.footnote, design: .monospaced)
+                                .plainTextInput()
+                                .lineLimit(1...4)
+                            Button("Paste", systemImage: "doc.on.clipboard") {
+                                linkText = Platform.pasteboardString ?? ""
+                            }
+                            .labelStyle(.iconOnly)
                         }
                     } header: {
-                        Text("Server").formHeaderFont()
+                        Text("Pairing link").formHeaderFont()
+                    } footer: {
+                        Text(footer).formFooterFont()
                     }
-                }
 
-                Section {
-                    TextField("Device name", text: $deviceName)
-                } header: {
-                    Text("This device").formHeaderFont()
-                }
+                    if let link {
+                        Section {
+                            LabeledContent("Name", value: link.name)
+                            ForEach(link.urls, id: \.self) { url in
+                                Text(url.absoluteString).scaledFont(.footnote, design: .monospaced).foregroundStyle(.secondary)
+                            }
+                        } header: {
+                            Text("Server").formHeaderFont()
+                        }
+                    }
 
-                if let error {
                     Section {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.red)
+                        TextField("Device name", text: $deviceName)
+                    } header: {
+                        Text("This device").formHeaderFont()
+                    }
+
+                    if let error {
+                        Section {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .foregroundStyle(Palette.red)
+                        }
                     }
                 }
+                .paletteRows()
             }
             .compactForm()
             .navigationTitle("Pair a server")

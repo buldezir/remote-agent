@@ -23,45 +23,48 @@ struct DiffView: View {
 
     var body: some View {
         List {
-            Section {
-                Picker("Scope", selection: $scope) {
-                    Text("Whole session").tag("session")
-                    ForEach(store.sortedTurns.filter { $0.checkpointBefore != nil }) { t in
-                        Text("Turn \(t.n)").tag(t.id)
-                    }
-                }
-                .scaledFont(.body)
-            }
-            if let error {
-                Label(error, systemImage: "exclamationmark.triangle").scaledFont(.body).foregroundStyle(.red)
-            }
-            if let reverted {
-                Label(reverted, systemImage: "arrow.uturn.backward.circle").scaledFont(.body).foregroundStyle(.green)
-            }
-            if let diff {
-                let sections = PatchParser.split(diff.patch)
+            Group {
                 Section {
-                    if diff.files.isEmpty {
-                        Text("No changes").scaledFont(.body).foregroundStyle(.secondary)
-                    }
-                    ForEach(diff.files) { f in
-                        NavigationLink {
-                            FileDiffView(file: f, patch: sections[f.path] ?? "")
-                        } label: {
-                            FileRow(file: f)
+                    Picker("Scope", selection: $scope) {
+                        Text("Whole session").tag("session")
+                        ForEach(store.sortedTurns.filter { $0.checkpointBefore != nil }) { t in
+                            Text("Turn \(t.n)").tag(t.id)
                         }
                     }
-                } header: {
-                    let adds = diff.files.reduce(0) { $0 + $1.additions }
-                    let dels = diff.files.reduce(0) { $0 + $1.deletions }
-                    Text("\(diff.files.count) file\(diff.files.count == 1 ? "" : "s")  +\(adds) −\(dels)")
-                        .listHeaderFont()
-                } footer: {
-                    if diff.truncated { Text("The patch was truncated; some files may show no lines.").listHeaderFont() }
+                    .scaledFont(.body)
                 }
-            } else if loading {
-                ProgressView().frame(maxWidth: .infinity)
+                if let error {
+                    Label(error, systemImage: "exclamationmark.triangle").scaledFont(.body).foregroundStyle(Palette.red)
+                }
+                if let reverted {
+                    Label(reverted, systemImage: "arrow.uturn.backward.circle").scaledFont(.body).foregroundStyle(Palette.green)
+                }
+                if let diff {
+                    let sections = PatchParser.split(diff.patch)
+                    Section {
+                        if diff.files.isEmpty {
+                            Text("No changes").scaledFont(.body).foregroundStyle(.secondary)
+                        }
+                        ForEach(diff.files) { f in
+                            NavigationLink {
+                                FileDiffView(file: f, patch: sections[f.path] ?? "")
+                            } label: {
+                                FileRow(file: f)
+                            }
+                        }
+                    } header: {
+                        let adds = diff.files.reduce(0) { $0 + $1.additions }
+                        let dels = diff.files.reduce(0) { $0 + $1.deletions }
+                        Text("\(diff.files.count) file\(diff.files.count == 1 ? "" : "s")  +\(adds) −\(dels)")
+                            .listHeaderFont()
+                    } footer: {
+                        if diff.truncated { Text("The patch was truncated; some files may show no lines.").listHeaderFont() }
+                    }
+                } else if loading {
+                    ProgressView().frame(maxWidth: .infinity)
+                }
             }
+            .paletteRows()
         }
         .compactForm()
         .navigationTitle("Changes")
@@ -148,10 +151,11 @@ struct FileRow: View {
             if file.binary == true {
                 Text("binary").scaledFont(.caption2).foregroundStyle(.secondary)
             } else {
-                Text("+\(file.additions)").foregroundStyle(.green).scaledFont(.caption, design: .monospaced)
-                Text("−\(file.deletions)").foregroundStyle(.red).scaledFont(.caption, design: .monospaced)
+                Text("+\(file.additions)").foregroundStyle(Palette.green).scaledFont(.caption, design: .monospaced)
+                Text("−\(file.deletions)").foregroundStyle(Palette.red).scaledFont(.caption, design: .monospaced)
             }
         }
+        .paletteText()
     }
 
     private var icon: String {
@@ -165,10 +169,10 @@ struct FileRow: View {
 
     private var color: Color {
         switch file.status {
-        case .added: .green
-        case .deleted: .red
-        case .renamed: .blue
-        case .modified: .orange
+        case .added: Palette.green
+        case .deleted: Palette.red
+        case .renamed: Palette.blue
+        case .modified: Palette.peach
         }
     }
 }
@@ -200,6 +204,7 @@ struct FileDiffView: View {
             }
             .textSelection(.enabled)
         }
+        .background(Palette.base)
         .navigationTitle((file.path as NSString).lastPathComponent)
         .inlineTitle()
         .toolbar {
@@ -214,16 +219,16 @@ struct DiffLine: Identifiable {
         case add, del, hunk, meta, context
         var background: Color {
             switch self {
-            case .add: .green.opacity(0.14)
-            case .del: .red.opacity(0.14)
-            case .hunk: .blue.opacity(0.1)
+            case .add: Palette.green.opacity(0.15)
+            case .del: Palette.red.opacity(0.15)
+            case .hunk: Palette.blue.opacity(0.12)
             default: .clear
             }
         }
         var foreground: Color {
             switch self {
-            case .hunk, .meta: .secondary
-            default: .primary
+            case .hunk, .meta: Palette.subtext
+            default: Palette.text
             }
         }
     }

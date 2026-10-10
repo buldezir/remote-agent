@@ -16,45 +16,49 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                #if os(iOS)
-                Toggle("Match System", isOn: matchSystem)
-                if !followsSystem { interfaceSlider }
-                #else
-                interfaceSlider
-                #endif
-            } header: {
-                Text("Interface").formHeaderFont()
-            } footer: {
-                Text(interfaceFooter).formFooterFont()
-            }
-
-            Section {
-                #if os(macOS)
-                fontPickers
-                #endif
-                SizeSlider(value: $messages, range: TextSize.messageSizes, text: "\(Int(TextSize.messages(messages))) pt")
-            } header: {
-                Text("Messages").formHeaderFont()
-            } footer: {
-                Text(messagesFooter).formFooterFont()
-            }
-
-            Section {
-                VStack(alignment: .leading, spacing: Metrics.gap) {
-                    UserBubble(text: "Add tests for the parser.")
-                    Markdown("Done. The new tests cover **empty input** and `\\r\\n` line endings, and all 42 pass:\n\n```\nswift test --filter ParserTests\n```")
-                        .agentMarkdown()
+            Group {
+                Section {
+                    #if os(iOS)
+                    Toggle("Match System", isOn: matchSystem)
+                    if !followsSystem { interfaceSlider }
+                    #else
+                    interfaceSlider
+                    #endif
+                } header: {
+                    Text("Interface").formHeaderFont()
+                } footer: {
+                    Text(interfaceFooter).formFooterFont()
                 }
-                .padding(.vertical, 4)
-            } header: {
-                Text("Preview").formHeaderFont()
-            }
 
-            Section {
-                Button("Restore Defaults", action: restoreDefaults)
-                    .disabled(isDefault)
+                Section {
+                    #if os(macOS)
+                    fontPickers
+                    #endif
+                    SizeSlider(value: $messages, range: TextSize.messageSizes, text: "\(Int(TextSize.messages(messages))) pt")
+                } header: {
+                    Text("Messages").formHeaderFont()
+                } footer: {
+                    Text(messagesFooter).formFooterFont()
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: Metrics.gap) {
+                        UserBubble(text: "Add tests for the parser.")
+                        Markdown("Done. The new tests cover **empty input** and `\\r\\n` line endings, and all 42 pass:\n\n```\nswift test --filter ParserTests\n```")
+                            .agentMarkdown()
+                    }
+                    .padding(.vertical, 4)
+                    .paletteText()
+                } header: {
+                    Text("Preview").formHeaderFont()
+                }
+
+                Section {
+                    Button("Restore Defaults", action: restoreDefaults)
+                        .disabled(isDefault)
+                }
             }
+            .paletteRows()
         }
         .compactForm()
         .navigationTitle("Settings")

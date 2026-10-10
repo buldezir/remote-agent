@@ -51,14 +51,16 @@ struct SessionView: View {
                 if let err = session?.error, session?.status == .error {
                     Label(err, systemImage: "exclamationmark.octagon")
                         .scaledFont(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Palette.red)
                 }
             }
             .padding(.horizontal, Metrics.margin)
             .padding(.vertical, Metrics.gap)
             .frame(maxWidth: Metrics.readableWidth)
             .frame(maxWidth: .infinity)
+            .paletteText()
         }
+        .background(Palette.base)
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) { composer }
@@ -74,7 +76,7 @@ struct SessionView: View {
                 DiffView(store: store, initialTurn: nil, canRevert: session?.workspace.kind == .worktree)
             }
             .presentationSizing(.page)
-            .appTextSettings()
+            .appStyle()
         }
         .alert("Error", isPresented: .init(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
@@ -134,7 +136,7 @@ struct SessionView: View {
         .padding(.vertical, 6)
         .frame(maxWidth: Metrics.readableWidth)
         .frame(maxWidth: .infinity)
-        .background(.bar)
+        .background(Palette.mantle)
         #if os(iOS)
         .onChange(of: composerFocused) { _, focused in
             // The keyboard has its own dictation key.
@@ -150,6 +152,7 @@ struct SessionView: View {
             TextField(placeholder, text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .messageFont()
+                .paletteText()
                 .lineLimit(1...6)
                 .focused($composerFocused)
                 .shiftReturnNewline()
@@ -158,7 +161,7 @@ struct SessionView: View {
                 #endif
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(.background.secondary, in: RoundedRectangle(cornerRadius: Metrics.Corner.field))
+                .background(Palette.surface0, in: RoundedRectangle(cornerRadius: Metrics.Corner.field))
             if store.isRunning {
                 Button {
                     Task { await run { try await store.interrupt() } }
@@ -166,7 +169,7 @@ struct SessionView: View {
                     Image(systemName: "stop.circle.fill").font(.system(size: 26))
                 }
                 .buttonStyle(.borderless)
-                .tint(.red)
+                .tint(Palette.red)
                 .keyboardShortcut(".")
                 .accessibilityLabel("Stop")
             }
@@ -177,7 +180,7 @@ struct SessionView: View {
                     .symbolEffect(.variableColor.iterative, isActive: dictation.phase == .listening)
             }
             .buttonStyle(.borderless)
-            .tint(mainAction == .stopDictation ? .red : .accentColor)
+            .tint(mainAction == .stopDictation ? Palette.red : Palette.accent)
             .keyboardShortcut(mainAction == .send ? KeyboardShortcut(.return) : nil)
             // While dictation finishes, the final pass is still rewriting the draft.
             .disabled(session?.archived == true || (mainAction == .send && !canSend) || dictation.phase == .finishing)
@@ -346,7 +349,7 @@ struct TurnFooter: View {
     var body: some View {
         Group {
             switch turn.status {
-            case .failed: Label("Failed", systemImage: "xmark.octagon.fill").foregroundStyle(.red)
+            case .failed: Label("Failed", systemImage: "xmark.octagon.fill").foregroundStyle(Palette.red)
             default: Label("Interrupted", systemImage: "stop.fill")
             }
         }

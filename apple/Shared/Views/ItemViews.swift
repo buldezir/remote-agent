@@ -33,7 +33,7 @@ struct ItemView: View {
         case .error:
             Label(item.text ?? "Error", systemImage: "exclamationmark.triangle.fill")
                 .scaledFont(.footnote)
-                .foregroundStyle(.red)
+                .foregroundStyle(Palette.red)
         case .unknown:
             EmptyView()
         }
@@ -62,8 +62,8 @@ struct UserBubble: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .foregroundStyle(.white)
-                        .background(Color.accentColor.opacity(pending || cancelled ? 0.55 : 1), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
+                        .foregroundStyle(Palette.onAccent)
+                        .background(Palette.accent.opacity(pending || cancelled ? 0.55 : 1), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
                 }
                 if pending {
                     Text("Queued").scaledFont(.caption2).foregroundStyle(.secondary)
@@ -91,7 +91,7 @@ struct ReasoningView: View {
                 .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
         }
-        .tint(.secondary)
+        .tint(Palette.subtext)
     }
 }
 
@@ -152,7 +152,7 @@ struct ToolCallView: View {
         }
         .padding(.horizontal, Metrics.padding)
         .padding(.vertical, 6)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
+        .background(Palette.mantle, in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
     }
 
     private var icon: String {
@@ -170,9 +170,9 @@ struct ToolCallView: View {
     @ViewBuilder private var statusView: some View {
         switch item.status {
         case .inProgress: ProgressView().controlSize(.mini)
-        case .pending: Image(systemName: "hand.raised.fill").foregroundStyle(.orange).imageScale(.small)
-        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(.red).imageScale(.small)
-        case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).imageScale(.small)
+        case .pending: Image(systemName: "hand.raised.fill").foregroundStyle(Palette.peach).imageScale(.small)
+        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.red).imageScale(.small)
+        case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.green).imageScale(.small)
         default: EmptyView()
         }
     }
@@ -212,7 +212,7 @@ struct EditPreview: View {
                 Text(line.text.isEmpty ? " " : line.text)
                     .scaledFont(.caption, design: .monospaced)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(line.added ? Color.green.opacity(0.14) : Color.red.opacity(0.14))
+                    .background((line.added ? Palette.green : Palette.red).opacity(0.15))
             }
             if lines.count > 60 {
                 Text("… \(lines.count - 60) more lines").scaledFont(.caption2).foregroundStyle(.secondary)
@@ -220,7 +220,7 @@ struct EditPreview: View {
         }
         .textSelection(.enabled)
         .padding(6)
-        .background(.background, in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
+        .background(Palette.crust, in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
     }
 
     private var lines: [(text: String, added: Bool)] {
@@ -250,11 +250,12 @@ struct CodeBlock: View {
             if lines.count > 30 && !full {
                 Button("Show all \(lines.count) lines") { full = true }
                     .scaledFont(.caption2)
+                    .foregroundStyle(.tint)
             }
         }
         .padding(6)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
+        .background(Palette.crust, in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
     }
 }
 
@@ -270,17 +271,17 @@ struct PlanView: View {
             ForEach(Array((plan?.entries ?? []).enumerated()), id: \.offset) { _, e in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: e.status == "completed" ? "checkmark.circle.fill" : e.status == "in_progress" ? "circle.dotted.circle" : "circle")
-                        .foregroundStyle(e.status == "completed" ? .green : e.status == "in_progress" ? .orange : .secondary)
+                        .foregroundStyle(e.status == "completed" ? Palette.green : e.status == "in_progress" ? Palette.peach : Palette.subtext)
                     Text(e.content)
                         .scaledFont(.footnote)
-                        .strikethrough(e.status == "completed", color: .secondary)
+                        .strikethrough(e.status == "completed", color: Palette.subtext)
                         .foregroundStyle(e.status == "completed" ? .secondary : .primary)
                 }
             }
         }
         .padding(Metrics.padding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
+        .background(Palette.mantle, in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
     }
 }
 
@@ -307,7 +308,7 @@ struct ApprovalView: View {
         VStack(alignment: .leading, spacing: Metrics.gap) {
             Label(a.title, systemImage: a.special == .question ? "questionmark.bubble" : a.special == .plan ? "list.bullet.clipboard" : "hand.raised.fill")
                 .scaledFont(.subheadline, weight: .semibold)
-                .foregroundStyle(.orange)
+                .foregroundStyle(Palette.peach)
             if let d = a.detail, !d.isEmpty {
                 Text(d).scaledFont(.footnote).foregroundStyle(.secondary)
             }
@@ -319,12 +320,12 @@ struct ApprovalView: View {
             } else if let input = a.input {
                 ToolInputPreview(name: a.toolName, input: input)
             }
-            if let error { Text(error).scaledFont(.caption).foregroundStyle(.red) }
+            if let error { Text(error).scaledFont(.caption).foregroundStyle(Palette.red) }
             buttons(a)
         }
         .padding(10)
-        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
-        .overlay(RoundedRectangle(cornerRadius: Metrics.Corner.bubble).strokeBorder(.orange.opacity(0.5)))
+        .background(Palette.peach.opacity(0.08), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
+        .overlay(RoundedRectangle(cornerRadius: Metrics.Corner.bubble).strokeBorder(Palette.peach.opacity(0.5)))
         .alert("Reason (optional)", isPresented: .init(get: { askingReason != nil }, set: { if !$0 { askingReason = nil } })) {
             TextField("Tell the agent why", text: $denyReason)
             Button("Deny", role: .destructive) {
@@ -356,12 +357,13 @@ struct ApprovalView: View {
                     if o.kind == .deny && a.special != .question { askingReason = o } else { respond(o, message: nil) }
                 } label: {
                     Text(o.label).scaledFont(.footnote, weight: .semibold).lineLimit(2)
+                        .foregroundStyle(Palette.onAccent)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.roundedRectangle(radius: Metrics.Corner.card))
                 .controlSize(.small)
-                .tint(o.kind == .deny ? .red : o.kind == .allowSession ? .indigo : .green)
+                .tint(o.kind == .deny ? Palette.red : o.kind == .allowSession ? Palette.blue : Palette.green)
                 .disabled(busy || (a.special == .question && o.kind != .deny && !allAnswered(a)))
             }
         }
@@ -392,10 +394,10 @@ struct ApprovalView: View {
         let a = approval
         let option = a?.options.first { $0.id == a?.decision?.optionId }
         let (icon, color, verb): (String, Color, String) = switch item.status {
-        case .resolved where option?.kind == .deny: ("xmark.circle", .red, option?.label ?? "Denied")
-        case .resolved: ("checkmark.circle", .green, option?.label ?? "Allowed")
-        case .expired: ("clock.badge.xmark", .secondary, "Expired")
-        default: ("minus.circle", .secondary, "Cancelled")
+        case .resolved where option?.kind == .deny: ("xmark.circle", Palette.red, option?.label ?? "Denied")
+        case .resolved: ("checkmark.circle", Palette.green, option?.label ?? "Allowed")
+        case .expired: ("clock.badge.xmark", Palette.subtext, "Expired")
+        default: ("minus.circle", Palette.subtext, "Cancelled")
         }
         return VStack(alignment: .leading, spacing: 4) {
             Label("\(verb): \(a?.title ?? "")", systemImage: icon)
@@ -432,7 +434,7 @@ struct FlowChips: View {
                     }
                     .scaledFont(.footnote)
                     .padding(6)
-                    .background(selected.contains(label) ? Color.accentColor.opacity(0.15) : Color.clear,
+                    .background(selected.contains(label) ? Palette.accent.opacity(0.15) : Color.clear,
                                 in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
                 }
                 .buttonStyle(.plain)
@@ -464,7 +466,7 @@ private struct AgentMarkdown: ViewModifier {
             .markdownTextStyle(\.code) {
                 FontFamily(codeFont.markdownFamily)
                 FontSize(.em(0.88))
-                BackgroundColor(Color.secondary.opacity(0.12))
+                BackgroundColor(Palette.surface0)
             }
             .markdownTheme(.agent)
     }
@@ -485,7 +487,7 @@ private struct MarkdownCodeBlock: View {
                 }
                 .padding(8)
         }
-        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
+        .background(Palette.crust, in: RoundedRectangle(cornerRadius: Metrics.Corner.inset))
         .markdownMargin(top: 0, bottom: 8)
     }
 }
@@ -500,8 +502,8 @@ extension FontChoice {
 }
 
 extension MarkdownUI.Theme {
-    /// GitHub-like, sized for a transcript. `agentMarkdown()` sets the text
-    /// and inline code styles, which follow Settings.
+    /// GitHub-like, sized for a transcript and in the palette's colours.
+    /// `agentMarkdown()` sets the text and inline code styles, which follow Settings.
     @MainActor static let agent = Theme.gitHub
         // GitHub leaves 16pt after paragraphs and 24pt above headings; a
         // transcript reads better tighter.
@@ -523,12 +525,32 @@ extension MarkdownUI.Theme {
         .table { configuration in
             configuration.label
                 .fixedSize(horizontal: false, vertical: true)
-                .markdownTableBorderStyle(.init(color: .secondary.opacity(0.3)))
-                .markdownTableBackgroundStyle(.alternatingRows(Color.clear, Color.secondary.opacity(0.08)))
+                .markdownTableBorderStyle(.init(color: Palette.surface1))
+                .markdownTableBackgroundStyle(.alternatingRows(Color.clear, Palette.mantle))
                 .markdownMargin(top: 0, bottom: 8)
         }
+        .link {
+            ForegroundColor(Palette.blue)
+        }
+        .blockquote { configuration in
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Palette.surface1)
+                    .relativeFrame(width: .em(0.2))
+                configuration.label
+                    .markdownTextStyle { ForegroundColor(Palette.subtext) }
+                    .relativePadding(.horizontal, length: .em(1))
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .taskListMarker { configuration in
+            Image(systemName: configuration.isCompleted ? "checkmark.square.fill" : "square")
+                .foregroundStyle(configuration.isCompleted ? Palette.green : Palette.overlay)
+                .imageScale(.small)
+                .relativeFrame(minWidth: .em(1.5), alignment: .trailing)
+        }
         .thematicBreak {
-            Divider().markdownMargin(top: 8, bottom: 8)
+            Rectangle().fill(Palette.surface1).frame(height: 1).markdownMargin(top: 8, bottom: 8)
         }
         .codeBlock { MarkdownCodeBlock(configuration: $0) }
 

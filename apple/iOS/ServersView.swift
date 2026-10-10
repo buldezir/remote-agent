@@ -19,14 +19,16 @@ struct ServersView: View {
                     .listRowInsets(Metrics.rowInsets)
                     .swipeActions {
                         Button("Remove", systemImage: "trash") { removing = server }
-                            .tint(.red)
+                            .tint(Palette.red)
                     }
                     .contextMenu {
                         Button("Remove", systemImage: "trash", role: .destructive) { removing = server }
                     }
                 }
+                .paletteRows()
             }
             .listStyle(.plain)
+            .listBackground(Palette.base)
             .overlay {
                 if store.servers.isEmpty {
                     ContentUnavailableView {
@@ -34,8 +36,10 @@ struct ServersView: View {
                     } description: {
                         Text("Run `rad serve` on your computer, then `rad pair` and scan the QR code.")
                     } actions: {
-                        Button("Pair a server") { showAdd = true }
-                            .buttonStyle(.borderedProminent)
+                        Button { showAdd = true } label: {
+                            Text("Pair a server").foregroundStyle(Palette.onAccent)
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
                 }
             }
@@ -64,7 +68,7 @@ struct ServersView: View {
                 AddServerView(initialLink: pendingLink) { server in
                     path.append(server)
                 }
-                .appTextSettings()
+                .appStyle()
             }
             .onChange(of: pendingLink) { _, link in
                 if link != nil { showAdd = true }
@@ -104,5 +108,6 @@ struct ServerRow: View {
             Spacer()
             ConnectionDot(state: connection.state)
         }
+        .paletteText()
     }
 }
