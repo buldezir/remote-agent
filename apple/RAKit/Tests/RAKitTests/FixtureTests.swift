@@ -68,6 +68,9 @@ struct FixtureTests {
         #expect(claude?.efforts(forModel: "sonnet").map(\.id) == ["low", "high"])
         #expect(claude?.efforts(forModel: nil).map(\.id) == ["low", "medium", "high"])
         #expect(h.result?.harnesses[1].efforts(forModel: nil).isEmpty == true)
+        #expect(claude?.commands?.map(\.prompt) == ["/compact"])
+        #expect(claude?.commands?.first?.description?.isEmpty == false)
+        #expect(h.result?.harnesses[1].commands == nil)
 
         let d = try dec.decode(Response<Diff>.self, from: load("response_diff.json"))
         #expect(d.result?.files.map(\.status) == [.modified, .renamed, .added])

@@ -308,6 +308,17 @@ public struct Choice: Codable, Hashable, Identifiable, Sendable {
     public var efforts: [Choice]?  // for a model: the reasoning efforts it supports
 }
 
+/// A slash command: a prompt of "/<name>", optionally followed by text for
+/// it, runs it rather than going to the model.
+public struct SlashCommand: Codable, Hashable, Identifiable, Sendable {
+    public var name: String  // without the slash
+    public var description: String?
+    public var id: String { name }
+
+    /// The prompt that runs it.
+    public var prompt: String { "/" + name }
+}
+
 public struct HarnessCaps: Codable, Hashable, Sendable {
     public var resume: Bool
     public var interrupt: Bool
@@ -328,6 +339,8 @@ public struct HarnessInfo: Codable, Hashable, Identifiable, Sendable {
     public var efforts: [Choice]?
     public var modes: [Choice]?
     public var defaultMode: String?
+    /// The slash commands to offer in a menu, such as /compact.
+    public var commands: [SlashCommand]?
     public var caps: HarnessCaps
 
     public var usable: Bool { installed && authOk }

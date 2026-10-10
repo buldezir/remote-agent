@@ -66,7 +66,8 @@ func (h *Harness) spec(cwd string, extra ...string) proc.Spec {
 func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 	info := model.HarnessInfo{
 		ID: "claude", Name: "Claude Code", Protocol: "claude", Modes: modes, DefaultMode: "default",
-		Caps: model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, ModelSelect: true, FreeModel: true},
+		Commands: []model.Command{harness.Compact},
+		Caps:     model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, ModelSelect: true, FreeModel: true},
 	}
 	v, err := proc.Version(ctx, h.cmd.Command, "--version")
 	if err != nil {
@@ -303,6 +304,12 @@ type frame struct {
 	// system/init
 	Model          string `json:"model"`
 	PermissionMode string `json:"permissionMode"`
+
+	// system/compact_boundary
+	UUID            string `json:"uuid"`
+	CompactMetadata *struct {
+		PostTokens int64 `json:"post_tokens"`
+	} `json:"compact_metadata"`
 
 	// result
 	IsError      bool    `json:"is_error"`

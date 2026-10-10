@@ -22,7 +22,8 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// open starts a runtime that replays transcript in a workspace like the recorded one.
+// open starts a runtime that replays transcript in a workspace like the
+// recorded one. It returns the runtime and its diag log.
 func open(t *testing.T, transcript, sessionID string) (harness.Runtime, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -44,7 +45,7 @@ func open(t *testing.T, transcript, sessionID string) (harness.Runtime, string) 
 	if rt.NativeID() != sessionID {
 		t.Errorf("NativeID() = %q, want the session id", rt.NativeID())
 	}
-	return rt, cwd
+	return rt, diag
 }
 
 func texts(items []model.Item) []string {
@@ -321,5 +322,32 @@ func TestDescribeTool(t *testing.T) {
 		if kind != c.kind || title != c.title {
 			t.Errorf("describeTool(%s, %s) = %s %q, want %s %q", c.name, c.args, kind, title, c.kind, c.title)
 		}
+	}
+}
+
+func TestReplayCompact(t *testing.T) {
+	rt, diag := open(t, "testdata/compact.ndjson", "01a1268f-2cc4-76ae-a0c7-0d7ef3e1e75b")
+	replaytest.RunTurn(t, rt, "Reply with just OK.", nil)
+
+	// pi won't compact a session this small, and says why.
+	turn := replaytest.RunTurn(t, rt, "/compact", nil)
+	if turn.End.Status != model.TurnFailed || turn.End.Error != "Nothing to compact (session too small)" || len(turn.Keys) != 0 {
+		t.Errorf("small session: end = %+v, items %v", turn.End, turn.Keys)
+	}
+
+	// The second compaction is written from pi's docs/rpc.md.
+	turn = replaytest.RunTurn(t, rt, "/compact Keep the replies", nil)
+	_, sent := replaytest.Diag(t, diag)
+	if last := sent[len(sent)-1]; last["type"] != "compact" || last["customInstructions"] != "Keep the replies" {
+		t.Errorf("sent %v, want compact with the instructions", last)
+	}
+	if len(turn.Keys) != 1 || turn.Items[turn.Keys[0]].Kind != model.ItemNotice || turn.Items[turn.Keys[0]].Text != "Context compacted" {
+		t.Errorf("items = %v, want the notice", turn.Items)
+	}
+	if c := turn.Contexts(); !slices.Equal(c, []harness.ContextUsage{{Used: 412, Window: 200000}}) {
+		t.Errorf("context = %v, want the estimate after compacting", c)
+	}
+	if u := turn.End.Usage; turn.End.Status != model.TurnCompleted || u == nil || u.InputTokens != 5900 || u.OutputTokens != 40 || u.CostUSD != 0.01204 {
+		t.Errorf("end = %+v, usage %+v; want completed with the summary's usage", turn.End, u)
 	}
 }

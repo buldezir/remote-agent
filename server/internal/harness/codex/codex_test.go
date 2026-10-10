@@ -119,3 +119,35 @@ func TestReplayShellCommandWithApproval(t *testing.T) {
 
 	replaytest.CloseClean(t, rt)
 }
+
+func TestReplayCompact(t *testing.T) {
+	root := t.TempDir()
+	cwd := filepath.Join(root, "codex-rec/ws")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe, env := replaytest.Command(t, "testdata/compact.ndjson", root)
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, err := New(config.Command{Command: exe, Env: env}).Open(context.Background(),
+		harness.OpenOptions{SessionID: "local", Cwd: cwd, Mode: "auto", Effort: "low", DiagPath: diag})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	replaytest.RunTurn(t, rt, "Reply with just OK.", nil)
+
+	turn := replaytest.RunTurn(t, rt, "/compact", nil)
+	_, sent := replaytest.Diag(t, diag)
+	if last := sent[len(sent)-1]; last["method"] != "thread/compact/start" ||
+		last["params"].(map[string]any)["threadId"] != "01a1268e-bdd8-7131-bc09-d641db40ad9e" {
+		t.Errorf("sent %v, want thread/compact/start", last)
+	}
+	if len(turn.Keys) != 1 || turn.Items[turn.Keys[0]].Kind != model.ItemNotice || turn.Items[turn.Keys[0]].Text != "Context compacted" {
+		t.Errorf("items = %v, want the notice", turn.Items)
+	}
+	if c := turn.Contexts(); !slices.Equal(c, []harness.ContextUsage{{Used: 4695, Window: 258400}}) {
+		t.Errorf("context = %v, want the size after compacting", c)
+	}
+	if turn.End.Status != model.TurnCompleted {
+		t.Errorf("end = %+v", turn.End)
+	}
+}

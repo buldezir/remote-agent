@@ -54,6 +54,16 @@ struct HarnessIcon: View {
     }
 }
 
+extension SlashCommand {
+    /// Its symbol in menus.
+    var symbol: String {
+        switch name {
+        case "compact": "rectangle.compress.vertical"
+        default: "slash.circle"
+        }
+    }
+}
+
 struct HarnessBadge: View {
     let id: String
     var name: String?

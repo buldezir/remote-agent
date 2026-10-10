@@ -27,3 +27,24 @@ func TestInstalled(t *testing.T) {
 		t.Fatalf("installed = %v, want [a c]", got)
 	}
 }
+
+func TestInputCommand(t *testing.T) {
+	for _, c := range []struct {
+		in   Input
+		args string
+		ok   bool
+	}{
+		{Input{Text: "/compact"}, "", true},
+		{Input{Text: "  /compact\n"}, "", true},
+		{Input{Text: "/compact keep the API notes"}, "keep the API notes", true},
+		{Input{Text: "/compact\nkeep the API notes"}, "keep the API notes", true},
+		{Input{Text: "/compacted"}, "", false},
+		{Input{Text: "compact"}, "", false},
+		{Input{Text: "please /compact"}, "", false},
+		{Input{Text: "/compact", Images: []Image{{Path: "a.png"}}}, "", false},
+	} {
+		if args, ok := c.in.Command("compact"); args != c.args || ok != c.ok {
+			t.Errorf("Command(%q) = %q, %v; want %q, %v", c.in.Text, args, ok, c.args, c.ok)
+		}
+	}
+}

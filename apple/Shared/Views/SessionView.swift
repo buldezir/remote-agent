@@ -289,6 +289,13 @@ struct SessionView: View {
         }
     }
 
+    /// Runs a slash command, as a prompt of its own: the draft stays. While
+    /// a turn runs, it waits for it, like a follow-up.
+    private func send(_ command: SlashCommand) {
+        withAnimation { scrollPosition.scrollTo(edge: .bottom) }
+        Task { await run { try await store.send(command.prompt) } }
+    }
+
     private var placeholder: String {
         switch dictation.phase {
         case .downloading: "Downloading the speech model…"
@@ -340,6 +347,17 @@ struct SessionView: View {
                 }
                 if project?.isGitRepo == true {
                     Button("Changes", systemImage: "plusminus") { showDiff = true }
+                }
+                if let commands = harness?.commands, !commands.isEmpty {
+                    Section("Commands") {
+                        ForEach(commands) { c in
+                            Button { send(c) } label: {
+                                Label(c.prompt, systemImage: c.symbol)
+                                if let d = c.description { Text(d) }
+                            }
+                        }
+                    }
+                    .disabled(session?.archived == true)
                 }
                 if let s = session {
                     Section(project?.name ?? "") {

@@ -11,6 +11,9 @@
 //	"picture"  write picture-<turn>.png in the cwd and show it in the reply,
 //	           as a Markdown image with its path, as agents are told to
 //
+// "/compact" stands in for an agent's compaction: a notice, and less context
+// in use.
+//
 // The reply counts the images attached to the prompt.
 package fake
 
@@ -44,6 +47,7 @@ func (Harness) Probe(context.Context) model.HarnessInfo {
 		Efforts:     []model.Choice{harness.EffortChoice("low", ""), harness.EffortChoice("medium", ""), harness.EffortChoice("high", "")},
 		Modes:       []model.Choice{{ID: "ask", Name: "Ask"}, {ID: "auto", Name: "Auto"}},
 		DefaultMode: "ask",
+		Commands:    []model.Command{harness.Compact},
 		Caps:        model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true},
 	}
 }
@@ -103,8 +107,27 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	r.n++
 	n := r.n
 	r.mu.Unlock()
-	go r.turn(tctx, n, in.Text, len(in.Images))
+	if _, ok := in.Command(harness.Compact.Name); ok {
+		go r.compact(tctx, n)
+	} else {
+		go r.turn(tctx, n, in.Text, len(in.Images))
+	}
 	return nil
+}
+
+func (r *runtime) compact(ctx context.Context, n int) {
+	status := model.TurnCompleted
+	select {
+	case <-ctx.Done():
+		status = model.TurnInterrupted
+	case <-time.After(500 * time.Millisecond):
+		r.emitItem(model.Item{ID: fmt.Sprintf("t%d-compact", n), Kind: model.ItemNotice, Status: model.ItemCompleted, Text: "Context compacted"})
+		r.emit(harness.ContextUsage{Used: 5000})
+	}
+	r.mu.Lock()
+	r.cancel = nil
+	r.mu.Unlock()
+	r.emit(harness.TurnEnded{Status: status})
 }
 
 func (r *runtime) turn(ctx context.Context, n int, text string, images int) {

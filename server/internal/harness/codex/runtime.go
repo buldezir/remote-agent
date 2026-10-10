@@ -94,6 +94,9 @@ func (r *runtime) Close() error {
 }
 
 func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
+	if _, ok := in.Command(harness.Compact.Name); ok {
+		return r.compact(ctx)
+	}
 	var input []map[string]any
 	for _, img := range in.Images {
 		input = append(input, map[string]any{"type": "localImage", "path": img.Path})
@@ -134,6 +137,28 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	r.mu.Lock()
 	r.turnID = res.Turn.ID
 	r.mu.Unlock()
+	return nil
+}
+
+// compact asks Codex to summarize the thread. It runs as a turn of its own,
+// with a contextCompaction item, and ends with turn/completed like any
+// other. Codex takes no instructions for the summary.
+func (r *runtime) compact(ctx context.Context) error {
+	r.mu.Lock()
+	if r.inTurn {
+		r.mu.Unlock()
+		return fmt.Errorf("a turn is already running")
+	}
+	r.inTurn, r.interrupting = true, false
+	r.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	if err := r.conn.Call(ctx, "thread/compact/start", map[string]any{"threadId": r.threadID}, nil); err != nil {
+		r.mu.Lock()
+		r.inTurn = false
+		r.mu.Unlock()
+		return err
+	}
 	return nil
 }
 
@@ -303,6 +328,19 @@ func (r *runtime) onNotify(method string, raw json.RawMessage) {
 		r.emit(harness.ItemEvent{Item: cloneItem(r.plan)})
 	case "turn/started":
 		r.usageBase = r.usageTotal
+		// A compaction's turn is only known from here, for Interrupt.
+		var p struct {
+			Turn struct {
+				ID string `json:"id"`
+			} `json:"turn"`
+		}
+		if json.Unmarshal(raw, &p) == nil && p.Turn.ID != "" {
+			r.mu.Lock()
+			if r.inTurn && r.turnID == "" {
+				r.turnID = p.Turn.ID
+			}
+			r.mu.Unlock()
+		}
 	case "thread/tokenUsage/updated":
 		var p struct {
 			TokenUsage struct {

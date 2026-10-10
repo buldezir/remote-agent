@@ -22,6 +22,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - `server/internal/harness/*/testdata/*.ndjson`, one `{"dir":"in"|"out","frame":…}` per line, driven by `internal/harness/replaytest`.
   - Assert on the emitted `harness.Event`s.
   - To exercise the orchestrator, extend `server/internal/harness/fake`.
+- **Slash commands:** a prompt of `/<name>` goes to the harness like any other; `Input.Command` recognizes one. Claude Code runs them itself. An adapter runs the ones its agent takes only as a request of its own (Codex's `thread/compact/start`, Pi's `compact`) and ends the turn when it's done. `HarnessInfo.Commands` lists the ones the apps offer in the session's ⋯ menu, so list a command there only once the adapter runs it.
 - **Xcode project:** `apple/project.yml` is the source of truth. `RemoteAgent.xcodeproj` is generated and gitignored, and the `Info.plist` and entitlements files are generated from `project.yml`, so edit permissions and plist keys there. Run `xcodegen` after adding files or changing the spec.
 - **Signing:** the bundle ID lives in `apple/Signing.xcconfig`. It includes the developer's gitignored `apple/Local.xcconfig`, which holds their `DEVELOPMENT_TEAM`. The Mac app shares the bundle ID; without a team it is signed ad hoc.
 - **App icon:** drawn by `apple/scripts/make-app-icon.swift`, for iOS and, in the macOS shape, for the Mac. Edit the script and rerun it; don't edit the PNGs.
@@ -90,7 +91,7 @@ The developer may have their own `rad serve` running on the default port 7421, w
 
 4. Stop it by its port: `kill $(lsof -tiTCP:7499 -sTCP:LISTEN)`. Don't use `pkill -f "rad serve"`: that matches the developer's rad too, including the one the Server app runs.
 
-Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `picture`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
+Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `picture`, and the prompt `/compact`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
 
 ## Simulator
 

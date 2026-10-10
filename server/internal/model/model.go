@@ -312,6 +312,13 @@ type Choice struct {
 	Efforts     []Choice `json:"efforts,omitempty"` // for a model: the reasoning efforts it supports
 }
 
+// Command is a slash command: a prompt of "/<name>", optionally followed by
+// text for it, runs it rather than going to the model.
+type Command struct {
+	Name        string `json:"name"` // without the slash
+	Description string `json:"description,omitempty"`
+}
+
 type HarnessCaps struct {
 	Resume      bool `json:"resume"`
 	Interrupt   bool `json:"interrupt"`
@@ -332,5 +339,6 @@ type HarnessInfo struct {
 	Efforts     []Choice    `json:"efforts,omitempty"` // for the default model; a listed model's own efforts win
 	Modes       []Choice    `json:"modes,omitempty"`
 	DefaultMode string      `json:"defaultMode,omitempty"`
+	Commands    []Command   `json:"commands,omitempty"` // slash commands the apps offer in a menu
 	Caps        HarnessCaps `json:"caps"`
 }

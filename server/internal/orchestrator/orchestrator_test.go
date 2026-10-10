@@ -412,6 +412,29 @@ func TestImages(t *testing.T) {
 	}
 }
 
+func TestCompact(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	s := e.create(CreateSessionParams{CommandID: "c1", Prompt: "hi"})
+	e.waitTurn(s.ID, 1)
+	if c := e.session(s.ID).Context; c == nil || c.Used != 30000 || c.Window != 200000 {
+		t.Fatalf("context = %+v", c)
+	}
+
+	// The command is a prompt like any other; the harness runs it.
+	e.prompt(s.ID, "/compact", "")
+	if turn := e.waitTurn(s.ID, 2); turn.Status != model.TurnCompleted {
+		t.Fatalf("turn = %+v", turn)
+	}
+	items := e.items(s.ID)
+	if got := kinds(items[len(items)-2:]); got != "user_message,notice" || items[len(items)-2].Text != "/compact" {
+		t.Errorf("items = %s, %q", got, items[len(items)-2].Text)
+	}
+	if c := e.session(s.ID).Context; c == nil || c.Used != 5000 || c.Window != 200000 {
+		t.Errorf("context after compacting = %+v, want less used in the same window", c)
+	}
+}
+
 func TestCreateWithEffort(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, false)

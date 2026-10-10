@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"remote-agent/internal/model"
 )
@@ -75,6 +76,21 @@ func (in Input) WithPaths() string {
 		b.WriteString("\n- " + img.Path)
 	}
 	return b.String()
+}
+
+// Compact summarizes the conversation so far, to make room in the context
+// window. Claude Code runs it from the prompt; other adapters that list it
+// run it with their agent's own request.
+var Compact = model.Command{Name: "compact", Description: "Free up context by summarizing the conversation so far"}
+
+// Command reports whether the prompt runs the slash command name, as
+// "/compact" or "/compact <text for it>", and returns the text after it.
+func (in Input) Command(name string) (args string, ok bool) {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(in.Text), "/"+name)
+	if !ok || len(in.Images) > 0 || rest != "" && !unicode.IsSpace(rune(rest[0])) {
+		return "", false
+	}
+	return strings.TrimSpace(rest), true
 }
 
 // Event is emitted by a Runtime. Implementations: ItemEvent, ApprovalEvent,

@@ -197,6 +197,7 @@ HarnessInfo {
   models?: [{id, name, description?, efforts?: [Choice]}],  // a model's efforts, when listed, replace the harness's
   efforts?: [Choice],                          // reasoning efforts for the default model; absent: not selectable
   modes?: [Choice], defaultMode?,              // Choice = {id, name, description?}
+  commands?: [{name, description?}],           // slash commands to offer, such as {name: "compact"}
   caps: { resume, interrupt, setMode, freeModel, modelSelect }
 }
 
@@ -204,6 +205,7 @@ Diff { from, to, files: [FileStat], patch, truncated }   // patch: unified diff,
 FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", additions, deletions, binary? }
 ```
 
+- **Slash commands.** A prompt of `/<name>`, optionally followed by text for the command, runs the command; send it with `session.prompt` like any other. Its turn has the prompt as its user message and, for `/compact`, a `notice` item once the agent has summarized the conversation; the session's `context` then drops. The harness's `commands` are the ones the apps offer in a menu; others typed in a prompt go to the agent as they are.
 - **Images in prompts.** `images` lists ids from `POST /v1/images`. A prompt needs text, images or both. An unknown id is `invalid`.
 - **Approval answers.** For a `question` approval, put `answers` (question text → chosen label; join multiple labels with `", "`) in the request, along with the option of kind `allow_once`.
 - **Deny reasons.** For a deny, `message` is passed to the agent where the harness supports it.

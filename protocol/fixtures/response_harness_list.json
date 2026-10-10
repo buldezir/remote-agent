@@ -47,6 +47,12 @@
           }
         ],
         "defaultMode": "default",
+        "commands": [
+          {
+            "name": "compact",
+            "description": "Free up context by summarizing the conversation so far"
+          }
+        ],
         "caps": {
           "resume": true,
           "interrupt": true,

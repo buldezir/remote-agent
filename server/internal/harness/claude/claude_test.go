@@ -209,3 +209,21 @@ func TestDescribeToolSymlinkedCwd(t *testing.T) {
 		t.Fatalf("got %q %v", title, paths)
 	}
 }
+
+func TestReplayCompact(t *testing.T) {
+	rt, _ := openReplay(t, "testdata/compact.ndjson", "claude-rec/ws",
+		harness.OpenOptions{SessionID: "01a1268a-c7f9-77b8-ad00-c550f1168608", Mode: "default"})
+	replaytest.RunTurn(t, rt, "Reply with just OK.", nil)
+
+	// Claude runs /compact itself. The summary it goes on from isn't shown.
+	turn := replaytest.RunTurn(t, rt, "/compact", nil)
+	if len(turn.Keys) != 1 || turn.Items[turn.Keys[0]].Kind != model.ItemNotice || turn.Items[turn.Keys[0]].Text != "Context compacted" {
+		t.Errorf("items = %v, want the notice", turn.Items)
+	}
+	if c := turn.Contexts(); !slices.Equal(c, []harness.ContextUsage{{Used: 3255, Window: 1000000}}) {
+		t.Errorf("context = %v, want the size after compacting", c)
+	}
+	if turn.End.Status != model.TurnCompleted {
+		t.Errorf("end = %+v", turn.End)
+	}
+}

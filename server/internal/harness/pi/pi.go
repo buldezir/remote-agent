@@ -108,7 +108,8 @@ func choices(ms []piModel) []model.Choice {
 func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 	info := model.HarnessInfo{
 		ID: "pi", Name: "Pi", Protocol: "pi", Modes: modes, DefaultMode: "full",
-		Caps: model.HarnessCaps{Resume: true, Interrupt: true, ModelSelect: true, FreeModel: true},
+		Commands: []model.Command{harness.Compact},
+		Caps:     model.HarnessCaps{Resume: true, Interrupt: true, ModelSelect: true, FreeModel: true},
 	}
 	v, err := version(ctx, h.cmd.Command)
 	if err != nil {

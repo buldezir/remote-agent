@@ -299,7 +299,8 @@ func sessionLabel(raw json.RawMessage) string {
 func (r *runtime) onFrame(f frame, raw []byte) {
 	switch f.Type {
 	case "system":
-		if f.Subtype == "init" {
+		switch f.Subtype {
+		case "init":
 			if f.SessionID != "" && f.SessionID != r.nativeID {
 				r.nativeID = f.SessionID
 				r.emit(harness.NativeID{ID: f.SessionID})
@@ -307,6 +308,8 @@ func (r *runtime) onFrame(f frame, raw []byte) {
 			if f.PermissionMode != "" {
 				r.setMode(f.PermissionMode)
 			}
+		case "compact_boundary":
+			r.onCompacted(f)
 		}
 	case "stream_event":
 		r.onStreamEvent(f)
@@ -326,6 +329,18 @@ func (r *runtime) onFrame(f frame, raw []byte) {
 		if ok {
 			r.emit(harness.ApprovalCancelled{ID: f.RequestID})
 		}
+	}
+}
+
+// onCompacted marks where Claude summarized the conversation, after /compact
+// or on its own when the context filled up. The summary that follows comes
+// as a user message, which isn't shown.
+func (r *runtime) onCompacted(f frame) {
+	r.emit(harness.ItemEvent{Item: model.Item{ID: "compact:" + f.UUID, Kind: model.ItemNotice,
+		Status: model.ItemCompleted, Text: "Context compacted"}})
+	if m := f.CompactMetadata; m != nil && m.PostTokens > 0 {
+		r.ctxUsed = m.PostTokens
+		r.emit(harness.ContextUsage{Used: m.PostTokens, Window: r.ctxWindow})
 	}
 }
 

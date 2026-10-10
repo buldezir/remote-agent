@@ -189,6 +189,9 @@ On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the compo
 - **Questions and plans:** Claude's `AskUserQuestion` and `ExitPlanMode` show up as choice and plan cards.
 - **Changes:** rad snapshots the workspace before and after every turn into hidden git refs (`refs/ra/cp/…`), without touching your index or HEAD. You can view each turn's diff or the whole session's.
 - **Revert:** in worktree sessions you can revert to before any turn. The agent is told about it on the next prompt.
+- **Commands:** a session's ⋯ menu runs slash commands. For now there is `/compact`, which has the agent summarize the conversation so far to free up context, for Claude Code, Codex and Pi. The transcript marks it with *Context compacted*, and the context gauge drops.
+  - Typing `/compact` as a prompt does the same, and `/compact <instructions>` tells Claude Code or Pi what the summary should keep; Codex takes no instructions for it.
+  - Claude Code runs it itself. rad runs it with Codex's and Pi's own compaction, since they don't take `/compact` in a prompt.
 - **Stop:** this interrupts the current turn. *Force stop* kills the agent process. Idle agents are stopped after `idle_timeout` and resume transparently on the next prompt.
 - **Text size:** Settings has two sizes: one for the interface, such as lists and labels, and one for messages: your prompts, the agent's replies and its tool calls. On the Mac it is under Remote Agent › Settings… (⌘,). On iPhone and iPad, tap the gear on the server list or open a server's ⋯ menu. On iOS the interface follows the system's text size until you turn off **Match System**.
   - On the Mac, Settings also picks the messages' font, from the system font's designs or any installed family, and a code font from the installed fixed-width ones. The code font is used for code in messages, tool calls and diffs.
@@ -284,6 +287,7 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 - `fail`: makes the turn fail
 - `screenshot`: runs a tool that returns an image
 - `picture`: writes `picture-<turn>.png` in the working directory and shows it in the reply, as agents are told to
+- `/compact`: marks the transcript with *Context compacted* and reports less context in use
 
 It also says how many images came with a prompt. `rad debug run --image shot.png "…"` attaches one from the command line.
 

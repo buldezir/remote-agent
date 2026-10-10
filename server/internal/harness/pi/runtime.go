@@ -188,6 +188,9 @@ func (r *runtime) Close() error {
 }
 
 func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
+	if args, ok := in.Command(harness.Compact.Name); ok {
+		return r.compact(args)
+	}
 	params := map[string]any{"message": in.Text}
 	if len(in.Images) > 0 {
 		var images []map[string]any
@@ -251,6 +254,57 @@ func (r *runtime) finishPrompt(res <-chan response, turn int) {
 		r.stop, r.lastError = "error", resp.Error
 		r.endTurn(turn)
 		r.loopMu.Unlock()
+	case <-r.c.done:
+	}
+}
+
+// compact asks pi to summarize the session, with instructions for the
+// summary if there are any. pi starts no run for it: it answers once the
+// summary is written, with compaction_start and compaction_end in between.
+func (r *runtime) compact(instructions string) error {
+	params := map[string]any{}
+	if instructions != "" {
+		params["customInstructions"] = instructions
+	}
+	r.mu.Lock()
+	if r.inTurn {
+		r.mu.Unlock()
+		return errors.New("a turn is already running")
+	}
+	r.turn++
+	turn := r.turn
+	r.inTurn, r.interrupting, r.started = true, false, nil
+	r.mu.Unlock()
+	res, err := r.c.send("compact", params)
+	if err != nil {
+		r.abandon(turn)
+		return err
+	}
+	go r.finishCompact(res, turn)
+	return nil
+}
+
+// finishCompact ends a compaction's turn when pi answers, unless it ended
+// already: pi's abort stops a run but not a compaction, so Interrupt ends
+// the turn itself.
+func (r *runtime) finishCompact(res <-chan response, turn int) {
+	select {
+	case resp := <-res:
+		r.loopMu.Lock()
+		defer r.loopMu.Unlock()
+		r.mu.Lock()
+		current := r.inTurn && r.turn == turn
+		r.mu.Unlock()
+		if !current {
+			return
+		}
+		var c compaction
+		if !resp.Success {
+			r.stop, r.lastError = "error", resp.Error
+		} else if json.Unmarshal(resp.Data, &c) == nil {
+			r.addUsage(c.Usage)
+		}
+		r.endTurn(turn)
 	case <-r.c.done:
 	}
 }
@@ -356,16 +410,26 @@ type message struct {
 	Model        string          `json:"model"`
 	StopReason   string          `json:"stopReason"`
 	ErrorMessage string          `json:"errorMessage"`
-	Usage        *struct {
-		Input       int64 `json:"input"`
-		Output      int64 `json:"output"`
-		CacheRead   int64 `json:"cacheRead"`
-		CacheWrite  int64 `json:"cacheWrite"`
-		TotalTokens int64 `json:"totalTokens"`
-		Cost        struct {
-			Total float64 `json:"total"`
-		} `json:"cost"`
-	} `json:"usage"`
+	Usage        *usage          `json:"usage"`
+}
+
+// usage is what a model call took, in a message or a compaction.
+type usage struct {
+	Input       int64 `json:"input"`
+	Output      int64 `json:"output"`
+	CacheRead   int64 `json:"cacheRead"`
+	CacheWrite  int64 `json:"cacheWrite"`
+	TotalTokens int64 `json:"totalTokens"`
+	Cost        struct {
+		Total float64 `json:"total"`
+	} `json:"cost"`
+}
+
+// compaction is the result of a compaction, in compaction_end and in the
+// response to compact.
+type compaction struct {
+	EstimatedTokensAfter int64  `json:"estimatedTokensAfter"`
+	Usage                *usage `json:"usage"`
 }
 
 type block struct {
@@ -482,8 +546,12 @@ func (r *runtime) onEvent(typ string, raw []byte) {
 		}
 		r.emitItem(it)
 	case "compaction_end":
-		if len(ev.Result) > 0 && string(ev.Result) != "null" {
+		var c compaction
+		if len(ev.Result) > 0 && string(ev.Result) != "null" && json.Unmarshal(ev.Result, &c) == nil {
 			r.emitItem(&model.Item{ID: fmt.Sprintf("compaction:%d", r.msgN), Kind: model.ItemNotice, Status: model.ItemCompleted, Text: "Context compacted"})
+			if c.EstimatedTokensAfter > 0 {
+				r.emit(harness.ContextUsage{Used: c.EstimatedTokensAfter, Window: r.window})
+			}
 		}
 	case "auto_retry_end":
 		if !ev.Success && ev.FinalError != "" {
@@ -557,14 +625,7 @@ func (r *runtime) onAssistant(m *message) {
 		r.emit(harness.ModelInfo{ID: id, Effort: r.effort})
 	}
 	if u := m.Usage; u != nil && u.Input+u.Output+u.CacheRead+u.CacheWrite > 0 {
-		if r.usage == nil {
-			r.usage = &model.Usage{}
-		}
-		r.usage.InputTokens += u.Input
-		r.usage.OutputTokens += u.Output
-		r.usage.CacheReadTokens += u.CacheRead
-		r.usage.CacheWriteTokens += u.CacheWrite
-		r.usage.CostUSD += u.Cost.Total
+		r.addUsage(u)
 		used := u.TotalTokens
 		if used == 0 {
 			used = u.Input + u.Output + u.CacheRead + u.CacheWrite
@@ -573,6 +634,21 @@ func (r *runtime) onAssistant(m *message) {
 			r.emit(harness.ContextUsage{Used: used, Window: r.window})
 		}
 	}
+}
+
+// addUsage counts u in the turn's usage. Callers hold loopMu.
+func (r *runtime) addUsage(u *usage) {
+	if u == nil {
+		return
+	}
+	if r.usage == nil {
+		r.usage = &model.Usage{}
+	}
+	r.usage.InputTokens += u.Input
+	r.usage.OutputTokens += u.Output
+	r.usage.CacheReadTokens += u.CacheRead
+	r.usage.CacheWriteTokens += u.CacheWrite
+	r.usage.CostUSD += u.Cost.Total
 }
 
 func (r *runtime) tool(id, name string, args json.RawMessage) *model.Item {
