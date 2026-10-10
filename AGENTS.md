@@ -55,6 +55,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - The tag sets the version: `MARKETING_VERSION` for the Mac apps, and `api.Version` for rad.
 
   When the build changes (for example `build-rad.sh`, the schemes, or a new deployment target), change the workflow to match. Pushing tags is the developer's job.
+  - Each release's notes start with a changelog of what changed for users (new features, changed config or behaviour, fixes they would notice), not internal changes. Push the tag, then create the release with those notes and the asset list from the workflow's `NOTES`: `gh release create <tag> --verify-tag --notes-file …`. The workflow then uploads its assets to that release instead of creating one.
 - **Commits:** tests green first. Don't commit `server/bin/`, `apple/build/`, the `.xcodeproj`, `apple/Local.xcconfig`, `web/node_modules` or `web/dist`.
 
 ## Testing
