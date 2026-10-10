@@ -10,6 +10,7 @@ struct SessionView: View {
     @State private var showDiff = false
     @State private var dictation = Dictation()
     @State private var attachments = Attachments()
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @FocusState private var composerFocused: Bool
 
     private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
@@ -61,6 +62,7 @@ struct SessionView: View {
             .paletteText()
         }
         .background(Palette.base)
+        .scrollPosition($scrollPosition)
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) { composer }
@@ -279,6 +281,8 @@ struct SessionView: View {
             let text = draft, images = attachments.refs
             draft = ""
             attachments.clear()
+            // Back to the foot of the transcript, which then follows the reply.
+            withAnimation { scrollPosition.scrollTo(edge: .bottom) }
             Task { await run { try await store.send(text, images: images) } }
         }
     }
