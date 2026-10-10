@@ -10,7 +10,7 @@ struct StatusIcon: View {
             case .running:
                 ProgressView().controlSize(.small)
             case .awaitingApproval:
-                Image(systemName: "hand.raised.fill").foregroundStyle(Palette.peach)
+                Image(systemName: "hand.raised.fill").foregroundStyle(Palette.yellow)
             case .error:
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.red)
             case .stopped:

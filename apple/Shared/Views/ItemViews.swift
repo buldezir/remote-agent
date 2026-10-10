@@ -171,7 +171,7 @@ struct ToolCallView: View {
     @ViewBuilder private var statusView: some View {
         switch item.status {
         case .inProgress: ProgressView().controlSize(.mini)
-        case .pending: Image(systemName: "hand.raised.fill").foregroundStyle(Palette.peach).imageScale(.small)
+        case .pending: Image(systemName: "hand.raised.fill").foregroundStyle(Palette.yellow).imageScale(.small)
         case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.red).imageScale(.small)
         case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.green).imageScale(.small)
         default: EmptyView()
@@ -307,9 +307,15 @@ struct ApprovalView: View {
 
     private func pendingCard(_ a: Approval) -> some View {
         VStack(alignment: .leading, spacing: Metrics.gap) {
-            Label(a.title, systemImage: a.special == .question ? "questionmark.bubble" : a.special == .plan ? "list.bullet.clipboard" : "hand.raised.fill")
-                .scaledFont(.subheadline, weight: .semibold)
-                .foregroundStyle(Palette.peach)
+            // Yellow, for warnings in Catppuccin's style guide; the title in
+            // the text colour, since yellow text is faint on Latte.
+            Label {
+                Text(a.title).foregroundStyle(Palette.text)
+            } icon: {
+                Image(systemName: a.special == .question ? "questionmark.bubble" : a.special == .plan ? "list.bullet.clipboard" : "hand.raised.fill")
+                    .foregroundStyle(Palette.yellow)
+            }
+            .scaledFont(.subheadline, weight: .semibold)
             if let d = a.detail, !d.isEmpty {
                 Text(d).scaledFont(.footnote).foregroundStyle(.secondary)
             }
@@ -325,8 +331,10 @@ struct ApprovalView: View {
             buttons(a)
         }
         .padding(10)
-        .background(Palette.peach.opacity(0.08), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
-        .overlay(RoundedRectangle(cornerRadius: Metrics.Corner.bubble).strokeBorder(Palette.peach.opacity(0.5)))
+        // A card like the others, which the border marks out: a tint of
+        // yellow over the page would be a grey that isn't in the palette.
+        .background(Palette.mantle, in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
+        .overlay(RoundedRectangle(cornerRadius: Metrics.Corner.bubble).strokeBorder(Palette.yellow))
         .alert("Reason (optional)", isPresented: .init(get: { askingReason != nil }, set: { if !$0 { askingReason = nil } })) {
             TextField("Tell the agent why", text: $denyReason)
             Button("Deny", role: .destructive) {
