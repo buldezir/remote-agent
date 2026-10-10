@@ -24,6 +24,11 @@ enum Metrics {
     #else
     static let textSize: CGFloat = 15
     #endif
+    /// Tool calls' text, as a fraction of the message size: their titles,
+    /// commands, outputs and diffs, a step below the messages around them.
+    static let toolText: CGFloat = 0.9
+    /// Labels in tool calls, such as "Output", as a fraction of the message size.
+    static let toolLabel: CGFloat = 0.8
     /// The round buttons beside the prompt: add images, dictate, send and stop.
     static let roundButton: CGFloat = 26
 

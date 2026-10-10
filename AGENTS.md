@@ -27,7 +27,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
 - **Text sizes and fonts:** Settings scales the interface and, separately, the messages (`Shared/Views/TextSize.swift`). On the Mac it also picks a message font and a code font. iOS scales the interface with Dynamic Type; the Mac has none. So that the Mac follows the settings:
   - In shared views, set fonts with `scaledFont(.footnote)`, `scaledFont(.caption, weight: .semibold, design: .monospaced)` and so on, not `font(.footnote)`. Monospaced `scaledFont` uses the code font.
   - Mac lists and sidebars ignore the window's default font. Give each list row `scaledFont(.body)`, and each list section header `listHeaderFont()`. Form sections take `formHeaderFont()` and `formFooterFont()`.
-  - Prompt text takes `messageFont()`; Markdown gets the message and code fonts through `agentMarkdown()`.
+  - Prompt text takes `messageFont()`; Markdown gets the message and code fonts through `agentMarkdown()`. Tool calls follow the message size too, with `messageRelativeFont(_:)`.
   - Each sheet applies `.appStyle()` again, which sets the text sizes, fonts and colours, because iOS doesn't pass the Dynamic Type size into sheets.
 - **Colours:** Catppuccin, Frappé in dark mode and Latte in light mode (`Shared/Views/Palette.swift`). The `AccentColor` asset matches `Palette.accent`.
   - Take colours from `Palette`, not `.red`, `Color.accentColor` or the system backgrounds.

@@ -113,13 +113,14 @@ struct ToolCallView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
                     Text(tool?.title ?? tool?.name ?? "Tool")
-                        .scaledFont(.footnote, design: .monospaced)
+                        .messageRelativeFont(Metrics.toolText, design: .monospaced)
                         .lineLimit(expanded ? nil : 2)
                         .multilineTextAlignment(.leading)
                         .foregroundStyle(.primary)
                     Spacer(minLength: 4)
                     statusView
                 }
+                .messageRelativeFont(Metrics.toolText)
             }
             .buttonStyle(.plain)
 
@@ -145,7 +146,7 @@ struct ToolCallView: View {
                 }
             } else if !children.isEmpty {
                 Text("\(children.count) sub-agent step\(children.count == 1 ? "" : "s")")
-                    .scaledFont(.caption2)
+                    .messageRelativeFont(Metrics.toolLabel)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 26)
             }
@@ -207,15 +208,15 @@ struct EditPreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Change").scaledFont(.caption2, weight: .semibold).foregroundStyle(.secondary).padding(.bottom, 4)
+            Text("Change").messageRelativeFont(Metrics.toolLabel, weight: .semibold).foregroundStyle(.secondary).padding(.bottom, 4)
             ForEach(Array(lines.prefix(60).enumerated()), id: \.offset) { _, line in
                 Text(line.text.isEmpty ? " " : line.text)
-                    .scaledFont(.caption, design: .monospaced)
+                    .messageRelativeFont(Metrics.toolText, design: .monospaced)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background((line.added ? Palette.green : Palette.red).opacity(0.15))
             }
             if lines.count > 60 {
-                Text("… \(lines.count - 60) more lines").scaledFont(.caption2).foregroundStyle(.secondary)
+                Text("… \(lines.count - 60) more lines").messageRelativeFont(Metrics.toolLabel).foregroundStyle(.secondary)
             }
         }
         .textSelection(.enabled)
@@ -238,18 +239,18 @@ struct CodeBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).scaledFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
+            Text(title).messageRelativeFont(Metrics.toolLabel, weight: .semibold).foregroundStyle(.secondary)
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
             let shown = full || lines.count <= 30 ? text : lines.prefix(30).joined(separator: "\n")
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(shown)
-                    .scaledFont(.caption, design: .monospaced)
+                    .messageRelativeFont(Metrics.toolText, design: .monospaced)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: false)
             }
             if lines.count > 30 && !full {
                 Button("Show all \(lines.count) lines") { full = true }
-                    .scaledFont(.caption2)
+                    .messageRelativeFont(Metrics.toolLabel)
                     .foregroundStyle(.tint)
             }
         }

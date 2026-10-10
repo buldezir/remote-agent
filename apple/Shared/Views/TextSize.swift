@@ -215,6 +215,13 @@ extension View {
         modifier(ScaledFont(style: style, weight: weight, design: design))
     }
 
+    /// A size relative to the messages', for what sits among them, such as
+    /// tool calls. Monospaced text takes the code font, at the size code has
+    /// in messages.
+    func messageRelativeFont(_ scale: CGFloat, weight: Font.Weight? = nil, design: Font.Design? = nil) -> some View {
+        modifier(MessageRelativeFont(scale: scale, weight: weight, design: design))
+    }
+
     /// A point size that follows the interface text size, as body text does.
     func scaledFont(size: CGFloat, design: Font.Design? = nil) -> some View {
         modifier(ScaledSizeFont(size: size, design: design))
@@ -288,6 +295,24 @@ private struct MessageFontModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.font(font.font(size: size))
+    }
+}
+
+private struct MessageRelativeFont: ViewModifier {
+    let scale: CGFloat
+    let weight: Font.Weight?
+    let design: Font.Design?
+    @Environment(\.messageTextSize) private var size
+    @Environment(\.messageFont) private var messageFont
+    @Environment(\.codeFont) private var codeFont
+
+    func body(content: Content) -> some View {
+        if design == .monospaced {
+            let font = codeFont.font(size: size * scale * messageFont.codeScale(codeFont))
+            content.font(weight.map { font.weight($0) } ?? font)
+        } else {
+            content.font(.system(size: size * scale, weight: weight, design: design))
+        }
     }
 }
 

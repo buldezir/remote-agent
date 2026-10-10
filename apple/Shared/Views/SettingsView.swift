@@ -109,10 +109,10 @@ struct SettingsView: View {
     }
 
     private var messagesFooter: String {
-        "Your prompts and the agent's replies. Tool calls and diffs use the code font too."
+        "Your prompts, the agent's replies and its tool calls. Tool calls and diffs use the code font."
     }
     #else
-    private var messagesFooter: String { "Your prompts and the agent's replies." }
+    private var messagesFooter: String { "Your prompts, the agent's replies and its tool calls." }
     #endif
 
     #if os(iOS)
@@ -129,15 +129,15 @@ struct SettingsView: View {
     }
 
     private var interfaceFooter: String {
-        followsSystem ? "Lists, labels and tool calls, at the text size set in the Settings app."
-                      : "Lists, labels and tool calls."
+        followsSystem ? "Lists and labels, at the text size set in the Settings app."
+                      : "Lists and labels."
     }
 
     private var isDefault: Bool {
         followsSystem && messages == TextSize.defaultMessages
     }
     #else
-    private var interfaceFooter: String { "Lists, labels and tool calls." }
+    private var interfaceFooter: String { "Lists and labels." }
 
     private var isDefault: Bool {
         interface == TextSize.defaultInterface && messages == TextSize.defaultMessages
