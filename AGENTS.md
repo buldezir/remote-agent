@@ -10,12 +10,19 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - Two app targets, `RemoteAgent-iOS` (iPhone and iPad) and `RemoteAgent-macOS`, both compile `apple/Shared`, the SwiftUI app. Each adds its own folder, `apple/iOS` or `apple/macOS`, with its `Info.plist` and the views only it uses: the QR scanner and the iPhone server list, or the Mac menu bar and entitlements (App Sandbox, network client, microphone, files the user picks).
   - A whole file for one platform goes in its folder. A small difference inside a shared file goes in `#if os(iOS)` / `#if os(macOS)`. `Shared/Views/Platform.swift` holds the shims, such as `inlineTitle()`, `plainTextInput()` and `Platform.deviceName`.
   - A third target, `RemoteAgentServer` in `apple/ServerApp`, is the Mac menu bar app that runs rad. It shares no code with the clients. Its last build phase, `apple/scripts/build-rad.sh`, compiles rad from `server/` into the app and signs it.
+- **Web client:** `web/`, Vite, React and TypeScript, with no UI kit. It mirrors the apps:
+  - `src/protocol` and `src/store` port RAKit: the same sync rules (`synchronized`, gaps, `resync`), stores and outbox. A change to the client logic in RAKit goes into both.
+  - `src/ui` follows `apple/Shared/Views`: the split layout of the iPad and Mac in a wide window, the iPhone's stack in a narrow one. Colours are the palette's, as CSS variables in `src/ui/styles.css`; text sizes and fonts are variables that `src/ui/settings.ts` sets.
+  - Browsers can't set headers on a WebSocket, so the client sends its token as the subprotocol `rad.token.<token>`. rad answers browsers only from the origins in its config's `web_origins` (default: localhost).
+  - Agent Markdown goes through react-markdown, which doesn't render raw HTML; keep it that way, and keep the CSP in `index.html`, since tokens live in localStorage.
+  - `public/icon.png` and `apple-touch-icon.png` are copies of the Mac icon (`AppIcon-Mac-32@2x.png`, `-128@2x.png`); copy them again after rerunning `make-app-icon.swift`.
 - **Changing a wire type:** keep these in step:
   - `server/internal/model/model.go`
   - `apple/RAKit/Sources/RAKit/Protocol/Models.swift`
+  - `web/src/protocol/models.ts`
   - `protocol/PROTOCOL.md`
 
-  Then regenerate the fixtures with `cd server && go test ./internal/api -update`, and assert the new field in `apple/RAKit/Tests/RAKitTests/FixtureTests.swift`. Clients ignore unknown fields, so prefer adding optional fields over changing existing ones.
+  Then regenerate the fixtures with `cd server && go test ./internal/api -update`, and assert the new field in `apple/RAKit/Tests/RAKitTests/FixtureTests.swift` and `web/src/protocol/fixtures.test.ts`. Clients ignore unknown fields, so prefer adding optional fields over changing existing ones.
 - **Images:** users upload with `POST /v1/images`, and prompts carry the ids. Adapters store images from agent output through `OpenOptions.Images` and put the refs on the item. Clients fetch them with `GET /v1/images/<id>`. The bytes never travel over the WebSocket.
   - Agents show image files in replies as Markdown images with their paths. The orchestrator stores those files and rewrites the links to `rad-image:<id>` (`orchestrator/linkedimages.go`), and the apps draw them with `ReplyImageProvider`. The text that tells agents to do this goes to each adapter as `OpenOptions.Instructions`; a new adapter has to pass it on too.
 - **Changing a harness adapter:** never call real agent CLIs from tests. Adapter tests replay recorded transcripts:
@@ -48,13 +55,14 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - The tag sets the version: `MARKETING_VERSION` for the Mac apps, and `api.Version` for rad.
 
   When the build changes (for example `build-rad.sh`, the schemes, or a new deployment target), change the workflow to match. Pushing tags is the developer's job.
-- **Commits:** tests green first. Don't commit `server/bin/`, `apple/build/`, the `.xcodeproj` or `apple/Local.xcconfig`.
+- **Commits:** tests green first. Don't commit `server/bin/`, `apple/build/`, the `.xcodeproj`, `apple/Local.xcconfig`, `web/node_modules` or `web/dist`.
 
 ## Testing
 
 ```bash
 cd server && gofmt -l internal cmd && go vet ./... && go test -race ./...
 cd apple/RAKit && swift test
+cd web && npm ci && npm run typecheck && npm test && npm run build
 cd apple && xcodegen && xcodebuild -project RemoteAgent.xcodeproj -scheme RemoteAgent-iOS \
   -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath build build
 cd apple && xcodebuild -project RemoteAgent.xcodeproj -scheme RemoteAgent-macOS \
@@ -92,6 +100,28 @@ The developer may have their own `rad serve` running on the default port 7421, w
 4. Stop it by its port: `kill $(lsof -tiTCP:7499 -sTCP:LISTEN)`. Don't use `pkill -f "rad serve"`: that matches the developer's rad too, including the one the Server app runs.
 
 Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `picture`, and the prompt `/compact`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
+
+## Web client
+
+Run it against a scratch rad. Its `listen` is on loopback, and the default `web_origins` lets `http://localhost:5173` in.
+
+```bash
+cd web && npm run dev &                                                           # http://localhost:5173
+RAD_HOME=$SCRATCH/radhome server/bin/rad pair --web http://localhost:5173 --print-url   # a link that opens the pairing sheet
+```
+
+- **Drive it with Playwright:** `web/e2e/smoke.mjs` pairs a fresh browser profile and walks the client through the fake harness's keywords, a worktree diff and revert, the light theme and a phone-sized window. It saves screenshots, then removes the server, which unpairs it.
+
+  ```bash
+  cd web && npx playwright install chromium   # once
+  node e2e/smoke.mjs "$(RAD_HOME=$SCRATCH/radhome ../server/bin/rad pair --web http://localhost:5173 --print-url)" $SCRATCH/shots proj
+  ```
+
+  The last argument is a folder under the scratch root, a git repo, that the script adds as a project.
+- **Port 5173 may be in use:** the dev server has `strictPort`. If something else holds it, don't stop it; run `npx vite --port 5174` and pass that URL to `rad pair --web` and the script. `localhost:*` covers any port.
+- **Don't use the developer's browser:** it may hold their own servers' tokens. Playwright starts a fresh profile each time.
+- **Stop the dev server** by its port when done: `kill $(lsof -tiTCP:5173 -sTCP:LISTEN)`.
+- **Coverage:** headless Chromium has no speech recognizer and no clipboard. Say so when a change depends on dictation or pasting.
 
 ## Simulator
 

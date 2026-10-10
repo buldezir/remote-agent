@@ -9,7 +9,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -34,6 +36,10 @@ type Server struct {
 	log      *slog.Logger
 	serverID string
 	name     string
+
+	// WebOrigins are the web pages allowed to call rad, as host patterns
+	// ("localhost:*") or, with a scheme, origin patterns ("https://x.dev").
+	WebOrigins []string
 }
 
 func NewServer(st *store.Store, hub *events.Hub, orch *orchestrator.Orchestrator, fs *fsbrowse.Browser, imgs *images.Store, serverID, name string, log *slog.Logger) *Server {
@@ -47,7 +53,54 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/ws", s.ws)
 	mux.HandleFunc("POST /v1/images", s.uploadImage)
 	mux.HandleFunc("GET /v1/images/{id}", s.getImage)
-	return mux
+	return s.cors(mux)
+}
+
+// cors lets pages on the allowed web origins call rad from a browser.
+// Preflights also allow Chrome's Private Network Access, for a page that
+// reaches rad on a LAN or Tailscale address.
+func (s *Server) cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" || !s.webOrigin(origin) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		h := w.Header()
+		h.Set("Access-Control-Allow-Origin", origin)
+		h.Add("Vary", "Origin")
+		h.Set("Access-Control-Expose-Headers", "ETag")
+		if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+			h.Set("Access-Control-Allow-Methods", "GET, POST")
+			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			h.Set("Access-Control-Max-Age", "86400")
+			if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+				h.Set("Access-Control-Allow-Private-Network", "true")
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// webOrigin reports whether origin matches WebOrigins, the way the WebSocket
+// library matches its OriginPatterns.
+func (s *Server) webOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	for _, p := range s.WebOrigins {
+		target := u.Host
+		if strings.Contains(p, "://") {
+			target = u.Scheme + "://" + u.Host
+		}
+		if ok, _ := path.Match(strings.ToLower(p), strings.ToLower(target)); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -109,10 +162,34 @@ func bearer(r *http.Request) string {
 	return ""
 }
 
+// Browsers can't set headers on a WebSocket, so a page offers its token as a
+// subprotocol, tokenProtocol plus the token, beside wsProtocol, and rad
+// answers with wsProtocol.
+const (
+	wsProtocol    = "rad.v1"
+	tokenProtocol = "rad.token."
+)
+
+// subprotocolToken is the token a page offered in Sec-WebSocket-Protocol.
+func subprotocolToken(r *http.Request) string {
+	for _, h := range r.Header.Values("Sec-WebSocket-Protocol") {
+		for p := range strings.SplitSeq(h, ",") {
+			if t, ok := strings.CutPrefix(strings.TrimSpace(p), tokenProtocol); ok {
+				return t
+			}
+		}
+	}
+	return ""
+}
+
 // device authenticates a request by its bearer token, answering 401 if it
 // has none or a revoked one.
 func (s *Server) device(w http.ResponseWriter, r *http.Request) (store.Device, bool) {
-	dev, err := s.st.DeviceByToken(r.Context(), bearer(r))
+	return s.deviceByToken(w, r, bearer(r))
+}
+
+func (s *Server) deviceByToken(w http.ResponseWriter, r *http.Request, token string) (store.Device, bool) {
+	dev, err := s.st.DeviceByToken(r.Context(), token)
 	if err != nil {
 		writeJSON(w, http.StatusUnauthorized, rpcError{Code: "unauthorized", Message: "invalid device token"})
 		return dev, false
@@ -168,11 +245,19 @@ func (s *Server) getImage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
-	dev, ok := s.device(w, r)
+	token := bearer(r)
+	if token == "" {
+		token = subprotocolToken(r)
+	}
+	dev, ok := s.deviceByToken(w, r, token)
 	if !ok {
 		return
 	}
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionContextTakeover})
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		CompressionMode: websocket.CompressionContextTakeover,
+		Subprotocols:    []string{wsProtocol},
+		OriginPatterns:  s.WebOrigins,
+	})
 	if err != nil {
 		return
 	}

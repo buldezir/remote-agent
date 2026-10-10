@@ -3,6 +3,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,8 +12,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,7 +37,8 @@ const usage = `rad — remote agent server
 
 Usage:
   rad serve [--fake] [--lan]     run the server
-  rad pair [--lan] [--print-url] show a QR code to pair a phone
+  rad pair [--lan] [--print-url] [--web <url>]
+                                 show a QR code to pair a phone (or a web client link)
   rad devices [revoke <id>]      list or revoke paired devices
   rad debug <cmd> ...            CLI client for testing (run "rad debug" for help)
   rad install-service [--uninstall]
@@ -159,6 +163,7 @@ func serve(args []string) error {
 		return err
 	}
 	srv := api.NewServer(st, hub, orch, fsbrowse.New(cfg.Roots), imgs, serverID, serverName(cfg), log)
+	srv.WebOrigins = cfg.WebOrigins
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 
 	errc := make(chan error, len(lns))
@@ -174,7 +179,7 @@ func serve(args []string) error {
 			Config: cfg.ConfigPath, Data: cfg.DataDir, PairedDevices: len(devs)})
 	case len(devs) == 0:
 		fmt.Fprintln(os.Stderr, "\nNo devices paired yet.")
-		printPairing(ctx, st, cfg, false)
+		printPairing(ctx, st, cfg, false, "")
 	}
 	go func() { // after the QR code, so the log can't split it
 		infos := logAgents(ctx, log, reg)
@@ -221,6 +226,7 @@ func pair(args []string) error {
 	fs := flag.NewFlagSet("pair", flag.ExitOnError)
 	printURL := fs.Bool("print-url", false, "print only the pairing link")
 	lan := fs.Bool("lan", false, "put LAN addresses in the pairing link")
+	web := fs.String("web", "", "also print a link that pairs the web client at this `URL`")
 	fs.Parse(args)
 	cfg, err := config.Load()
 	if err != nil {
@@ -236,7 +242,7 @@ func pair(args []string) error {
 	}
 	defer st.Close()
 	ctx := context.Background()
-	if err := printPairing(ctx, st, cfg, *printURL); err != nil || *printURL {
+	if err := printPairing(ctx, st, cfg, *printURL, *web); err != nil || *printURL {
 		return err
 	}
 	printAgents(ctx, os.Stderr, buildRegistry(cfg))
@@ -253,14 +259,23 @@ func serverName(cfg *config.Config) string {
 	return netinfo.Hostname()
 }
 
-func printPairing(ctx context.Context, st *store.Store, cfg *config.Config, urlOnly bool) error {
+// printPairing prints a new pairing link. With web, the web client's address,
+// it also prints a link that opens the web client to pair; with urlOnly, it
+// prints only that link, or else the app's link.
+func printPairing(ctx context.Context, st *store.Store, cfg *config.Config, urlOnly bool, web string) error {
 	code, err := st.CreatePairingCode(ctx, pairingTTL)
 	if err != nil {
 		return err
 	}
 	link := netinfo.PairingLink(serverName(cfg), code, netinfo.PairURLs(cfg))
+	webLink := ""
+	if web != "" {
+		// The link rides in the fragment, which browsers don't send to the
+		// web client's server.
+		webLink = strings.TrimSuffix(web, "/") + "/#pair=" + url.QueryEscape(link)
+	}
 	if urlOnly {
-		fmt.Println(link)
+		fmt.Println(cmp.Or(webLink, link))
 		return nil
 	}
 	fmt.Fprintln(os.Stderr, "\nScan with the Remote Agent app (valid for 10 minutes, single use):")
@@ -270,6 +285,9 @@ func printPairing(ctx context.Context, st *store.Store, cfg *config.Config, urlO
 		BlackWhiteChar: qrterminal.BLACK_WHITE, WhiteBlackChar: qrterminal.WHITE_BLACK, QuietZone: 2,
 	})
 	fmt.Fprintf(os.Stderr, "Or paste this link in the app:\n%s\n\n", link)
+	if webLink != "" {
+		fmt.Fprintf(os.Stderr, "Or open this link to pair the web client:\n%s\n\n", webLink)
+	}
 	return nil
 }
 

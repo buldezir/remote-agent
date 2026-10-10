@@ -12,4 +12,9 @@
 xcuserdata/
 DerivedData/
 
+# Web client
+/web/node_modules/
+/web/dist/
+/web/e2e-shots/
+
 .DS_Store

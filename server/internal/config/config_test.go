@@ -89,3 +89,27 @@ func TestLoad(t *testing.T) {
 		t.Errorf("empty file: %+v, %v", c, err)
 	}
 }
+
+func TestLoadWebOrigins(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RAD_HOME", home)
+	path := filepath.Join(home, "config.yaml")
+	for file, want := range map[string][]string{
+		"port: 8000\n":      DefaultWebOrigins,
+		"web_origins: []\n": {},
+		"web_origins: [\"https://agents.example.com\"]\n": {"https://agents.example.com"},
+	} {
+		writeFile(t, path, file)
+		c, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(c.WebOrigins, want) || c.WebOrigins == nil {
+			t.Errorf("%q: WebOrigins = %#v, want %v", file, c.WebOrigins, want)
+		}
+	}
+	writeFile(t, path, "web_origins: [\"[localhost\"]\n")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "web_origins") {
+		t.Errorf("err = %v", err)
+	}
+}

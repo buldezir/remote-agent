@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -30,6 +31,10 @@ type Command struct {
 	Env     map[string]string `yaml:"env,omitempty"`
 }
 
+// DefaultWebOrigins lets pages served from this machine, such as the web
+// client's dev server, use rad.
+var DefaultWebOrigins = []string{"localhost:*", "127.0.0.1:*"}
+
 type ACPAgent struct {
 	ID      string            `yaml:"id"`
 	Name    string            `yaml:"name,omitempty"`
@@ -44,6 +49,7 @@ type Config struct {
 	LAN         bool               `yaml:"lan,omitempty"`       // put LAN addresses in the pairing link
 	PairURLs    []string           `yaml:"pair_urls,omitempty"` // the pairing link's addresses, instead of the detected ones
 	Listen      []string           `yaml:"listen,omitempty"`    // host:port list to bind instead of 0.0.0.0:port
+	WebOrigins  []string           `yaml:"web_origins"`         // origins whose pages may call rad, as host patterns
 	Roots       DirList            `yaml:"roots,omitempty"`
 	IdleTimeout Duration           `yaml:"idle_timeout,omitempty"`
 	Fake        bool               `yaml:"fake,omitempty"` // expose the scripted "fake" harness
@@ -98,6 +104,9 @@ port: 7421
 lan: false
 # Or list the pairing link's addresses yourself; bare hosts get http:// and the port.
 # pair_urls: [my-mac.tail1234.ts.net, 192.168.1.20]
+# Web pages that may use rad, as host patterns ("localhost:*") or origins
+# ("https://agents.example.com"); [] allows none. Default: pages on localhost.
+# web_origins: ["localhost:*", "127.0.0.1:*"]
 # Directories the phone may browse and add as projects.
 roots: [~/projects]
 # Stop idle agent processes after this long (they resume on the next prompt).
@@ -208,6 +217,14 @@ func (c *Config) normalize() error {
 			return fmt.Errorf("pair_urls: %w", err)
 		}
 		c.PairURLs[i] = norm
+	}
+	if c.WebOrigins == nil {
+		c.WebOrigins = DefaultWebOrigins
+	}
+	for _, o := range c.WebOrigins {
+		if _, err := path.Match(o, ""); err != nil {
+			return fmt.Errorf("web_origins: bad pattern %q", o)
+		}
 	}
 	if c.IdleTimeout.Duration == 0 {
 		c.IdleTimeout.Duration = 30 * time.Minute

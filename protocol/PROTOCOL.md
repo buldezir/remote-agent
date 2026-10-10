@@ -1,12 +1,17 @@
 # Remote Agent wire protocol (v1)
 
-This is the contract between `rad` (the Go server on the dev machine) and its clients (the iOS app, `rad debug`).
+This is the contract between `rad` (the Go server on the dev machine) and its clients (the iOS and Mac apps, the web client, `rad debug`).
 Go types in `server/internal/model` and `server/internal/api` are the source of truth. Golden frames in `protocol/fixtures/` are decoded by both the Go and the Swift test suites.
 
 ## Transport
 
 - **HTTP**: `http://<host>:7421`. The default port is 7421. rad listens on loopback and Tailscale addresses, plus LAN with `--lan`.
 - **WebSocket**: `GET /v1/ws` with the header `Authorization: Bearer <deviceToken>`. Text frames carry one JSON object each.
+  - Browsers can't set that header, so a web page offers the token as a subprotocol instead: `new WebSocket(url, ["rad.v1", "rad.token.<deviceToken>"])`. rad answers with `rad.v1`.
+- **Web pages**: rad accepts browser requests only from the origins in its config's `web_origins`, by default pages on `localhost` and `127.0.0.1`.
+  - Patterns match the origin's host (`localhost:*`) or, with a scheme, the whole origin (`https://agents.example.com`). `[]` allows none.
+  - For those origins rad answers CORS preflights, including Chrome's Private Network Access, and accepts WebSocket upgrades. Other origins get no CORS headers, and their upgrades get `403`.
+  - Requests without an `Origin` header (the apps, `rad debug`) aren't affected.
 - **Keepalive**: the server pings every 25 s. If a client is revoked, its socket is closed with code `4001` within 30 s.
 
 ## Pairing
@@ -20,6 +25,7 @@ Go types in `server/internal/model` and `server/internal/api` are the source of 
 3. A successful response returns `200`:
    `{"serverId", "name", "protocolVersion", "version", "token", "deviceId"}`
    - The client stores `token` in the Keychain and remembers the URL that worked, plus the others as fallbacks.
+   - The web client takes the same link, pasted, or in its page's fragment as `#pair=<link, URL-encoded>`. `rad pair --web <web client URL>` prints such a link.
 4. Failures:
    - `401 {"code":"unauthorized"}`: the code is wrong or expired.
    - `GET /v1/health` responds without auth and returns `{"serverId","name","protocolVersion","version"}`.
@@ -34,6 +40,7 @@ Images travel over HTTP, beside the WebSocket, with the same `Authorization: Bea
   - Uploading the same bytes again returns the same `id`.
 - **Download**: `GET /v1/images/<id>` returns the bytes with their `Content-Type`, or `404`.
   - An id names its content, so it never changes. Clients can cache it for good: the response says `Cache-Control: private, max-age=31536000, immutable`.
+  - A web page can't put the header on an `<img src>`, so it fetches the bytes with `fetch` and shows them from a blob URL.
 - **Agents** see attached images inline where they can. Agents that can't take images in a prompt (some ACP agents) get the files' paths on the server instead.
 - **Images in replies**: rad tells agents that the user isn't at the server, and to show an image file as a Markdown image with its path, such as `![Screenshot](/tmp/shot.png)`, rather than read it. rad keeps a copy of each PNG, JPEG, GIF or WebP file a reply links to that way (outside code), points the link at it as `rad-image:<id>`, and lists it in the item's `images`. A link to anything else stays as the agent wrote it.
 - **Sizing**: agents' APIs reject very large images (Claude: 5 MB, 8000 px on a side). Clients should scale and re-encode before uploading. The iOS and Mac apps send at most 2048 px on the long side.

@@ -52,6 +52,7 @@ func startServer(t *testing.T) *testServer {
 	t.Cleanup(orch.Shutdown)
 	root := t.TempDir()
 	srv := api.NewServer(st, hub, orch, fsbrowse.New([]string{root}), imgs, "srv-1", "test-host", log)
+	srv.WebOrigins = []string{"localhost:*", "https://web.example"}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return &testServer{url: ts.URL, st: st, root: root}
@@ -580,4 +581,88 @@ func contains(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// Browsers can't set headers on a WebSocket, so a web page offers its token
+// as a subprotocol, and only pages on the allowed origins may connect.
+func TestBrowserWebSocket(t *testing.T) {
+	s := startServer(t)
+	token := s.token(t)
+	dial := func(origin string, protocols ...string) (*websocket.Conn, *http.Response, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		h := http.Header{}
+		if origin != "" {
+			h.Set("Origin", origin)
+		}
+		return websocket.Dial(ctx, "ws"+strings.TrimPrefix(s.url, "http")+"/v1/ws",
+			&websocket.DialOptions{HTTPHeader: h, Subprotocols: protocols})
+	}
+
+	ws, _, err := dial("http://localhost:5173", "rad.v1", "rad.token."+token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Subprotocol() != "rad.v1" {
+		t.Errorf("subprotocol = %q", ws.Subprotocol())
+	}
+	var info map[string]any
+	newClient(t, ws).mustCall("server.info", nil, &info)
+	if info["serverId"] != "srv-1" {
+		t.Errorf("server.info = %v", info)
+	}
+
+	if ws, _, err := dial("https://web.example", "rad.v1", "rad.token."+token); err != nil {
+		t.Errorf("origin with scheme: %v", err)
+	} else {
+		ws.CloseNow()
+	}
+	if _, resp, err := dial("http://localhost:5173", "rad.v1", "rad.token.wrong"); err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong token: err=%v", err)
+	}
+	if _, resp, err := dial("https://evil.example", "rad.v1", "rad.token."+token); err == nil || resp == nil || resp.StatusCode != http.StatusForbidden {
+		t.Errorf("other origin: err=%v", err)
+	}
+	if _, resp, err := dial("http://web.example", "rad.v1", "rad.token."+token); err == nil || resp == nil || resp.StatusCode != http.StatusForbidden {
+		t.Errorf("allowed host on another scheme: err=%v", err)
+	}
+}
+
+func TestCORS(t *testing.T) {
+	s := startServer(t)
+	preflight := func(origin string) *http.Response {
+		req, _ := http.NewRequest(http.MethodOptions, s.url+"/v1/images", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		req.Header.Set("Access-Control-Request-Headers", "authorization")
+		req.Header.Set("Access-Control-Request-Private-Network", "true")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+	resp := preflight("http://localhost:5173")
+	h := resp.Header
+	if resp.StatusCode != http.StatusNoContent || h.Get("Access-Control-Allow-Origin") != "http://localhost:5173" ||
+		!strings.Contains(h.Get("Access-Control-Allow-Headers"), "Authorization") ||
+		!strings.Contains(h.Get("Access-Control-Allow-Methods"), "POST") ||
+		h.Get("Access-Control-Allow-Private-Network") != "true" {
+		t.Errorf("preflight = %d %v", resp.StatusCode, h)
+	}
+	if resp := preflight("https://evil.example"); resp.Header.Get("Access-Control-Allow-Origin") != "" {
+		t.Errorf("other origin allowed: %v", resp.Header)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, s.url+"/v1/health", nil)
+	req.Header.Set("Origin", "http://localhost:5173")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 || resp.Header.Get("Access-Control-Allow-Origin") != "http://localhost:5173" {
+		t.Errorf("health = %d %v", resp.StatusCode, resp.Header)
+	}
 }

@@ -1,6 +1,6 @@
 # Remote Agent
 
-Drive coding agents running on your computer from your iPhone, iPad or Mac.
+Drive coding agents running on your computer from your iPhone, iPad, Mac or a browser.
 
 - **`rad`**: a Go server that runs on the dev machine. It spawns agent CLIs as child processes, normalizes what they do into one event model, persists it in SQLite, and serves it over a WebSocket.
 - **Remote Agent**: a native SwiftUI app for iPhone, iPad and Mac. You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, a server's sessions stay in a sidebar next to the one you have open. From the app you can:
@@ -11,6 +11,7 @@ Drive coding agents running on your computer from your iPhone, iPad or Mac.
   - approve or deny tool calls
   - answer the agent's questions
   - review per-turn git diffs and revert them
+- **Web client**: the same app for a browser, in `web/` (React and TypeScript). For now you run it from its dev server on your computer; see [Running the web client](#running-the-web-client).
 
 <p>
   <img src="docs/screenshots/sessions.png" width="19%" alt="Sessions on a server, with one waiting for approval">
@@ -171,6 +172,22 @@ The Mac app is built from the same code as the iPhone app, as its own target, **
 
 On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the composer, Return sends, ⇧Return or ⌥Return starts a new line and ⌘. stops the agent. ⌘V pastes an image you copied, and you can drop image files on the session. The server menu at the foot of the sidebar switches servers. Dictation listens in your preferred languages from System Settings.
 
+## Running the web client
+
+The web client in `web/` does what the apps do, in a browser. It needs Node.js 22 or later. For now it runs from Vite's server on your computer rather than from a host:
+
+```bash
+cd web && npm install && npm run dev                          # serves http://localhost:5173
+server/bin/rad pair --web http://localhost:5173 --print-url    # open the link it prints, then press Pair
+```
+
+Or open http://localhost:5173, choose **Pair a server** and paste the link that `rad pair` prints. The page keeps each server's token in the browser's local storage.
+
+- **Which pages may use rad:** a browser tells rad which page a request comes from. rad answers only pages on the origins in its config's `web_origins`, which by default are pages on `localhost` and `127.0.0.1`. Add an origin there, such as `"https://agents.example.com"` or `"my-mac.tail1234.ts.net:*"`, to open the client from another address.
+- **HTTPS:** a page served over `https://` can't call rad on plain `http://`. Serve the client over `http://` too, or put rad behind HTTPS, for example with `tailscale serve`.
+- **Composer:** Return sends, ⇧Return starts a new line, and ⌘. or Ctrl+. stops the agent. You can paste or drop images. Dictation uses the browser's speech recognizer where it has one (Chrome, Edge, Safari).
+- `npm run build` writes a static site to `web/dist`, which any web server can serve.
+
 ## Using it
 
 - **New session:**
@@ -202,6 +219,7 @@ On the Mac, ⌘N starts a session and ⌥⌘N opens another window. In the compo
 ```
 rad serve [--lan] [--fake] [-v]   run the server (--fake adds a scripted test harness)
 rad pair [--lan] [--print-url]    new single-use pairing code (10 min) and the agents that are ready; --lan adds LAN addresses to the link
+rad pair --web <url>              also a link that opens the web client at <url> to pair it
 rad devices                       list paired devices
 rad devices revoke <id-prefix>    revoke one; its open connections close within 30s
 rad install-service [--uninstall]  run rad in the background (launchd on macOS, systemd on Linux)
@@ -222,6 +240,7 @@ lan: false                      # also put LAN addresses in the pairing link
 # pair_urls: [my-mac.tail1234.ts.net, 192.168.1.20]   # or list the link's addresses yourself
                                 # (bare hosts get http:// and the port; also host:port, https://…)
 # listen: ["127.0.0.1:7421", "100.101.102.103:7421"]  # bind only these instead of 0.0.0.0
+# web_origins: ["localhost:*", "127.0.0.1:*"]          # web pages that may use rad (this is the default; [] for none)
 roots: [~/projects]             # what the phone may browse and add as projects ("~" in quotes for home itself)
 idle_timeout: 30m
 acp:                            # any ACP agent can be added here
@@ -242,7 +261,8 @@ Unknown keys are errors, so a typo stops rad with the line number rather than be
 - A paired device can make agents run arbitrary commands on your machine. Treat device tokens like SSH keys.
 - rad listens on all interfaces, but every request except pairing needs a device token. To keep it off other networks entirely, set `listen` to loopback and your Tailscale address.
 - Pairing codes are single-use and expire after 10 minutes.
-- Tokens are 256-bit random values. Only their SHA-256 hash is stored, and the phone keeps the token in the Keychain.
+- Tokens are 256-bit random values. Only their SHA-256 hash is stored, and the phone keeps the token in the Keychain. The web client keeps it in the browser's local storage, for its origin only.
+- Browsers send the origin of the page making a request. rad answers browsers only from the origins in `web_origins`, so another site you visit can't use rad. The apps aren't browsers and aren't affected.
 - Revoking a device closes its live sockets.
 - The phone can browse and add only folders under `roots`.
 - Permission modes are enforced by each agent itself. rad never auto-approves on the agent's behalf.
@@ -261,12 +281,17 @@ server/                  Go module for rad
   internal/gitx          worktrees, checkpoints, diffs, revert (git CLI)
   internal/images        images in transcripts, stored by content hash
   internal/api           HTTP pairing and images + WebSocket JSON-RPC
-protocol/                PROTOCOL.md + golden fixtures shared by Go and Swift tests
+protocol/                PROTOCOL.md + golden fixtures shared by the Go, Swift and web tests
 apple/                   XcodeGen project for the iPhone, iPad and Mac apps
   RAKit/                 Swift package: protocol, network client, stores
   Shared/                SwiftUI app code both apps build
   iOS/  macOS/           what only one platform uses: Info.plist, QR scanner, Mac menu bar…
   ServerApp/             Remote Agent Server, the menu bar app that runs rad on a Mac
+web/                     the web client: Vite, React and TypeScript
+  src/protocol/          wire types, the WebSocket client, pairing
+  src/store/             connection, session and server stores (ported from RAKit)
+  src/ui/                the views
+  e2e/smoke.mjs          drives the client in Chromium against a scratch rad
 ```
 
 ## Development
@@ -275,6 +300,7 @@ apple/                   XcodeGen project for the iPhone, iPad and Mac apps
 cd server && go test ./... -race              # server tests (adapters replay recorded CLI transcripts)
 cd server && go test ./internal/api -update   # regenerate protocol/fixtures after changing wire types
 cd apple/RAKit && swift test                  # client protocol and sync tests
+cd web && npm run typecheck && npm test       # web client types, protocol and sync tests
 cd apple && xcodegen && xcodebuild -scheme RemoteAgent-iOS -destination 'platform=iOS Simulator,name=iPhone 17' build
 cd apple && xcodebuild -scheme RemoteAgent-macOS -destination 'platform=macOS' build
 cd apple && xcodebuild -scheme RemoteAgentServer -destination 'platform=macOS' build

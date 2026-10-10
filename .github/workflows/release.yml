@@ -1,5 +1,6 @@
 # Builds rad for Linux and macOS (arm64 and x86-64), and the Mac apps, Remote
-# Agent and Remote Agent Server, for Apple silicon. Pushing a tag like v0.2.0 publishes them as that tag's
+# Agent and Remote Agent Server, for Apple silicon. Checks that the web client
+# builds; it isn't published yet. Pushing a tag like v0.2.0 publishes them as that tag's
 # release; running the workflow by hand only keeps them as run artifacts.
 name: Release
 
@@ -47,6 +48,24 @@ jobs:
           name: rad
           path: dist/
           if-no-files-found: error
+
+  web:
+    name: web client
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
 
   mac:
     name: ${{ matrix.app }}
@@ -106,7 +125,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [rad, mac]
+    needs: [rad, web, mac]
     runs-on: ubuntu-latest
     permissions:
       contents: write
