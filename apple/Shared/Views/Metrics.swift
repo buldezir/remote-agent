@@ -8,8 +8,13 @@ enum Metrics {
     static let margin: CGFloat = 12
     /// Padding inside cards: tool calls, plans, approvals.
     static let padding: CGFloat = 8
-    /// The transcript stops widening here, so lines stay readable with the iPad sidebar hidden.
+    /// The transcript stops widening here, so lines stay readable with the iPad
+    /// sidebar hidden. On the Mac it fills the window, as wide as the user makes it.
+    #if os(macOS)
+    static let readableWidth: CGFloat = .infinity
+    #else
     static let readableWidth: CGFloat = 1000
+    #endif
     /// Rows of the server and session lists.
     static let rowInsets = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
     /// The default size of messages, prompts and replies (Settings can change
