@@ -125,68 +125,112 @@ struct SessionView: View {
 
     // MARK: Composer
 
+    #if os(macOS)
+    /// A card over the foot of the transcript: the prompt, with the buttons
+    /// in a row under it.
+    private var composer: some View {
+        let card = RoundedRectangle(cornerRadius: Metrics.Corner.composer)
+        return VStack(alignment: .leading, spacing: 10) {
+            if !attachments.isEmpty {
+                AttachmentStrip(attachments: attachments, connection: connection)
+            }
+            promptField
+            HStack(spacing: 8) {
+                attachMenu
+                Spacer()
+                actionButtons
+            }
+        }
+        .padding(Metrics.margin)
+        .background {
+            // A click in the card's margins goes to the prompt.
+            card.fill(Palette.raised).onTapGesture { composerFocused = true }
+        }
+        .overlay { card.strokeBorder(composerFocused ? Palette.accent : Palette.surface1) }
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .padding([.horizontal, .bottom], Metrics.margin)
+        .padding(.top, 4)
+        .frame(maxWidth: Metrics.readableWidth)
+        .frame(maxWidth: .infinity)
+        .background(Palette.base)
+    }
+    #else
     private var composer: some View {
         VStack(alignment: .leading, spacing: 4) {
             if !attachments.isEmpty {
                 AttachmentStrip(attachments: attachments, connection: connection)
             }
-            composerRow
+            HStack(alignment: .bottom, spacing: 8) {
+                attachMenu
+                promptField
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Palette.surface0, in: RoundedRectangle(cornerRadius: Metrics.Corner.field))
+                actionButtons
+            }
         }
         .padding(.horizontal, Metrics.margin)
         .padding(.vertical, 6)
         .frame(maxWidth: Metrics.readableWidth)
         .frame(maxWidth: .infinity)
         .background(Palette.mantle)
-        #if os(iOS)
         .onChange(of: composerFocused) { _, focused in
             // The keyboard has its own dictation key.
             if focused { dictation.stop() }
         }
-        #endif
+    }
+    #endif
+
+    private var promptField: some View {
+        TextField(placeholder, text: $draft, axis: .vertical)
+            .textFieldStyle(.plain)
+            .messageFont()
+            .paletteText()
+            #if os(macOS)
+            .lineLimit(2...12)
+            #else
+            .lineLimit(1...6)
+            #endif
+            .focused($composerFocused)
+            .shiftReturnNewline()
+            #if os(macOS)
+            .onSubmit { if mainAction == .send && canSend { mainButtonTapped() } }
+            #endif
     }
 
-    private var composerRow: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            AttachMenu(attachments: attachments, connection: connection)
-                .disabled(session?.archived == true)
-            TextField(placeholder, text: $draft, axis: .vertical)
-                .textFieldStyle(.plain)
-                .messageFont()
-                .paletteText()
-                .lineLimit(1...6)
-                .focused($composerFocused)
-                .shiftReturnNewline()
-                #if os(macOS)
-                .onSubmit { if mainAction == .send && canSend { mainButtonTapped() } }
-                #endif
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Palette.surface0, in: RoundedRectangle(cornerRadius: Metrics.Corner.field))
-            if store.isRunning {
-                Button {
-                    Task { await run { try await store.interrupt() } }
-                } label: {
-                    Image(systemName: "stop.circle.fill").font(.system(size: 26))
-                }
-                .buttonStyle(.borderless)
-                .tint(Palette.red)
-                .keyboardShortcut(".")
-                .accessibilityLabel("Stop")
-            }
-            Button(action: mainButtonTapped) {
-                Image(systemName: mainAction.symbol)
-                    .font(.system(size: 26))
-                    .contentTransition(.symbolEffect(.replace))
-                    .symbolEffect(.variableColor.iterative, isActive: dictation.phase == .listening)
+    private var attachMenu: some View {
+        AttachMenu(attachments: attachments, connection: connection)
+            .disabled(session?.archived == true)
+    }
+
+    /// Stop, while a turn runs, then dictate or send.
+    @ViewBuilder private var actionButtons: some View {
+        if store.isRunning {
+            Button {
+                Task { await run { try await store.interrupt() } }
+            } label: {
+                Image(systemName: "stop.circle.fill").font(.system(size: Metrics.roundButton))
             }
             .buttonStyle(.borderless)
-            .tint(mainAction == .stopDictation ? Palette.red : Palette.accent)
-            .keyboardShortcut(mainAction == .send ? KeyboardShortcut(.return) : nil)
-            // While dictation finishes, the final pass is still rewriting the draft.
-            .disabled(session?.archived == true || (mainAction == .send && !canSend) || dictation.phase == .finishing)
-            .accessibilityLabel(mainAction.label)
-            .animation(.snappy, value: mainAction)
+            .roundButtonFrame()
+            .tint(Palette.red)
+            .keyboardShortcut(".")
+            .accessibilityLabel("Stop")
         }
+        Button(action: mainButtonTapped) {
+            Image(systemName: mainAction.symbol)
+                .font(.system(size: Metrics.roundButton))
+                .contentTransition(.symbolEffect(.replace))
+                .symbolEffect(.variableColor.iterative, isActive: dictation.phase == .listening)
+        }
+        .buttonStyle(.borderless)
+        .roundButtonFrame()
+        .tint(mainAction == .stopDictation ? Palette.red : Palette.accent)
+        .keyboardShortcut(mainAction == .send ? KeyboardShortcut(.return) : nil)
+        // While dictation finishes, the final pass is still rewriting the draft.
+        .disabled(session?.archived == true || (mainAction == .send && !canSend) || dictation.phase == .finishing)
+        .accessibilityLabel(mainAction.label)
+        .animation(.snappy, value: mainAction)
     }
 
     private enum MainAction {

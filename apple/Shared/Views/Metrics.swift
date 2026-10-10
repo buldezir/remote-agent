@@ -19,6 +19,8 @@ enum Metrics {
     #else
     static let textSize: CGFloat = 15
     #endif
+    /// The round buttons beside the prompt: add images, dictate, send and stop.
+    static let roundButton: CGFloat = 26
 
     enum Corner {
         /// Snippets inside a card: code, outputs, diffs.
@@ -27,14 +29,27 @@ enum Metrics {
         static let card: CGFloat = 6
         /// User messages and approvals.
         static let bubble: CGFloat = 8
-        /// The composer's text field.
+        /// The composer's text field on iOS.
         static let field: CGFloat = 10
+        /// The composer on the Mac, a card around the field and its buttons.
+        static let composer: CGFloat = 14
         /// The selected row in the iPad sidebar.
         static let selection: CGFloat = 12
     }
 }
 
 extension View {
+    /// A round button beside the prompt, laid out at its symbol's size. Mac
+    /// buttons and menus pad their labels, which would set the symbols in
+    /// from the edges of the prompt.
+    func roundButtonFrame() -> some View {
+        #if os(macOS)
+        frame(width: Metrics.roundButton, height: Metrics.roundButton)
+        #else
+        self
+        #endif
+    }
+
     /// Grouped forms with compact section spacing and narrower side margins,
     /// on the palette's background. Their rows take `paletteRows()`.
     func compactForm() -> some View {

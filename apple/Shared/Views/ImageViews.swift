@@ -48,6 +48,7 @@ extension AttachMenu {
                 #if os(macOS)
                 .tint(Palette.overlay) // The symbol's colour; iOS sets it on the image.
                 #endif
+                .roundButtonFrame()
         }
     }
 
@@ -74,12 +75,12 @@ extension AttachMenu {
     /// sized one, in the menu's tint.
     @ViewBuilder private var plus: some View {
         #if os(macOS)
-        let config = NSImage.SymbolConfiguration(pointSize: 22, weight: .regular)
+        let config = NSImage.SymbolConfiguration(pointSize: Metrics.roundButton, weight: .regular)
         Image(nsImage: NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: nil)!
             .withSymbolConfiguration(config)!)
         #else
         Image(systemName: "plus.circle.fill")
-            .font(.system(size: 26))
+            .font(.system(size: Metrics.roundButton))
             .foregroundStyle(Palette.overlay)
         #endif
     }

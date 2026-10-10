@@ -38,6 +38,9 @@ enum Palette {
     static let mantle = Color(latte: 0xe6e9ef, frappe: 0x292c3c)
     /// Code and output, set into a card or the page.
     static let crust = Color(latte: 0xdce0e8, frappe: 0x232634)
+    /// A card raised over `base`, such as the Mac's composer: surface0 in
+    /// Frappé, and base in Latte, which has nothing lighter. Give it a border.
+    static let raised = Color(latte: 0xeff1f5, frappe: 0x414559)
 }
 
 private extension Color {
