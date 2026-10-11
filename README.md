@@ -14,16 +14,18 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac or a br
 - **Web client**: the same app for a browser, in `web/` (React and TypeScript). For now you run it from its dev server on your computer; see [Running the web client](#running-the-web-client).
 
 <p>
-  <img src="docs/screenshots/sessions.png" width="19%" alt="Sessions on a server, with one waiting for approval">
-  <img src="docs/screenshots/new-session.png" width="19%" alt="New session: project, agent, model and permissions">
-  <img src="docs/screenshots/approval.png" width="19%" alt="Claude Code asking to edit a file, with the change and Allow / Allow all edits / Deny">
-  <img src="docs/screenshots/transcript.png" width="19%" alt="A finished turn: tool calls, approvals and the agent's summary">
-  <img src="docs/screenshots/diff.png" width="19%" alt="The diff of a file the agent changed">
+  <img src="docs/screenshots/iphone-sessions.webp" width="19%" alt="A server's sessions, with three waiting under Needs you">
+  <img src="docs/screenshots/iphone-new-session.webp" width="19%" alt="New session: project, agent, model, effort and permissions">
+  <img src="docs/screenshots/iphone-approval.webp" width="19%" alt="Claude Code asking to edit a file, with the change and Allow / Allow all edits / Deny">
+  <img src="docs/screenshots/iphone-transcript.webp" width="19%" alt="Two turns: tool calls, approvals and the agent's summaries">
+  <img src="docs/screenshots/iphone-diff.webp" width="19%" alt="The diff of a file the agent changed">
 </p>
 <p>
-  <img src="docs/screenshots/ipad-approval.png" width="49%" alt="iPad: the server's sessions in a sidebar, and Claude Code asking to edit a file">
-  <img src="docs/screenshots/ipad-transcript.png" width="49%" alt="iPad: a finished turn, with another session waiting for approval in the sidebar">
+  <img src="docs/screenshots/ipad-plan.webp" width="31%" alt="iPad: the server's sessions in a sidebar, and a plan waiting for approval">
+  <img src="docs/screenshots/mac-transcript.webp" width="66%" alt="Mac: the sessions sidebar and a finished Claude Code session">
 </p>
+
+More, including the web client, dark mode and the Server app: [docs/screenshots.md](docs/screenshots.md).
 
 Supported harnesses:
 

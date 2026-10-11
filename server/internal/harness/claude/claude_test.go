@@ -227,3 +227,18 @@ func TestReplayCompact(t *testing.T) {
 		t.Errorf("end = %+v", turn.End)
 	}
 }
+
+func TestDescribeToolHomePath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	plan := filepath.Join(home, ".claude", "plans", "cache.md")
+	input, _ := json.Marshal(map[string]string{"file_path": plan})
+	title, paths := describeTool("Write", input, t.TempDir())
+	if title != "Write ~/.claude/plans/cache.md" || len(paths) != 1 || paths[0] != plan {
+		t.Fatalf("got %q %v", title, paths)
+	}
+	input, _ = json.Marshal(map[string]string{"file_path": filepath.Join(home, "proj", "a.go")})
+	if title, _ := describeTool("Read", input, filepath.Join(home, "proj")); title != "Read a.go" {
+		t.Fatalf("a file in the cwd: got %q", title)
+	}
+}

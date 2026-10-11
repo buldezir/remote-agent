@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -44,6 +45,15 @@ func describeTool(name string, input json.RawMessage, cwd string) (string, []str
 		}
 		return p
 	}
+	// Titles show paths outside the cwd under the home folder as ~/…, such as Claude's plan files.
+	home, _ := os.UserHomeDir()
+	short := func(p string) string {
+		r := rel(p)
+		if h, err := filepath.Rel(home, r); home != "" && filepath.IsAbs(r) && err == nil && !strings.HasPrefix(h, "..") {
+			return filepath.Join("~", h)
+		}
+		return r
+	}
 	switch name {
 	case "Bash", "PowerShell":
 		cmd := firstLine(str("command"))
@@ -54,16 +64,16 @@ func describeTool(name string, input json.RawMessage, cwd string) (string, []str
 	case "Read", "Write", "Edit", "MultiEdit":
 		p := str("file_path")
 		verb := map[string]string{"Read": "Read", "Write": "Write", "Edit": "Edit", "MultiEdit": "Edit"}[name]
-		return verb + " " + rel(p), []string{rel(p)}
+		return verb + " " + short(p), []string{rel(p)}
 	case "NotebookEdit":
 		p := str("notebook_path")
-		return "Edit " + rel(p), []string{rel(p)}
+		return "Edit " + short(p), []string{rel(p)}
 	case "Glob":
 		return "Glob " + str("pattern"), nil
 	case "Grep":
 		s := "Grep " + str("pattern")
 		if p := str("path"); p != "" {
-			s += " in " + rel(p)
+			s += " in " + short(p)
 		}
 		return s, nil
 	case "WebFetch":
