@@ -56,6 +56,11 @@ Notes for coding agents working on this repo. What the project is and how it is 
 
   When the build changes (for example `build-rad.sh`, the schemes, or a new deployment target), change the workflow to match. Pushing tags is the developer's job.
   - Each release's notes start with a changelog of what changed for users (new features, changed config or behaviour, fixes they would notice), not internal changes. Push the tag, then create the release with those notes and the asset list from the workflow's `NOTES`: `gh release create <tag> --verify-tag --notes-file …`. The workflow then uploads its assets to that release instead of creating one.
+- **Updates:** `internal/update` finds the latest GitHub release, checks its tarball against `SHA256SUMS`, runs the new binary once (`rad version`) and renames it into place.
+  - `rad update` replaces the binary it was run as. It restarts the background service only when the service runs that same binary.
+  - The Server app runs its bundled rad with `update --check --json` and `update --to <dir>`. It keeps downloads in `~/Library/Application Support/Remote Agent Server/`, or `$RAD_HOME/Remote Agent Server/` when `RAD_HOME` is set. `RadBinary.choose()` picks the binary on each start.
+  - The release asset names (`rad-<os>-<arch>.tar.gz`, `SHA256SUMS`) are what the updater looks for, so change both together.
+  - Tests use httptest, never GitHub. Don't run `rad update` on the developer's rad, its service, or agents-base unless asked. A scratch binary built with `-ldflags "-X remote-agent/internal/api.Version=0.1.2"`, or `--to` a scratch folder, is safe.
 - **Commits:** tests green first. Don't commit `server/bin/`, `apple/build/`, the `.xcodeproj`, `apple/Local.xcconfig`, `web/node_modules` or `web/dist`.
 
 ## Testing
@@ -177,5 +182,6 @@ Remote Agent Server runs `rad serve --supervised` as its child (`server/cmd/rad/
   ```
 
   With `RAD_HOME` set, the log is `$RAD_HOME/rad.log`. The menu lives in the menu bar extra; drive it through the AX API (the app's `AXExtrasMenuBar`).
+- **Updates:** a build from Xcode is version `0.1`, a development build, so it offers no updates. To try Update rad, build with an older release's version (`xcodebuild … MARKETING_VERSION=0.1.2 build`) and run it against a scratch `RAD_HOME`; the download lands in `$RAD_HOME/Remote Agent Server/`.
 - **Leave the Mac's settings alone:** don't press Allow in the Permissions window, answer the system prompts, change Privacy & Security, or turn on Start at Login. They change the developer's privacy settings and login items. Checking the statuses is safe; the window only checks what macOS can report without asking.
 - **To see which app macOS holds responsible for an agent's request:** `log stream --predicate 'subsystem == "com.apple.TCC"'`.

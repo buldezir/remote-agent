@@ -143,7 +143,7 @@ func launchAgentPlist(exe, home, logFile string, env [][2]string) string {
 <plist version="1.0">
 <dict>
   <key>Label</key><string>%s</string>
-  <key>ProgramArguments</key><array><string>%s</string><string>serve</string></array>
+  <key>ProgramArguments</key>%s
   <key>EnvironmentVariables</key><dict>
 %s  </dict>
   <key>RunAtLoad</key><true/>
@@ -153,7 +153,7 @@ func launchAgentPlist(exe, home, logFile string, env [][2]string) string {
   <key>StandardErrorPath</key><string>%s</string>
 </dict>
 </plist>
-`, launchLabel, esc(exe), vars.String(), esc(logFile), esc(logFile))
+`, launchLabel, launchArgs(exe), vars.String(), esc(logFile), esc(logFile))
 }
 
 func installSystemdUnit(unit, exe string) error {
@@ -193,12 +193,27 @@ func systemdUnitFile(exe string, env [][2]string) string {
 	var b strings.Builder
 	b.WriteString("# Installed by `rad install-service`; remove with `rad install-service --uninstall`.\n")
 	b.WriteString("[Unit]\nDescription=Remote Agent server (rad)\n\n[Service]\n")
-	fmt.Fprintf(&b, "ExecStart=%s serve\n", strings.ReplaceAll(systemdQuote(exe), "$", "$$"))
+	b.WriteString(execStart(exe) + "\n")
 	for _, kv := range env {
 		fmt.Fprintf(&b, "Environment=%s\n", systemdQuote(kv[0]+"="+kv[1]))
 	}
 	b.WriteString("Restart=always\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n")
 	return b.String()
+}
+
+// launchArgs is the LaunchAgent's ProgramArguments, which run exe.
+func launchArgs(exe string) string {
+	return "<array><string>" + html.EscapeString(exe) + "</string><string>serve</string></array>"
+}
+
+// execStart is the systemd unit's ExecStart line, which runs exe.
+func execStart(exe string) string {
+	return "ExecStart=" + strings.ReplaceAll(systemdQuote(exe), "$", "$$") + " serve"
+}
+
+// startsBinary reports whether a service file, plist or unit, runs exe.
+func startsBinary(service, exe string) bool {
+	return strings.Contains(service, launchArgs(exe)) || strings.Contains(service, execStart(exe)+"\n")
 }
 
 // systemdQuote double-quotes s for a unit file, escaping specifiers (%).

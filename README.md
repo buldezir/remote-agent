@@ -81,6 +81,19 @@ To remove rad completely, run `./bin/rad uninstall`. It lists everything first a
 
 It keeps the session branches and the rad binary.
 
+### Updating
+
+```bash
+rad update --check     # is there a newer release?
+rad update             # install it
+```
+
+`rad update` downloads the newest release for this platform from GitHub and checks it against the release's `SHA256SUMS`. It runs the new binary once, then puts it in place of the one you ran and keeps the old one as `rad.old` next to it.
+- **As the background service:** if `install-service` set up this binary, the service is restarted and `rad update` waits for the new version to answer. A restart interrupts running turns, so while any session is busy (a turn running, or an approval waiting) it stops before downloading and names them. Pass `--now` to go ahead anyway.
+- **In a terminal:** restart `rad serve` yourself.
+- **Development builds:** a build from source (`rad version` says `dev`) isn't replaced without `--force`.
+- **Remote Agent Server app:** update its rad from the app's menu, below.
+
 ## Running rad as a Mac app
 
 **Remote Agent Server** is a menu bar app that runs rad. rad and the agents it starts are the app's children, so macOS asks for their privacy permissions in the app's name, and you can grant them up front while you're at the Mac. Otherwise a prompt that comes up while you're driving an agent from your phone holds that agent until someone answers it at the Mac. The app also starts rad with the environment of your login shell, so it finds the agent CLIs.
@@ -108,9 +121,14 @@ The menu shows whether rad is running, its addresses and the agents it found:
 - **Pair a Device…** shows the pairing QR code.
 - **Start at Login** replaces `rad install-service`. If that service is installed, the menu offers to remove it, since only one rad can serve a config at a time.
 - **Open Log** opens `~/Library/Logs/Remote Agent Server/rad.log`.
+- **Update rad to …** appears when a newer release is out; the app checks once a day, or when you choose **Check for Updates…**.
+  - The app downloads the new rad to `~/Library/Application Support/Remote Agent Server/` and restarts rad from there. It asks first if that would interrupt a session.
+  - The app itself doesn't change, so macOS keeps its permissions, and they cover the new rad too.
+  - When you later install a newer app, its own rad takes over and the download is deleted. A download that fails to start is deleted too, and the app goes back to its own rad.
+  - Builds from Xcode (version `0.1`) always run the rad built with them, and offer no updates.
 - Quitting the app stops rad and its agents.
 
-The `rad` CLI keeps working next to the app (`rad pair`, `rad devices`); the app's copy is `/Applications/Remote Agent Server.app/Contents/MacOS/rad`.
+The `rad` CLI keeps working next to the app (`rad pair`, `rad devices`); the app's copy is `/Applications/Remote Agent Server.app/Contents/MacOS/rad`, or after an update the `rad-<version>` it downloaded.
 
 ## Installing the app on an iPhone or iPad
 
@@ -224,6 +242,7 @@ rad pair --web <url>              also a link that opens the web client at <url>
 rad devices                       list paired devices
 rad devices revoke <id-prefix>    revoke one; its open connections close within 30s
 rad install-service [--uninstall]  run rad in the background (launchd on macOS, systemd on Linux)
+rad update [--check] [--now]      install the latest release over this rad and restart its service
 rad uninstall [--yes]             remove the service, config, data, worktrees and checkpoints
 rad debug run --harness claude --cwd DIR [--mode M] [--model M] [--effort E] [--worktree] [--approve] [--diff] "prompt"
 rad debug prompt <sessionId> "…"  follow-up turn, streamed to the terminal
@@ -273,7 +292,7 @@ Unknown keys are errors, so a typo stops rad with the line number rather than be
 
 ```
 server/                  Go module for rad
-  cmd/rad/               CLI: serve, pair, devices, debug, install-service, uninstall
+  cmd/rad/               CLI: serve, pair, devices, debug, install-service, update, uninstall
   internal/model         domain types (Session, Turn, Item, Event…) = wire format
   internal/store         SQLite; per-stream change feed (latest event per entity)
   internal/events        live fan-out to subscribers
@@ -282,6 +301,7 @@ server/                  Go module for rad
   internal/gitx          worktrees, checkpoints, diffs, revert (git CLI)
   internal/images        images in transcripts, stored by content hash
   internal/api           HTTP pairing and images + WebSocket JSON-RPC
+  internal/update        finds, checks and installs rad's GitHub releases
 protocol/                PROTOCOL.md + golden fixtures shared by the Go, Swift and web tests
 apple/                   XcodeGen project for the iPhone, iPad and Mac apps
   RAKit/                 Swift package: protocol, network client, stores

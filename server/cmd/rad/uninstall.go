@@ -3,12 +3,9 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -218,36 +215,8 @@ func (r *removal) describe() {
 
 // running returns the address of this install's server if it answers.
 func (r *removal) running() string {
-	var hosts []string
-	if len(r.cfg.Listen) > 0 {
-		hosts = r.cfg.Listen
-	} else {
-		hosts = []string{net.JoinHostPort("127.0.0.1", fmt.Sprint(r.cfg.Port))}
-	}
-	client := http.Client{Timeout: 2 * time.Second}
-	for _, hp := range hosts {
-		host, port, err := net.SplitHostPort(hp)
-		if err != nil {
-			continue
-		}
-		if ip := net.ParseIP(host); host == "" || ip != nil && ip.IsUnspecified() {
-			hp = net.JoinHostPort("127.0.0.1", port)
-		}
-		resp, err := client.Get("http://" + hp + "/v1/health")
-		if err != nil {
-			continue
-		}
-		var info struct {
-			ServerID string `json:"serverId"`
-		}
-		json.NewDecoder(resp.Body).Decode(&info)
-		resp.Body.Close()
-		// Another install (another RAD_HOME) may be using the port.
-		if r.serverID == "" || info.ServerID == r.serverID {
-			return "http://" + hp
-		}
-	}
-	return ""
+	addr, _ := health(r.cfg, r.serverID)
+	return addr
 }
 
 // waitStopped gives the stopped service time to exit; it returns the address

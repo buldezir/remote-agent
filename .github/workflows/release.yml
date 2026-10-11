@@ -141,12 +141,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
           NOTES: |
-            - **rad** (`rad-<os>-<arch>.tar.gz`): the server for Linux and macOS. Unpack it, put `rad` on your PATH and run `rad serve`.
+            - **rad** (`rad-<os>-<arch>.tar.gz`): the server for Linux and macOS. Unpack it, put `rad` on your PATH and run `rad serve`. From then on, `rad update` installs new releases.
             - **Remote Agent** (`Remote-Agent-macOS-arm64.zip`): the client app for the Mac.
             - **Remote Agent Server** (`Remote-Agent-Server-macOS-arm64.zip`): the menu bar app that runs rad on a Mac.
             - **Web client**: the Docker image `ghcr.io/buldezir/remote-agent-web`, tagged `latest` and with the version, such as `0.2.0`. `web/compose.example.yaml` runs it.
 
-            Both Mac apps need macOS 27 on Apple silicon. They are signed ad hoc, not notarized, so macOS blocks their first launch: allow them under System Settings › Privacy & Security, or run `xattr -dr com.apple.quarantine` on the app. After each update, macOS asks again for the Server app's permissions and for the client's access to its saved pairing tokens.
+            Both Mac apps need macOS 27 on Apple silicon. They are signed ad hoc, not notarized, so macOS blocks their first launch: allow them under System Settings › Privacy & Security, or run `xattr -dr com.apple.quarantine` on the app. After each update, macOS asks again for the Server app's permissions and for the client's access to its saved pairing tokens. To update only rad, and keep those permissions, use **Update rad** in the Server app's menu.
         run: |
           sums=$(sha256sum *) && echo "$sums" > SHA256SUMS
           if gh release view "$TAG" > /dev/null 2>&1; then

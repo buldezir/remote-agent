@@ -72,7 +72,7 @@ struct PairView: View {
     private func newCode() async {
         copied = false
         do {
-            let result = try await RadSupervisor.run(["pair", "--print-url"] + (lan ? ["--lan"] : []), environment: rad.environment)
+            let result = try await RadSupervisor.run(["pair", "--print-url"] + (lan ? ["--lan"] : []), environment: rad.environment, executable: rad.executable)
             let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
             // The link is the last line; a note about pair_urls may come first.
             if result.status == 0, let line = output.split(separator: "\n").last, line.hasPrefix("remoteagent://") {

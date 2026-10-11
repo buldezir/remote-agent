@@ -43,6 +43,7 @@ Usage:
   rad debug <cmd> ...            CLI client for testing (run "rad debug" for help)
   rad install-service [--uninstall]
                                  keep rad running in the background (launchd on macOS, systemd on Linux)
+  rad update [--check] [--now]   install the latest release and restart the background service
   rad uninstall [--yes]          remove rad's service, config, data, worktrees and checkpoint refs
   rad version
 `
@@ -64,6 +65,8 @@ func main() {
 		err = debug(os.Args[2:])
 	case "install-service", "install-launchagent":
 		err = installService(os.Args[2:])
+	case "update":
+		err = updateRad(os.Args[2:])
 	case "uninstall":
 		err = uninstall(os.Args[2:])
 	case "version", "--version", "-v":

@@ -30,9 +30,9 @@ private struct AgentsLine: Decodable {
     let agents: [AgentInfo]
 }
 
-/// Runs the bundled rad as this app's child, so macOS attributes rad and
-/// every agent it starts to this app when it asks for permissions. Restarts
-/// rad if it dies, and stops it when the app quits.
+/// Runs rad as this app's child, so macOS attributes rad and every agent it
+/// starts to this app when it asks for permissions. Restarts rad if it dies,
+/// and stops it when the app quits.
 @MainActor @Observable
 final class RadSupervisor {
     enum State: Equatable {
@@ -50,6 +50,11 @@ final class RadSupervisor {
     private(set) var agents: [AgentInfo]?
     /// The login-shell environment rad last started with.
     private(set) var environment = ProcessInfo.processInfo.environment
+    /// The rad binary that runs, or last ran, and its version (RadBinary).
+    private(set) var executable = RadBinary.bundled
+    private(set) var version = RadBinary.bundledVersion
+    /// Why rad went back to the bundled copy, after a download didn't start.
+    private(set) var note: String?
 
     let logURL: URL = {
         if let home = ProcessInfo.processInfo.environment["RAD_HOME"] {
@@ -70,8 +75,8 @@ final class RadSupervisor {
     @ObservationIgnored private var restartDelay: TimeInterval = 1
     @ObservationIgnored private var restartTask: Task<Void, Never>?
     @ObservationIgnored private var activity: NSObjectProtocol?
-
-    nonisolated static let radURL = Bundle.main.url(forAuxiliaryExecutable: "rad")!
+    /// rad said it was ready since it was last launched.
+    @ObservationIgnored private var wasReady = false
 
     /// rad or a start is under way.
     var isActive: Bool { process != nil || launching }
@@ -82,6 +87,7 @@ final class RadSupervisor {
         launching = true
         state = .starting
         environment = await LoginShell.environment()
+        (executable, version) = RadBinary.choose()
         launching = false
         launch()
     }
@@ -106,12 +112,13 @@ final class RadSupervisor {
     }
 
     func restart() {
+        note = nil
         stop { Task { await self.start() } }
     }
 
     private func launch() {
         let p = Process()
-        p.executableURL = Self.radURL
+        p.executableURL = executable
         p.arguments = ["serve", "--supervised"]
         p.environment = environment
         let lifeline = Pipe(), output = Pipe()
@@ -131,6 +138,7 @@ final class RadSupervisor {
         process = p
         self.lifeline = lifeline
         startedAt = Date()
+        wasReady = false
         activity = ProcessInfo.processInfo.beginActivity(
             options: .userInitiatedAllowingIdleSystemSleep, reason: "rad is serving agents")
     }
@@ -141,6 +149,7 @@ final class RadSupervisor {
         case "ready":
             ready = try? JSONDecoder().decode(ReadyStatus.self, from: line)
             state = .running
+            wasReady = true
         case "agents":
             agents = (try? JSONDecoder().decode(AgentsLine.self, from: line))?.agents
         default:
@@ -169,6 +178,13 @@ final class RadSupervisor {
             return
         }
         state = .failed(message)
+        if executable != RadBinary.bundled && !wasReady {
+            // A downloaded rad that never got going goes, rather than
+            // failing again and again; the bundled one takes over.
+            note = "rad \(version) didn't start (\(message)), so the app went back to rad \(RadBinary.bundledVersion)."
+            RadBinary.discard(executable)
+            restartDelay = 1
+        }
         if Date().timeIntervalSince(startedAt) > 60 { restartDelay = 1 }
         let delay = restartDelay
         restartDelay = min(restartDelay * 2, 60)
@@ -231,10 +247,12 @@ final class RadSupervisor {
         }
     }
 
-    /// Runs the bundled rad to completion, e.g. `rad pair --print-url`.
-    nonisolated static func run(_ arguments: [String], environment: [String: String]) async throws -> (status: Int32, output: String) {
+    /// Runs rad to completion, e.g. `rad pair --print-url`.
+    nonisolated static func run(
+        _ arguments: [String], environment: [String: String], executable: URL = RadBinary.bundled
+    ) async throws -> (status: Int32, output: String) {
         let p = Process()
-        p.executableURL = radURL
+        p.executableURL = executable
         p.arguments = arguments
         p.environment = environment
         let output = Pipe()
