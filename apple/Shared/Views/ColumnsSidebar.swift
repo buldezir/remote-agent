@@ -101,11 +101,17 @@ struct SessionListColumn: View {
     var body: some View {
         let items = collection.sessions(in: store)
         List(selection: $selection) {
-            ForEach(items) { item in
-                SessionLink(item: item, selected: selection == item.id, background: Palette.base) {
-                    SessionListRow(item: item, showsServer: store.servers.count > 1)
+            // On the Mac, a row added to a list without sections keeps the
+            // table's default height, one line, and the next row covers the
+            // rest: a new session, or one that starts running. In a section
+            // it is measured.
+            Section {
+                ForEach(items) { item in
+                    SessionLink(item: item, selected: selection == item.id, background: Palette.base) {
+                        SessionListRow(item: item, showsServer: store.servers.count > 1)
+                    }
+                    .listRowSeparator(.hidden)
                 }
-                .listRowSeparator(.hidden)
             }
         }
         #if os(macOS)
