@@ -176,8 +176,9 @@ xcrun simctl io booted screenshot /tmp/shot.png
 xcrun simctl spawn booted log show --last 2m --predicate 'subsystem == "dev.remote-agent.app"'
 ```
 
-- **The simulator's window:** Xcode 27 has no Simulator.app. The simulators show in **DeviceHub** (`/Applications/Xcode.app/Contents/Applications/DeviceHub.app`, bundle id `com.apple.dt.Devices`); `simctl` works without it.
+- **The simulator's window:** Xcode 27 has no Simulator.app. The simulators show in **DeviceHub** (`/Applications/Xcode.app/Contents/Applications/DeviceHub.app`, bundle id `com.apple.dt.Devices`); `simctl` works without it. Open it with `open -a "Device Hub"`: opened by its path, or with `-g`, it can run without a window.
 - **Tapping:** DeviceHub doesn't pass the app's accessibility tree to the Mac's AX API, but it takes clicks, with Accessibility access:
+  - Reach it by its pid, `pgrep -x DeviceHub`, with `AXUIElementCreateApplication(pid)`. Looked up by bundle id, `NSRunningApplication` can return a process whose element has no attributes. Its sidebar lists the devices; setting `AXSelected` on a device's `AXOutlineRow` shows that device.
   - Its `AXGroup` with the subrole `iOSContentGroup` is the device's screen. Map a point on the device (iPhone 17: 402×874 points; `simctl io … screenshot` is in pixels, 3×) to the screen as `origin + point / deviceSize × size` of that element's frame.
   - Bring DeviceHub to the front, and post a mouse down and up there with `CGEvent(…).post(tap: .cghidEventTap)`. This moves the Mac's pointer.
   - Keys arrive as key codes: a key event's Unicode string is ignored, so type with each character's virtual key code.
