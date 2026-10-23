@@ -333,11 +333,15 @@ struct SessionView: View {
 
     @ViewBuilder private var commandSuggestions: some View {
         if composerFocused, SlashCommand.query(store.draft) != nil, !commandsDismissed, session?.archived != true {
-            if !suggestions.isEmpty {
+            let list = suggestions
+            if let first = list.first {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, command in
+                            // Rows are known by the command, never by their
+                            // place: a lazy stack keeps a row's old command
+                            // when the list it shows filters.
+                            ForEach(Array(list.enumerated()), id: \.element.id) { index, command in
                                 Button { completeCommand(command) } label: {
                                     HStack(alignment: .top, spacing: 8) {
                                         VStack(alignment: .leading, spacing: 2) {
@@ -359,14 +363,15 @@ struct SessionView: View {
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .id(index)
                             }
                         }
                     }
                     .frame(maxHeight: 220)
-                    .onChange(of: store.draft) { _, _ in proxy.scrollTo(0, anchor: .top) }
-                    .onChange(of: suggestions) { _, _ in proxy.scrollTo(0, anchor: .top) }
-                    .onChange(of: commandIndex) { _, index in proxy.scrollTo(index) }
+                    .onChange(of: store.draft) { _, _ in proxy.scrollTo(first.id, anchor: .top) }
+                    .onChange(of: list) { _, _ in proxy.scrollTo(first.id, anchor: .top) }
+                    .onChange(of: commandIndex) { _, index in
+                        if list.indices.contains(index) { proxy.scrollTo(list[index].id) }
+                    }
                 }
                 .background(Palette.mantle, in: RoundedRectangle(cornerRadius: Metrics.Corner.field))
                 .accessibilityLabel("Command suggestions")
