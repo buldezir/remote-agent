@@ -21,14 +21,16 @@ type skill struct {
 	} `json:"interface"`
 }
 
-func (r *runtime) skills(ctx context.Context) ([]skill, error) {
+// skills lists the workspace's skills; refresh has Codex read them from disk
+// again. A successful lookup becomes the catalog that Prompt resolves from.
+func (r *runtime) skills(ctx context.Context, refresh bool) ([]skill, error) {
 	var res struct {
 		Data []struct {
 			Cwd    string  `json:"cwd"`
 			Skills []skill `json:"skills"`
 		} `json:"data"`
 	}
-	if err := r.conn.Call(ctx, "skills/list", map[string]any{"cwds": []string{r.cwd}, "forceReload": true}, &res); err != nil {
+	if err := r.conn.Call(ctx, "skills/list", map[string]any{"cwds": []string{r.cwd}, "forceReload": refresh}, &res); err != nil {
 		return nil, err
 	}
 	var out []skill
@@ -46,13 +48,13 @@ func (r *runtime) skills(ctx context.Context) ([]skill, error) {
 		}
 	}
 	r.mu.Lock()
-	r.skillCatalog = out
+	r.skillCatalog, r.skillsLoaded = out, true
 	r.mu.Unlock()
 	return out, nil
 }
 
 func (r *runtime) Commands(ctx context.Context) ([]model.Command, error) {
-	skills, err := r.skills(ctx)
+	skills, err := r.skills(ctx, true)
 	if err != nil {
 		return nil, err
 	}
@@ -69,10 +71,10 @@ func (r *runtime) Commands(ctx context.Context) ([]model.Command, error) {
 
 // skillInput resolves only a leading explicit invocation, preserving arguments and images.
 func skillInput(text string, skills []skill) (string, map[string]any) {
-	trimmed := strings.TrimLeftFunc(text, unicode.IsSpace)
-	if !strings.HasPrefix(trimmed, "/") && !strings.HasPrefix(trimmed, "$") {
+	if !invokes(text) {
 		return text, nil
 	}
+	trimmed := strings.TrimLeftFunc(text, unicode.IsSpace)
 	for _, s := range skills {
 		for _, prefix := range []string{"/", "$"} {
 			rest, ok := strings.CutPrefix(trimmed, prefix+s.Name)
@@ -82,6 +84,12 @@ func skillInput(text string, skills []skill) (string, map[string]any) {
 		}
 	}
 	return text, nil
+}
+
+// invokes reports whether text starts the way a skill invocation does.
+func invokes(text string) bool {
+	trimmed := strings.TrimLeftFunc(text, unicode.IsSpace)
+	return strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "$")
 }
 
 func resolvedPath(path string) string {

@@ -335,6 +335,25 @@ func TestRevertNoteKeepsExplicitCommandFirst(t *testing.T) {
 	}
 }
 
+func TestRevertNoteWaitsOutCompact(t *testing.T) {
+	h := &observedCommandHarness{supported: true, prompts: make(chan harness.Input, 2)}
+	e := newEnvAt(t, t.TempDir(), false, h)
+	s := e.create(CreateSessionParams{})
+	const note = "[Note from the user's tooling: files reverted]"
+	a, _ := e.o.actor(bg, s.ID)
+	a.mu.Lock()
+	a.note = note
+	a.mu.Unlock()
+	e.prompt(s.ID, "/compact", "compact-after-revert")
+	if input := <-h.prompts; input.Text != "/compact" {
+		t.Fatalf("compact took the note: %q", input.Text)
+	}
+	e.prompt(s.ID, "go on", "after-compact")
+	if input := <-h.prompts; input.Text != note+"\n\ngo on" {
+		t.Fatalf("note lost after compact: %q", input.Text)
+	}
+}
+
 func TestExpiredOpenDoesNotRetryResume(t *testing.T) {
 	h := &observedCommandHarness{openGate: make(chan struct{})}
 	e := newEnvAt(t, t.TempDir(), false, h)

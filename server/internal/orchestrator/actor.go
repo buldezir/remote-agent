@@ -236,7 +236,10 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 		return err
 	}
 	in := q.input
-	if a.note != "" {
+	// The note waits out a /compact for the next prompt: Codex compacts
+	// without the prompt's text, and Claude and Pi take it as instructions
+	// for the summary.
+	if _, compact := in.Command(harness.Compact.Name); a.note != "" && !compact {
 		if strings.HasPrefix(strings.TrimSpace(in.Text), "/") || strings.HasPrefix(strings.TrimSpace(in.Text), "$") {
 			in.Text = strings.TrimSpace(in.Text) + "\n\n" + a.note
 		} else {

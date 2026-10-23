@@ -93,9 +93,9 @@ func TestReplaySkillCatalogLifecycle(t *testing.T) {
 		wantLookups      int
 		wantPath         string
 	}{
-		{name: "without picker", transcript: "skills.ndjson", wantLookups: 0},
+		{name: "without picker", transcript: "skills.ndjson", wantLookups: 1, wantPath: "prototype/SKILL.md"},
 		{name: "explicit refresh", transcript: "skills-refresh.ndjson", refreshes: 2, wantLookups: 2, wantPath: "refreshed/SKILL.md"},
-		{name: "failed discovery", transcript: "skills-unavailable.ndjson", refreshes: 1, lookupFails: true, wantLookups: 1},
+		{name: "failed discovery", transcript: "skills-unavailable.ndjson", refreshes: 1, lookupFails: true, wantLookups: 2},
 		{name: "empty catalog", transcript: "skills-empty.ndjson", refreshes: 1, wantLookups: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,7 +122,8 @@ func TestReplaySkillCatalogLifecycle(t *testing.T) {
 			for _, f := range sent {
 				if f["method"] == "skills/list" {
 					lookups++
-					if f["params"].(map[string]any)["forceReload"] != (tc.refreshes > 0) {
+					// The picker reloads; a lookup on Send doesn't.
+					if f["params"].(map[string]any)["forceReload"] != (lookups <= tc.refreshes) {
 						t.Errorf("unexpected refresh mode: %+v", f)
 					}
 				}

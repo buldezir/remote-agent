@@ -392,13 +392,13 @@ func (o *Orchestrator) Archive(ctx context.Context, sessionID string, removeWork
 	if err != nil {
 		return err
 	}
-	if err := a.archive(ctx, removeWorktree); err != nil {
-		return err
-	}
+	err = a.archive(ctx, removeWorktree)
+	// The actor refuses prompts now; if the store didn't take the archive,
+	// the next command loads the session afresh.
 	o.mu.Lock()
 	delete(o.actors, sessionID)
 	o.mu.Unlock()
-	return nil
+	return err
 }
 
 // Delete removes a session for good, archived or not: its agent stops, and

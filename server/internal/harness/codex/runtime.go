@@ -45,6 +45,7 @@ type runtime struct {
 	requests     map[string]*serverRequest // approval id -> request
 	nextReq      int
 	skillCatalog []skill
+	skillsLoaded bool
 
 	// Read-loop state.
 	items      map[string]*model.Item
@@ -101,14 +102,21 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	var input []map[string]any
 	text := in.Text
 	r.mu.Lock()
-	catalog := r.skillCatalog
+	catalog, loaded := r.skillCatalog, r.skillsLoaded
 	r.mu.Unlock()
+	if !loaded && invokes(text) {
+		// Nothing has listed the skills since Codex started, as with a draft
+		// sent after a restart: look them up, briefly. A failure isn't kept,
+		// so the next such prompt tries again.
+		lookup, cancel := context.WithTimeout(ctx, 3*time.Second)
+		catalog, _ = r.skills(lookup, false)
+		cancel()
+	}
 	var selected map[string]any
 	text, selected = skillInput(text, catalog)
 	if selected != nil {
 		input = append(input, selected)
 	}
-
 	for _, img := range in.Images {
 		input = append(input, map[string]any{"type": "localImage", "path": img.Path})
 	}
