@@ -14,6 +14,7 @@ struct ServerSplitView: View {
     @AppStorage("openSession") private var openSession = ""
     /// The Columns layout's collection, as `SessionCollection.stored`.
     @AppStorage("sessionCollection") private var openCollection = ""
+    @AppStorage(RecentSessions.key) private var recentSessions = ""
     @State private var showAdd = false
     @State private var newSession: NewSessionRequest?
     @State private var archiving: SessionRequest?
@@ -22,6 +23,8 @@ struct ServerSplitView: View {
     @State private var managing: ServerRequest?
     #if os(macOS)
     @Environment(Notifier.self) private var notifier
+    #else
+    @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
 
     /// The open session, while its server is still paired.
@@ -35,8 +38,25 @@ struct ServerSplitView: View {
         Binding { route } set: { openSession = $0.map { "\($0.serverID) \($0.sessionID)" } ?? "" }
     }
 
+    /// The Columns layout's collection.
+    private var current: SessionCollection { SessionCollection(stored: openCollection) ?? .all }
+
+    /// The sidebar's selection. The list may set nil, which leaves the
+    /// collection as it is.
     private var collection: Binding<SessionCollection?> {
-        Binding { SessionCollection(stored: openCollection) ?? .all } set: { openCollection = $0?.stored ?? "" }
+        Binding { current } set: { if let c = $0 { choose(c) } }
+    }
+
+    /// Chosen in the sidebar: the session beside it is one of the
+    /// collection's, the one opened last, else its first.
+    private func choose(_ c: SessionCollection) {
+        guard c != current else { return }
+        openCollection = c.stored
+        #if os(iOS)
+        // Collapsed into a stack, a session would be pushed over the list.
+        guard sizeClass == .regular else { return }
+        #endif
+        selection.wrappedValue = c.sessionToOpen(in: store, recent: RecentSessions.routes(recentSessions))
     }
 
     private func connection(_ route: SessionRoute) -> ServerConnection? {
@@ -50,11 +70,12 @@ struct ServerSplitView: View {
         return connection.indexSynced && connection.sessions[route.sessionID] == nil
     }
 
-    /// The Columns layout's project is no longer on the server, as when it was
-    /// forgotten, here or on another device. Only the synced index can tell.
+    /// The Columns layout's project is no longer there: it was forgotten, here
+    /// or on another device, or its server was removed. Only the synced index
+    /// can tell that it was forgotten.
     private var collectionProjectGone: Bool {
-        guard case .project(let serverID, let projectID) = collection.wrappedValue,
-              let server = store.servers.first(where: { $0.id == serverID }) else { return false }
+        guard case .project(let serverID, let projectID) = current else { return false }
+        guard let server = store.servers.first(where: { $0.id == serverID }) else { return true }
         let c = store.connection(for: server)
         return c.indexSynced && c.projects[projectID] == nil
     }
@@ -63,13 +84,23 @@ struct ServerSplitView: View {
     /// button: in the Columns layout's project, else on the open session's
     /// server, else on the first one connected.
     private var newSessionTarget: NewSessionRequest? {
-        store.newSessionTarget(in: layout == .columns ? collection.wrappedValue : nil, beside: route)
+        store.newSessionTarget(in: layout == .columns ? current : nil, beside: route)
+    }
+
+    /// In the Columns layout, a session asked for on the chosen project's
+    /// server, as from its header, starts in that project.
+    private func inChosenProject(_ request: NewSessionRequest) -> NewSessionRequest {
+        guard layout == .columns, request.projectID.isEmpty, case .project(let server, let project) = current,
+              request.connection.server.id == server, request.connection.projects[project] != nil else { return request }
+        var request = request
+        request.projectID = project
+        return request
     }
 
     var body: some View {
         split
             .environment(\.sessionActions, SessionActions(
-                startSession: { newSession = $0 },
+                startSession: { newSession = inChosenProject($0) },
                 archive: { archiving = $0 },
                 delete: { deleting = $0 },
                 remove: { removing = $0 },
@@ -108,7 +139,10 @@ struct ServerSplitView: View {
             }
             .onChange(of: revealKey, initial: true) { _, _ in reveal() }
             .onChange(of: collectionProjectGone, initial: true) { _, gone in
-                if gone { collection.wrappedValue = .all }
+                if gone { openCollection = SessionCollection.all.stored }
+            }
+            .onChange(of: route, initial: true) { _, route in
+                if let route { recentSessions = RecentSessions.adding(route, to: recentSessions) }
             }
             #if os(macOS)
             .onChange(of: route, initial: true) { _, route in notifier.shown = route }
@@ -135,7 +169,7 @@ struct ServerSplitView: View {
                     .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
                     #endif
             } content: {
-                SessionListColumn(collection: collection.wrappedValue ?? .all, selection: selection)
+                SessionListColumn(collection: current, selection: selection)
                     .archiveSessionDialog($archiving)
                     .deleteSessionDialog($deleting)
                     #if os(macOS)
@@ -203,12 +237,11 @@ struct ServerSplitView: View {
 
     /// In three columns, a session opened from elsewhere, such as the one open
     /// last, a notification or a new session, shows in the list: when the
-    /// collection doesn't have it, All Sessions or Archived does.
+    /// collection doesn't have it, its project or Archived does.
     private func reveal() {
-        guard layout == .columns, let route, let s = connection(route)?.sessions[route.sessionID] else { return }
-        let current = collection.wrappedValue ?? .all
+        guard layout == .columns, let route, let c = connection(route), let s = c.sessions[route.sessionID] else { return }
         if !current.sessions(in: store).contains(where: { $0.id == route }) {
-            collection.wrappedValue = s.archived ? .archived : .all
+            openCollection = ServerSession(connection: c, session: s).collection.stored
         }
     }
 }

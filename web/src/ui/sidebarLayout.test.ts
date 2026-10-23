@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { Session } from "../protocol/models";
-import { isBusy, mostPressing, needsYou, parseCollection, shortAge, storedCollection, type SessionCollection } from "./sidebarLayout";
+import type { ServerConnection } from "../store/serverConnection";
+import {
+  addingRecent,
+  isBusy,
+  mostPressing,
+  needsYou,
+  parseCollection,
+  recentSessions,
+  revealCollection,
+  sessionToOpen,
+  shortAge,
+  storedCollection,
+  type ServerSession,
+  type SessionCollection,
+} from "./sidebarLayout";
 
 const session = (patch: Partial<Session>): Session => ({
   id: "s",
@@ -61,5 +75,32 @@ describe("sidebar layouts", () => {
     expect(shortAge(now - 3 * 3600_000, now)).toBe("3h");
     expect(shortAge(now - 2 * 86_400_000, now)).toBe("2d");
     expect(shortAge(now - 30 * 86_400_000, now)).not.toMatch(/d$/);
+  });
+
+  it("reveals a session in its project, or in the archive", () => {
+    const connection = { server: { id: "srv" }, projects: new Map([["p", { id: "p", name: "p" }]]) } as unknown as ServerConnection;
+    expect(revealCollection({ connection, session: session({}) })).toEqual({ kind: "project", serverID: "srv", projectID: "p" });
+    expect(revealCollection({ connection, session: session({ archived: true }) })).toEqual({ kind: "archived" });
+    expect(revealCollection({ connection, session: session({ projectId: "forgotten" }) })).toEqual({ kind: "all" });
+  });
+
+  it("opens a collection's session opened last, else its first", () => {
+    const connection = { server: { id: "srv" } } as unknown as ServerConnection;
+    const items: ServerSession[] = ["a", "b", "c"].map((id) => ({ connection, session: session({ id }) }));
+    expect(sessionToOpen(items, [])?.session.id).toBe("a");
+    expect(sessionToOpen(items, ["srv x", "srv c", "srv b"])?.session.id).toBe("c");
+    expect(sessionToOpen(items, ["other c"])?.session.id).toBe("a");
+    expect(sessionToOpen([], ["srv c"])).toBeUndefined();
+  });
+
+  it("keeps the sessions opened lately, the latest first", () => {
+    let stored = addingRecent(null, "srv a");
+    stored = addingRecent(stored, "srv b");
+    stored = addingRecent(stored, "srv a");
+    expect(recentSessions(stored)).toEqual(["srv a", "srv b"]);
+    for (let i = 0; i < 150; i++) stored = addingRecent(stored, `srv ${i}`);
+    expect(recentSessions(stored)).toHaveLength(100);
+    expect(recentSessions(stored)[0]).toBe("srv 149");
+    expect(recentSessions(null)).toEqual([]);
   });
 });

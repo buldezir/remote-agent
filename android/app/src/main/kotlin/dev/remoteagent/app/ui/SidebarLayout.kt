@@ -100,6 +100,17 @@ class ServerSession(val server: ServerState, val session: Session) {
     /** For the lists' keys. */
     val id = "${server.id}/${session.id}"
     val project: Project? get() = server.projects[session.projectId]
+
+    /**
+     * Where the Columns layout shows the session when the chosen collection
+     * doesn't have it: in its project, or in the archive.
+     */
+    val collection: SessionCollection
+        get() = when {
+            session.archived -> SessionCollection.Archived
+            project == null -> SessionCollection.All
+            else -> SessionCollection.Project(server.id, session.projectId)
+        }
 }
 
 /** Waiting for an answer, or failed: what a person has to look at. */
@@ -201,6 +212,12 @@ sealed interface SessionCollection {
         }
     }
 
+    /** The session to open on choosing the collection: of its sessions, the one opened last, else its first. */
+    fun sessionToOpen(servers: List<ServerState>, recent: List<SessionKey>): SessionKey? {
+        val keys = sessions(servers).map { it.key }
+        return recent.firstOrNull { it in keys } ?: keys.firstOrNull()
+    }
+
     fun title(servers: List<ServerState>): String = when (this) {
         NeedsYou -> "Needs You"
         Running -> "Running"
@@ -221,5 +238,24 @@ sealed interface SessionCollection {
                 else -> null
             }
         }
+    }
+}
+
+/**
+ * The sessions opened lately, the latest first, kept on this device as lines
+ * of "<server id> <session id>". Choosing a collection in the Columns layout
+ * opens the one of its sessions opened last.
+ */
+object RecentSessions {
+    const val LIMIT = 100
+
+    fun keys(stored: String): List<SessionKey> = stored.lines().mapNotNull { line ->
+        line.split(' ').takeIf { it.size == 2 }?.let { SessionKey(it[0], it[1]) }
+    }
+
+    /** The list with [key] first. */
+    fun adding(key: SessionKey, stored: String): String {
+        val line = "${key.serverId} ${key.sessionId}"
+        return (listOf(line) + stored.lines().filter { it.isNotEmpty() && it != line }).take(LIMIT).joinToString("\n")
     }
 }

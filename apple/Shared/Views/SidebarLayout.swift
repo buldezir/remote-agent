@@ -81,6 +81,35 @@ struct ServerSession: Identifiable {
     }
 
     @MainActor var project: Project? { connection.projects[session.projectId] }
+
+    /// Where the Columns layout shows the session when the chosen collection
+    /// doesn't have it: in its project, or in the archive.
+    @MainActor var collection: SessionCollection {
+        if session.archived { return .archived }
+        return project == nil ? .all : .project(serverID: connection.server.id, projectID: session.projectId)
+    }
+}
+
+/// The sessions opened lately, the latest first, kept on this device as
+/// lines of "<server id> <session id>". Choosing a collection in the Columns
+/// layout opens the one of its sessions opened last.
+enum RecentSessions {
+    static let key = "recentSessions"
+    static let limit = 100
+
+    static func routes(_ stored: String) -> [SessionRoute] {
+        stored.split(separator: "\n").compactMap { line in
+            let ids = line.split(separator: " ")
+            return ids.count == 2 ? SessionRoute(serverID: String(ids[0]), sessionID: String(ids[1])) : nil
+        }
+    }
+
+    /// The list with `route` first.
+    static func adding(_ route: SessionRoute, to stored: String) -> String {
+        let line = "\(route.serverID) \(route.sessionID)"
+        let rest = stored.split(separator: "\n").filter { $0 != line }.prefix(limit - 1)
+        return ([line[...]] + rest).joined(separator: "\n")
+    }
 }
 
 extension Session {
@@ -186,6 +215,13 @@ enum SessionCollection: Hashable {
         case .project(let server, let project):
             store.sessions(archived: false).filter { $0.connection.server.id == server && $0.session.projectId == project }
         }
+    }
+
+    /// The session to open on choosing the collection: of its sessions, the
+    /// one opened last, else its first.
+    @MainActor func sessionToOpen(in store: ServerStore, recent: [SessionRoute]) -> SessionRoute? {
+        let ids = sessions(in: store).map(\.id)
+        return recent.first(where: ids.contains) ?? ids.first
     }
 
     @MainActor func title(in store: ServerStore) -> String {

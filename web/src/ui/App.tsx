@@ -18,7 +18,17 @@ import { reconnect, serverSettingsEntry, SessionsSidebar, type ServerActions } f
 import { ServerSettingsView } from "./ServerSettings";
 import { ArchiveConfirm, DeleteConfirm } from "./SessionRow";
 import { useSettings } from "./settings";
-import { collectionSessions, parseCollection, storedCollection, type SessionCollection } from "./sidebarLayout";
+import {
+  addingRecent,
+  collectionSessions,
+  parseCollection,
+  recentSessions,
+  revealCollection,
+  sameCollection,
+  sessionToOpen,
+  storedCollection,
+  type SessionCollection,
+} from "./sidebarLayout";
 import { SessionView } from "./SessionView";
 import { SettingsView } from "./SettingsView";
 
@@ -170,12 +180,38 @@ function Root() {
 /** The iPad and Mac layout: every server's sessions in the sidebar, the
  *  chosen session beside them, or in the Columns layout, a list of sessions
  *  between the two. */
-function Split({ route, connection, actions }: { route: Route; connection: ServerConnection | undefined; actions: ServerActions }) {
+function Split({ route, connection, actions: given }: { route: Route; connection: ServerConnection | undefined; actions: ServerActions }) {
   const store = useServerStore();
   const { sidebarLayout: layout } = useSettings();
   const connections = store.servers.map((s) => store.connection(s));
   useObservedAll(connections);
   const [collection, setCollection] = useCollection();
+
+  // In the Columns layout, a session asked for on the chosen project's
+  // server, as from its header, starts in that project.
+  const actions: ServerActions =
+    layout === "columns" && collection.kind === "project"
+      ? {
+          ...given,
+          newSession: (c, projectID) =>
+            given.newSession(c, projectID ?? (c.server.id === collection.serverID && c.projects.has(collection.projectID) ? collection.projectID : undefined)),
+        }
+      : given;
+
+  // The sessions opened lately, kept in this browser, so that choosing a
+  // collection opens the one of its sessions opened last.
+  useEffect(() => {
+    if (route.serverID && route.sessionID) storage.set(recentKey, addingRecent(storage.get(recentKey), `${route.serverID} ${route.sessionID}`));
+  }, [route.serverID, route.sessionID]);
+
+  // Chosen in the sidebar: the session beside it is one of the collection's,
+  // the one opened last, else its first.
+  const choose = (c: SessionCollection) => {
+    if (sameCollection(c, collection)) return;
+    setCollection(c);
+    const open = sessionToOpen(collectionSessions(c, store), recentSessions(storage.get(recentKey)));
+    navigate(open ? { serverID: open.connection.server.id, sessionID: open.session.id } : { serverID: route.serverID });
+  };
 
   // Every server connects; one that was given up on waits for a click.
   useEffect(() => {
@@ -184,12 +220,12 @@ function Split({ route, connection, actions }: { route: Route; connection: Serve
 
   // In three columns, a session opened from elsewhere, such as a link or a
   // new session, shows in the list: when the collection doesn't have it,
-  // All Sessions or Archived does.
+  // its project or Archived does.
   const open = connection && route.sessionID ? connection.sessions.get(route.sessionID) : undefined;
   useEffect(() => {
     if (layout !== "columns" || !open || !connection) return;
     const shown = collectionSessions(collection, store).some((i) => i.connection === connection && i.session.id === open.id);
-    if (!shown) setCollection({ kind: open.archived ? "archived" : "all" });
+    if (!shown) setCollection(revealCollection({ connection, session: open }));
   }, [layout, connection?.server.id, open?.id, open?.archived]);
 
   // The open session is no longer on the server, as when it was deleted,
@@ -200,11 +236,11 @@ function Split({ route, connection, actions }: { route: Route; connection: Serve
     if (gone) navigate({ serverID: route.serverID }, true);
   }, [gone]);
 
-  // The Columns layout's project is no longer on the server, as when it was
-  // forgotten, here or on another device, so All Sessions shows instead.
-  // Only the synced index can tell.
+  // The Columns layout's project is no longer there: it was forgotten, here
+  // or on another device, or its server was removed. All Sessions shows
+  // instead. Only the synced index can tell that it was forgotten.
   const chosen = collection.kind === "project" ? connections.find((c) => c.server.id === collection.serverID) : undefined;
-  const projectGone = collection.kind === "project" && !!chosen?.indexSynced && !chosen.projects.has(collection.projectID);
+  const projectGone = collection.kind === "project" && (!chosen || (chosen.indexSynced && !chosen.projects.has(collection.projectID)));
   useEffect(() => {
     if (projectGone) setCollection({ kind: "all" });
   }, [projectGone]);
@@ -230,7 +266,7 @@ function Split({ route, connection, actions }: { route: Route; connection: Serve
     return (
       <div className="split columns">
         <aside className="sidebar">
-          <CollectionsSidebar collection={collection} setCollection={setCollection} actions={actions} />
+          <CollectionsSidebar collection={collection} setCollection={choose} actions={actions} />
         </aside>
         <section className="session-column" aria-label="Sessions">
           <SessionListColumn collection={collection} route={route} actions={actions} />
@@ -250,6 +286,7 @@ function Split({ route, connection, actions }: { route: Route; connection: Serve
 }
 
 const collectionKey = "sessionCollection";
+const recentKey = "recentSessions";
 
 /** The Columns layout's collection, kept across visits. */
 function useCollection() {

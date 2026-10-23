@@ -1,5 +1,6 @@
 package dev.remoteagent.app
 
+import dev.remoteagent.app.ui.RecentSessions
 import dev.remoteagent.app.ui.ServerSession
 import dev.remoteagent.app.ui.ServerState
 import dev.remoteagent.app.ui.SessionCollection
@@ -140,6 +141,35 @@ class SidebarTests {
         assertEquals("name-p2", SessionCollection.Project("a", "p2").title(servers))
         assertEquals("Project", SessionCollection.Project("z", "p2").title(servers))
         assertEquals("All Sessions", SessionCollection.All.title(servers))
+    }
+
+    @Test
+    fun sessionsShowInTheirProjectOrTheArchive() {
+        val a = servers[0]
+        assertEquals(SessionCollection.Project("a", "p2"), ServerSession(a, a.sessions.getValue("error")).collection)
+        assertEquals(SessionCollection.Archived, ServerSession(a, a.sessions.getValue("old")).collection)
+        assertEquals(SessionCollection.All, ServerSession(a, session("lost", 1, project = "forgotten")).collection)
+    }
+
+    @Test
+    fun choosingACollectionOpensItsSessionOpenedLast() {
+        val p2 = SessionCollection.Project("a", "p2")
+        assertEquals(SessionKey("a", "running"), p2.sessionToOpen(servers, emptyList()))
+        assertEquals(SessionKey("a", "error"), p2.sessionToOpen(servers, listOf(SessionKey("b", "stopped"), SessionKey("a", "error"))))
+        assertEquals(SessionKey("a", "running"), p2.sessionToOpen(servers, listOf(SessionKey("a", "gone"))))
+        assertNull(SessionCollection.Project("a", "p3").sessionToOpen(servers, listOf(SessionKey("a", "idle"))))
+    }
+
+    @Test
+    fun recentSessionsKeepTheLatestFirst() {
+        var stored = RecentSessions.adding(SessionKey("s", "a"), "")
+        stored = RecentSessions.adding(SessionKey("s", "b"), stored)
+        stored = RecentSessions.adding(SessionKey("s", "a"), stored)
+        assertEquals(listOf(SessionKey("s", "a"), SessionKey("s", "b")), RecentSessions.keys(stored))
+        repeat(150) { stored = RecentSessions.adding(SessionKey("s", "$it"), stored) }
+        assertEquals(RecentSessions.LIMIT, RecentSessions.keys(stored).size)
+        assertEquals(SessionKey("s", "149"), RecentSessions.keys(stored).first())
+        assertEquals(emptyList(), RecentSessions.keys(""))
     }
 
     @Test

@@ -123,6 +123,36 @@ export function collectionSessions(c: SessionCollection, store: ServerStore): Se
   }
 }
 
+/** Where the Columns layout shows a session when the chosen collection
+ *  doesn't have it: in its project, or in the archive. */
+export function revealCollection(item: ServerSession): SessionCollection {
+  if (item.session.archived) return { kind: "archived" };
+  return projectOf(item) ? { kind: "project", serverID: item.connection.server.id, projectID: item.session.projectId } : { kind: "all" };
+}
+
+/** The session to open on choosing a collection: of its sessions, the one
+ *  opened last, else its first. `recent` holds `sessionKey`s, the latest first. */
+export function sessionToOpen(items: ServerSession[], recent: string[]): ServerSession | undefined {
+  const byKey = new Map(items.map((i) => [sessionKey(i), i]));
+  for (const key of recent) {
+    const item = byKey.get(key);
+    if (item) return item;
+  }
+  return items[0];
+}
+
+const recentLimit = 100;
+
+/** The sessions opened lately, kept as `sessionKey`s on lines, the latest first. */
+export function recentSessions(stored: string | null): string[] {
+  return (stored ?? "").split("\n").filter(Boolean);
+}
+
+/** The stored list with `key` first. */
+export function addingRecent(stored: string | null, key: string): string {
+  return [key, ...recentSessions(stored).filter((k) => k !== key)].slice(0, recentLimit).join("\n");
+}
+
 export function collectionTitle(c: SessionCollection, store: ServerStore): string {
   switch (c.kind) {
     case "needsYou":

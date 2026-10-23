@@ -156,6 +156,7 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
                         layout,
                         selection = backStack.lastOrNull() as? SessionKey,
                         onOpenSession = { backStack.openSession(it) },
+                        onCloseSession = { if (backStack.lastOrNull() is SessionKey) backStack.removeAt(backStack.lastIndex) },
                         onAdd = { showAdd = true },
                         onSettings = { backStack.add(SettingsKey) },
                         onRemoved = { server -> backStack.removeAll { it.serverId == server.id } },
