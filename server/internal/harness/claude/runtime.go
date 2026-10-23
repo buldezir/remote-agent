@@ -38,6 +38,7 @@ type runtime struct {
 	nativeID string
 	log      *slog.Logger
 	images   harness.ImageStore
+	commands []model.Command
 
 	events   chan harness.Event
 	emitMu   sync.Mutex
@@ -70,6 +71,10 @@ type runtime struct {
 	ctxModel  string
 	ctxUsed   int64
 	ctxWindow int64
+}
+
+func (r *runtime) Commands(context.Context) ([]model.Command, error) {
+	return append([]model.Command(nil), r.commands...), nil
 }
 
 func (r *runtime) NativeID() string             { return r.nativeID }

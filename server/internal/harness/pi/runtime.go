@@ -187,6 +187,34 @@ func (r *runtime) Close() error {
 	return nil
 }
 
+func (r *runtime) Commands(ctx context.Context) ([]model.Command, error) {
+	var res struct {
+		Commands []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Source      string `json:"source"`
+			Location    string `json:"location"`
+			SourceInfo  struct {
+				Scope string `json:"scope"`
+			} `json:"sourceInfo"`
+		} `json:"commands"`
+	}
+	if err := r.c.call(ctx, "get_commands", nil, &res); err != nil {
+		return nil, err
+	}
+	out := []model.Command{harness.Compact}
+	for _, c := range res.Commands {
+		scope := c.SourceInfo.Scope
+		if scope == "" {
+			scope = c.Location
+		}
+		if c.Name != "" {
+			out = append(out, model.Command{Name: c.Name, Description: c.Description, Kind: c.Source, Scope: scope})
+		}
+	}
+	return out, nil
+}
+
 func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	if args, ok := in.Command(harness.Compact.Name); ok {
 		return r.compact(args)

@@ -4,6 +4,12 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import dev.remoteagent.core.protocol.commandQuery
+import dev.remoteagent.core.protocol.commandSuggestions
 import androidx.compose.foundation.background
 import dev.remoteagent.app.platform.Dictation
 import androidx.compose.foundation.layout.Arrangement
@@ -152,6 +158,26 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, onB
 
     var draft by rememberDraft(store)
     var focused by remember { mutableStateOf(false) }
+    val connectionState by connection.state.collectAsStateWithLifecycle()
+    var commands by remember(store) { mutableStateOf<List<SlashCommand>>(emptyList()) }
+    var loadingCommands by remember(store) { mutableStateOf(false) }
+    var commandsError by remember(store) { mutableStateOf(false) }
+    val wantsCommands = focused && commandQuery(draft) != null && !archived
+    LaunchedEffect(store, wantsCommands, connectionState) {
+        if (!wantsCommands || !store.isConnected) return@LaunchedEffect
+        commands = emptyList()
+        loadingCommands = true
+        commandsError = false
+        try {
+            commands = store.commands()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            commandsError = true
+        } finally {
+            loadingCommands = false
+        }
+    }
     var error by remember { mutableStateOf<String?>(null) }
     var menu by remember { mutableStateOf(false) }
     var showDiff by rememberSaveable { mutableStateOf(false) }
@@ -351,6 +377,9 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, onB
             }
             if (!covered) {
                 Composer(
+                    commands = commands + harness?.commands.orEmpty(),
+                    loadingCommands = loadingCommands,
+                    commandsError = commandsError,
                     insets = !below,
                     dictation = dictation.phase,
                     onDictate = ::startDictation,
@@ -503,6 +532,9 @@ private fun MenuHeader(text: String) {
 
 @Composable
 private fun Composer(
+    commands: List<SlashCommand>,
+    loadingCommands: Boolean,
+    commandsError: Boolean,
     insets: Boolean,
     dictation: Dictation.Phase,
     onDictate: () -> Unit,
@@ -518,14 +550,48 @@ private fun Composer(
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
+    var focusedNow by remember { mutableStateOf(false) }
+    var commandIndex by remember(draft) { mutableStateOf(0) }
+    var commandsDismissed by remember(draft) { mutableStateOf(false) }
+    val suggestions = if (focusedNow && enabled && !commandsDismissed) commandSuggestions(draft, commands) else emptyList()
+    val focusRequester = remember { FocusRequester() }
+    val suggestionList = rememberLazyListState()
+    LaunchedEffect(draft, suggestions, commandIndex) {
+        if (suggestions.isNotEmpty()) suggestionList.scrollToItem(commandIndex.coerceAtMost(suggestions.lastIndex))
+    }
+    fun complete(command: SlashCommand) {
+        onDraft(command.prompt + " ")
+        focusRequester.requestFocus()
+    }
     Box(
         Modifier.fillMaxWidth().background(palette.mantle)
             .then(if (insets) Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)) else Modifier),
         contentAlignment = Alignment.Center,
     ) {
         Column(Modifier.widthIn(max = Metrics.readableWidth).fillMaxWidth().padding(horizontal = Metrics.margin, vertical = 6.dp)) {
+        if (suggestions.isNotEmpty()) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp).testTag("command-suggestions"), state = suggestionList) {
+                items(suggestions, key = { it.name }) { command ->
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .background(if (suggestions.indexOf(command) == commandIndex) palette.surface0 else palette.mantle)
+                            .clickable { complete(command) }.padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(command.prompt, style = Type.footnote, color = palette.text, fontFamily = FontFamily.Monospace)
+                            command.description?.let { Text(it, style = Type.caption2, color = palette.subtext, maxLines = 2) }
+                        }
+                        command.scope?.let { Text(it.replaceFirstChar { c -> c.titlecase() }, style = Type.caption2, color = palette.subtext) }
+                    }
+                }
+            }
+        }
+        if (focusedNow && enabled && !commandsDismissed && commandQuery(draft) != null && (loadingCommands || commandsError)) {
+            Text(if (loadingCommands) "Loading skills…" else "Skills unavailable. Try typing / again.", style = Type.caption, color = palette.subtext)
+        }
         if (!attachments.isEmpty) AttachmentStrip(attachments, Modifier.padding(bottom = 4.dp))
-        var focusedNow by remember { mutableStateOf(false) }
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -543,9 +609,22 @@ private fun Composer(
                 modifier = Modifier.weight(1f)
                     .background(palette.surface0, RoundedCornerShape(Metrics.Corner.field))
                     .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .focusRequester(focusRequester)
                     .onFocusChanged { focusedNow = it.isFocused; onFocus(it.isFocused) }
                     // A hardware keyboard's Return sends; Shift-Return is a new line.
                     .onPreviewKeyEvent {
+                        if (it.type == KeyEventType.KeyDown && suggestions.isNotEmpty() && !it.isShiftPressed) {
+                            when (it.key) {
+                                Key.DirectionDown -> { commandIndex = minOf(commandIndex + 1, suggestions.lastIndex); return@onPreviewKeyEvent true }
+                                Key.DirectionUp -> { commandIndex = maxOf(commandIndex - 1, 0); return@onPreviewKeyEvent true }
+                                Key.Escape -> { commandsDismissed = true; return@onPreviewKeyEvent true }
+                                Key.Enter, Key.Tab -> {
+                                    val selected = suggestions[commandIndex.coerceAtMost(suggestions.lastIndex)]
+                                    if (it.key == Key.Enter && draft == selected.prompt) onSend() else complete(selected)
+                                    return@onPreviewKeyEvent true
+                                }
+                            }
+                        }
                         if (it.key == Key.Enter && it.type == KeyEventType.KeyDown && !it.isShiftPressed) {
                             onSend()
                             true

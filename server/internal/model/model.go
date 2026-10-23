@@ -336,6 +336,8 @@ type Choice struct {
 type Command struct {
 	Name        string `json:"name"` // without the slash
 	Description string `json:"description,omitempty"`
+	Kind        string `json:"kind,omitempty"`  // skill, prompt, extension, when reported
+	Scope       string `json:"scope,omitempty"` // user, project, system, etc., when reported
 }
 
 type HarnessCaps struct {

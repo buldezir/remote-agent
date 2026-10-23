@@ -258,7 +258,7 @@ jobs:
           packages: "platforms;android-37.0 build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v6
       - name: Test
-        run: ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug
+        run: ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:lintBeta :app:assembleBeta
       - name: Build
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

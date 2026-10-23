@@ -1,4 +1,4 @@
-import type { Diff, Event, FileStat, ImageRef, Item, Session, Turn } from "../protocol/models";
+import type { SlashCommand, Diff, Event, FileStat, ImageRef, Item, Session, Turn } from "../protocol/models";
 import { RPCError } from "../protocol/rpc";
 import type { Drafts } from "./drafts";
 import { Observable } from "./observable";
@@ -236,6 +236,15 @@ export class SessionStore extends Observable {
       this.outbox.delete(commandId);
       this.changed();
       throw e;
+    }
+  }
+
+  async commands(): Promise<SlashCommand[]> {
+    try {
+      return (await this.c.call<{ commands: SlashCommand[] }>("session.commands", { sessionId: this.sessionID }, 80_000)).commands;
+    } catch (error) {
+      if (error instanceof RPCError && error.code === "method_not_found") return [];
+      throw error;
     }
   }
 

@@ -367,6 +367,8 @@ data class SlashCommand(
     /** Without the slash. */
     val name: String,
     val description: String? = null,
+    val kind: String? = null,
+    val scope: String? = null,
 ) {
     /** The prompt that runs it. */
     val prompt: String get() = "/$name"

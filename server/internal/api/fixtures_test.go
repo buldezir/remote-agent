@@ -93,6 +93,10 @@ func fixtures() map[string]any {
 	}
 
 	return map[string]any{
+		"response_session_commands.json": response{ID: json.RawMessage("8"), Result: map[string]any{"commands": []model.Command{
+			{Name: "compact", Description: "Summarize the conversation"},
+			{Name: "skill:prototype", Description: "Prototype to answer a design question", Kind: "skill", Scope: "user"},
+		}}},
 		"notification_events_session.json": notification{"events", eventsParams{stream, evs}},
 		"notification_events_index.json":   notification{"events", eventsParams{model.IndexStream, index}},
 		"notification_synchronized.json":   notification{"synchronized", syncParams{stream, seq, true}},

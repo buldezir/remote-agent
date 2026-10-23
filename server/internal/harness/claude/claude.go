@@ -35,6 +35,8 @@ func New(cmd config.Command) *Harness {
 	return &Harness{cmd: cmd}
 }
 
+func (*Harness) SupportsCommands() bool { return true }
+
 func (h *Harness) ID() string { return "claude" }
 
 var modes = []model.Choice{
@@ -105,6 +107,8 @@ func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 }
 
 type initResponse struct {
+	Commands []model.Command `json:"commands"`
+
 	Models []struct {
 		Value                 string   `json:"value"`
 		ResolvedModel         string   `json:"resolvedModel"`
@@ -179,6 +183,7 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	r.emit(harness.NativeID{ID: nativeID})
 	var init initResponse
 	json.Unmarshal(raw, &init)
+	r.commands = init.Commands
 	r.reportModel(ictx, &init)
 	return r, nil
 }

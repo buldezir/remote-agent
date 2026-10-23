@@ -203,6 +203,12 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	case "session.create":
 		return call(raw, func(p orchestrator.CreateSessionParams) (any, error) { return o.CreateSession(ctx, p) })
 
+	case "session.commands":
+		return call(raw, func(p sessionParams) (any, error) {
+			commands, err := o.Commands(ctx, p.SessionID)
+			return map[string]any{"commands": commands}, err
+		})
+
 	case "session.prompt":
 		return call(raw, func(p promptParams) (any, error) { return o.Prompt(ctx, p.SessionID, p.Text, p.Images, p.CommandID) })
 

@@ -57,6 +57,13 @@ struct FixtureTests {
 
     @Test func responses() throws {
         let dec = WireCoding.decoder()
+        struct Commands: Decodable { var commands: [SlashCommand] }
+        let commands = try dec.decode(Response<Commands>.self, from: load("response_session_commands.json")).result?.commands ?? []
+        #expect(commands.map(\.prompt) == ["/compact", "/skill:prototype"])
+        #expect(commands.last?.kind == "skill")
+        #expect(commands.last?.scope == "user")
+        #expect(commands.last?.description == "Prototype to answer a design question")
+
         struct Harnesses: Decodable { var harnesses: [HarnessInfo] }
         let h = try dec.decode(Response<Harnesses>.self, from: load("response_harness_list.json"))
         #expect(h.result?.harnesses.count == 2)

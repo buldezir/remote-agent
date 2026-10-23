@@ -1,0 +1,6 @@
+{"dir":"out","frame":{"type":"control_request","request_id":"init","request":{"subtype":"initialize"}}}
+{"dir":"in","frame":{"type":"control_response","response":{"subtype":"success","request_id":"init","response":{"commands":[{"name":"compact","description":"Summarize","builtin":true},{"name":"prototype","description":"Prototype a design","builtin":false}]}}}}
+{"dir":"out","frame":{"type":"control_request","request_id":"settings","request":{"subtype":"get_settings"}}}
+{"dir":"in","frame":{"type":"control_response","response":{"subtype":"success","request_id":"settings","response":{}}}}
+{"dir":"out","frame":{"type":"user","message":{"role":"user","content":"/prototype keep arguments"}}}
+{"dir":"in","frame":{"type":"result","subtype":"success","result":"Skill invoked","is_error":false,"num_turns":1}}

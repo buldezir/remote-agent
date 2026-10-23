@@ -18,6 +18,7 @@ import {
   type HarnessInfo,
   type PairResult,
   type ServerInfo,
+  type SlashCommand,
   type ServerSettings,
   type ServerTask,
   type Session,
@@ -29,6 +30,12 @@ const dir = join(import.meta.dirname, "../../../protocol/fixtures");
 const load = (name: string) => JSON.parse(readFileSync(join(dir, name), "utf8"));
 
 describe("fixtures", () => {
+  it("session command catalog", () => {
+    const commands: SlashCommand[] = load("response_session_commands.json").result.commands;
+    expect(commands.map((c) => c.name)).toEqual(["compact", "skill:prototype"]);
+    expect(commands[1]).toEqual({ name: "skill:prototype", description: "Prototype to answer a design question", kind: "skill", scope: "user" });
+    expect(commands[0].kind).toBeUndefined();
+  });
   it("session events", () => {
     const n = load("notification_events_session.json");
     expect(n.method).toBe("events");

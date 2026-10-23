@@ -90,6 +90,9 @@ final class TestServer: @unchecked Sendable {
         switch method {
         case "server.info":
             result = #"{"serverId":"srv","name":"Test","protocolVersion":1,"version":"0.1"}"#
+        case "session.commands":
+            send(c, Data(#"{"id":\#(id),"error":{"code":"method_not_found","message":"old server"}}"#.utf8), opcode: .text)
+            return
         case "session.prompt":
             let sid = params?["sessionId"] as? String ?? ""
             result = #"{"id":"i\#(id)","sessionId":"\#(sid)","order":1,"kind":"user_message","status":"queued","#

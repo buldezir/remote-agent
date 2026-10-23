@@ -47,6 +47,12 @@ android {
             // Installs next to a release build.
             applicationIdSuffix = ".debug"
         }
+        create("beta") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".beta"
+            versionNameSuffix = "-beta"
+            matchingFallbacks += "debug"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true

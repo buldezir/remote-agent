@@ -218,6 +218,8 @@ On Android 17 or later, allow **Nearby devices** when the app first opens so it 
 - **Composer:** a hardware keyboard's Return sends and ⇧Return starts a new line. The terminal has a row of keys a phone keyboard lacks: esc, ctrl, tab and the arrows.
 - **Dictation** uses the phone's speech recognizer, on the device where it can, in your keyboard languages.
 
+For a separately installed test build, run `cd android && ./gradlew :app:assembleBeta`. The debug-signed APK is `android/app/build/outputs/apk/beta/app-beta.apk`, labeled **Remote Agent Beta**, with package ID `dev.remoteagent.app.beta` and its own settings and pairing tokens.
+
 ## Running the web client
 
 The web client in `web/` does what the apps do, in a browser. It needs Node.js 22 or later. For now it runs from Vite's server on your computer rather than from a host:
@@ -257,6 +259,7 @@ Or open http://localhost:5173, choose **Pair a server** and paste the link that 
 - **Commands:** a session's ⋯ menu runs slash commands. For now there is `/compact`, which has the agent summarize the conversation so far to free up context, for Claude Code, Codex and Pi. The transcript marks it with *Context compacted*, and the context gauge drops.
   - Typing `/compact` as a prompt does the same, and `/compact <instructions>` tells Claude Code or Pi what the summary should keep; Codex takes no instructions for it.
   - Claude Code runs it itself. rad runs it with Codex's and Pi's own compaction, since they don't take `/compact` in a prompt.
+- **Skill suggestions:** type `/` in a session’s composer to search commands and skills by name or description. Select a suggestion, add instructions, then send. Android, iOS, Mac and web use the skills available to that session’s workspace on rad’s machine: Codex skills, Claude Code user-invocable skills, and Pi’s `/skill:name` commands. Discovery starts the agent process when needed but sends no prompt. Claude’s list refreshes when its agent process restarts.
 - **Terminal:** a session's ⋯ menu opens a shell on your computer, in the session's folder (its worktree, for a worktree session). It's your login shell, in a real terminal, so `git`, `vim`, `htop` and the agents' CLIs work as they do at the computer.
   - The shell keeps running when you close the terminal, switch apps or lose the connection, and reopening it picks up where it was: rad keeps its last 256 KiB of output. It ends when you `exit` it or choose *Close Shell*, when the session is archived or deleted, or when rad stops. Each session has one shell, shared by all your devices.
   - On the Mac, iPad and the web client in a wide window, Settings › Terminal picks where it opens: instead of the messages, below them, or in a sidebar on the right. On an iPhone, or in a narrow window, it takes the place of the messages.

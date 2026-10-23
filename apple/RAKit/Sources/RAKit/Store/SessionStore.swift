@@ -193,6 +193,16 @@ public final class SessionStore {
         }
     }
 
+    /// Workspace-specific suggestions; this never sends a prompt.
+    public func commands() async throws -> [SlashCommand] {
+        guard let c = connection else { throw RPCError.disconnected }
+        struct Result: Decodable, Sendable { var commands: [SlashCommand] }
+        do {
+            let result: Result = try await c.call("session.commands", ["sessionId": sessionID], timeout: 80)
+            return result.commands
+        } catch let error as RPCError where error.code == "method_not_found" { return [] }
+    }
+
     public func interrupt(force: Bool = false) async throws {
         guard let c = connection else { throw RPCError.disconnected }
         struct P: Encodable, Sendable { var sessionId: String; var force: Bool }

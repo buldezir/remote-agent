@@ -1,0 +1,9 @@
+{"dir":"out","frame":{"type":"get_state","id":"1"}}
+{"dir":"in","frame":{"type":"response","id":"1","command":"get_state","success":true,"data":{"isStreaming":false}}}
+{"dir":"out","frame":{"type":"get_commands","id":"2"}}
+{"dir":"in","frame":{"type":"response","id":"2","command":"get_commands","success":true,"data":{"commands":[{"name":"skill:prototype","description":"Prototype a design","source":"skill","sourceInfo":{"scope":"project"}},{"name":"skill:personal","description":"Personal skill","source":"skill","location":"user"}]}}}
+{"dir":"out","frame":{"type":"prompt","id":"3","message":"/skill:prototype keep arguments"}}
+{"dir":"in","frame":{"type":"response","id":"3","command":"prompt","success":true,"data":{"disposition":"started"}}}
+{"dir":"out","frame":{"type":"get_state","id":"4"}}
+{"dir":"in","frame":{"type":"response","id":"4","command":"get_state","success":true,"data":{"isStreaming":true}}}
+{"dir":"in","frame":{"type":"agent_settled","reason":"completed"}}

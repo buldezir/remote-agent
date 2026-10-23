@@ -18,6 +18,8 @@ import {
   Users,
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { commandQuery, commandSuggestions } from "../protocol/commandSuggestions";
+import type { SlashCommand } from "../protocol/models";
 import { contextFraction, modelName, type BackgroundTask, type HarnessInfo, type Item, type Session, type Turn } from "../protocol/models";
 import { Attachments } from "../store/attachments";
 import { useObserved } from "../store/observable";
@@ -242,6 +244,7 @@ export function SessionView({ sessionID, onBack, onDeleted }: { sessionID: strin
             store={store}
             session={session}
             attachments={attachments}
+            commands={harness?.commands ?? []}
             field={composerField}
             onSend={() => {
               pinned.current = true;
@@ -352,6 +355,7 @@ function subtitle(s: Session, harness: HarnessInfo | undefined): string {
 }
 
 function Composer({
+  commands: builtins,
   store,
   session,
   attachments,
@@ -359,6 +363,7 @@ function Composer({
   onSend,
   onError,
 }: {
+  commands: SlashCommand[];
   store: SessionStore;
   session: Session | undefined;
   attachments: Attachments;
@@ -375,6 +380,33 @@ function Composer({
   const [focused, setFocused] = useState(false);
   const dictation = useDictation();
   const archived = session?.archived === true;
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+  const [loadingCommands, setLoadingCommands] = useState(false);
+  const [commandsError, setCommandsError] = useState(false);
+  const [commandIndex, setCommandIndex] = useState(0);
+  const [commandsDismissed, setCommandsDismissed] = useState(false);
+  const wantsCommands = focused && commandQuery(draft) !== undefined && !archived;
+  const connected = store.isConnected;
+  const suggestions = focused && !archived && !commandsDismissed ? commandSuggestions(draft, [...commands, ...builtins]) : [];
+  const complete = (command: SlashCommand) => {
+    setDraft("/" + command.name + " ");
+    field.current?.focus();
+  };
+  useEffect(() => { setCommandIndex(0); setCommandsDismissed(false); }, [draft]);
+  useEffect(() => {
+    if (!wantsCommands || !connected) return;
+    let cancelled = false;
+    setCommands([]);
+    setLoadingCommands(true);
+    setCommandsError(false);
+    store.commands().then((result) => { if (!cancelled) setCommands(result); })
+      .catch(() => { if (!cancelled) setCommandsError(true); })
+      .finally(() => { if (!cancelled) setLoadingCommands(false); });
+    return () => { cancelled = true; setLoadingCommands(false); };
+  }, [store, wantsCommands, connected]);
+  useEffect(() => {
+    document.getElementById(`command-option-${commandIndex}`)?.scrollIntoView({ block: "nearest" });
+  }, [draft, commands, commandIndex]);
 
   useEffect(() => {
     if (dictation.error) {
@@ -447,9 +479,29 @@ function Composer({
         }
       }}>
         <AttachmentStrip attachments={attachments} />
+        {suggestions.length > 0 && (
+          <div className="command-suggestions" role="listbox" id="command-suggestions" aria-label="Command suggestions">
+            {suggestions.map((command, index) => (
+              <button key={command.name} id={`command-option-${index}`} type="button" role="option"
+                aria-selected={index === commandIndex}
+                onMouseDown={(e) => e.preventDefault()} onClick={() => complete(command)}>
+                <span><span className="mono">/{command.name}</span>
+                  {command.description && <small>{command.description}</small>}</span>
+                {command.scope && <small className="command-scope">{command.scope}</small>}
+              </button>
+            ))}
+          </div>
+        )}
+        {focused && wantsCommands && !commandsDismissed && (loadingCommands || commandsError) && (
+          <small className="command-discovery-status">{loadingCommands ? "Loading skills…" : "Skills unavailable. Try typing / again."}</small>
+        )}
         <div className="composer-row">
           <AttachButton attachments={attachments} disabled={archived} />
           <textarea
+            aria-controls={suggestions.length ? "command-suggestions" : undefined}
+            aria-expanded={suggestions.length > 0}
+            aria-autocomplete="list"
+            aria-activedescendant={suggestions.length ? `command-option-${Math.min(commandIndex, suggestions.length - 1)}` : undefined}
             ref={field}
             className="composer-field"
             rows={1}
@@ -460,6 +512,21 @@ function Composer({
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              if (suggestions.length && !e.shiftKey) {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setCommandIndex(Math.max(0, Math.min(suggestions.length - 1, commandIndex + (e.key === "ArrowDown" ? 1 : -1))));
+                  return;
+                }
+                if (e.key === "Escape") { e.preventDefault(); setCommandsDismissed(true); return; }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  const selected = suggestions[Math.min(commandIndex, suggestions.length - 1)];
+                  if (e.key !== "Enter" || draft !== "/" + selected.name) {
+                    e.preventDefault(); complete(selected); return;
+                  }
+                }
+              }
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 send();

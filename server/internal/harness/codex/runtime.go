@@ -44,6 +44,7 @@ type runtime struct {
 	interrupting bool
 	requests     map[string]*serverRequest // approval id -> request
 	nextReq      int
+	skillCatalog []skill
 
 	// Read-loop state.
 	items      map[string]*model.Item
@@ -98,11 +99,21 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 		return r.compact(ctx)
 	}
 	var input []map[string]any
+	text := in.Text
+	r.mu.Lock()
+	catalog := r.skillCatalog
+	r.mu.Unlock()
+	var selected map[string]any
+	text, selected = skillInput(text, catalog)
+	if selected != nil {
+		input = append(input, selected)
+	}
+
 	for _, img := range in.Images {
 		input = append(input, map[string]any{"type": "localImage", "path": img.Path})
 	}
 	if in.Text != "" || len(input) == 0 {
-		input = append(input, map[string]any{"type": "text", "text": in.Text})
+		input = append(input, map[string]any{"type": "text", "text": text})
 	}
 	r.mu.Lock()
 	if r.inTurn {

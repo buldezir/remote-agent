@@ -16,6 +16,7 @@ import dev.remoteagent.core.protocol.ServerInfo
 import dev.remoteagent.core.protocol.ServerSettings
 import dev.remoteagent.core.protocol.ServerTask
 import dev.remoteagent.core.protocol.Session
+import dev.remoteagent.core.protocol.SlashCommand
 import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.SubscribeResult
 import dev.remoteagent.core.protocol.SystemAgent
@@ -97,6 +98,18 @@ class FixtureTests {
         assertEquals(listOf("project.upserted", "session.upserted", "project.removed"), events.map { it.type })
         assertEquals(true, events[0].project?.isGitRepo)
         assertEquals("p0", events[2].id)
+    }
+
+    @Serializable
+    private data class CommandList(val commands: List<SlashCommand>)
+
+    @Test fun sessionCommands() {
+        val commands = result<CommandList>("response_session_commands.json").commands
+        assertEquals(listOf("/compact", "/skill:prototype"), commands.map { it.prompt })
+        assertEquals("skill", commands[1].kind)
+        assertEquals("user", commands[1].scope)
+        assertEquals("Prototype to answer a design question", commands[1].description)
+        assertNull(commands[0].kind)
     }
 
     @Serializable

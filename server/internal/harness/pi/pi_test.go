@@ -351,3 +351,23 @@ func TestReplayCompact(t *testing.T) {
 		t.Errorf("end = %+v, usage %+v; want completed with the summary's usage", turn.End, u)
 	}
 }
+
+func TestReplaySkills(t *testing.T) {
+	rt, diag := open(t, "testdata/skills.ndjson", "skills")
+	commands, err := rt.(harness.CommandLister).Commands(context.Background())
+	if err != nil || len(commands) != 3 || commands[1].Name != "skill:prototype" || commands[1].Kind != "skill" || commands[1].Scope != "project" || commands[2].Scope != "user" {
+		t.Fatalf("commands = %+v, %v", commands, err)
+	}
+	replaytest.RunTurn(t, rt, "/skill:prototype keep arguments", nil)
+	_, sent := replaytest.Diag(t, diag)
+	found := false
+	for _, f := range sent {
+		if f["type"] == "prompt" {
+			found = f["message"] == "/skill:prototype keep arguments"
+		}
+	}
+	if !found {
+		t.Errorf("skill invocation missing: %+v", sent)
+	}
+	replaytest.CloseClean(t, rt)
+}

@@ -87,6 +87,19 @@ tap 'text=Allow'
 wait_for 'contains=Echo: write smoke.txt' 15 || fail "no echo after allowing"
 [ -f "$(worktree)/smoke.txt" ] || fail "the agent's file isn't in a worktree"
 
+step "skill suggestions"
+fill 'id=composer' '/prot'
+wait_for 'text=/skill:prototype' 15 || fail "no skill suggestion"
+shot 03-skill-suggestions
+tap 'text=/skill:prototype'
+wait_for 'text=/skill:prototype ' 5 || fail "skill selection lost the draft"
+"$A" shell input keycombination 113 29
+"$A" shell input keyevent KEYCODE_DEL
+fill 'id=composer' '/skill:prototype arguments'
+if find_view 'id=command-suggestions' >/dev/null; then fail "suggestions replaced arguments"; fi
+"$A" shell input keycombination 113 29
+"$A" shell input keyevent KEYCODE_DEL
+
 step "question"
 fill 'id=composer' 'question'; tap 'id=send'
 wait_for 'text=Blue' 15 || fail "no question"

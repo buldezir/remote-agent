@@ -187,3 +187,12 @@ describe("SessionStore", () => {
     await expect(s.sendNow("u")).rejects.toThrow("no such item");
   });
 });
+
+it("falls back on old servers but preserves real discovery errors", async () => {
+  const h = host();
+  h.call = async () => { throw new RPCError("method_not_found", "old server"); };
+  const store = new SessionStore("s", h);
+  expect(await store.commands()).toEqual([]);
+  h.call = async () => { throw new RPCError("conflict", "runtime replaced"); };
+  await expect(store.commands()).rejects.toMatchObject({ code: "conflict" });
+});

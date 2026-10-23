@@ -426,3 +426,24 @@ func TestDescribeToolHomePath(t *testing.T) {
 		t.Fatalf("a file in the cwd: got %q", title)
 	}
 }
+
+func TestReplaySkills(t *testing.T) {
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, _ := openReplay(t, "testdata/skills.ndjson", "claude-rec/ws", harness.OpenOptions{SessionID: "skills", DiagPath: diag})
+	commands, err := rt.(harness.CommandLister).Commands(context.Background())
+	if err != nil || len(commands) != 2 || commands[1].Name != "prototype" || commands[1].Description != "Prototype a design" {
+		t.Fatalf("commands = %+v, %v", commands, err)
+	}
+	replaytest.RunTurn(t, rt, "/prototype keep arguments", nil)
+	_, sent := replaytest.Diag(t, diag)
+	found := false
+	for _, f := range sent {
+		if f["type"] == "user" {
+			found = f["message"].(map[string]any)["content"] == "/prototype keep arguments"
+		}
+	}
+	if !found {
+		t.Errorf("skill invocation missing: %+v", sent)
+	}
+	replaytest.CloseClean(t, rt)
+}

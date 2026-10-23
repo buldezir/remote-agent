@@ -175,6 +175,16 @@ type Runtime interface {
 	Close() error
 }
 
+// CommandDiscovery advertises listing support before an agent is opened.
+type CommandDiscovery interface {
+	SupportsCommands() bool
+}
+
+// CommandLister discovers commands without a turn, concurrently with Prompt, Interrupt and Close.
+type CommandLister interface {
+	Commands(context.Context) ([]model.Command, error)
+}
+
 type Harness interface {
 	ID() string
 	Probe(ctx context.Context) model.HarnessInfo

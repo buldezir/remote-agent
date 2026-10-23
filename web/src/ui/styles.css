@@ -1692,3 +1692,10 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   background: var(--surface1);
 }
 .terminal-right > .panel-handle::after { width: 4px; height: 36px; margin: calc(50vh - 18px) auto 0; }
+
+.command-suggestions { max-height: 220px; overflow-y: auto; background: var(--mantle); border-radius: 10px; margin-bottom: 6px; }
+.command-suggestions button { display: flex; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 8px 10px; text-align: left; font-size: 0.9em; color: var(--text); }
+.command-suggestions button[aria-selected="true"], .command-suggestions button:hover { background: var(--surface0); }
+.command-suggestions small { display: block; color: var(--subtext); }
+.command-suggestions .command-scope { text-transform: capitalize; }
+.command-discovery-status { color: var(--subtext); }

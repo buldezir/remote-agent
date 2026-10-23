@@ -1,0 +1,10 @@
+{"dir":"out","frame":{"id":1,"method":"initialize"}}
+{"dir":"in","frame":{"id":1,"result":{}}}
+{"dir":"out","frame":{"method":"initialized"}}
+{"dir":"out","frame":{"id":2,"method":"thread/start"}}
+{"dir":"in","frame":{"id":2,"result":{"thread":{"id":"thread-skills"}}}}
+{"dir":"out","frame":{"id":3,"method":"skills/list"}}
+{"dir":"in","frame":{"id":3,"result":{"data":[]}}}
+{"dir":"out","frame":{"id":5,"method":"turn/start"}}
+{"dir":"in","frame":{"id":5,"result":{"turn":{"id":"turn-skills"}}}}
+{"dir":"in","frame":{"method":"turn/completed","params":{"threadId":"thread-skills","turn":{"id":"turn-skills","status":"completed","items":[]}}}}

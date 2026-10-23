@@ -1,0 +1,17 @@
+{
+  "id": 8,
+  "result": {
+    "commands": [
+      {
+        "name": "compact",
+        "description": "Summarize the conversation"
+      },
+      {
+        "name": "skill:prototype",
+        "description": "Prototype to answer a design question",
+        "kind": "skill",
+        "scope": "user"
+      }
+    ]
+  }
+}

@@ -30,6 +30,8 @@ func New(cmd config.Command) *Harness {
 	return &Harness{cmd: cmd}
 }
 
+func (*Harness) SupportsCommands() bool { return true }
+
 func (h *Harness) ID() string { return "pi" }
 
 // Pi never asks before running a tool. Its one mode says so in the picker.

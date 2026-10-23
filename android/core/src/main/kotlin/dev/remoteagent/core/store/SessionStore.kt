@@ -11,6 +11,7 @@ import dev.remoteagent.core.protocol.Item
 import dev.remoteagent.core.protocol.ItemKind
 import dev.remoteagent.core.protocol.ItemStatus
 import dev.remoteagent.core.protocol.Session
+import dev.remoteagent.core.protocol.SlashCommand
 import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.Turn
 import dev.remoteagent.core.protocol.WireCoding
@@ -261,6 +262,19 @@ class SessionStore(val sessionID: String, private val host: SessionHost?) {
             throw e
         }
     }
+
+    suspend fun commands(): List<SlashCommand> {
+        try {
+            val result = c.callRaw("session.commands", params("sessionId" to sessionID), timeout = 80.seconds)
+            return WireCoding.json.decodeFromJsonElement<CommandList>(result).commands
+        } catch (error: RpcError) {
+            if (error.code == "method_not_found") return emptyList()
+            throw error
+        }
+    }
+
+    @Serializable
+    private data class CommandList(val commands: List<SlashCommand>)
 
     suspend fun interrupt(force: Boolean = false) {
         c.callRaw("session.interrupt", params("sessionId" to sessionID, "force" to force))

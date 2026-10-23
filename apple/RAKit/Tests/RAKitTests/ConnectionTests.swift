@@ -55,6 +55,14 @@ struct ConnectionTests {
         return c
     }
 
+    @Test func oldServerCommandFallback() async throws {
+        let server = try TestServer()
+        let connection = try await connect(to: server)
+        defer { connection.stop(); server.stop() }
+        let commands = try await connection.sessionStore("s").commands()
+        #expect(commands.isEmpty)
+    }
+
     @Test func dropsASocketThatStopsAnswering() async throws {
         let server = try TestServer()
         let c = try await connect(to: server)

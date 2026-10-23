@@ -808,3 +808,36 @@ func TestServerManagement(t *testing.T) {
 		t.Fatalf("unknown harness: %+v", err)
 	}
 }
+
+func TestSessionCommandSuggestions(t *testing.T) {
+	s := startServer(t)
+	c := connect(t, s)
+	dir := filepath.Join(s.root, "skills-project")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var project model.Project
+	c.mustCall("project.add", map[string]any{"path": dir}, &project)
+	var session model.Session
+	c.mustCall("session.create", map[string]any{"commandId": "create-skills", "projectId": project.ID, "harness": "fake", "workspace": map[string]any{"kind": "root"}}, &session)
+	var result struct {
+		Commands []model.Command `json:"commands"`
+	}
+	c.mustCall("session.commands", map[string]any{"sessionId": session.ID}, &result)
+	if len(result.Commands) < 3 || result.Commands[1].Name != "skill:prototype" || result.Commands[1].Scope != "user" {
+		t.Fatalf("catalog = %+v", result)
+	}
+	for _, event := range c.subscribe(model.SessionStream(session.ID), 0).replay {
+		if event.Item != nil || event.Turn != nil {
+			t.Fatalf("discovery started a turn: %+v", event)
+		}
+	}
+	if _, e := c.call("session.commands", map[string]any{"sessionId": "missing"}); e == nil {
+		t.Fatal("missing session accepted")
+	}
+	c.mustCall("session.archive", map[string]any{"sessionId": session.ID}, nil)
+	c.mustCall("session.commands", map[string]any{"sessionId": session.ID}, &result)
+	if len(result.Commands) != 0 {
+		t.Fatal("archived session has suggestions")
+	}
+}

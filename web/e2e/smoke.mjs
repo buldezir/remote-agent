@@ -16,9 +16,34 @@ mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1280, height: 820 }, colorScheme: "dark" });
 const page = await context.newPage();
+let lookupMode = "normal";
+let lookupCount = 0;
+let offline = false;
+let liveSocket;
+await page.routeWebSocket("**/v1/ws", (socket) => {
+  if (offline) { void socket.close({ code: 1001, reason: "offline test" }); return; }
+  liveSocket = socket;
+  const server = socket.connectToServer();
+  socket.onMessage((message) => {
+    const request = JSON.parse(String(message));
+    if (request.method === "session.commands") {
+      lookupCount++;
+      if (lookupMode === "pending") return;
+      if (lookupMode === "missing") {
+        socket.send(JSON.stringify({ id: request.id, error: { code: "method_not_found", message: "old server" } }));
+        return;
+      }
+    }
+    server.send(message);
+  });
+});
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+page.on("console", (m) => {
+  // A reconnect's valid-token authorization probe deliberately requests a missing image.
+  if (m.text().includes("404") && m.location().url.endsWith("/v1/images/check")) return;
+  if (m.type() === "error") errors.push(`${m.text()} (${m.location().url})`);
+});
 let n = 0;
 const shot = async (name) => {
   await page.waitForTimeout(300);
@@ -56,6 +81,70 @@ await page.getByText("Echo: write a.txt").waitFor();
 
 step("question");
 const prompt = page.getByPlaceholder(/Prompt|Queue a follow-up/);
+step("skill suggestions");
+await prompt.fill("/prot");
+const skillOption = page.getByRole("option", { name: /skill:prototype/ });
+await skillOption.waitFor();
+await shot("skill-suggestions");
+await prompt.fill("/");
+const suggestions = page.getByRole("listbox", { name: "Command suggestions" });
+await page.getByRole("option", { name: /skill:example-12/ }).waitFor();
+await suggestions.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+await prompt.fill("/ask");
+await page.waitForFunction(() => {
+  const list = document.getElementById("command-suggestions");
+  const first = list?.querySelector("[role=option]");
+  if (!list || !first?.textContent.includes("skill:ask-guide")) return false;
+  const row = first.getBoundingClientRect(), panel = list.getBoundingClientRect();
+  return row.top >= panel.top && row.bottom <= panel.bottom;
+});
+await prompt.fill("/prot");
+await skillOption.click();
+if (await prompt.inputValue() !== "/skill:prototype ") throw new Error("skill selection lost the draft");
+if (!await prompt.evaluate((el) => el === document.activeElement)) throw new Error("skill selection lost focus");
+await prompt.fill("/co");
+await page.getByRole("option", { name: /compact/ }).waitFor();
+await prompt.press("Enter");
+if (await prompt.inputValue() !== "/compact ") throw new Error("Enter sent instead of completing");
+await prompt.fill("/prot");
+await skillOption.waitFor();
+await prompt.press("Escape");
+if (await page.getByRole("listbox", { name: "Command suggestions" }).count()) throw new Error("Escape did not dismiss suggestions");
+await prompt.fill("/prototype arguments");
+if (await page.getByRole("listbox", { name: "Command suggestions" }).count()) throw new Error("suggestions replaced arguments");
+step("exact commands, focused discovery and compatibility");
+await prompt.fill("/skill:prototype");
+await skillOption.waitFor();
+await prompt.press("Enter");
+await page.getByText("Echo: /skill:prototype", { exact: true }).waitFor();
+if (await prompt.inputValue() !== "") throw new Error("exact command did not send on Enter");
+await prompt.fill("/prot");
+await skillOption.waitFor();
+await prompt.blur();
+const beforeReload = lookupCount;
+await page.reload();
+await prompt.waitFor();
+await page.waitForTimeout(300);
+if (lookupCount !== beforeReload) throw new Error("saved slash draft fetched without focus");
+await prompt.focus();
+await skillOption.waitFor();
+await prompt.fill("ordinary text");
+lookupMode = "missing";
+await prompt.fill("/");
+await page.getByRole("option", { name: /compact/ }).waitFor();
+await page.getByText("Loading skills…", { exact: true }).waitFor({ state: "hidden" });
+if (await page.locator(".command-discovery-status").count()) throw new Error("old server showed a discovery error");
+await prompt.fill("ordinary text");
+lookupMode = "pending";
+await prompt.fill("/");
+await page.getByText("Loading skills…", { exact: true }).waitFor();
+offline = true;
+await liveSocket.close({ code: 1001, reason: "offline test" });
+await page.getByText("Loading skills…", { exact: true }).waitFor({ state: "hidden" });
+offline = false;
+lookupMode = "normal";
+await page.reload();
+await prompt.waitFor();
 await prompt.fill("question");
 await prompt.press("Enter");
 await page.getByRole("button", { name: "Blue" }).click();

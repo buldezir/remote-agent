@@ -241,6 +241,8 @@ export interface Choice {
 export interface SlashCommand {
   name: string;
   description?: string;
+  kind?: string;
+  scope?: string;
 }
 
 export interface HarnessCaps {

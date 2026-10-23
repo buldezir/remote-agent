@@ -282,6 +282,77 @@ func (o *Orchestrator) Prompt(ctx context.Context, sessionID, text string, image
 	return a.prompt(ctx, text, refs, files, commandID)
 }
 
+// Commands opens the session's agent only when the composer asks for suggestions.
+func (o *Orchestrator) Commands(ctx context.Context, sessionID string) ([]model.Command, error) {
+	a, err := o.actor(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	a.mu.Lock()
+	if a.deleted {
+		a.mu.Unlock()
+		return nil, errorf(CodeNotFound, "session %s not found", sessionID)
+	}
+	if a.sess.Archived || a.archiving {
+		a.mu.Unlock()
+		return []model.Command{}, nil
+	}
+	h, ok := o.reg.Get(a.sess.Harness)
+	capable, supports := h.(harness.CommandDiscovery)
+	if !ok || !supports || !capable.SupportsCommands() {
+		a.mu.Unlock()
+		return []model.Command{}, nil
+	}
+	rt, gen, opts := a.rt, a.rtGen, a.openOptions()
+	a.lastActive = time.Now()
+	a.mu.Unlock()
+	if rt == nil {
+		startup, cancel := context.WithTimeout(ctx, 60*time.Second)
+		candidate, err := h.Open(startup, opts)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		a.mu.Lock()
+		if a.deleted || a.archiving || a.sess.Archived || a.rtGen != gen || a.rt != nil {
+			archived, deleted := a.archiving || a.sess.Archived, a.deleted
+			a.mu.Unlock()
+			candidate.Close()
+			if deleted {
+				return nil, errorf(CodeNotFound, "session %s not found", sessionID)
+			}
+			if archived {
+				return []model.Command{}, nil
+			}
+			return nil, errorf(CodeConflict, "session changed while discovering skills; try again")
+		}
+		a.attachRuntime(candidate)
+		rt, gen = a.rt, a.rtGen
+		a.mu.Unlock()
+	}
+	listing, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	commands := []model.Command{}
+	if lister, ok := rt.(harness.CommandLister); ok {
+		commands, err = lister.Commands(listing)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deleted {
+		return nil, errorf(CodeNotFound, "session %s not found", sessionID)
+	}
+	if a.sess.Archived || a.archiving {
+		return []model.Command{}, nil
+	}
+	if a.rt == nil || a.rtGen != gen {
+		return nil, errorf(CodeConflict, "session changed while discovering skills; try again")
+	}
+	if commands == nil {
+		commands = []model.Command{}
+	}
+	return commands, err
+}
+
 func (o *Orchestrator) Interrupt(ctx context.Context, sessionID string, force bool) error {
 	a, err := o.actor(ctx, sessionID)
 	if err != nil {

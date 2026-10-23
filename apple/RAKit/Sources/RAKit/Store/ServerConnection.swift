@@ -285,8 +285,8 @@ public final class ServerConnection {
 
     // MARK: API
 
-    public func call<P: Encodable & Sendable, R: Decodable & Sendable>(_ method: String, _ params: P) async throws -> R {
-        try await client.call(method, params)
+    public func call<P: Encodable & Sendable, R: Decodable & Sendable>(_ method: String, _ params: P, timeout: Double = 30) async throws -> R {
+        try await client.call(method, params, timeout: timeout)
     }
 
     /// Calls a command that carries a commandId until it gets through: when

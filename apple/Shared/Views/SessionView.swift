@@ -4,6 +4,11 @@ import SwiftUI
 struct SessionView: View {
     let connection: ServerConnection
     @Bindable var store: SessionStore
+    @State private var commands: [SlashCommand] = []
+    @State private var commandIndex = 0
+    @State private var commandsDismissed = false
+    @State private var commandsError = false
+    @State private var loadingCommands = false
     @State private var sending = false
     @State private var error: String?
     @State private var showDiff = false
@@ -94,6 +99,21 @@ struct SessionView: View {
         .onChange(of: attachments.error) { _, e in
             if let e { error = e; attachments.error = nil }
         }
+        .task(id: "\(store.sessionID):\(wantsCommands)") {
+            loadingCommands = false
+            guard wantsCommands else { return }
+            commands = []
+            commandsError = false
+            loadingCommands = true
+            do {
+                let result = try await store.commands()
+                if !Task.isCancelled { commands = result }
+            } catch {
+                if !Task.isCancelled { commandsError = true }
+            }
+            if !Task.isCancelled { loadingCommands = false }
+        }
+        .onChange(of: store.draft) { _, _ in commandIndex = 0; commandsDismissed = false }
         .onAppear { store.activate() }
         .onDisappear {
             dictation.stop()
@@ -246,6 +266,7 @@ struct SessionView: View {
     private var composer: some View {
         let card = RoundedRectangle(cornerRadius: Metrics.Corner.composer)
         return VStack(alignment: .leading, spacing: 10) {
+            commandSuggestions
             if !attachments.isEmpty {
                 AttachmentStrip(attachments: attachments, connection: connection)
             }
@@ -271,6 +292,7 @@ struct SessionView: View {
     #else
     private var composer: some View {
         VStack(alignment: .leading, spacing: 4) {
+            commandSuggestions
             if !attachments.isEmpty {
                 AttachmentStrip(attachments: attachments, connection: connection)
             }
@@ -295,6 +317,67 @@ struct SessionView: View {
     }
     #endif
 
+    private var wantsCommands: Bool {
+        composerFocused && store.isConnected && session?.archived != true && SlashCommand.query(store.draft) != nil
+    }
+
+    private var suggestions: [SlashCommand] {
+        guard composerFocused, session?.archived != true, !commandsDismissed else { return [] }
+        return SlashCommand.suggestions(for: store.draft, from: commands + (harness?.commands ?? []))
+    }
+
+    private func completeCommand(_ command: SlashCommand) {
+        store.draft = command.prompt + " "
+        composerFocused = true
+    }
+
+    @ViewBuilder private var commandSuggestions: some View {
+        if composerFocused, SlashCommand.query(store.draft) != nil, !commandsDismissed, session?.archived != true {
+            if !suggestions.isEmpty {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, command in
+                                Button { completeCommand(command) } label: {
+                                    HStack(alignment: .top, spacing: 8) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(command.prompt).scaledFont(.footnote, design: .monospaced)
+                                                .foregroundStyle(Palette.text)
+                                            if let description = command.description {
+                                                Text(description).scaledFont(.caption2).foregroundStyle(Palette.subtext).lineLimit(2)
+                                            }
+                                        }
+                                        Spacer(minLength: 4)
+                                        if let scope = command.scope {
+                                            Text(scope.capitalized).scaledFont(.caption2).foregroundStyle(Palette.subtext)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(minHeight: 44)
+                                    .padding(8)
+                                    .background(index == commandIndex ? Palette.surface0 : Palette.mantle)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .id(index)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 220)
+                    .onChange(of: store.draft) { _, _ in proxy.scrollTo(0, anchor: .top) }
+                    .onChange(of: suggestions) { _, _ in proxy.scrollTo(0, anchor: .top) }
+                    .onChange(of: commandIndex) { _, index in proxy.scrollTo(index) }
+                }
+                .background(Palette.mantle, in: RoundedRectangle(cornerRadius: Metrics.Corner.field))
+                .accessibilityLabel("Command suggestions")
+            }
+            if loadingCommands || commandsError {
+                Text(loadingCommands ? "Loading skills…" : "Skills unavailable. Try typing / again.")
+                    .scaledFont(.caption).foregroundStyle(Palette.subtext)
+            }
+        }
+    }
+
     private var promptField: some View {
         TextField(text: $store.draft, prompt: Text(placeholder).foregroundStyle(Palette.overlay), axis: .vertical) {
             Text(placeholder)
@@ -308,6 +391,29 @@ struct SessionView: View {
             .lineLimit(1...6)
             #endif
             .focused($composerFocused)
+            .onKeyPress(.downArrow) {
+                guard !suggestions.isEmpty else { return .ignored }
+                commandIndex = min(commandIndex + 1, suggestions.count - 1)
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                guard !suggestions.isEmpty else { return .ignored }
+                commandIndex = max(commandIndex - 1, 0)
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                guard !suggestions.isEmpty else { return .ignored }
+                commandsDismissed = true
+                return .handled
+            }
+            .onKeyPress(keys: [.tab, .return]) { press in
+                guard !press.modifiers.contains(.shift), suggestions.indices.contains(commandIndex) else { return .ignored }
+                let selected = suggestions[commandIndex]
+                if press.key == .return && store.draft == selected.prompt {
+                    if mainAction == .send && canSend { mainButtonTapped() }
+                } else { completeCommand(selected) }
+                return .handled
+            }
             .shiftReturnNewline()
             #if os(macOS)
             .onSubmit { if mainAction == .send && canSend { mainButtonTapped() } }

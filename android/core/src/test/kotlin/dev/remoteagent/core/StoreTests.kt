@@ -69,6 +69,15 @@ class SessionStoreTests {
         }
     }
 
+    @Test fun oldServerCommandFallback() = runTest {
+        val host = Host(this)
+        host.fail = RpcError("method_not_found", "old server")
+        val store = SessionStore("s", host)
+        assertEquals(emptyList(), store.commands())
+        host.fail = RpcError("conflict", "runtime replaced")
+        assertFailsWith<RpcError> { store.commands() }
+    }
+
     @Test
     fun replayThenLive() {
         val s = SessionStore("s", null)

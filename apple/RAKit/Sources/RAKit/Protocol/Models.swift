@@ -329,6 +329,8 @@ public struct Choice: Codable, Hashable, Identifiable, Sendable {
 public struct SlashCommand: Codable, Hashable, Identifiable, Sendable {
     public var name: String  // without the slash
     public var description: String?
+    public var kind: String? = nil
+    public var scope: String? = nil
     public var id: String { name }
 
     /// The prompt that runs it.

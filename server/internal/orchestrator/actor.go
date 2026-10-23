@@ -38,8 +38,11 @@ type actor struct {
 	sess    *model.Session
 	project *model.Project
 
-	rt    harness.Runtime
-	rtGen int
+	rt              harness.Runtime
+	rtGen           int
+	runtimeNativeID string
+	runtimePrompted bool
+	archiving       bool
 
 	turn      *model.Turn
 	lastTurnN int
@@ -110,7 +113,7 @@ func (a *actor) prompt(ctx context.Context, text string, refs []model.ImageRef, 
 	if a.deleted {
 		return nil, errorf(CodeNotFound, "session %s not found", a.sess.ID)
 	}
-	if a.sess.Archived {
+	if a.sess.Archived || a.archiving {
 		return nil, errorf(CodeConflict, "session is archived")
 	}
 	if res, ok, err := a.o.receipt(ctx, commandID); err != nil {
@@ -234,13 +237,19 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 	}
 	in := q.input
 	if a.note != "" {
-		in.Text = strings.TrimSuffix(a.note+"\n\n"+in.Text, "\n\n")
+		if strings.HasPrefix(strings.TrimSpace(in.Text), "/") || strings.HasPrefix(strings.TrimSpace(in.Text), "$") {
+			in.Text = strings.TrimSpace(in.Text) + "\n\n" + a.note
+		} else {
+			in.Text = strings.TrimSuffix(a.note+"\n\n"+in.Text, "\n\n")
+		}
 		a.note = ""
 	}
 	if err := a.rt.Prompt(ctx, in); err != nil {
 		a.endTurn(ctx, harness.TurnEnded{Status: model.TurnFailed, Error: err.Error()})
 		return err
 	}
+	a.runtimePrompted = true
+	a.persistNativeID(ctx)
 	return nil
 }
 
@@ -262,6 +271,8 @@ func (a *actor) onTurnStarted(ctx context.Context, ev harness.TurnStarted) {
 	if a.turn != nil {
 		return
 	}
+	a.runtimePrompted = true
+	a.persistNativeID(ctx)
 	turn := a.newTurn(ctx)
 	a.o.log.Info("turn started", "session", a.sess.ID, "turn", turn.N, "by", "agent")
 	var notice *model.Item
@@ -287,19 +298,9 @@ func (a *actor) open(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("harness %q is not configured", a.sess.Harness)
 	}
-	opts := harness.OpenOptions{
-		SessionID: a.sess.ID, Cwd: a.sess.Workspace.Path, Model: a.sess.Model, Effort: a.sess.Effort, Mode: a.sess.Mode,
-		ResumeID: a.sess.NativeID, Log: a.o.log.With("session", a.sess.ID, "harness", a.sess.Harness),
-		Instructions: instructions,
-	}
-	if a.o.opt.Images != nil {
-		opts.Images = a.o.opt.Images
-	}
-	if a.o.opt.LogsDir != "" {
-		opts.DiagPath = filepath.Join(a.o.opt.LogsDir, a.sess.ID+".ndjson")
-	}
+	opts := a.openOptions()
 	rt, err := h.Open(ctx, opts)
-	if err != nil && opts.ResumeID != "" {
+	if err != nil && opts.ResumeID != "" && ctx.Err() == nil {
 		a.o.log.Warn("resume failed; starting a fresh conversation", "session", a.sess.ID, "err", err)
 		opts.ResumeID = ""
 		rt, err = h.Open(ctx, opts)
@@ -312,15 +313,39 @@ func (a *actor) open(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	a.attachRuntime(rt)
+	return nil
+}
+
+func (a *actor) openOptions() harness.OpenOptions {
+	opts := harness.OpenOptions{
+		SessionID: a.sess.ID, Cwd: a.sess.Workspace.Path, Model: a.sess.Model, Effort: a.sess.Effort, Mode: a.sess.Mode,
+		ResumeID: a.sess.NativeID, Log: a.o.log.With("session", a.sess.ID, "harness", a.sess.Harness),
+		Instructions: instructions,
+	}
+	if a.o.opt.Images != nil {
+		opts.Images = a.o.opt.Images
+	}
+	if a.o.opt.LogsDir != "" {
+		opts.DiagPath = filepath.Join(a.o.opt.LogsDir, a.sess.ID+".ndjson")
+	}
+	return opts
+}
+
+func (a *actor) attachRuntime(rt harness.Runtime) {
 	a.rtGen++
 	a.rt = rt
+	a.runtimeNativeID = rt.NativeID()
+	a.runtimePrompted = false
 	a.keyToID = map[string]string{}
 	go a.loop(a.rtGen, rt)
-	if id := rt.NativeID(); id != "" && id != a.sess.NativeID {
-		a.sess.NativeID = id
+}
+
+func (a *actor) persistNativeID(ctx context.Context) {
+	if a.runtimePrompted && a.runtimeNativeID != "" && a.runtimeNativeID != a.sess.NativeID {
+		a.sess.NativeID = a.runtimeNativeID
 		a.write(ctx, a.putSession)
 	}
-	return nil
 }
 
 // loop consumes runtime events until the runtime closes its channel.
@@ -360,10 +385,8 @@ func (a *actor) handle(gen int, ev harness.Event) {
 	case harness.TurnEnded:
 		a.endTurn(ctx, ev)
 	case harness.NativeID:
-		if ev.ID != "" && ev.ID != a.sess.NativeID {
-			a.sess.NativeID = ev.ID
-			a.write(ctx, a.putSession)
-		}
+		a.runtimeNativeID = ev.ID
+		a.persistNativeID(ctx)
 	case harness.ModeChanged:
 		if ev.Mode != a.sess.Mode {
 			a.sess.Mode = ev.Mode
@@ -843,6 +866,7 @@ func (a *actor) setMode(ctx context.Context, mode string) error {
 
 func (a *actor) archive(ctx context.Context, removeWorktree bool) error {
 	a.mu.Lock()
+	a.archiving = true
 	rt := a.detachLocked("archived")
 	a.mu.Unlock()
 	if rt != nil {
