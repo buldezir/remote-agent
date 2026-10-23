@@ -8,9 +8,9 @@ options:
 packages:
   RAKit:
     path: RAKit
-  Textual:  # 0.x: a minor version may change the API.
-    url: https://github.com/gonzalezreal/textual
-    minorVersion: 0.5.0
+  Textual:  # 0.5.0 with fixes to selection and copying, on the remote-agent branch of our fork.
+    url: https://github.com/buldezir/textual
+    revision: 8dc72c27923e486f5ecc4f1b36423df304a074f8
   SwiftTerm:  # exact: 1.99 is the 2.0 preview, with a different API. Needs Xcode's Metal toolchain.
     url: https://github.com/migueldeicaza/SwiftTerm
     exactVersion: 1.20.0

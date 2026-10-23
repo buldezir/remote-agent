@@ -23,6 +23,10 @@ enum Palette {
     static let accent = mauve
     /// Text on an accent colour.
     static let onAccent = base
+    /// The highlight over selected text in replies: the accent, see-through, so
+    /// it shows on code blocks and inline code too. The Mac's own colour, the
+    /// system's, is all but lost on Latte's crust.
+    static let selection = Color(latte: 0x8839ef, frappe: 0xca9ee6, latteAlpha: 0.28, frappeAlpha: 0.4)
 
     // Text, from the most to the least prominent.
     static let text = Color(latte: 0x4c4f69, frappe: 0xc6d0f5)
@@ -64,14 +68,15 @@ enum Palette {
 
 private extension Color {
     /// A colour that follows the appearance: `latte` in light mode, `frappe` in dark.
-    init(latte: UInt32, frappe: UInt32) {
+    init(latte: UInt32, frappe: UInt32, latteAlpha: CGFloat = 1, frappeAlpha: CGFloat = 1) {
         #if os(iOS)
         self.init(uiColor: UIColor { traits in
-            UIColor(rgb: traits.userInterfaceStyle == .dark ? frappe : latte)
+            traits.userInterfaceStyle == .dark ? UIColor(rgb: frappe, alpha: frappeAlpha) : UIColor(rgb: latte, alpha: latteAlpha)
         })
         #else
         self.init(nsColor: NSColor(name: nil) { appearance in
-            NSColor(rgb: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? frappe : latte)
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor(rgb: frappe, alpha: frappeAlpha) : NSColor(rgb: latte, alpha: latteAlpha)
         })
         #endif
     }
@@ -79,16 +84,16 @@ private extension Color {
 
 #if os(iOS)
 extension UIColor {
-    convenience init(rgb: UInt32) {
+    convenience init(rgb: UInt32, alpha: CGFloat = 1) {
         self.init(red: CGFloat(rgb >> 16 & 0xff) / 255, green: CGFloat(rgb >> 8 & 0xff) / 255,
-                  blue: CGFloat(rgb & 0xff) / 255, alpha: 1)
+                  blue: CGFloat(rgb & 0xff) / 255, alpha: alpha)
     }
 }
 #else
 extension NSColor {
-    convenience init(rgb: UInt32) {
+    convenience init(rgb: UInt32, alpha: CGFloat = 1) {
         self.init(srgbRed: CGFloat(rgb >> 16 & 0xff) / 255, green: CGFloat(rgb >> 8 & 0xff) / 255,
-                  blue: CGFloat(rgb & 0xff) / 255, alpha: 1)
+                  blue: CGFloat(rgb & 0xff) / 255, alpha: alpha)
     }
 }
 #endif

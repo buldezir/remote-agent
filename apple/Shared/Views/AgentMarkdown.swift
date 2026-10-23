@@ -42,6 +42,7 @@ struct AgentMarkdown: View {
         .textual.overflowMode(.wrap)
         .textual.imageAttachmentLoader(InlineImageLoader(store: store, scale: scale))
         .textual.textSelection(.enabled)
+        .textual.textSelectionColor(Palette.selection)
     }
 }
 
