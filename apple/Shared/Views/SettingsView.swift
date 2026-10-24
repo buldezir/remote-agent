@@ -17,101 +17,136 @@ struct SettingsView: View {
     #endif
 
     var body: some View {
+        #if os(macOS)
+        // Two columns, the text beside the rest, so that the window fits a
+        // laptop's screen. A screen too short for them still scrolls.
+        ScreenHeightScrollView {
+            HStack(alignment: .top, spacing: 0) {
+                column { textSections }
+                column { otherSections }
+            }
+        }
+        .background(Palette.mantle)
+        .navigationTitle("Settings")
+        #else
         Form {
             Group {
-                Section {
-                    // A pop-up, like the font pickers: a Mac segmented control
-                    // writes its selected label in white on the accent.
-                    Picker("Theme", selection: $appearance) {
-                        ForEach(Appearance.allCases) { Text($0.title).tag($0) }
-                    }
-                } header: {
-                    Text("Appearance").formHeaderFont()
-                } footer: {
-                    Text("Catppuccin Latte when light, Frappé when dark.").formFooterFont()
-                }
-
-                Section {
-                    #if os(iOS)
-                    Toggle("Match System", isOn: matchSystem)
-                    if !followsSystem { interfaceSlider }
-                    #else
-                    interfaceSlider
-                    #endif
-                } header: {
-                    Text("Interface").formHeaderFont()
-                } footer: {
-                    Text(interfaceFooter).formFooterFont()
-                }
-
-                Section {
-                    #if os(macOS)
-                    fontPickers
-                    #endif
-                    SizeSlider(value: $messages, range: TextSize.messageSizes, text: "\(Int(TextSize.messages(messages))) pt")
-                } header: {
-                    Text("Messages").formHeaderFont()
-                } footer: {
-                    Text(messagesFooter).formFooterFont()
-                }
-
-                Section {
-                    VStack(alignment: .leading, spacing: Metrics.gap) {
-                        UserBubble(text: "Add tests for the parser.")
-                        AgentMarkdown(text: "Done. The new tests cover **empty input** and `\\r\\n` line endings, and all 42 pass:\n\n```\nswift test --filter ParserTests\n```")
-                    }
-                    .padding(.vertical, 4)
-                    .paletteText()
-                } header: {
-                    Text("Preview").formHeaderFont()
-                }
-
-                if offersSplitView {
-                    Section {
-                        Picker("Layout", selection: $sidebarLayout) {
-                            ForEach(SidebarLayout.allCases) { Text($0.title).tag($0) }
-                        }
-                    } header: {
-                        Text("Sidebar").formHeaderFont()
-                    } footer: {
-                        Text(sidebarFooter).formFooterFont()
-                    }
-                }
-
-                if offersSplitView {
-                    Section {
-                        Picker("Opens", selection: $terminalPlacement) {
-                            ForEach(TerminalPlacement.allCases) { Text($0.title).tag($0) }
-                        }
-                    } header: {
-                        Text("Terminal").formHeaderFont()
-                    } footer: {
-                        Text("Where a session's terminal opens. In a narrow window it takes the place of the messages.").formFooterFont()
-                    }
-                }
-
-                #if os(macOS)
-                NotificationsSection()
-                UpdatesSection()
-                #endif
-
-                Section {
-                    Button("Restore Defaults", action: restoreDefaults)
-                        .disabled(isDefault)
-                }
+                textSections
+                otherSections
             }
             .paletteRows()
         }
         .compactForm()
         .navigationTitle("Settings")
         .inlineTitle()
-        #if os(iOS)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Done") { dismiss() }
             }
         }
         #endif
+    }
+
+    #if os(macOS)
+    /// A column of sections: a form of its own, as tall as they are, which
+    /// the window's scroll view scrolls.
+    private func column(@ViewBuilder _ sections: () -> some View) -> some View {
+        Form { sections() }
+            .compactForm()
+            .scrollDisabled(true)
+            // The form can come out a fraction of a point taller than its
+            // sections, which would show a scroller.
+            .scrollIndicators(.never)
+            .frame(width: 420)
+    }
+    #endif
+
+    /// The theme and the text: its sizes, fonts and a preview.
+    @ViewBuilder private var textSections: some View {
+        Section {
+            // A pop-up, like the font pickers: a Mac segmented control
+            // writes its selected label in white on the accent.
+            Picker("Theme", selection: $appearance) {
+                ForEach(Appearance.allCases) { Text($0.title).tag($0) }
+            }
+        } header: {
+            Text("Appearance").formHeaderFont()
+        } footer: {
+            Text("Catppuccin Latte when light, Frappé when dark.").formFooterFont()
+        }
+
+        Section {
+            #if os(iOS)
+            Toggle("Match System", isOn: matchSystem)
+            if !followsSystem { interfaceSlider }
+            #else
+            interfaceSlider
+            #endif
+        } header: {
+            Text("Interface").formHeaderFont()
+        } footer: {
+            Text(interfaceFooter).formFooterFont()
+        }
+
+        Section {
+            #if os(macOS)
+            fontPickers
+            #endif
+            SizeSlider(value: $messages, range: TextSize.messageSizes, text: "\(Int(TextSize.messages(messages))) pt")
+        } header: {
+            Text("Messages").formHeaderFont()
+        } footer: {
+            Text(messagesFooter).formFooterFont()
+        }
+
+        Section {
+            VStack(alignment: .leading, spacing: Metrics.gap) {
+                UserBubble(text: "Add tests for the parser.")
+                AgentMarkdown(text: "Done. The new tests cover **empty input** and `\\r\\n` line endings, and all 42 pass:\n\n```\nswift test --filter ParserTests\n```")
+            }
+            .padding(.vertical, 4)
+            .paletteText()
+        } header: {
+            Text("Preview").formHeaderFont()
+        }
+    }
+
+    /// The sidebar, the terminal, notifications and updates, and the way
+    /// back to the defaults.
+    @ViewBuilder private var otherSections: some View {
+        if offersSplitView {
+            Section {
+                Picker("Layout", selection: $sidebarLayout) {
+                    ForEach(SidebarLayout.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("Sidebar").formHeaderFont()
+            } footer: {
+                Text(sidebarFooter).formFooterFont()
+            }
+        }
+
+        if offersSplitView {
+            Section {
+                Picker("Opens", selection: $terminalPlacement) {
+                    ForEach(TerminalPlacement.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("Terminal").formHeaderFont()
+            } footer: {
+                Text("Where a session's terminal opens. In a narrow window it takes the place of the messages.").formFooterFont()
+            }
+        }
+
+        #if os(macOS)
+        NotificationsSection()
+        UpdatesSection()
+        #endif
+
+        Section {
+            Button("Restore Defaults", action: restoreDefaults)
+                .disabled(isDefault)
+        }
     }
 
     /// The sidebar's layout and where the terminal opens: for iPad and the
@@ -311,6 +346,60 @@ private struct UpdatesSection: View {
                      : "Once a day. Remote Agent asks before installing a new version.")
                     .formFooterFont()
             }
+        }
+    }
+}
+
+/// As tall as its content, unless the window's screen has less room, below
+/// the menu bar and above the Dock: then it scrolls.
+private struct ScreenHeightScrollView<Content: View>: View {
+    @ViewBuilder let content: Content
+    @State private var contentHeight: CGFloat?
+    @State private var available = CGFloat.infinity
+
+    var body: some View {
+        ScrollView {
+            content
+                // Rounded up: a fraction of a point more than the window
+                // would show a scroller.
+                .onGeometryChange(for: CGFloat.self) { $0.size.height.rounded(.up) } action: { contentHeight = $0 }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(height: contentHeight.map { min($0, available) })
+        .background(WindowScreen { available = $0 })
+    }
+}
+
+/// Reports the height a window's content can take on its screen: when the
+/// window opens, moves to another screen, or the screens change.
+private struct WindowScreen: NSViewRepresentable {
+    let changed: @MainActor (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> ScreenView { ScreenView() }
+
+    func updateNSView(_ view: ScreenView, context: Context) {
+        view.changed = changed
+    }
+
+    final class ScreenView: NSView {
+        var changed: (@MainActor (CGFloat) -> Void)?
+
+        override func viewDidMoveToWindow() {
+            NotificationCenter.default.removeObserver(self)
+            guard let window else { return }
+            NotificationCenter.default.addObserver(self, selector: #selector(report),
+                                                   name: NSWindow.didChangeScreenNotification, object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(report),
+                                                   name: NSApplication.didChangeScreenParametersNotification, object: nil)
+            report()
+        }
+
+        @objc private func report() {
+            guard let window, let screen = window.screen, let changed else { return }
+            // The screen's room for windows, less the title bar.
+            let height = screen.visibleFrame.height - (window.frame.height - window.contentLayoutRect.height)
+            // Not while SwiftUI is updating the view.
+            Task { @MainActor in changed(height) }
         }
     }
 }

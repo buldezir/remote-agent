@@ -42,12 +42,9 @@ struct RemoteAgentApp: App {
             SettingsView()
                 .environment(notifier)
                 .environment(updater)
-                .frame(width: 460)
-                // As tall as the form, which grows with the text sizes. The
-                // form can still come out a fraction of a point taller, which
-                // would show a scroller.
+                // As tall as the columns, which grow with the text sizes, up
+                // to the screen's height.
                 .fixedSize(horizontal: false, vertical: true)
-                .scrollIndicators(.never)
                 .appStyle()
         }
         .windowResizability(.contentSize)
