@@ -2,7 +2,8 @@ import Foundation
 import Network
 
 /// A WebSocket server on loopback that stands in for rad: it answers
-/// `server.info`, `session.prompt` and pings, and records the calls. `quiet()`
+/// `server.info`, `session.prompt`, the index's `subscribe` and pings, and
+/// records the calls. `quiet()`
 /// makes the sockets open so far ignore everything, as a socket that died
 /// while the Mac slept does: nothing comes back, and nothing says it closed.
 final class TestServer: @unchecked Sendable {
@@ -14,12 +15,15 @@ final class TestServer: @unchecked Sendable {
 
     private let listener: NWListener
     private let queue = DispatchQueue(label: "TestServer")
+    /// The sessions the index replays, as JSON objects.
+    private let index: [String]
     // Guarded by `queue`.
     private var connections: [NWConnection] = []
     private var quietCount = 0
     private var recorded: [Call] = []
 
-    init() throws {
+    init(index: [String] = []) throws {
+        self.index = index
         let ws = NWProtocolWebSocket.Options()
         ws.autoReplyPing = false
         let params = NWParameters.tcp
@@ -93,6 +97,13 @@ final class TestServer: @unchecked Sendable {
         case "session.commands":
             send(c, Data(#"{"id":\#(id),"error":{"code":"method_not_found","message":"old server"}}"#.utf8), opcode: .text)
             return
+        case "subscribe" where params?["stream"] as? String == "index":
+            let events = index.enumerated().map { i, s in
+                #"{"stream":"index","seq":\#(i + 1),"type":"session.upserted","session":\#(s)}"#
+            }
+            send(c, Data(#"{"method":"events","params":{"stream":"index","events":[\#(events.joined(separator: ","))]}}"#.utf8), opcode: .text)
+            send(c, Data(#"{"method":"synchronized","params":{"stream":"index","seq":\#(index.count),"reset":true}}"#.utf8), opcode: .text)
+            result = #"{"stream":"index","seq":\#(index.count)}"#
         case "session.prompt":
             let sid = params?["sessionId"] as? String ?? ""
             result = #"{"id":"i\#(id)","sessionId":"\#(sid)","order":1,"kind":"user_message","status":"queued","#

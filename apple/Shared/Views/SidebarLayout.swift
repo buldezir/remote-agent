@@ -115,16 +115,19 @@ enum RecentSessions {
 extension Session {
     /// Waiting for an answer, or failed: what a person has to look at.
     var needsYou: Bool { status == .awaitingApproval || status == .error }
+    /// Needs you or is unread: its title is bold in the lists.
+    var standsOut: Bool { needsYou || isUnread }
     /// Working, or done but with tasks left running in the background.
     var isBusy: Bool { status == .running || (status == .idle && backgroundTasks?.isEmpty == false) }
 
     /// How much the session asks for a look: an answer it waits for, then a
-    /// failure, then work, then work left in the background. Idle and stopped
-    /// sessions ask nothing.
+    /// failure, then what nobody has read yet, then work, then work left in
+    /// the background. Other idle and stopped sessions ask nothing.
     var urgency: Int {
         switch status {
-        case .awaitingApproval: 4
-        case .error: 3
+        case .awaitingApproval: 5
+        case .error: 4
+        case _ where isUnread: 3
         case .running: 2
         case .idle where backgroundTasks?.isEmpty == false: 1
         default: 0

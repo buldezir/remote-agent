@@ -157,6 +157,8 @@ Session {
                                      // branch: checked out in path, refreshed at each turn start/end; absent if detached
   status: "idle"|"running"|"awaiting_approval"|"stopped"|"error",
   nativeId?, title, error?, archived,
+  unread?,                           // true: a turn ended, or the agent asked for an answer, since a client
+                                     // last showed the session (session.markRead); absent: false
   context?: { used, window? },       // tokens in the agent's context at its last model call; window absent if unknown
   modelInfo?: { id?, name?, effort? },
                                      // the model and reasoning effort the agent reported it runs with, once it
@@ -237,6 +239,7 @@ Approval {
 | `session.interrupt` | `{sessionId, force?}` | `{}` (`force` kills the agent process) |
 | `session.sendNow` | `{sessionId, itemId}` | `{}` (see below) |
 | `session.setMode` | `{sessionId, mode}` | `{}` |
+| `session.markRead` | `{sessionId}` | `{}` (see below) |
 | `session.archive` | `{sessionId, removeWorktree?}` | `{}` (also ends the session's shell) |
 | `session.delete` | `{sessionId, removeWorktree?}` | `{}` (see below) |
 | `approval.respond` | `{commandId, sessionId, approvalId, optionId, message?, answers?}` | `{}` |
@@ -284,6 +287,7 @@ FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", addit
 
 - **Slash commands.** A prompt of `/<name>`, optionally followed by text for the command, runs the command; send it with `session.prompt` like any other. Its turn has the prompt as its user message and, for `/compact`, a `notice` item once the agent has summarized the conversation; the session's `context` then drops. The harness's `commands` are the ones the apps offer in a menu; others typed in a prompt go to the agent as they are.
 - **Composer suggestions.** `session.commands` discovers commands and user-invocable skills in the session's effective workspace, without sending a prompt or starting a turn. It may start or resume the agent process. `name` has no leading slash; `kind` is `skill`, `prompt`, or `extension` when known, and `scope` is the agent-reported source scope (such as `user` or `project`). Metadata may be absent. Archived sessions return an empty array. Clients fetch only while the composer is focused on a leading `/` token, rank exact and prefix name matches before substring and description matches, and insert `/<name> ` for editing. Enter sends an exact command; otherwise Enter or Tab completes the highlighted suggestion. Suggestions stop once arguments begin. Discovery failures (including an older server's `method_not_found`) leave ordinary prompts and the built-in command menu usable. Clients may append the harness's known commands, deduplicating by name. Codex resolves a matching discovered leading `/skill-name` or `$skill-name` to its native `$skill-name` plus an exact skill input; Claude uses `/name` and Pi `/skill:name`. Paths stay on the server. Sending uses the catalog the last lookup returned; when none has succeeded since the agent started, a leading `/` or `$` prompt looks the skills up once, briefly, and a failed lookup leaves the text as it is. A lookup whose runtime was replaced returns `conflict` so the client can offer a retry. Discovery is refreshed when the picker reopens; Claude's catalog comes from its process initialization and refreshes when that runtime restarts.
+- **Unread sessions.** rad marks a session `unread` when a turn ends (completed, failed or interrupted, including by a restart) and when the agent asks for an answer. A client calls `session.markRead` while it shows the session, in a window in front, so that every device stops marking it; it keeps the session's `updatedAt`. Reading a session that isn't unread changes nothing. Archiving a session reads it. Older servers answer `method_not_found`, which clients ignore.
 - **Deleting a session.** `session.delete` works on archived and unarchived sessions. It stops the agent and the session's shell, and deletes the session, its turns, its transcript and its checkpoints; `removeWorktree` deletes its worktree too, and the branch is kept either way. Images stay, since other sessions may show them. The session's stream then holds only a `session.removed` event, the next in its seq, which reaches its subscribers; later commands on the session are `not_found`.
 - **Queued prompts.** A prompt sent while a turn runs waits as a `queued` user message, and the next turn starts with it once the turn ends. Interrupting the turn cancels every queued prompt. `session.sendNow` sends one of them at once instead: rad interrupts the turn and starts the next turn with that prompt, ahead of the others, which stay queued behind it. A prompt no longer queued (it started, or was cancelled) is left as it is.
 - **Images in prompts.** `images` lists ids from `POST /v1/images`. A prompt needs text, images or both. An unknown id is `invalid`.

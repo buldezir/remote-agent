@@ -12,6 +12,7 @@ import {
   sessionToOpen,
   shortAge,
   storedCollection,
+  urgency,
   type ServerSession,
   type SessionCollection,
 } from "./sidebarLayout";
@@ -66,6 +67,25 @@ describe("sidebar layouts", () => {
     expect(mostPressing([background, running, ...idle])?.id).toBe("running");
     expect(mostPressing([running, failed])?.id).toBe("failed");
     expect(mostPressing([failed, waiting, running])?.id).toBe("waiting");
+
+    // What ended since it was read comes after what asks for the user, before work.
+    const unread = session({ id: "unread", unread: true });
+    expect(mostPressing([...idle, unread])?.id).toBe("unread");
+    expect(mostPressing([background, running, unread])?.id).toBe("unread");
+    expect(mostPressing([unread, failed])?.id).toBe("failed");
+    expect(mostPressing([waiting, unread])?.id).toBe("waiting");
+  });
+
+  it("ranks an unread session by what it asks for", () => {
+    expect(urgency(session({ status: "awaiting_approval", unread: true }))).toBe(5);
+    expect(urgency(session({ status: "error", unread: true }))).toBe(4);
+    expect(urgency(session({ unread: true }))).toBe(3);
+    expect(urgency(session({ status: "running", unread: true }))).toBe(3);
+    expect(urgency(session({ status: "stopped", unread: true }))).toBe(3);
+    expect(urgency(session({ status: "running" }))).toBe(2);
+    expect(urgency(session({ backgroundTasks: [{ id: "b", kind: "command", description: "watch" }] }))).toBe(1);
+    expect(urgency(session({ unread: false }))).toBe(0);
+    expect(urgency(session({ status: "stopped" }))).toBe(0);
   });
 
   it("gives short ages", () => {

@@ -211,10 +211,11 @@ fun ArchivedToggle(count: Int, shown: Boolean, onToggle: (Boolean) -> Unit, modi
 /**
  * A server as a section header: its name, how its connection is doing, and
  * while its rows are hidden, how many sessions it has and whether one needs
- * you. A tap shows or hides the rows, or tries again once the connection has
- * given up. A + starts a session on it; its other actions are in a ⋯ menu,
- * which a long press on the name opens too. [compact]: a narrow column,
- * where the name gets the +'s room and the menu has the action.
+ * you, else whether one is unread. A tap shows or hides the rows, or tries
+ * again once the connection has given up. A + starts a session on it; its
+ * other actions are in a ⋯ menu, which a long press on the name opens too.
+ * [compact]: a narrow column, where the name gets the +'s room and the menu
+ * has the action.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -223,12 +224,14 @@ fun ServerHeader(s: ServerState, expanded: Boolean, onExpand: (Boolean) -> Unit,
     val name = s.name
     val active = s.active
     val waiting = active.any { it.needsYou }
+    val unread = !waiting && active.any { it.unread }
     val connected = s.state == ConnectionState.Connected
     var menu by remember { mutableStateOf(false) }
     val description = buildList {
         add(connectionLabel(s.state))
         add(if (expanded) "Expanded" else "Collapsed, ${active.size} sessions")
         if (!expanded && waiting) add("Needs you")
+        if (!expanded && unread) add("Unread")
     }.joinToString(", ")
 
     Row(modifier.fillMaxWidth().background(palette.mantle).padding(start = 8.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -273,6 +276,8 @@ fun ServerHeader(s: ServerState, expanded: Boolean, onExpand: (Boolean) -> Unit,
                 }
                 if (!expanded && waiting) {
                     Icon(painterResource(Icons.approval), null, Modifier.size(13.dp), tint = palette.yellow)
+                } else if (!expanded && unread) {
+                    UnreadDot(7.dp)
                 }
             }
         }

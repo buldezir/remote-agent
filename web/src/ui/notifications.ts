@@ -4,7 +4,7 @@ import { sessionAlert, type SessionAlert } from "../store/sessionAlert";
 import type { ServerConnection } from "../store/serverConnection";
 import type { ServerStore } from "../store/serverStore";
 import { storage } from "../store/storage";
-import { navigate, parseRoute } from "./router";
+import { navigate, pageInFront, parseRoute } from "./router";
 
 /** A turn that ends starts the next queued prompt at once: wait this long,
  *  in ms, before saying it finished. */
@@ -64,12 +64,14 @@ class Notifications extends Observable {
   }
 
   private get focused(): boolean {
-    return document.visibilityState === "visible" && document.hasFocus();
+    return pageInFront();
   }
 
   private sessionChanged(c: ServerConnection, old: Session, next: Session) {
     const k = key(c.server.id, next.id);
     if (old.status === "awaiting_approval" && next.status !== "awaiting_approval" && this.showing.get(k)?.needsYou) this.close(k);
+    // Read on another device.
+    if (old.unread && !next.unread) this.close(k);
     const alert = sessionAlert(old, next);
     if (!alert || !this.enabled) return;
     if (alert.kind === "finished") {

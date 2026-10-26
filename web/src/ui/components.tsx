@@ -19,8 +19,9 @@ import { parseDate, type SessionStatus } from "../protocol/models";
 import type { ConnectionState } from "../store/serverConnection";
 import { Spinner } from "./primitives";
 
-/** `background`: the agent left work running, which shows on an idle session. */
-export function StatusIcon({ status, background = false }: { status: SessionStatus; background?: boolean }) {
+/** `background`: the agent left work running, which shows on an idle
+ *  session. `unread`: something happened since a device last showed it. */
+export function StatusIcon({ status, background = false, unread = false }: { status: SessionStatus; background?: boolean; unread?: boolean }) {
   let icon;
   let title = status.replace("_", " ");
   switch (status) {
@@ -40,6 +41,14 @@ export function StatusIcon({ status, background = false }: { status: SessionStat
       if (background) {
         icon = <Clock size={15} className="c-subtext" />;
         title = "running in the background";
+      } else if (unread) {
+        // Mail's unread dot, smaller than the ring it replaces.
+        icon = (
+          <svg width={15} height={15} viewBox="0 0 24 24" className="c-accent">
+            <circle cx={12} cy={12} r={7} fill="currentColor" />
+          </svg>
+        );
+        title = "unread";
       } else {
         icon = <Circle size={15} className="c-overlay" />;
       }

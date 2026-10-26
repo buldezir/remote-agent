@@ -120,6 +120,7 @@ describe("fixtures", () => {
 
     const s: Session = load("response_session.json").result;
     expect(s.title).toBe("Fix the tests");
+    expect(s.unread).toBe(true);
     expect(contextFraction(s.context)).toBe(0.26);
     expect(modelName(s, undefined)).toBe("Sonnet 5.5");
     expect(s.modelInfo?.effort).toBe("high");

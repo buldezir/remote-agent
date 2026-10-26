@@ -35,6 +35,9 @@ export interface Session {
   title: string;
   error?: string;
   archived: boolean;
+  /** A turn ended, or the agent asked for an answer, since a client last
+   *  showed the session (`session.markRead`). Absent: false. */
+  unread?: boolean;
   context?: ContextUsage;
   modelInfo?: ModelInfo;
   backgroundTasks?: BackgroundTask[];

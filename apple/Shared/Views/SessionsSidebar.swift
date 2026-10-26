@@ -261,7 +261,7 @@ struct ConnectionStatusRow: View {
 
 /// A server as a section header: its name, how its connection is doing, and
 /// while its rows are hidden, how many sessions it has and whether one needs
-/// you. A click shows or hides the rows, or tries again once the connection
+/// you or is unread. A click shows or hides the rows, or tries again once the connection
 /// has given up. A + starts a session on it (on the Mac, on hover). Its other
 /// actions are in a ⋯ menu on iPad, and in the context menu on the Mac.
 struct ServerHeader: View {
@@ -279,6 +279,7 @@ struct ServerHeader: View {
     var body: some View {
         let active = connection.activeSessions
         let waiting = active.contains(where: \.needsYou)
+        let unread = !waiting && active.contains(where: \.isUnread)
         HStack(spacing: 6) {
             Button(action: activate) {
                 HStack(spacing: 6) {
@@ -294,6 +295,10 @@ struct ServerHeader: View {
                     if !expanded && waiting {
                         Image(systemName: "hand.raised.fill")
                             .foregroundStyle(Palette.yellow)
+                    } else if !expanded && unread {
+                        Circle()
+                            .fill(Palette.accent)
+                            .frame(width: 7, height: 7)
                     }
                     Spacer(minLength: 0)
                 }
@@ -302,7 +307,7 @@ struct ServerHeader: View {
             .buttonStyle(.plain)
             .help(offline ? "Try to connect to \(name) again" : ConnectionDot(state: connection.state).label)
             .accessibilityLabel(name)
-            .accessibilityValue(accessibilityValue(count: active.count, waiting: waiting))
+            .accessibilityValue(accessibilityValue(count: active.count, waiting: waiting, unread: unread))
             .accessibilityHint(offline ? "Tries to connect again" : "")
 
             if connected {
@@ -341,10 +346,11 @@ struct ServerHeader: View {
         }
     }
 
-    private func accessibilityValue(count: Int, waiting: Bool) -> String {
+    private func accessibilityValue(count: Int, waiting: Bool, unread: Bool) -> String {
         var parts = [ConnectionDot(state: connection.state).label]
         parts.append(expanded ? "Expanded" : "Collapsed, \(count) sessions")
         if !expanded && waiting { parts.append("Needs you") }
+        if !expanded && unread { parts.append("Unread") }
         return parts.joined(separator: ", ")
     }
 

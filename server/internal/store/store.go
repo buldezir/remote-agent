@@ -196,6 +196,13 @@ func (w *W) DeleteProject(id string) error {
 // PutSession saves s and emits it on both the session stream and the index.
 func (w *W) PutSession(s *model.Session) error {
 	s.UpdatedAt = w.now
+	return w.PutSessionKeepingTime(s)
+}
+
+// PutSessionKeepingTime saves s as PutSession does, but leaves its updatedAt,
+// by which clients order sessions: for a change, such as reading it, that
+// isn't news from the session.
+func (w *W) PutSessionKeepingTime(s *model.Session) error {
 	data, _ := json.Marshal(s)
 	_, err := w.tx.ExecContext(w.ctx,
 		`INSERT INTO sessions(id, project_id, data) VALUES(?, ?, ?)

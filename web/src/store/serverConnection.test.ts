@@ -294,6 +294,45 @@ describe("ServerConnection", () => {
     }
   });
 
+  it("marks an unread session read once", async () => {
+    const server = new TestServer();
+    const c = await connect(server);
+    try {
+      const at = "2026-10-09T12:00:00Z";
+      const session = { id: "s1", projectId: "p1", harness: "fake", workspace: { kind: "root", path: "/p" }, status: "idle", title: "t", archived: false, createdAt: at, updatedAt: at };
+      c.sessions.set("s1", { ...session, unread: true });
+      // Once the agents have loaded, nothing else changes it.
+      await waitFor(() => c.harnesses !== undefined);
+      let changes = 0;
+      c.watch(() => changes++);
+
+      // The row loses its mark before the server answers.
+      const done = c.markRead("s1");
+      expect(c.sessions.get("s1")?.unread).toBeUndefined();
+      expect(changes).toBe(1);
+      await done;
+      expect(server.calls.filter((m) => m.method === "session.markRead").map((m) => m.params)).toEqual([{ sessionId: "s1" }]);
+
+      // Read already: nothing to send.
+      await c.markRead("s1");
+      c.sessions.set("s2", { ...session, id: "s2" });
+      await c.markRead("s2");
+      await c.markRead("missing");
+      expect(server.calls.filter((m) => m.method === "session.markRead")).toHaveLength(1);
+      expect(changes).toBe(1);
+
+      // An older server doesn't know the method, which is no error.
+      server.handlers["session.markRead"] = () => new RPCError("method_not_found", "unknown method");
+      c.sessions.set("s3", { ...session, id: "s3", unread: true });
+      await c.markRead("s3");
+      expect(c.sessions.get("s3")?.unread).toBeUndefined();
+      expect(server.calls.filter((m) => m.method === "session.markRead")).toHaveLength(2);
+    } finally {
+      c.stop();
+      await server.stop();
+    }
+  });
+
   it("fails a prompt once the connection gives up", async () => {
     const server = new TestServer();
     const c = await connect(server);

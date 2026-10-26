@@ -103,7 +103,9 @@ func (a *actor) putItem(w *store.W, it *model.Item) error {
 
 func (a *actor) putSession(w *store.W) error {
 	cp := *a.sess
-	return w.PutSession(&cp)
+	err := w.PutSession(&cp)
+	a.sess.UpdatedAt = cp.UpdatedAt // which markRead keeps
+	return err
 }
 
 // prompt records the user message and starts a turn, or queues it.
@@ -504,6 +506,7 @@ func (a *actor) onApproval(ctx context.Context, gen int, ev harness.ApprovalEven
 	a.items[it.ID] = it
 	a.approvals[it.ID] = pendingApproval{adapterID: ev.ID, gen: gen}
 	a.sess.Status = model.SessionAwaitingApproval
+	a.sess.Unread = true
 	ids := append(a.dirty, it.ID)
 	a.dirty = nil
 	a.write(ctx, func(w *store.W) error {
@@ -646,6 +649,7 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 	a.turn = nil
 	a.lastActive = time.Now()
 	a.syncStatus()
+	a.sess.Unread = true
 	a.logTurnEnd(turn)
 	switch {
 	case ev.Status == model.TurnFailed && harness.IsAuthError(ev.Error):
@@ -880,7 +884,23 @@ func (a *actor) archive(ctx context.Context, removeWorktree bool) error {
 	a.dropWorkspace(ctx, removeWorktree)
 	a.sess.Archived = true
 	a.sess.Status = model.SessionStopped
+	a.sess.Unread = false // and not for the turn the agent stopping ended
 	return a.write(ctx, a.putSession)
+}
+
+// markRead records that a client showed the session. It keeps the session's
+// place in the lists.
+func (a *actor) markRead(ctx context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !a.sess.Unread {
+		return nil
+	}
+	a.sess.Unread = false
+	return a.write(ctx, func(w *store.W) error {
+		cp := *a.sess
+		return w.PutSessionKeepingTime(&cp)
+	})
 }
 
 // delete stops the agent and removes the session, its transcript, its

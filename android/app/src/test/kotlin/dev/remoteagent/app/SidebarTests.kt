@@ -12,7 +12,9 @@ import dev.remoteagent.app.ui.projectGroups
 import dev.remoteagent.app.ui.sessionActivity
 import dev.remoteagent.app.ui.sessions
 import dev.remoteagent.app.ui.shortAge
+import dev.remoteagent.app.ui.standsOut
 import dev.remoteagent.app.ui.toggled
+import dev.remoteagent.app.ui.urgency
 import dev.remoteagent.core.protocol.BackgroundTask
 import dev.remoteagent.core.protocol.ContextUsage
 import dev.remoteagent.core.protocol.HarnessInfo
@@ -51,9 +53,10 @@ class SidebarTests {
         project: String = "p1",
         archived: Boolean = false,
         background: Boolean = false,
+        unread: Boolean = false,
     ) = Session(
         id = id, projectId = project, harness = "fake", workspace = Workspace(Workspace.Kind.ROOT, "/repo"), status = status,
-        title = id, archived = archived, createdAt = t0, updatedAt = t0.minusSeconds(minutesAgo * 60),
+        title = id, archived = archived, unread = unread, createdAt = t0, updatedAt = t0.minusSeconds(minutesAgo * 60),
         backgroundTasks = if (background) listOf(BackgroundTask("t", BackgroundTask.Kind.COMMAND, "Wait")) else emptyList(),
     )
 
@@ -125,6 +128,22 @@ class SidebarTests {
         assertEquals("run", listOf(session("bg", 1, background = true), session("run", 2, SessionStatus.RUNNING)).mostPressing()?.id)
         assertEquals("bg", listOf(session("idle", 1), session("bg", 2, background = true)).mostPressing()?.id)
         assertNull(emptyList<Session>().mostPressing())
+    }
+
+    @Test
+    fun unreadSessionsAskForALookAfterWhatNeedsYou() {
+        val unread = session("unread", 1, unread = true)
+        assertEquals("unread", listOf(session("run", 1, SessionStatus.RUNNING), unread, session("bg", 1, background = true)).mostPressing()?.id)
+        assertEquals("error", listOf(unread, session("error", 1, SessionStatus.ERROR, unread = true)).mostPressing()?.id)
+        assertEquals("approval", listOf(unread, session("approval", 1, SessionStatus.AWAITING_APPROVAL)).mostPressing()?.id)
+        // Checked in this order, so a running session that is also unread counts as unread.
+        val ranked = listOf(
+            session("a", 1, SessionStatus.AWAITING_APPROVAL, unread = true), session("e", 1, SessionStatus.ERROR), unread,
+            session("ru", 1, SessionStatus.RUNNING, unread = true), session("su", 1, SessionStatus.STOPPED, unread = true),
+            session("r", 1, SessionStatus.RUNNING), session("bg", 1, background = true), session("i", 1),
+        )
+        assertEquals(listOf(5, 4, 3, 3, 3, 2, 1, 0), ranked.map { it.urgency })
+        assertEquals(listOf(true, true, false), listOf(unread, session("e", 1, SessionStatus.ERROR), session("i", 1)).map { it.standsOut })
     }
 
     @Test

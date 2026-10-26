@@ -16,11 +16,12 @@ struct SessionRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            StatusIcon(status: session.status, background: session.backgroundTasks?.isEmpty == false)
+            StatusIcon(status: session.status, background: session.backgroundTasks?.isEmpty == false,
+                       unread: session.isUnread)
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.title)
-                    .scaledFont(.body, weight: .medium)
+                    .scaledFont(.body, weight: session.isUnread || session.needsYou ? .semibold : .medium)
                     .lineLimit(2)
                 // The time sits on this line, so the title gets the full width.
                 // Where the agent's name would leave the branch too little

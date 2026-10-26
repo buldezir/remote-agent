@@ -5,6 +5,8 @@ struct StatusIcon: View {
     let status: SessionStatus
     /// The agent has tasks running in the background.
     var background = false
+    /// Something happened since a device last showed the session.
+    var unread = false
 
     var body: some View {
         Group {
@@ -21,6 +23,12 @@ struct StatusIcon: View {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.red)
             case .stopped:
                 Image(systemName: "stop.circle").foregroundStyle(.secondary)
+            case .idle where unread, .unknown where unread:
+                // Mail's unread dot, smaller than the ring it replaces.
+                Circle()
+                    .fill(Palette.accent)
+                    .frame(width: 10, height: 10)
+                    .accessibilityLabel("Unread")
             case .idle, .unknown:
                 Image(systemName: "circle").foregroundStyle(.tertiary)
             }
@@ -158,6 +166,9 @@ struct StatusGlyph: View {
                 Image(systemName: "stop.fill").imageScale(.small).foregroundStyle(Palette.overlay)
             case .idle where session.backgroundTasks?.isEmpty == false:
                 Image(systemName: "clock").foregroundStyle(Palette.subtext)
+            case .idle where session.isUnread, .unknown where session.isUnread:
+                // Mail's unread dot, where the ring would be.
+                Circle().fill(Palette.accent).frame(width: 8, height: 8)
             case .idle, .unknown:
                 Circle().strokeBorder(Palette.overlay, lineWidth: 1.2).frame(width: 7, height: 7)
             }
@@ -176,6 +187,7 @@ struct StatusGlyph: View {
         case .error: "Failed"
         case .stopped: "Stopped"
         case .idle where session.backgroundTasks?.isEmpty == false: "Running in the background"
+        case .idle where session.isUnread, .unknown where session.isUnread: "Unread"
         case .idle, .unknown: "Idle"
         }
     }

@@ -105,7 +105,7 @@ fun InboxRow(item: ServerSession, showsServer: Boolean) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         LeadingGlyph(session)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            TitleLine(session, if (session.needsYou) FontWeight.SemiBold else null)
+            TitleLine(session, if (session.standsOut) FontWeight.SemiBold else null)
             SessionPlace(item, showsServer, Type.caption, palette.subtext)
         }
     }
@@ -118,7 +118,7 @@ fun TreeRow(item: ServerSession) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StatusGlyph(session)
         Text(
-            session.title, style = Type.body.copy(fontWeight = if (session.needsYou) FontWeight.SemiBold else null),
+            session.title, style = Type.body.copy(fontWeight = if (session.standsOut) FontWeight.SemiBold else null),
             color = palette.text, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
         )
         if (session.workspace.kind == Workspace.Kind.WORKTREE) {
@@ -138,7 +138,7 @@ fun SessionListRow(item: ServerSession, showsServer: Boolean) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         LeadingGlyph(session)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            TitleLine(session, if (session.needsYou) FontWeight.SemiBold else FontWeight.Medium)
+            TitleLine(session, if (session.standsOut) FontWeight.SemiBold else FontWeight.Medium)
             SessionPlace(item, showsServer, Type.caption, palette.overlay)
             Text(
                 sessionActivity(session, item.server.harness(session.harness)), style = Type.subheadline,

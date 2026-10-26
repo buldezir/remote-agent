@@ -481,6 +481,18 @@ class ServerConnection(
         client.callRaw("session.archive", params("sessionId" to sessionID, "removeWorktree" to removeWorktree))
     }
 
+    /**
+     * Clears the session's unread mark, on every device: called while it is
+     * shown. The row loses its dot at once, without waiting for the server.
+     * An older server doesn't have the method, so errors are ignored; an index
+     * update that still says unread just calls this again.
+     */
+    fun markRead(sessionID: String) {
+        val s = _sessions.value[sessionID]?.takeIf { it.unread } ?: return
+        _sessions.value += sessionID to s.copy(unread = false)
+        scope.launch { attempt { client.callRaw("session.markRead", params("sessionId" to sessionID)) } }
+    }
+
     /** Deletes a session and its transcript for good; the index then drops it. */
     suspend fun delete(sessionID: String, removeWorktree: Boolean) {
         client.callRaw("session.delete", params("sessionId" to sessionID, "removeWorktree" to removeWorktree))

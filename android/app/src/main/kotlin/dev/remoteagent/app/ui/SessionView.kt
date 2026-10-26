@@ -80,7 +80,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import dev.remoteagent.app.platform.Platform
 import dev.remoteagent.core.protocol.BackgroundTask
 import dev.remoteagent.core.protocol.HarnessInfo
@@ -215,6 +218,14 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, foc
     DisposableEffect(store) {
         store.activate()
         onDispose { store.deactivate() }
+    }
+    // The index says the session is unread while it shows here, with the app
+    // in front: read it, on every device. A turn that ends while it shows is
+    // read at once, and one that ended in the background once the app is back.
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val unreadInView = lifecycle.isAtLeast(Lifecycle.State.RESUMED) && sessions[store.sessionID]?.unread == true
+    LaunchedEffect(store, unreadInView) {
+        if (unreadInView) connection.markRead(store.sessionID)
     }
 
     fun run(block: suspend () -> Unit) {

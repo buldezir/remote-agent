@@ -39,6 +39,9 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
     public var title: String
     public var error: String?
     public var archived: Bool
+    /// A turn ended, or the agent asked for an answer, since a device last
+    /// showed the session (`ServerConnection.markRead`). Absent: read.
+    public var unread: Bool?
     public var context: ContextUsage?
     public var modelInfo: ModelInfo?
     public var backgroundTasks: [BackgroundTask]?
@@ -47,6 +50,8 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
 }
 
 extension Session {
+    public var isUnread: Bool { unread == true }
+
     /// The model to show: the one the agent reported, else the requested one.
     /// Ids are named from the harness's model list when the agent gave no name.
     public func modelName(in harness: HarnessInfo?) -> String? {

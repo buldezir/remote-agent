@@ -933,6 +933,64 @@ func TestSetModeAndArchive(t *testing.T) {
 	}
 }
 
+func TestUnread(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	s := e.create(CreateSessionParams{Mode: "ask", Prompt: "hi"})
+	e.waitTurn(s.ID, 1)
+	before := e.session(s.ID)
+	if !before.Unread {
+		t.Fatal("a finished turn left the session read")
+	}
+
+	// Reading it keeps its place in the lists, and reading it again sends nothing.
+	if err := e.o.MarkRead(bg, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	after := e.session(s.ID)
+	if after.Unread || !after.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Errorf("read: unread %v, updatedAt %v, was %v", after.Unread, after.UpdatedAt, before.UpdatedAt)
+	}
+	_, seq, err := e.st.Changes(bg, model.IndexStream, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.o.MarkRead(bg, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, again, _ := e.st.Changes(bg, model.IndexStream, 0); again != seq {
+		t.Errorf("reading a read session moved the index from %d to %d", seq, again)
+	}
+
+	// A question is news too.
+	e.prompt(s.ID, "write foo.txt", "")
+	ap := e.pendingApproval(s.ID)
+	if !e.session(s.ID).Unread {
+		t.Error("a question left the session read")
+	}
+	if err := e.o.MarkRead(bg, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.o.Respond(bg, s.ID, ap.ID, harness.Response{OptionID: "allow"}, "r1"); err != nil {
+		t.Fatal(err)
+	}
+	e.waitTurn(s.ID, 2)
+	if !e.session(s.ID).Unread {
+		t.Error("the turn after the answer left the session read")
+	}
+
+	// Archiving reads it.
+	if err := e.o.Archive(bg, s.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if e.session(s.ID).Unread {
+		t.Error("archived session is unread")
+	}
+	if err := e.o.MarkRead(bg, "nope"); CodeOf(err) != CodeNotFound {
+		t.Errorf("unknown session: %v", err)
+	}
+}
+
 func TestDelete(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, true)
@@ -1033,8 +1091,8 @@ func TestRecoverAfterCrash(t *testing.T) {
 	}
 
 	got := e.session(sess.ID)
-	if got.Status != model.SessionIdle || got.ItemCount != 6 {
-		t.Errorf("session = %s, %d items", got.Status, got.ItemCount)
+	if got.Status != model.SessionIdle || got.ItemCount != 6 || !got.Unread {
+		t.Errorf("session = %s, %d items, unread %v", got.Status, got.ItemCount, got.Unread)
 	}
 	if tr := e.turns(sess.ID)[0]; tr.Status != model.TurnInterrupted || tr.EndedAt == nil {
 		t.Errorf("turn = %+v", tr)
@@ -1055,8 +1113,8 @@ func TestRecoverAfterCrash(t *testing.T) {
 	if n := items[5]; n.Kind != model.ItemNotice || n.Order != 6 || !strings.Contains(n.Text, "Server restarted") {
 		t.Errorf("notice = %+v", n)
 	}
-	if got := e.session(idle.ID); got.Status != model.SessionIdle || len(e.items(idle.ID)) != 0 || len(got.BackgroundTasks) != 0 {
-		t.Errorf("idle session = %s, %d items, background %v", got.Status, len(e.items(idle.ID)), got.BackgroundTasks)
+	if got := e.session(idle.ID); got.Status != model.SessionIdle || len(e.items(idle.ID)) != 0 || len(got.BackgroundTasks) != 0 || got.Unread {
+		t.Errorf("idle session = %s, %d items, background %v, unread %v", got.Status, len(e.items(idle.ID)), got.BackgroundTasks, got.Unread)
 	}
 
 	// The session works again: the next turn is 2, resuming the native session.

@@ -88,6 +88,9 @@ type Session struct {
 	Title     string        `json:"title"`
 	Error     string        `json:"error,omitempty"`
 	Archived  bool          `json:"archived"`
+	// Unread: a turn ended, or the agent asked for an answer, since a client
+	// last showed the session (session.markRead).
+	Unread    bool          `json:"unread,omitempty"`
 	Context   *ContextUsage `json:"context,omitempty"`
 	ModelInfo *ModelInfo    `json:"modelInfo,omitempty"`
 	// BackgroundTasks lists what the agent left running, while its process runs.

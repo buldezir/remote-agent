@@ -13,7 +13,7 @@ struct InboxRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(item.session.title)
-                        .scaledFont(.body, weight: item.session.needsYou ? .semibold : nil)
+                        .scaledFont(.body, weight: item.session.standsOut ? .semibold : nil)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     SessionAge(date: item.session.updatedAt)
@@ -41,7 +41,7 @@ struct TreeRow: View {
         HStack(spacing: 8) {
             StatusGlyph(session: item.session)
             Text(item.session.title)
-                .scaledFont(.body, weight: item.session.needsYou ? .semibold : nil)
+                .scaledFont(.body, weight: item.session.standsOut ? .semibold : nil)
                 .lineLimit(1)
             Spacer(minLength: 4)
             if item.session.workspace.kind == .worktree {
@@ -73,7 +73,7 @@ struct SessionListRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(session.title)
-                        .scaledFont(.body, weight: session.needsYou ? .semibold : .medium)
+                        .scaledFont(.body, weight: session.standsOut ? .semibold : .medium)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     SessionAge(date: session.updatedAt)

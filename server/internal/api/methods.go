@@ -221,6 +221,9 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	case "session.setMode":
 		return call(raw, func(p setModeParams) (any, error) { return nil, o.SetMode(ctx, p.SessionID, p.Mode) })
 
+	case "session.markRead":
+		return call(raw, func(p sessionParams) (any, error) { return nil, o.MarkRead(ctx, p.SessionID) })
+
 	case "session.archive":
 		return call(raw, func(p archiveParams) (any, error) {
 			// End the session's shell first, so nothing it runs writes into

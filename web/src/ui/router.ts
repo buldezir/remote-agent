@@ -52,3 +52,24 @@ function subscribeWide(l: () => void) {
   wide.addEventListener("change", l);
   return () => wide.removeEventListener("change", l);
 }
+
+/** Whether the page is in front of the user: visible, with the focus. */
+export function pageInFront(): boolean {
+  return document.visibilityState === "visible" && document.hasFocus();
+}
+
+/** `pageInFront`, kept current. */
+export function usePageInFront(): boolean {
+  return useSyncExternalStore(subscribeInFront, pageInFront);
+}
+
+function subscribeInFront(l: () => void) {
+  document.addEventListener("visibilitychange", l);
+  window.addEventListener("focus", l);
+  window.addEventListener("blur", l);
+  return () => {
+    document.removeEventListener("visibilitychange", l);
+    window.removeEventListener("focus", l);
+    window.removeEventListener("blur", l);
+  };
+}

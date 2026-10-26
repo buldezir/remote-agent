@@ -386,6 +386,7 @@ svg { flex: none; }
   overflow: hidden;
   overflow-wrap: anywhere;
 }
+.session-title.strong { font-weight: 600; }
 .session-meta {
   display: flex;
   align-items: center;
@@ -575,6 +576,13 @@ button.sidebar-status:hover { background: color-mix(in srgb, var(--surface0) 50%
   height: 7px;
   border: 1.25px solid var(--overlay);
   border-radius: 50%;
+}
+.unread-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 .server-row {
   display: flex;

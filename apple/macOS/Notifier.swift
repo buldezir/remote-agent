@@ -6,7 +6,8 @@ import UserNotifications
 /// needs the user, finishes or fails. None comes for the session the window
 /// shows while the app is in front. A click opens the session. A session
 /// that no longer needs the user, because they answered on another device,
-/// takes its notification back. Settings turns them off.
+/// takes its notification back, as does one read on another device. Settings
+/// turns them off.
 @MainActor @Observable
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let enabledKey = "notifications"
@@ -63,6 +64,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         if old.status == .awaitingApproval && new.status != .awaitingApproval && waiting.contains(id(route)) {
             remove(route)
         }
+        if old.isUnread && !new.isUnread { remove(route) }
         guard enabled, let alert = SessionAlert(from: old, to: new) else { return }
         if alert == .finished {
             Task {

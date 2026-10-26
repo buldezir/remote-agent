@@ -250,6 +250,52 @@ class ServerConnectionTests {
     }
 
     @Test
+    fun markReadClearsTheMarkAtOnceAndTellsTheServerOnce() = runBlocking {
+        rad.answer = { r, method, _ ->
+            when (method) {
+                "server.info" -> FakeRad.serverInfo
+                "subscribe" -> {
+                    r.notify(
+                        "events",
+                        events(
+                            "index", 1L to upserted("project", project("p1")),
+                            2L to upserted("session", session("s1", unread = true)), 3L to upserted("session", session("s2")),
+                        ),
+                    )
+                    r.notify("synchronized", synchronized(3, reset = true))
+                    subscribed(3)
+                }
+                // As an older server, which the client ignores.
+                "session.markRead" -> FakeRad.error("method_not_found", "unknown method")
+                else -> JsonObject(emptyMap())
+            }
+        }
+        server.upgrade(rad)
+        val c = connect()
+        withTimeout(5.seconds) { c.indexSynced.first { it } }
+        assertTrue(c.sessions.value.getValue("s1").unread)
+        assertFalse(c.sessions.value.getValue("s2").unread)
+
+        // The row loses its mark before the server answers.
+        withContext(dispatcher) {
+            c.markRead("s1")
+            assertFalse(c.sessions.value.getValue("s1").unread)
+        }
+        assertEquals(params("sessionId" to "s1"), rad.nextCall("session.markRead")["params"])
+
+        // Read already, so there is nothing to tell the server.
+        withContext(dispatcher) {
+            c.markRead("s1")
+            c.markRead("s2")
+            c.markRead("gone")
+        }
+        delay(200)
+        assertTrue(rad.received.none { it.getValue("method").jsonPrimitive.content == "session.markRead" })
+        assertFalse(c.sessions.value.getValue("s1").unread)
+        withContext(dispatcher) { c.stop() }
+    }
+
+    @Test
     fun deletedSessionLeavesTheIndexAndItsStore() = runBlocking {
         rad.answer = { r, method, params ->
             when (method) {

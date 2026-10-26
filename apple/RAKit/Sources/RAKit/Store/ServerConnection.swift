@@ -436,6 +436,20 @@ public final class ServerConnection {
         let _: Empty = try await client.call("session.archive", P(sessionId: sessionID, removeWorktree: removeWorktree))
     }
 
+    /// Marks a session read: here at once, so its row loses its mark, and on
+    /// the server, which tells the other devices. A session that isn't unread
+    /// is left alone.
+    public func markRead(_ sessionID: String) {
+        guard sessions[sessionID]?.isUnread == true else { return }
+        sessions[sessionID]?.unread = false
+        Task {
+            struct P: Encodable, Sendable { var sessionId: String }
+            // An older server doesn't know it, and a failed call is made again
+            // when the index next says the session is unread.
+            let _: Empty? = try? await client.call("session.markRead", P(sessionId: sessionID))
+        }
+    }
+
     /// Deletes a session and its transcript for good; the index then drops it.
     public func delete(_ sessionID: String, removeWorktree: Bool) async throws {
         struct P: Encodable, Sendable { var sessionId: String; var removeWorktree: Bool }

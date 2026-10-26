@@ -4,6 +4,7 @@ import type { ServerConnection } from "../store/serverConnection";
 import { HarnessBadge, RelativeTime, StatusIcon } from "./components";
 import { useConnection } from "./context";
 import { Confirm } from "./primitives";
+import { needsYou } from "./sidebarLayout";
 
 /** A session in a list: its status, title, agent, project and branch. */
 export function SessionRow({
@@ -25,9 +26,9 @@ export function SessionRow({
   return (
     <div className={"session-row" + (selected ? " selected" : "")}>
       <button className="session-row-main" onClick={onOpen} aria-current={selected ? "page" : undefined}>
-        <StatusIcon status={session.status} background={!!session.backgroundTasks?.length} />
+        <StatusIcon status={session.status} background={!!session.backgroundTasks?.length} unread={!!session.unread} />
         <span className="session-row-text">
-          <span className="session-title">{session.title}</span>
+          <span className={"session-title" + (needsYou(session) || session.unread ? " strong" : "")}>{session.title}</span>
           <span className="session-meta">
             <HarnessBadge id={session.harness} name={harness?.name} />
             {project && <span className="nowrap">{project.name}</span>}

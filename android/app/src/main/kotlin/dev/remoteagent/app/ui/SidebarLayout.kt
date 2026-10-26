@@ -117,21 +117,26 @@ class ServerSession(val server: ServerState, val session: Session) {
 val Session.needsYou: Boolean
     get() = status == SessionStatus.AWAITING_APPROVAL || status == SessionStatus.ERROR
 
+/** Needs you or is unread: its title is bold in the lists. */
+val Session.standsOut: Boolean
+    get() = needsYou || unread
+
 /** Working, or done but with tasks left running in the background. */
 val Session.isBusy: Boolean
     get() = status == SessionStatus.RUNNING || (status == SessionStatus.IDLE && backgroundTasks.isNotEmpty())
 
 /**
  * How much the session asks for a look: an answer it waits for, then a
- * failure, then work, then work left in the background. Idle and stopped
- * sessions ask nothing.
+ * failure, then what you haven't seen, then work, then work left in the
+ * background. Idle and stopped sessions you have seen ask nothing.
  */
 val Session.urgency: Int
-    get() = when (status) {
-        SessionStatus.AWAITING_APPROVAL -> 4
-        SessionStatus.ERROR -> 3
-        SessionStatus.RUNNING -> 2
-        SessionStatus.IDLE -> if (backgroundTasks.isNotEmpty()) 1 else 0
+    get() = when {
+        status == SessionStatus.AWAITING_APPROVAL -> 5
+        status == SessionStatus.ERROR -> 4
+        unread -> 3
+        status == SessionStatus.RUNNING -> 2
+        status == SessionStatus.IDLE && backgroundTasks.isNotEmpty() -> 1
         else -> 0
     }
 

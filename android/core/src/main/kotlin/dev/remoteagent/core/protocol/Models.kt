@@ -73,6 +73,8 @@ data class Session(
     val title: String,
     val error: String? = null,
     val archived: Boolean = false,
+    /** A turn ended, or the agent asked for an answer, since a client last showed it. */
+    val unread: Boolean = false,
     val context: ContextUsage? = null,
     val modelInfo: ModelInfo? = null,
     val backgroundTasks: List<BackgroundTask> = emptyList(),

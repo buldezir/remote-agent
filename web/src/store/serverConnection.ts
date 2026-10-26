@@ -484,6 +484,24 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
     await this.client.call("session.archive", { sessionId, removeWorktree });
   }
 
+  /** Marks the session read on the server, for every device, when the index
+   *  has it unread. Its row loses the mark at once. An older server doesn't
+   *  know the method; an index that still has it unread calls again. */
+  async markRead(sessionId: string) {
+    const s = this.sessions.get(sessionId);
+    if (!s?.unread) return;
+    // As the server sends it once read: without the field.
+    const read = { ...s };
+    delete read.unread;
+    this.sessions.set(sessionId, read);
+    this.changed();
+    try {
+      await this.client.call("session.markRead", { sessionId });
+    } catch {
+      // method_not_found, or the connection dropped
+    }
+  }
+
   /** Deletes a session and its transcript for good; the index then drops it. */
   async deleteSession(sessionId: string, removeWorktree: boolean) {
     await this.client.call("session.delete", { sessionId, removeWorktree });

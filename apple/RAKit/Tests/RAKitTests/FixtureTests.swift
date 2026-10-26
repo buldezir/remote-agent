@@ -99,6 +99,7 @@ struct FixtureTests {
         #expect(s.result?.effort == "high")
         #expect(s.result?.backgroundTasks?.map(\.kind) == [.command, .agent])
         #expect(s.result?.backgroundTasks?.first?.description == "Watch the release run")
+        #expect(s.result?.isUnread == true)
 
         let p = try dec.decode(PairResult.self, from: load("http_pair_response.json"))
         #expect(p.token == "0123abcd")

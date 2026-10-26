@@ -63,6 +63,27 @@ struct ConnectionTests {
         #expect(commands.isEmpty)
     }
 
+    @Test func marksReadOnce() async throws {
+        func session(_ id: String, unread: Bool) -> String {
+            #"{"id":"\#(id)","projectId":"p","harness":"fake","status":"idle","title":"\#(id)","archived":false,"unread":\#(unread),"#
+                + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
+        }
+        let server = try TestServer(index: [session("new", unread: true), session("seen", unread: false)])
+        let connection = try await connect(to: server)
+        defer { connection.stop(); server.stop() }
+        try await wait { connection.indexSynced }
+        #expect(connection.sessions["new"]?.isUnread == true)
+
+        // Read here at once; the server hears once.
+        connection.markRead("new")
+        #expect(connection.sessions["new"]?.isUnread == false)
+        connection.markRead("new")
+        connection.markRead("seen")
+        try await wait { server.calls.contains { $0.method == "session.markRead" } }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(server.calls.filter { $0.method == "session.markRead" }.count == 1)
+    }
+
     @Test func dropsASocketThatStopsAnswering() async throws {
         let server = try TestServer()
         let c = try await connect(to: server)

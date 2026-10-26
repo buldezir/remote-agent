@@ -36,21 +36,15 @@ export function isBusy(s: Session): boolean {
 }
 
 /** How much the session asks for a look: an answer it waits for, then a
- *  failure, then work, then work left in the background. Idle and stopped
- *  sessions ask nothing. */
+ *  failure, then what ended since it was last read, then work, then work
+ *  left in the background. Other idle and stopped sessions ask nothing. */
 export function urgency(s: Session): number {
-  switch (s.status) {
-    case "awaiting_approval":
-      return 4;
-    case "error":
-      return 3;
-    case "running":
-      return 2;
-    case "idle":
-      return s.backgroundTasks?.length ? 1 : 0;
-    default:
-      return 0;
-  }
+  if (s.status === "awaiting_approval") return 5;
+  if (s.status === "error") return 4;
+  if (s.unread) return 3;
+  if (s.status === "running") return 2;
+  if (s.status === "idle" && s.backgroundTasks?.length) return 1;
+  return 0;
 }
 
 /** The session whose state a project's row shows for all of them: the one

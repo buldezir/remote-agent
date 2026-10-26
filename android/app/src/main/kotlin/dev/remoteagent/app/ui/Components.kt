@@ -38,20 +38,23 @@ import kotlin.math.roundToInt
 
 /**
  * Mirrors apple/Shared/Views/Components.swift. [background]: an idle session
- * whose agent left work running, which shows a clock.
+ * whose agent left work running, which shows a clock. [unread]: something
+ * happened since a device last showed the session, which shows a dot.
  */
 @Composable
-fun StatusIcon(status: SessionStatus, size: Dp = 18.dp, background: Boolean = false) {
+fun StatusIcon(status: SessionStatus, size: Dp = 18.dp, background: Boolean = false, unread: Boolean = false) {
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         when (status) {
             SessionStatus.RUNNING -> CircularProgressIndicator(Modifier.size(size - 4.dp), color = palette.subtext, strokeWidth = 2.dp)
             SessionStatus.AWAITING_APPROVAL -> Icon(painterResource(Icons.approval), "Needs you", tint = palette.yellow)
             SessionStatus.ERROR -> Icon(painterResource(Icons.warning), "Error", tint = palette.red)
             SessionStatus.STOPPED -> Icon(painterResource(Icons.stopped), "Stopped", tint = palette.subtext)
-            else -> if (background) {
-                Icon(painterResource(Icons.background), "Running in the background", tint = palette.subtext)
-            } else {
-                Icon(painterResource(Icons.circle), "Idle", tint = palette.overlay)
+            else -> when {
+                background -> Icon(painterResource(Icons.background), "Running in the background", tint = palette.subtext)
+                // Mail's unread dot, smaller than the ring: a filled circle its
+                // size reads as a chosen radio button. 10dp in the usual box.
+                unread -> UnreadDot(size * (5f / 9f), Modifier.semantics { contentDescription = "Unread" })
+                else -> Icon(painterResource(Icons.circle), "Idle", tint = palette.overlay)
             }
         }
     }
@@ -60,8 +63,9 @@ fun StatusIcon(status: SessionStatus, size: Dp = 18.dp, background: Boolean = fa
 /**
  * A session's state as a small glyph, for the tablet sidebars' compact rows:
  * a spinner while it works, a hand while it waits for an answer, a triangle
- * once it failed, a stop, a clock while tasks run in the background, else a
- * ring. Mirrors StatusGlyph in apple/Shared/Views/Components.swift.
+ * once it failed, a stop, a clock while tasks run in the background, a dot
+ * while it is unread, else a ring. Mirrors StatusGlyph in
+ * apple/Shared/Views/Components.swift.
  */
 @Composable
 fun StatusGlyph(session: Session, modifier: Modifier = Modifier) {
@@ -71,7 +75,11 @@ fun StatusGlyph(session: Session, modifier: Modifier = Modifier) {
         SessionStatus.AWAITING_APPROVAL -> "Needs you"
         SessionStatus.ERROR -> "Failed"
         SessionStatus.STOPPED -> "Stopped"
-        else -> if (background) "Running in the background" else "Idle"
+        else -> when {
+            background -> "Running in the background"
+            session.unread -> "Unread"
+            else -> "Idle"
+        }
     }
     Box(modifier.size(16.dp).clearAndSetSemantics { contentDescription = label }, contentAlignment = Alignment.Center) {
         when (session.status) {
@@ -79,17 +87,27 @@ fun StatusGlyph(session: Session, modifier: Modifier = Modifier) {
             SessionStatus.AWAITING_APPROVAL -> Icon(painterResource(Icons.approval), null, Modifier.size(13.dp), tint = palette.yellow)
             SessionStatus.ERROR -> Icon(painterResource(Icons.warning), null, Modifier.size(13.dp), tint = palette.red)
             SessionStatus.STOPPED -> Icon(painterResource(Icons.stop), null, Modifier.size(11.dp), tint = palette.overlay)
-            else -> if (background) {
-                Icon(painterResource(Icons.background), null, Modifier.size(13.dp), tint = palette.subtext)
-            } else {
-                val ring = palette.overlay
-                Canvas(Modifier.size(7.dp)) {
-                    val stroke = 1.2.dp.toPx()
-                    drawCircle(ring, radius = (size.minDimension - stroke) / 2, style = Stroke(stroke))
+            else -> when {
+                background -> Icon(painterResource(Icons.background), null, Modifier.size(13.dp), tint = palette.subtext)
+                // Mail's unread dot, where the ring would be.
+                session.unread -> UnreadDot(8.dp)
+                else -> {
+                    val ring = palette.overlay
+                    Canvas(Modifier.size(7.dp)) {
+                        val stroke = 1.2.dp.toPx()
+                        drawCircle(ring, radius = (size.minDimension - stroke) / 2, style = Stroke(stroke))
+                    }
                 }
             }
         }
     }
+}
+
+/** A filled dot in the accent colour: a session that is unread. */
+@Composable
+fun UnreadDot(size: Dp, modifier: Modifier = Modifier) {
+    val color = palette.accent
+    Canvas(modifier.size(size)) { drawCircle(color) }
 }
 
 @DrawableRes

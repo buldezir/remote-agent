@@ -31,7 +31,7 @@ import { useDictation } from "./dictation";
 import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./images";
 import { ItemView, TurnFooter, UserBubble } from "./items/ItemView";
 import { ErrorAlert, Menu, Spinner, type MenuEntry } from "./primitives";
-import { useWide } from "./router";
+import { usePageInFront, useWide } from "./router";
 import { useSettings } from "./settings";
 import { storage } from "../store/storage";
 
@@ -75,6 +75,15 @@ export function SessionView({
   useEffect(() => {
     document.title = session?.title ? `${session.title} – Remote Agent` : "Remote Agent";
   }, [session?.title]);
+
+  // Shown in a page in front of the user, the session is read, on every
+  // device: at once, when a turn ends while it shows, and when the page
+  // comes back to the front.
+  const inFront = usePageInFront();
+  const unread = !!connection.sessions.get(sessionID)?.unread;
+  useEffect(() => {
+    if (inFront && unread) void connection.markRead(sessionID);
+  }, [inFront, unread, connection, sessionID]);
 
   // Its stream says so, or the index, once synced: before it, every
   // session looks missing.

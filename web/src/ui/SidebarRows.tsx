@@ -47,7 +47,7 @@ export function InboxRow({ item, showsServer }: { item: ServerSession; showsServ
       <StatusGlyph session={s} />
       <span className="session-row-text">
         <span className="row-line">
-          <span className={"row-title" + (needsYou(s) ? " strong" : "")}>{s.title}</span>
+          <span className={"row-title" + (needsYou(s) || s.unread ? " strong" : "")}>{s.title}</span>
           <ShortAge date={s.updatedAt} />
         </span>
         <SessionPlace item={item} server={showsServer} />
@@ -62,7 +62,7 @@ export function TreeRow({ item }: { item: ServerSession }) {
   return (
     <>
       <StatusGlyph session={s} />
-      <span className={"row-title" + (needsYou(s) ? " strong" : "")}>{s.title}</span>
+      <span className={"row-title" + (needsYou(s) || s.unread ? " strong" : "")}>{s.title}</span>
       {s.workspace.kind === "worktree" && (
         <span className="row-branch-glyph" title={s.workspace.branch ?? "Worktree"} aria-label={`Worktree ${s.workspace.branch ?? ""}`}>
           <GitBranch size={11} />
@@ -82,7 +82,7 @@ export function SessionListRow({ item, showsServer }: { item: ServerSession; sho
       <StatusGlyph session={s} />
       <span className="session-row-text">
         <span className="row-line">
-          <span className={"row-title " + (needsYou(s) ? "strong" : "medium")}>{s.title}</span>
+          <span className={"row-title " + (needsYou(s) || s.unread ? "strong" : "medium")}>{s.title}</span>
           <ShortAge date={s.updatedAt} />
         </span>
         <SessionPlace item={item} server={showsServer} />
@@ -140,7 +140,8 @@ export function SessionPlace({ item, server }: { item: ServerSession; server: bo
 }
 
 /** A session's state in the sidebar's denser rows: a ring while idle, a
- *  spinner while it works, and the symbols that ask for the user. */
+ *  dot once it is unread, a spinner while it works, and the symbols that
+ *  ask for the user. */
 export function StatusGlyph({ session }: { session: Session }) {
   let icon;
   let label;
@@ -165,6 +166,9 @@ export function StatusGlyph({ session }: { session: Session }) {
       if (session.backgroundTasks?.length) {
         icon = <Clock size={13} className="c-subtext" />;
         label = "Running in the background";
+      } else if (session.unread) {
+        icon = <span className="unread-dot" />;
+        label = "Unread";
       } else {
         icon = <span className="idle-ring" />;
         label = "Idle";

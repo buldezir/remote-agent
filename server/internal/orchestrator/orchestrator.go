@@ -387,6 +387,15 @@ func (o *Orchestrator) SetMode(ctx context.Context, sessionID, mode string) erro
 	return a.setMode(ctx, mode)
 }
 
+// MarkRead records that a client showed the session: it is no longer unread.
+func (o *Orchestrator) MarkRead(ctx context.Context, sessionID string) error {
+	a, err := o.actor(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	return a.markRead(ctx)
+}
+
 func (o *Orchestrator) Archive(ctx context.Context, sessionID string, removeWorktree bool) error {
 	a, err := o.actor(ctx, sessionID)
 	if err != nil {
@@ -498,6 +507,7 @@ func (o *Orchestrator) Recover(ctx context.Context) error {
 				return err
 			}
 			s.Status = model.SessionIdle
+			s.Unread = true
 			if err := w.PutSession(s); err != nil {
 				return err
 			}

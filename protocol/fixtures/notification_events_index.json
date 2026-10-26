@@ -37,6 +37,7 @@
           "nativeId": "n1",
           "title": "Fix the tests",
           "archived": false,
+          "unread": true,
           "context": {
             "used": 52000,
             "window": 200000

@@ -61,6 +61,7 @@ class FixtureTests {
         val session = assertNotNull(events[0].session)
         assertEquals(SessionStatus.AWAITING_APPROVAL, session.status)
         assertEquals(Workspace.Kind.WORKTREE, session.workspace.kind)
+        assertTrue(session.unread)
         assertEquals(0.0123, events[1].turn?.usage?.costUsd)
         val items = events.mapNotNull { it.item }
         assertEquals(11, items.size)
@@ -142,6 +143,7 @@ class FixtureTests {
 
         val s = result<Session>("response_session.json")
         assertEquals("Fix the tests", s.title)
+        assertTrue(s.unread)
         assertEquals(0.26, s.context?.fraction)
         assertEquals("Sonnet 5.5", s.modelName(null))
         assertEquals("high", s.modelInfo?.effort)

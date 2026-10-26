@@ -178,10 +178,10 @@ export function serverSettingsEntry(connection: ServerConnection, actions: Serve
 }
 
 /** A server as a section header: its name and connection, and while its
- *  rows are hidden, how many sessions it has and whether one needs you. A
- *  click shows or hides them, or tries again once the connection has given
- *  up. On hover, a + starts a session on the server and ⋯ has its other
- *  actions. */
+ *  rows are hidden, how many sessions it has and whether one needs you, or
+ *  else whether one is unread. A click shows or hides them, or tries again
+ *  once the connection has given up. On hover, a + starts a session on the
+ *  server and ⋯ has its other actions. */
 export function ServerHeader({
   connection,
   expanded,
@@ -200,6 +200,7 @@ export function ServerHeader({
   const connected = state.kind === "connected";
   const active = connection.activeSessions;
   const waiting = active.some(needsYou);
+  const unread = !waiting && active.some((s) => s.unread);
 
   const activate = () => {
     if (offline) {
@@ -212,6 +213,7 @@ export function ServerHeader({
   const label = [server.name, connectionLabel(state)];
   if (!expanded) label.push(`${active.length} sessions`);
   if (!expanded && waiting) label.push("needs you");
+  if (!expanded && unread) label.push("unread");
 
   return (
     <div className="server-header">
@@ -226,6 +228,7 @@ export function ServerHeader({
         <ConnectionDot state={state} />
         {!expanded && active.length > 0 && <span className="c-overlay">{active.length}</span>}
         {!expanded && waiting && <Hand size={12} strokeWidth={2.25} className="c-yellow" />}
+        {!expanded && unread && <span className="unread-dot" />}
       </button>
       {connected && (
         <button

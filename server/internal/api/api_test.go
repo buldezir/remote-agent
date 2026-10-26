@@ -586,6 +586,22 @@ func TestSessionOverWebSocket(t *testing.T) {
 		t.Errorf("bad stream: %+v", e)
 	}
 
+	// The finished turn left the session unread, until a client shows it.
+	var read struct{ Sessions []model.Session }
+	c.mustCall("session.list", nil, &read)
+	if len(read.Sessions) != 1 || !read.Sessions[0].Unread {
+		t.Errorf("sessions after the turn = %+v", read.Sessions)
+	}
+	c.mustCall("session.markRead", map[string]any{"sessionId": sess.ID}, nil)
+	var after struct{ Sessions []model.Session } // unread is left out once false
+	c.mustCall("session.list", nil, &after)
+	if len(after.Sessions) != 1 || after.Sessions[0].Unread {
+		t.Errorf("read session = %+v", after.Sessions)
+	}
+	if _, e := c.call("session.markRead", map[string]any{"sessionId": "missing"}); e == nil || e.Code != "not_found" {
+		t.Errorf("read an unknown session: %+v", e)
+	}
+
 	// Deleting the session removes it from the index, and its subscribers
 	// hear so on its own stream, next in seq.
 	cursor = c.subscribe(stream, 0).sync.Seq

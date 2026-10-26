@@ -29,6 +29,9 @@ struct SessionView: View {
     @FocusState private var composerFocused: Bool
     #if os(macOS)
     @Environment(\.inlineSessionTitle) private var inlineTitle
+    @Environment(\.appearsActive) private var appearsActive
+    #else
+    @Environment(\.scenePhase) private var phase
     #endif
 
     private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
@@ -36,6 +39,19 @@ struct SessionView: View {
     private var deleted: Bool { store.removed || (connection.indexSynced && connection.sessions[store.sessionID] == nil) }
     private var harness: HarnessInfo? { session.flatMap { connection.harness($0.harness) } }
     private var project: Project? { session.flatMap { connection.projects[$0.projectId] } }
+
+    /// The window is in front: on the Mac the active one, on iOS on screen.
+    private var inFront: Bool {
+        #if os(macOS)
+        appearsActive
+        #else
+        phase == .active
+        #endif
+    }
+
+    /// The index says the session is unread while it shows here, in front: a
+    /// turn ended while the window was behind, or just now, in view.
+    private var unreadInView: Bool { inFront && connection.sessions[store.sessionID]?.isUnread == true }
 
     var body: some View {
         // The transcript keeps its place: in place of the messages it stays
@@ -116,6 +132,9 @@ struct SessionView: View {
             if !Task.isCancelled { loadingCommands = false }
         }
         .onChange(of: store.draft) { _, _ in commandIndex = 0; commandsDismissed = false }
+        .onChange(of: unreadInView, initial: true) { _, unread in
+            if unread { connection.markRead(store.sessionID) }
+        }
         .onAppear {
             store.activate()
             if focusesPrompt { composerFocused = true }
