@@ -449,9 +449,9 @@ To try the updates before a release, run the workflow by hand with a version, su
 The iPhone and iPad app goes to TestFlight from a Mac where Xcode › Settings › Accounts has an Apple ID on the team in `apple/Local.xcconfig`, after its app record exists in App Store Connect (bundle ID `dev.remote-agent.app`):
 
 ```bash
-apple/scripts/testflight.sh 0.11.0      # or 0.11.0-beta.1, which goes up as 0.11.0 build 110001
+apple/scripts/testflight.sh 0.17.0      # or 0.17.0-beta.1, which goes up as 0.16.0 build 170001
 ```
 
-It archives the app and uploads it; Xcode signs it with the team's Apple Distribution certificate, making it the first time. App Store Connect takes each build number once, so each version or beta goes up once.
+It archives the app and uploads it; Xcode signs it with the team's Apple Distribution certificate, making it the first time. External testers get a new version only after Apple's beta review, but a new build of it without one, so the release is in the build number and the version changes only with the major: 0.x goes up as 0.16.0, 1.x as 1.0.0. App Store Connect takes each build number once, so each release or beta goes up once.
 
 The raw protocol frames for each session are logged to `<data>/logs/<sessionId>.ndjson`.

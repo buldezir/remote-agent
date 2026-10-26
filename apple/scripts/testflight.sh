@@ -5,11 +5,13 @@
 # time (-allowProvisioningUpdates), through the Apple ID in Xcode › Settings ›
 # Accounts, and the team is the one in Local.xcconfig.
 #
-#   apple/scripts/testflight.sh 0.11.0          # or 0.11.0-beta.1
+#   apple/scripts/testflight.sh 0.17.0          # or 0.17.0-beta.1
 #
-# The build number is the release workflow's: 0.11.0-beta.1 → 110001, 0.11.0
-# → 110099. App Store Connect takes each build number once, and versions only
-# as numbers, so a beta goes up as 0.11.0.
+# External testers get a new version only after Apple's beta review, but a new
+# build of it without one. So the tag sets only the build number, the release
+# workflow's: 0.17.0-beta.1 → 170001, 0.17.0 → 170099. The version is the
+# major's, x.0.0, and 0.16.0 for 0.x, the last release that went up as a
+# version of its own. App Store Connect takes each build number once.
 set -euo pipefail
 
 [[ ${1:-} =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)(-[A-Za-z]*\.?([0-9]+))?$ ]] || {
@@ -17,7 +19,7 @@ set -euo pipefail
 	exit 2
 }
 m=("${BASH_REMATCH[@]}")
-version=${m[1]}.${m[2]}.${m[3]}
+case ${m[1]} in 0) version=0.16.0 ;; *) version=${m[1]}.0.0 ;; esac
 build=$((m[1] * 1000000 + m[2] * 10000 + m[3] * 100 + ${m[5]:-99}))
 
 cd "$(dirname "$0")/.."
@@ -52,4 +54,4 @@ cat > "$out/options.plist" <<EOF
 EOF
 xcodebuild -exportArchive -archivePath "$out/RemoteAgent.xcarchive" -exportOptionsPlist "$out/options.plist" \
 	-exportPath "$out/export" -allowProvisioningUpdates
-echo "Uploaded $version ($build). It shows up in App Store Connect › TestFlight once Apple has processed it."
+echo "Uploaded $1 as $version ($build). It shows up in App Store Connect › TestFlight once Apple has processed it."
