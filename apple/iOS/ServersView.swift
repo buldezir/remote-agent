@@ -8,6 +8,11 @@ struct ServersView: View {
     @State private var path = NavigationPath()
     @State private var autoOpened = false
     @State private var removing: SavedServer?
+    @State private var newSession: NewSessionRequest?
+    /// A session started empty from a server's menu, whose prompt takes the
+    /// keyboard when it opens.
+    @State private var startedEmpty: SessionRoute?
+    @State private var managing: ServerRequest?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -21,12 +26,14 @@ struct ServersView: View {
                         Button("Remove", systemImage: "trash") { removing = server }
                             .tint(Palette.red)
                     }
-                    .contextMenu {
-                        Button("Remove", systemImage: "trash", role: .destructive) { removing = server }
-                    }
+                    .contextMenu { ServerMenuItems(connection: store.connection(for: server)) }
                 }
                 .paletteRows()
             }
+            .environment(\.sessionActions, SessionActions(
+                startSession: { newSession = $0 },
+                remove: { removing = $0 },
+                manage: { managing = ServerRequest(connection: $0) }))
             .listStyle(.plain)
             .listBackground(Palette.base)
             .overlay {
@@ -53,7 +60,7 @@ struct ServersView: View {
             .navigationDestination(for: SessionRoute.self) { route in
                 if let server = store.servers.first(where: { $0.id == route.serverID }) {
                     let connection = store.connection(for: server)
-                    SessionView(connection: connection, store: connection.sessionStore(route.sessionID))
+                    SessionView(connection: connection, store: connection.sessionStore(route.sessionID), focusesPrompt: route == startedEmpty)
                 }
             }
             .toolbar {
@@ -70,6 +77,23 @@ struct ServersView: View {
                 }
                 .appStyle()
             }
+            .sheet(item: $newSession) { request in
+                NewSessionView(connection: request.connection, projectID: request.projectID) { session, empty in
+                    let route = SessionRoute(serverID: request.connection.server.id, sessionID: session.id)
+                    startedEmpty = empty ? route : nil
+                    path.append(request.connection.server)
+                    path.append(route)
+                }
+                .appStyle()
+            }
+            .sheet(item: $managing) { request in
+                ServerSettingsView(connection: request.connection)
+                    .appStyle()
+            }
+            // Only when it first opens: back from it, it was closed.
+            .onChange(of: path.count) { _, count in
+                if count < 2 { startedEmpty = nil }
+            }
             .onChange(of: pendingLink) { _, link in
                 if link != nil { showAdd = true }
             }
@@ -77,6 +101,11 @@ struct ServersView: View {
                 if !shown { pendingLink = nil }
             }
             .removeServerDialog($removing)
+            // Every server connects, so that its menu can open its settings and
+            // its dot says how it is; one that was given up on waits for a tap.
+            .task(id: store.servers.map(\.id)) {
+                for c in store.connections where c.state == .idle { c.start() }
+            }
             .onAppear {
                 // With a single server, open it once at launch. Not on every
                 // appearance: that would bounce the user back in when they

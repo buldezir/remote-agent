@@ -174,6 +174,10 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
                 } else {
                     ServersView(
                         onOpen = { backStack.add(ServerHomeKey(it.id)) },
+                        onStartedSession = { key, empty ->
+                            backStack.add(ServerHomeKey(key.serverId))
+                            startedSession(key, empty)
+                        },
                         onAdd = { showAdd = true },
                         onSettings = { backStack.add(SettingsKey) },
                     )
