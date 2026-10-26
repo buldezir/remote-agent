@@ -2,5 +2,7 @@
 {"dir":"in","frame":{"type":"control_response","response":{"subtype":"success","request_id":"init","response":{"commands":[{"name":"compact","description":"Summarize","builtin":true},{"name":"prototype","description":"Prototype a design","builtin":false}]}}}}
 {"dir":"out","frame":{"type":"control_request","request_id":"settings","request":{"subtype":"get_settings"}}}
 {"dir":"in","frame":{"type":"control_response","response":{"subtype":"success","request_id":"settings","response":{}}}}
+{"dir":"out","frame":{"type":"control_request","request_id":"context","request":{"subtype":"get_context_usage","detail":"summary"}}}
+{"dir":"in","frame":{"type":"control_response","response":{"subtype":"success","request_id":"context","response":{"totalTokens":39512,"maxTokens":1000000,"rawMaxTokens":1000000,"autocompactSource":"model-default","percentage":4,"model":"claude-haiku-5-5","autoCompactThreshold":967000,"isAutoCompactEnabled":true,"apiUsage":null}}}}
 {"dir":"out","frame":{"type":"user","message":{"role":"user","content":"/prototype keep arguments"}}}
 {"dir":"in","frame":{"type":"result","subtype":"success","result":"Skill invoked","is_error":false,"num_turns":1}}

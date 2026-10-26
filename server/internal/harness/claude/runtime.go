@@ -67,7 +67,7 @@ type runtime struct {
 	notices    []string
 
 	// Context usage of the main agent: tokens in its last request, and the
-	// window of its model (only reported in result frames).
+	// window of its model (reported when it opens and in result frames).
 	ctxModel  string
 	ctxUsed   int64
 	ctxWindow int64

@@ -185,7 +185,33 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	json.Unmarshal(raw, &init)
 	r.commands = init.Commands
 	r.reportModel(ictx, &init)
+	r.reportContext(ictx)
 	return r, nil
+}
+
+// reportContext emits the context the conversation starts with and its
+// model's window, which results report only once a turn ends. The summary
+// counts from the last response's usage and local estimates, without API
+// calls. CLIs without get_context_usage report nothing.
+func (r *runtime) reportContext(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	raw, err := r.conn.request(ctx, map[string]any{"subtype": "get_context_usage", "detail": "summary"})
+	var u struct {
+		TotalTokens int64 `json:"totalTokens"`
+		MaxTokens   int64 `json:"maxTokens"`
+	}
+	if err == nil {
+		err = json.Unmarshal(raw, &u)
+	}
+	if err != nil || u.TotalTokens <= 0 {
+		if r.log != nil {
+			r.log.Debug("claude: no context usage", "err", err)
+		}
+		return
+	}
+	r.ctxUsed, r.ctxWindow = u.TotalTokens, u.MaxTokens
+	r.emit(harness.ContextUsage{Used: r.ctxUsed, Window: r.ctxWindow})
 }
 
 // reportModel emits the model and effort the CLI applied after resolving
