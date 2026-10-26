@@ -106,8 +106,14 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
               ))}
             </select>
           </label>
+          <label className="form-row">
+            <span>Copy on select</span>
+            <input type="checkbox" className="switch" checked={s.copyOnSelect} onChange={(e) => settings.update({ copyOnSelect: e.target.checked })} />
+          </label>
         </section>
-        <p className="form-footer">Where a session's terminal opens. In a narrow window it takes the place of the messages.</p>
+        <p className="form-footer">
+          Where a session's terminal opens. In a narrow window it takes the place of the messages. Copy on select puts the text you select on the clipboard.
+        </p>
 
         <NotificationsSection />
 

@@ -41,6 +41,8 @@ class Settings extends Observable {
   codeFont = "";
   diffWrap = true;
   terminalPlacement: TerminalPlacement = "over";
+  /** Whether text selected in the terminal goes to the clipboard. */
+  copyOnSelect = true;
   sidebarLayout: SidebarLayout = "inbox";
 
   constructor() {
@@ -54,11 +56,12 @@ class Settings extends Observable {
     this.diffWrap = storage.get("diffWrap") !== "false";
     const t = storage.get("terminalPlacement");
     if (t === "below" || t === "right") this.terminalPlacement = t;
+    this.copyOnSelect = storage.get("terminalCopyOnSelect") !== "false";
     const l = storage.get("sidebarLayout");
     if (l === "projects" || l === "columns") this.sidebarLayout = l;
   }
 
-  update(patch: Partial<Pick<Settings, "appearance" | "interface" | "messages" | "messageFont" | "codeFont" | "diffWrap" | "terminalPlacement" | "sidebarLayout">>) {
+  update(patch: Partial<Pick<Settings, "appearance" | "interface" | "messages" | "messageFont" | "codeFont" | "diffWrap" | "terminalPlacement" | "copyOnSelect" | "sidebarLayout">>) {
     Object.assign(this, patch);
     storage.set("appearance", this.appearance);
     storage.set("interfaceTextSize", String(this.interface));
@@ -67,6 +70,7 @@ class Settings extends Observable {
     storage.set("codeFont", this.codeFont);
     storage.set("diffWrap", String(this.diffWrap));
     storage.set("terminalPlacement", this.terminalPlacement);
+    storage.set("terminalCopyOnSelect", String(this.copyOnSelect));
     storage.set("sidebarLayout", this.sidebarLayout);
     this.changed();
     this.apply();
@@ -80,12 +84,13 @@ class Settings extends Observable {
       !this.messageFont &&
       !this.codeFont &&
       this.terminalPlacement === "over" &&
+      this.copyOnSelect &&
       this.sidebarLayout === "inbox"
     );
   }
 
   restoreDefaults() {
-    this.update({ appearance: "system", interface: defaultInterface, messages: defaultMessages, messageFont: "", codeFont: "", terminalPlacement: "over", sidebarLayout: "inbox" });
+    this.update({ appearance: "system", interface: defaultInterface, messages: defaultMessages, messageFont: "", codeFont: "", terminalPlacement: "over", copyOnSelect: true, sidebarLayout: "inbox" });
   }
 
   private dark = matchMedia("(prefers-color-scheme: dark)");

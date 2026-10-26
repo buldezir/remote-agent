@@ -16,6 +16,8 @@ struct TerminalHost {
     let font: FontChoice
     let fontSize: CGFloat
     let dark: Bool
+    /// Copies what the pointer selects (the Mac's).
+    let copyOnSelect: Bool
     /// Whether the terminal has the keyboard, so the composer's Return
     /// shortcut leaves it alone.
     @Binding var focused: Bool
@@ -39,6 +41,9 @@ struct TerminalHost {
 
     private func update(_ view: HostTerminalView, _ coordinator: Coordinator) {
         coordinator.focused = $focused
+        #if os(macOS)
+        view.copyOnSelect = copyOnSelect
+        #endif
         // Setting either clears the selection and redraws, so only on a change.
         if coordinator.font != font || coordinator.fontSize != fontSize {
             coordinator.font = font
@@ -228,6 +233,30 @@ final class HostTerminalView: SwiftTerm.TerminalView {
         DispatchQueue.main.async { [weak self] in window.makeFirstResponder(self) }
     }
     private var tookFocus = false
+
+    /// Puts a selection on the pasteboard once the mouse lets go of it: after
+    /// a drag, a double or triple click, or a shift-click that extends it.
+    var copyOnSelect = false
+    private var selectionChangedSincePress = false
+
+    override func selectionChanged(source: Terminal) {
+        super.selectionChanged(source: source)
+        selectionChangedSincePress = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        selectionChangedSincePress = false
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        // A click that only clears the selection, or goes to a program
+        // reading the mouse, leaves the pasteboard alone.
+        guard copyOnSelect, selectionChangedSincePress, let text = getSelection(), !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
 
     func show(_ bytes: ArraySlice<UInt8>) {
         feed(byteArray: bytes)

@@ -29,12 +29,19 @@ struct TerminalPanel: View {
     /// Hides the panel; the shell keeps running.
     let hide: () -> Void
 
+    /// Whether text selected with the pointer goes to the clipboard, from the
+    /// Mac's Settings. iOS selects with taps, and offers Copy in its menu.
+    static let copyOnSelectKey = "terminalCopyOnSelect"
+
     @State private var session: TerminalSession?
     @Environment(\.colorScheme) private var scheme
     @Environment(\.codeFont) private var codeFont
     @ScaledMetric(relativeTo: .body) private var size: CGFloat = 12
     #if os(macOS)
     @Environment(\.textScale) private var scale
+    @AppStorage(TerminalPanel.copyOnSelectKey) private var copyOnSelect = true
+    #else
+    private let copyOnSelect = false
     #endif
 
     var body: some View {
@@ -43,7 +50,8 @@ struct TerminalPanel: View {
             Divider()
             ZStack {
                 if let session {
-                    TerminalHost(session: session, font: codeFont, fontSize: fontSize, dark: scheme == .dark, focused: $focused)
+                    TerminalHost(session: session, font: codeFont, fontSize: fontSize, dark: scheme == .dark,
+                                 copyOnSelect: copyOnSelect, focused: $focused)
                         .id(ObjectIdentifier(session))
                         .padding(4)
                 }

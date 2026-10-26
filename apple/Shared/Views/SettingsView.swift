@@ -10,6 +10,7 @@ struct SettingsView: View {
     #if os(macOS)
     @AppStorage(FontChoice.messageKey) private var messageFont = ""
     @AppStorage(FontChoice.codeKey) private var codeFont = ""
+    @AppStorage(TerminalPanel.copyOnSelectKey) private var copyOnSelect = true
     #else
     @AppStorage(TextSize.followsSystemKey) private var followsSystem = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -131,10 +132,13 @@ struct SettingsView: View {
                 Picker("Opens", selection: $terminalPlacement) {
                     ForEach(TerminalPlacement.allCases) { Text($0.title).tag($0) }
                 }
+                #if os(macOS)
+                Toggle("Copy on select", isOn: $copyOnSelect)
+                #endif
             } header: {
                 Text("Terminal").formHeaderFont()
             } footer: {
-                Text("Where a session's terminal opens. In a narrow window it takes the place of the messages.").formFooterFont()
+                Text(terminalFooter).formFooterFont()
             }
         }
 
@@ -165,6 +169,15 @@ struct SettingsView: View {
         "\(sidebarLayout.summary) The View menu switches them too, with ⌘1, ⌘2 and ⌘3."
         #else
         sidebarLayout.summary
+        #endif
+    }
+
+    private var terminalFooter: String {
+        let placement = "Where a session's terminal opens. In a narrow window it takes the place of the messages."
+        #if os(macOS)
+        return placement + " Copy on select puts the text you select on the clipboard."
+        #else
+        return placement
         #endif
     }
 
@@ -238,7 +251,7 @@ struct SettingsView: View {
 
     private var isDefault: Bool {
         appearance == .system && interface == TextSize.defaultInterface && messages == TextSize.defaultMessages
-            && messageFont.isEmpty && codeFont.isEmpty && terminalPlacement == .over && sidebarLayout == .inbox
+            && messageFont.isEmpty && codeFont.isEmpty && terminalPlacement == .over && copyOnSelect && sidebarLayout == .inbox
     }
     #endif
 
@@ -253,6 +266,7 @@ struct SettingsView: View {
         #else
         messageFont = ""
         codeFont = ""
+        copyOnSelect = true
         #endif
     }
 }

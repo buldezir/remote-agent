@@ -7,7 +7,7 @@ import { useObserved } from "../store/observable";
 import type { TerminalSession } from "../store/terminalSession";
 import { useConnection } from "./context";
 import { Menu } from "./primitives";
-import { defaultInterface, interfaceSizes, useSettings } from "./settings";
+import { defaultInterface, interfaceSizes, settings as appSettings, useSettings } from "./settings";
 
 /** A session's shell on the server, as apple/Shared/Views/TerminalPanel.swift.
  *  It keeps running when this goes away; showing it again resumes it. */
@@ -44,6 +44,11 @@ export default function TerminalPanel({ sessionID, folder, onHide, style }: { se
       s.send(enc.encode(d));
     });
     t.onBinary((d) => s.send(Uint8Array.from(d, (c) => c.charCodeAt(0) & 0xff)));
+    // xterm reports a mouse selection once the button comes up, so this copies
+    // after a drag, a double or triple click, or a shift-click.
+    t.onSelectionChange(() => {
+      if (appSettings.copyOnSelect && t.hasSelection()) void navigator.clipboard?.writeText(t.getSelection()).catch(() => {});
+    });
     // Connect once the box has a size, so the shell starts at it.
     let started = false;
     let starting: ReturnType<typeof setTimeout> | undefined;
