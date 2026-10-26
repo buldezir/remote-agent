@@ -211,29 +211,41 @@ struct ServerSplitView: View {
                 SessionView(connection: connection, store: connection.sessionStore(route.sessionID),
                             focusesPrompt: route == startedEmpty)
                     .id(route)
-            } else if store.servers.isEmpty {
-                ContentUnavailableView {
-                    Label("No servers", systemImage: "desktopcomputer")
-                } description: {
-                    #if os(macOS)
-                    Text("Run `rad serve` on your computer, then `rad pair`, and paste the link it prints.")
-                    #else
-                    Text("Run `rad serve` on your computer, then `rad pair` and scan the QR code.")
-                    #endif
-                } actions: {
-                    Button { showAdd = true } label: {
-                        Text("Pair a server").foregroundStyle(Palette.onAccent)
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
             } else {
-                ContentUnavailableView("No session selected", systemImage: "bubble.left.and.text.bubble.right",
-                                       description: Text("Choose a session in the sidebar, or start a new one."))
+                placeholder
+                    #if os(macOS)
+                    // A detail column with nothing in the toolbar leaves its
+                    // part of it to the column beside it, whose New Session
+                    // button then moves to the window's corner.
+                    .toolbar { ToolbarSpacer(.flexible) }
+                    #endif
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.base)
         .environment(\.inlineSessionTitle, layout == .columns)
+    }
+
+    @ViewBuilder private var placeholder: some View {
+        if store.servers.isEmpty {
+            ContentUnavailableView {
+                Label("No servers", systemImage: "desktopcomputer")
+            } description: {
+                #if os(macOS)
+                Text("Run `rad serve` on your computer, then `rad pair`, and paste the link it prints.")
+                #else
+                Text("Run `rad serve` on your computer, then `rad pair` and scan the QR code.")
+                #endif
+            } actions: {
+                Button { showAdd = true } label: {
+                    Text("Pair a server").foregroundStyle(Palette.onAccent)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        } else {
+            ContentUnavailableView("No session selected", systemImage: "bubble.left.and.text.bubble.right",
+                                   description: Text("Choose a session in the sidebar, or start a new one."))
+        }
     }
 
     /// The open session and whether it is archived, once the index has it.
