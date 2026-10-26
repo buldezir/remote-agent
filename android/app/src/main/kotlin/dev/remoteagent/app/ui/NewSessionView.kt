@@ -59,10 +59,11 @@ private const val CUSTOM = "__custom"
 
 /**
  * "New session", in `projectId` when given, else in the project used last.
- * Mirrors apple/Shared/Views/NewSessionView.swift.
+ * `onCreated` gets the new session, and whether it started empty, without a
+ * prompt. Mirrors apple/Shared/Views/NewSessionView.swift.
  */
 @Composable
-fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, onDismiss: () -> Unit, onCreated: (Session) -> Unit) {
+fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, onDismiss: () -> Unit, onCreated: (Session, empty: Boolean) -> Unit) {
     val settings = LocalSettings.current
     val scope = rememberCoroutineScope()
     val projects by connection.projects.collectAsStateWithLifecycle()
@@ -163,7 +164,8 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                 settings.put(Keys.lastModel(h.id), chosenModel ?: "")
                 settings.put(Keys.lastEffort(h.id), effort)
                 settings.put(Keys.lastMode(h.id), mode)
-                onCreated(s)
+                // As rad decides whether to start a turn.
+                onCreated(s, prompt.isBlank() && attachments.refs.isEmpty())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

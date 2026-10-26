@@ -4,6 +4,8 @@ import SwiftUI
 struct SessionView: View {
     let connection: ServerConnection
     @Bindable var store: SessionStore
+    /// The prompt takes the keyboard: the session was just started empty.
+    var focusesPrompt = false
     @State private var commands: [SlashCommand] = []
     @State private var commandIndex = 0
     @State private var commandsDismissed = false
@@ -114,7 +116,10 @@ struct SessionView: View {
             if !Task.isCancelled { loadingCommands = false }
         }
         .onChange(of: store.draft) { _, _ in commandIndex = 0; commandsDismissed = false }
-        .onAppear { store.activate() }
+        .onAppear {
+            store.activate()
+            if focusesPrompt { composerFocused = true }
+        }
         .onDisappear {
             dictation.stop()
             store.deactivate()

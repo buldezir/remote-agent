@@ -19,6 +19,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -108,6 +109,14 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
     val backStack = rememberNavBackStack(ServersKey)
     val link by pendingLink.collectAsStateWithLifecycle()
     var showAdd by rememberSaveable { mutableStateOf(false) }
+    // A session started empty, whose prompt takes the keyboard when it opens, and only then.
+    var startedEmpty by remember { mutableStateOf<SessionKey?>(null) }
+    val top = backStack.lastOrNull()
+    LaunchedEffect(top) { if (top != startedEmpty) startedEmpty = null }
+    fun startedSession(key: SessionKey, empty: Boolean) {
+        startedEmpty = key.takeIf { empty }
+        backStack.openSession(key)
+    }
 
     val layoutName by settings.state(AppSettings.Keys.sidebarLayout, SidebarLayout.INBOX.stored)
     val layout = SidebarLayout.parse(layoutName)
@@ -156,6 +165,7 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
                         layout,
                         selection = backStack.lastOrNull() as? SessionKey,
                         onOpenSession = { backStack.openSession(it) },
+                        onStartedSession = ::startedSession,
                         onCloseSession = { if (backStack.lastOrNull() is SessionKey) backStack.removeAt(backStack.lastIndex) },
                         onAdd = { showAdd = true },
                         onSettings = { backStack.add(SettingsKey) },
@@ -177,6 +187,7 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
                     ServerHomeView(
                         connection = store.connection(server),
                         onOpenSession = { id -> backStack.openSession(SessionKey(key.serverId, id)) },
+                        onStartedSession = { id, empty -> startedSession(SessionKey(key.serverId, id), empty) },
                         onBack = { if (backStack.size > 1) backStack.removeLastOrNull() },
                         onSettings = { backStack.add(SettingsKey) },
                         onRemoved = { backStack.removeAll { it.serverId == key.serverId } },
@@ -193,7 +204,7 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
                     // Deleted, here or on another device: back to the server's
                     // sessions, or on a tablet, none selected.
                     if (isDeleted(connection, session)) LaunchedEffect(key) { backStack.remove(key) }
-                    SessionView(connection, session, onBack = { if (backStack.size > 1) backStack.removeLastOrNull() })
+                    SessionView(connection, session, focusPrompt = key == startedEmpty, onBack = { if (backStack.size > 1) backStack.removeLastOrNull() })
                 }
             }
             entry<SettingsKey> { SettingsView(onBack = { if (backStack.size > 1) backStack.removeLastOrNull() }) }

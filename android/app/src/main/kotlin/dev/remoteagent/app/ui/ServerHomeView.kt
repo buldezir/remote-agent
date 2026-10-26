@@ -57,6 +57,7 @@ import kotlinx.coroutines.launch
 fun ServerHomeView(
     connection: ServerConnection,
     onOpenSession: (String) -> Unit,
+    onStartedSession: (String, empty: Boolean) -> Unit,
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onRemoved: () -> Unit,
@@ -163,9 +164,9 @@ fun ServerHomeView(
     RemoveServerDialog(removing, onDismiss = { removing = null }, onRemove = onRemoved)
     if (showSettings) ServerSettingsDialog(connection, onDismiss = { showSettings = false })
     if (showNew) {
-        NewSessionDialog(connection, onDismiss = { showNew = false }, onCreated = { s ->
+        NewSessionDialog(connection, onDismiss = { showNew = false }, onCreated = { s, empty ->
             showNew = false
-            onOpenSession(s.id)
+            onStartedSession(s.id, empty)
         })
     }
 }

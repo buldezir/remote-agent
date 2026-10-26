@@ -10,6 +10,8 @@ struct ServerHomeView: View {
     @State private var showSettings = false
     @State private var showNew = false
     @State private var openSession: String?
+    /// A session started empty, whose prompt takes the keyboard when it opens.
+    @State private var startedEmpty: String?
     @State private var showArchived = false
     @State private var archiving: SessionRequest?
     @State private var deleting: SessionRequest?
@@ -57,7 +59,8 @@ struct ServerHomeView: View {
             }
             .removeServerDialog($removing) { dismiss() }
             .sheet(isPresented: $showNew) {
-                NewSessionView(connection: connection) { session in
+                NewSessionView(connection: connection) { session, empty in
+                    startedEmpty = empty ? session.id : nil
                     openSession = session.id
                 }
                 .appStyle()
@@ -73,7 +76,11 @@ struct ServerHomeView: View {
                 await connection.refreshHarnesses(force: true)
             }
             .navigationDestination(item: $openSession) { id in
-                SessionView(connection: connection, store: connection.sessionStore(id))
+                SessionView(connection: connection, store: connection.sessionStore(id), focusesPrompt: id == startedEmpty)
+            }
+            .onChange(of: openSession) { _, id in
+                // Only when it first opens.
+                if id != startedEmpty { startedEmpty = nil }
             }
             // Opening a server it gave up on tries again.
             .task { connection.start() }

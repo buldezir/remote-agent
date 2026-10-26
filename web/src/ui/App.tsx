@@ -85,6 +85,15 @@ function Root() {
   const server = store.server(route.serverID);
   const connection = server ? store.connection(server) : undefined;
 
+  // A session started empty, as "<server id> <session id>": its prompt takes
+  // the keyboard when it opens, and only then.
+  const [startedEmpty, setStartedEmpty] = useState<string>();
+  const openKey = route.serverID && route.sessionID ? `${route.serverID} ${route.sessionID}` : undefined;
+  useEffect(() => {
+    if (openKey !== startedEmpty) setStartedEmpty(undefined);
+  }, [openKey]);
+  const focusPrompt = openKey !== undefined && openKey === startedEmpty;
+
   // A phone with one server opens it at launch, as the iPhone app does.
   const openedOnce = useRef(false);
   useEffect(() => {
@@ -105,13 +114,14 @@ function Root() {
 
   let page;
   if (wide) {
-    page = <Split route={route} connection={connection} actions={actions} />;
+    page = <Split route={route} connection={connection} actions={actions} focusPrompt={focusPrompt} />;
   } else if (connection && route.sessionID) {
     page = (
       <ConnectionContext.Provider value={connection}>
         <SessionView
           key={route.sessionID}
           sessionID={route.sessionID}
+          focusPrompt={focusPrompt}
           onBack={() => navigate({ serverID: route.serverID })}
           onDeleted={() => navigate({ serverID: route.serverID }, true)}
         />
@@ -140,7 +150,15 @@ function Root() {
       )}
       {sheet?.kind === "new" && (
         <ConnectionContext.Provider value={sheet.connection}>
-          <NewSession projectID={sheet.projectID} onClose={() => setSheet(undefined)} onCreated={(s) => navigate({ serverID: sheet.connection.server.id, sessionID: s.id })} />
+          <NewSession
+            projectID={sheet.projectID}
+            onClose={() => setSheet(undefined)}
+            onCreated={(s, empty) => {
+              const serverID = sheet.connection.server.id;
+              setStartedEmpty(empty ? `${serverID} ${s.id}` : undefined);
+              navigate({ serverID, sessionID: s.id });
+            }}
+          />
         </ConnectionContext.Provider>
       )}
       {sheet?.kind === "settings" && <SettingsView onClose={() => setSheet(undefined)} />}
@@ -180,7 +198,17 @@ function Root() {
 /** The iPad and Mac layout: every server's sessions in the sidebar, the
  *  chosen session beside them, or in the Columns layout, a list of sessions
  *  between the two. */
-function Split({ route, connection, actions: given }: { route: Route; connection: ServerConnection | undefined; actions: ServerActions }) {
+function Split({
+  route,
+  connection,
+  actions: given,
+  focusPrompt,
+}: {
+  route: Route;
+  connection: ServerConnection | undefined;
+  actions: ServerActions;
+  focusPrompt: boolean;
+}) {
   const store = useServerStore();
   const { sidebarLayout: layout } = useSettings();
   const connections = store.servers.map((s) => store.connection(s));
@@ -250,7 +278,7 @@ function Split({ route, connection, actions: given }: { route: Route; connection
       {connection && route.sessionID && !gone ? (
         <ConnectionContext.Provider value={connection}>
           {/* A new identity per session, so the draft and the subscription don't carry over. */}
-          <SessionView key={connection.server.id + route.sessionID} sessionID={route.sessionID} />
+          <SessionView key={connection.server.id + route.sessionID} sessionID={route.sessionID} focusPrompt={focusPrompt} />
         </ConnectionContext.Provider>
       ) : store.servers.length === 0 ? (
         <NoServers onPair={actions.pair} />

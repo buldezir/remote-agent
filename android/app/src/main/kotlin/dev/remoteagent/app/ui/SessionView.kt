@@ -99,11 +99,14 @@ import kotlinx.coroutines.launch
 /** The connection the session on screen belongs to, for its images and commands. */
 val LocalConnection = staticCompositionLocalOf<ServerConnection> { error("no ServerConnection") }
 
-/** A session's transcript and composer. Mirrors apple/Shared/Views/SessionView.swift. */
+/**
+ * A session's transcript and composer. With `focusPrompt`, a session just
+ * started empty, the prompt takes the keyboard. Mirrors apple/Shared/Views/SessionView.swift.
+ */
 @Composable
-fun SessionView(connection: ServerConnection, store: SessionStore, onBack: () -> Unit) {
+fun SessionView(connection: ServerConnection, store: SessionStore, focusPrompt: Boolean = false, onBack: () -> Unit) {
     CompositionLocalProvider(LocalConnection provides connection) {
-        SessionScreen(connection, store, onBack)
+        SessionScreen(connection, store, focusPrompt, onBack)
     }
 }
 
@@ -136,7 +139,7 @@ private fun rememberDraft(store: SessionStore): MutableState<String> = remember(
 }
 
 @Composable
-private fun SessionScreen(connection: ServerConnection, store: SessionStore, onBack: () -> Unit) {
+private fun SessionScreen(connection: ServerConnection, store: SessionStore, focusPrompt: Boolean, onBack: () -> Unit) {
     val context = LocalContext.current
     val uiScope = rememberCoroutineScope()
     val storeSession by store.session.collectAsStateWithLifecycle()
@@ -390,7 +393,7 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, onB
                         Dictation.Phase.STARTING, Dictation.Phase.LISTENING -> "Listening…"
                         else -> if (running) "Queue a follow-up…" else "Prompt"
                     },
-                    running = running, enabled = !archived, canSend = canSend,
+                    running = running, enabled = !archived, canSend = canSend, focusPrompt = focusPrompt,
                     // The keyboard has its own dictation key.
                     onFocus = { focused = it; if (it) dictation.stop() }, onSend = ::send, onStop = { run { store.interrupt() } },
                 )
@@ -546,6 +549,7 @@ private fun Composer(
     running: Boolean,
     enabled: Boolean,
     canSend: Boolean,
+    focusPrompt: Boolean,
     onFocus: (Boolean) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -563,6 +567,7 @@ private fun Composer(
         onDraft(command.prompt + " ")
         focusRequester.requestFocus()
     }
+    LaunchedEffect(Unit) { if (focusPrompt) focusRequester.requestFocus() }
     Box(
         Modifier.fillMaxWidth().background(palette.mantle)
             .then(if (insets) Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)) else Modifier),

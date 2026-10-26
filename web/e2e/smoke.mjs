@@ -58,12 +58,12 @@ await page.goto(pairURL);
 await page.getByRole("heading", { name: "Pair a server" }).waitFor();
 await shot("pair");
 await page.getByRole("button", { name: "Pair", exact: true }).click();
-await page.getByRole("button", { name: "New session" }).first().waitFor();
+await page.getByRole("button", { name: "New session", exact: true }).first().waitFor();
 await page.waitForFunction(() => !document.querySelector("button[aria-label='New session']:disabled"));
 await shot("paired");
 
 step("new session");
-await page.getByRole("button", { name: "New session" }).first().click();
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
 await page.getByRole("button", { name: "Add a folder…" }).click();
 await page.locator(".folder-row").first().click(); // the root
 await page.locator(".folder-row", { hasText: new RegExp(`^${project}`) }).first().click();
@@ -257,7 +257,7 @@ await page.getByText("The shell was closed.").waitFor();
 await page.getByRole("button", { name: "Hide Terminal" }).click();
 
 step("worktree session: changes and revert");
-await page.getByRole("button", { name: "New session" }).first().click();
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
 await page.locator(".harness-row", { hasText: "Fake" }).click();
 await page.getByLabel("Isolated git worktree").check();
 await page.getByPlaceholder("What should the agent do?").fill("write b.txt");
@@ -278,6 +278,16 @@ await page.getByRole("button", { name: "Revert to before turn 1" }).click();
 await page.locator(".form-message", { hasText: "Reverted 1 file" }).waitFor();
 await shot("worktree-reverted");
 await page.getByRole("button", { name: "Done" }).click();
+
+step("empty session: its prompt takes the keyboard");
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
+await page.locator(".harness-row", { hasText: "Fake" }).click();
+await page.getByRole("button", { name: "Start", exact: true }).click();
+await page.getByText("No prompts yet").waitFor();
+await page.keyboard.type("hi");
+if ((await prompt.inputValue()) !== "hi") throw new Error("typing in a session started empty doesn't reach its prompt");
+await shot("empty-session");
+await prompt.fill("");
 
 step("settings and light theme");
 await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -313,7 +323,7 @@ const startsInProject = async (what) => {
   await page.getByRole("button", { name: "Cancel" }).click();
 };
 await page.evaluate(() => localStorage.removeItem("lastProject"));
-await page.locator(".session-column").getByRole("button", { name: "New session" }).click();
+await page.locator(".session-column").getByRole("button", { name: "New session", exact: true }).click();
 await startsInProject("the project's collection");
 await page.locator(".collection-row", { hasText: project }).hover();
 await page.getByRole("button", { name: `New session in ${project}` }).click();
@@ -327,7 +337,7 @@ await page.getByRole("button", { name: `New session in ${project}` }).click();
 await startsInProject("the project's +");
 
 step("forget a project");
-await page.getByRole("button", { name: "New session" }).first().click();
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
 const projectPicker = page.locator(".form-row", { hasText: "Project" }).locator("select");
 await projectPicker.selectOption({ label: project });
 // The server keeps a project while it has sessions that aren't archived.
@@ -434,7 +444,7 @@ await closeTask();
 await systemAgent.selectOption({ label: fake });
 await page.getByLabel(/^Model/).waitFor();
 await page.getByRole("button", { name: "Done" }).click();
-await page.getByRole("button", { name: "New session" }).first().click();
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
 await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
 await page.locator(".harness-row", { hasText: "Fake" }).click();
 await page.getByPlaceholder("What should the agent do?").fill("tidy up the readme please");

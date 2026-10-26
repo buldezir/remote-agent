@@ -17,6 +17,8 @@ struct ServerSplitView: View {
     @AppStorage(RecentSessions.key) private var recentSessions = ""
     @State private var showAdd = false
     @State private var newSession: NewSessionRequest?
+    /// A session started empty, whose prompt takes the keyboard when it opens.
+    @State private var startedEmpty: SessionRoute?
     @State private var archiving: SessionRequest?
     @State private var deleting: SessionRequest?
     @State private var removing: SavedServer?
@@ -106,8 +108,10 @@ struct ServerSplitView: View {
                 remove: { removing = $0 },
                 manage: { managing = ServerRequest(connection: $0) }))
             .sheet(item: $newSession) { request in
-                NewSessionView(connection: request.connection, projectID: request.projectID) { session in
-                    selection.wrappedValue = SessionRoute(serverID: request.connection.server.id, sessionID: session.id)
+                NewSessionView(connection: request.connection, projectID: request.projectID) { session, empty in
+                    let route = SessionRoute(serverID: request.connection.server.id, sessionID: session.id)
+                    startedEmpty = empty ? route : nil
+                    selection.wrappedValue = route
                 }
                 .appStyle()
             }
@@ -143,6 +147,8 @@ struct ServerSplitView: View {
             }
             .onChange(of: route, initial: true) { _, route in
                 if let route { recentSessions = RecentSessions.adding(route, to: recentSessions) }
+                // Only when it first opens.
+                if route != startedEmpty { startedEmpty = nil }
             }
             #if os(macOS)
             .onChange(of: route, initial: true) { _, route in notifier.shown = route }
@@ -202,7 +208,8 @@ struct ServerSplitView: View {
         Group {
             if let route, let connection = connection(route), !openSessionGone {
                 // A new identity per session, so the attachments and the subscription don't carry over.
-                SessionView(connection: connection, store: connection.sessionStore(route.sessionID))
+                SessionView(connection: connection, store: connection.sessionStore(route.sessionID),
+                            focusesPrompt: route == startedEmpty)
                     .id(route)
             } else if store.servers.isEmpty {
                 ContentUnavailableView {

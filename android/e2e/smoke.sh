@@ -218,6 +218,19 @@ tap 'id=system-agent'; sleep 0.5; tap 'text=None'; sleep 1
 find_view 'id=system-model' > /dev/null && fail "the system agent wasn't unset"
 tap 'desc=Done'; sleep 0.5
 
+step "empty session: its prompt takes the keyboard"
+tap 'id=new-session'
+wait_for 'id=project-picker' 10 || fail "no new session sheet"
+tap 'id=project-picker'; sleep 0.5; tap "text=$PROJECT"; sleep 0.5
+tap 'id=harness-fake'; sleep 0.3
+tap 'id=start'
+wait_for 'contains=No prompts yet' 10 || fail "the empty session didn't open"
+sleep 1   # for the keyboard, as fill waits
+type_text 'hi'
+wait_for 'text=hi' 5 || fail "typing in a session started empty doesn't reach its prompt"
+shot 13-empty-session
+hide_keyboard; tap 'desc=Back'; sleep 1
+
 step "remove the server"
 tap 'desc=More'; sleep 0.5; tap 'text=Remove server'; sleep 0.5; tap 'text=Remove'; sleep 2
 [ "$(radctl devices | grep -c . || true)" -lt "$((devices_before + 1))" ] || fail "the device is still paired"

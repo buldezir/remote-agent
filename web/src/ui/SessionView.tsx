@@ -39,8 +39,19 @@ import { storage } from "../store/storage";
 const TerminalPanel = lazy(() => import("./TerminalPanel"));
 
 /** A session's messages and prompt. `onDeleted` is called once the session
- *  is deleted, here or on another device. */
-export function SessionView({ sessionID, onBack, onDeleted }: { sessionID: string; onBack?: () => void; onDeleted?: () => void }) {
+ *  is deleted, here or on another device. With `focusPrompt`, a session just
+ *  started empty, the prompt takes the keyboard. */
+export function SessionView({
+  sessionID,
+  focusPrompt = false,
+  onBack,
+  onDeleted,
+}: {
+  sessionID: string;
+  focusPrompt?: boolean;
+  onBack?: () => void;
+  onDeleted?: () => void;
+}) {
   const connection = useConnection();
   useObserved(connection);
   const store = useMemo(() => connection.sessionStore(sessionID), [connection, sessionID]);
@@ -122,6 +133,11 @@ export function SessionView({ sessionID, onBack, onDeleted }: { sessionID: strin
     window.addEventListener("keydown", key, true);
     return () => window.removeEventListener("keydown", key, true);
   }, [canTerminal, showTerminal]);
+
+  // A session just started empty: its prompt takes the keyboard.
+  useEffect(() => {
+    if (focusPrompt) composerField.current?.focus();
+  }, []);
 
   const menu: MenuEntry[] = [
     harness?.modes?.length

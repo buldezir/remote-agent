@@ -29,6 +29,7 @@ fun ServerSplitView(
     layout: SidebarLayout,
     selection: SessionKey?,
     onOpenSession: (SessionKey) -> Unit,
+    onStartedSession: (SessionKey, empty: Boolean) -> Unit,
     onCloseSession: () -> Unit,
     onAdd: () -> Unit,
     onSettings: () -> Unit,
@@ -131,9 +132,9 @@ fun ServerSplitView(
         ServerSettingsDialog(s.connection, onDismiss = { settingsOf = null })
     }
     servers.firstOrNull { it.id == newSessionOn }?.let { s ->
-        NewSessionDialog(s.connection, newSessionIn, onDismiss = { newSessionOn = null }, onCreated = { session ->
+        NewSessionDialog(s.connection, newSessionIn, onDismiss = { newSessionOn = null }, onCreated = { session, empty ->
             newSessionOn = null
-            onOpenSession(SessionKey(s.id, session.id))
+            onStartedSession(SessionKey(s.id, session.id), empty)
         })
     }
 }

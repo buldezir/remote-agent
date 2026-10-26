@@ -3,7 +3,8 @@ import SwiftUI
 
 struct NewSessionView: View {
     let connection: ServerConnection
-    var onCreated: (Session) -> Void
+    /// The new session, and whether it started empty, without a prompt.
+    var onCreated: (Session, _ empty: Bool) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @AppStorage("lastHarness") private var lastHarness = "claude"
@@ -28,7 +29,7 @@ struct NewSessionView: View {
     @FocusState private var promptFocused: Bool
 
     /// Starts in `projectID` when given, else in the project used last.
-    init(connection: ServerConnection, projectID: String = "", onCreated: @escaping (Session) -> Void) {
+    init(connection: ServerConnection, projectID: String = "", onCreated: @escaping (Session, _ empty: Bool) -> Void) {
         self.connection = connection
         self.onCreated = onCreated
         _projectID = State(initialValue: projectID)
@@ -316,7 +317,8 @@ struct NewSessionView: View {
             UserDefaults.standard.set(effort, forKey: "lastEffort." + harness.id)
             UserDefaults.standard.set(mode, forKey: "lastMode." + harness.id)
             dismiss()
-            onCreated(s)
+            // As rad decides whether to start a turn.
+            onCreated(s, prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.refs.isEmpty)
         } catch {
             self.error = error.localizedDescription
         }

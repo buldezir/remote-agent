@@ -11,8 +11,17 @@ import { Modal, Spinner } from "./primitives";
 
 const custom = "__custom";
 
-/** Starts in `projectID` when given, else in the project used last. */
-export function NewSession({ projectID: initialProject, onClose, onCreated }: { projectID?: string; onClose: () => void; onCreated: (s: Session) => void }) {
+/** Starts in `projectID` when given, else in the project used last.
+ *  `onCreated` gets the new session, and whether it started empty, without a prompt. */
+export function NewSession({
+  projectID: initialProject,
+  onClose,
+  onCreated,
+}: {
+  projectID?: string;
+  onClose: () => void;
+  onCreated: (s: Session, empty: boolean) => void;
+}) {
   const connection = useConnection();
   useObserved(connection);
   const attachments = useMemo(() => new Attachments(connection), [connection]);
@@ -125,7 +134,8 @@ export function NewSession({ projectID: initialProject, onClose, onCreated }: { 
       storage.set("lastEffort." + harness.id, effort);
       storage.set("lastMode." + harness.id, mode);
       onClose();
-      onCreated(s);
+      // As rad decides whether to start a turn.
+      onCreated(s, prompt.trim() === "" && attachments.refs.length === 0);
     } catch (e) {
       setError((e as Error).message);
     } finally {
