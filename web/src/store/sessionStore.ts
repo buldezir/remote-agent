@@ -1,4 +1,4 @@
-import type { SlashCommand, Diff, Event, FileStat, ImageRef, Item, Session, Turn } from "../protocol/models";
+import type { SlashCommand, Diff, Draft, Event, FileStat, ImageRef, Item, Session, Turn } from "../protocol/models";
 import { RPCError } from "../protocol/rpc";
 import type { Drafts } from "./drafts";
 import { Observable } from "./observable";
@@ -202,6 +202,16 @@ export class SessionStore extends Observable {
     return this.transcript.filter((it) => it.kind === "approval" && it.status === "pending");
   }
 
+  /** The session's draft, unless it is on its way: `sendDraft` put it in
+   *  the outbox, where it shows until the transcript has it. */
+  get unsentDraft(): Draft | undefined {
+    const d = this.session?.draft;
+    if (!d) return undefined;
+    const key = outgoingKey(d.text, d.images ?? []);
+    for (const out of this.outbox.values()) if (outgoingKey(out.text, out.images) === key) return undefined;
+    return d;
+  }
+
   get isRunning(): boolean {
     return this.session?.status === "running" || this.session?.status === "awaiting_approval";
   }
@@ -232,6 +242,26 @@ export class SessionStore extends Observable {
         text,
         images: images.length ? images.map((i) => i.id) : undefined,
       });
+    } catch (e) {
+      this.outbox.delete(commandId);
+      this.changed();
+      throw e;
+    }
+  }
+
+  /** Sends the session's draft as `send` sends a prompt: it shows in the
+   *  outbox until the transcript has it, and the event that adds it there
+   *  takes the draft away. A retry after a drop has the same commandId, so
+   *  it goes once. It throws when the session has no draft. */
+  async sendDraft() {
+    const c = this.c;
+    const draft = this.session?.draft;
+    if (!draft) throw new RPCError("conflict", "This session has no draft to send.");
+    const commandId = crypto.randomUUID();
+    this.outbox.set(commandId, { text: draft.text, images: draft.images ?? [] });
+    this.changed();
+    try {
+      await c.deliver<Item>("session.sendDraft", { commandId, sessionId: this.sessionID });
     } catch (e) {
       this.outbox.delete(commandId);
       this.changed();

@@ -56,6 +56,17 @@ type promptParams struct {
 	Images    []string `json:"images,omitempty"` // ids from POST /v1/images
 }
 
+type saveDraftParams struct {
+	SessionID string   `json:"sessionId"`
+	Text      string   `json:"text"`
+	Images    []string `json:"images,omitempty"` // ids from POST /v1/images
+}
+
+type sendDraftParams struct {
+	CommandID string `json:"commandId"`
+	SessionID string `json:"sessionId"`
+}
+
 type interruptParams struct {
 	SessionID string `json:"sessionId"`
 	Force     bool   `json:"force"`
@@ -111,7 +122,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	o := c.s.orch
 	switch method {
 	case "server.info":
-		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil}, nil
+		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true}, nil
 
 	case "device.unpair":
 		// The phone forgets this server: revoke its own token. The socket is
@@ -211,6 +222,12 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "session.prompt":
 		return call(raw, func(p promptParams) (any, error) { return o.Prompt(ctx, p.SessionID, p.Text, p.Images, p.CommandID) })
+
+	case "session.saveDraft":
+		return call(raw, func(p saveDraftParams) (any, error) { return o.SaveDraft(ctx, p.SessionID, p.Text, p.Images) })
+
+	case "session.sendDraft":
+		return call(raw, func(p sendDraftParams) (any, error) { return o.SendDraft(ctx, p.SessionID, p.CommandID) })
 
 	case "session.interrupt":
 		return call(raw, func(p interruptParams) (any, error) { return nil, o.Interrupt(ctx, p.SessionID, p.Force) })

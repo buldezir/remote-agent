@@ -156,6 +156,7 @@ type CreateSessionParams struct {
 	Prompt    string          `json:"prompt"`
 	Images    []string        `json:"images,omitempty"` // attached to the prompt
 	Title     string          `json:"title,omitempty"`
+	Draft     bool            `json:"draft,omitempty"` // keep the prompt as the session's draft rather than send it
 }
 
 func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams) (*model.Session, error) {
@@ -183,11 +184,20 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 	if mode == "" {
 		mode = info.DefaultMode
 	}
+	hasPrompt := strings.TrimSpace(p.Prompt) != "" || len(p.Images) > 0
+	var draft *model.Draft
+	if p.Draft && hasPrompt {
+		refs, _, err := o.images(p.Images)
+		if err != nil {
+			return nil, err
+		}
+		draft = &model.Draft{Text: p.Prompt, Images: refs}
+	}
 
 	s := &model.Session{
 		ID: store.NewID(), ProjectID: proj.ID, Harness: p.Harness, Model: p.Model, Effort: p.Effort, Mode: mode,
 		Workspace: model.Workspace{Kind: model.WorkspaceRoot, Path: proj.Path},
-		Status:    model.SessionIdle, Title: p.Title, CreatedAt: time.Now().UTC(),
+		Status:    model.SessionIdle, Title: p.Title, Draft: draft, CreatedAt: time.Now().UTC(),
 	}
 	if s.Title == "" {
 		s.Title = titleFrom(p.Prompt)
@@ -218,7 +228,7 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(p.Prompt) != "" || len(p.Images) > 0 {
+	if hasPrompt && draft == nil {
 		cmd := ""
 		if p.CommandID != "" {
 			cmd = p.CommandID + "/prompt"
@@ -226,6 +236,9 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 		if _, err := o.Prompt(ctx, s.ID, p.Prompt, p.Images, cmd); err != nil {
 			o.log.Warn("initial prompt failed", "session", s.ID, "err", err)
 		}
+	}
+	if hasPrompt {
+		// A draft names the session as the prompt it will be.
 		o.nameSession(s.ID, proj.Name, p.Prompt, p.Title == "", s.Workspace.Kind == model.WorkspaceWorktree && p.Workspace.Branch == "")
 	}
 	return s, nil
@@ -262,24 +275,56 @@ func (o *Orchestrator) Prompt(ctx context.Context, sessionID, text string, image
 	if strings.TrimSpace(text) == "" && len(imageIDs) == 0 {
 		return nil, errorf(CodeInvalid, "empty prompt")
 	}
-	var refs []model.ImageRef
-	var files []harness.Image
-	for _, id := range imageIDs {
-		if o.opt.Images == nil {
-			return nil, errorf(CodeInvalid, "this server does not keep images")
-		}
-		ref, path, err := o.opt.Images.Get(id)
-		if err != nil {
-			return nil, errorf(CodeInvalid, "unknown image %q", id)
-		}
-		refs = append(refs, ref)
-		files = append(files, harness.Image{Path: path, MimeType: ref.MimeType})
+	refs, files, err := o.images(imageIDs)
+	if err != nil {
+		return nil, err
 	}
 	a, err := o.actor(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	return a.prompt(ctx, text, refs, files, commandID)
+}
+
+// images looks up the images with the given ids (from POST /v1/images).
+func (o *Orchestrator) images(ids []string) ([]model.ImageRef, []harness.Image, error) {
+	var refs []model.ImageRef
+	var files []harness.Image
+	for _, id := range ids {
+		if o.opt.Images == nil {
+			return nil, nil, errorf(CodeInvalid, "this server does not keep images")
+		}
+		ref, path, err := o.opt.Images.Get(id)
+		if err != nil {
+			return nil, nil, errorf(CodeInvalid, "unknown image %q", id)
+		}
+		refs = append(refs, ref)
+		files = append(files, harness.Image{Path: path, MimeType: ref.MimeType})
+	}
+	return refs, files, nil
+}
+
+// SaveDraft keeps text and the images with the given ids in the session, as
+// a prompt to send later with SendDraft. Saving nothing removes the draft.
+func (o *Orchestrator) SaveDraft(ctx context.Context, sessionID, text string, imageIDs []string) (*model.Session, error) {
+	refs, _, err := o.images(imageIDs)
+	if err != nil {
+		return nil, err
+	}
+	a, err := o.actor(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return a.saveDraft(ctx, text, refs)
+}
+
+// SendDraft sends the session's draft as a prompt, and removes it.
+func (o *Orchestrator) SendDraft(ctx context.Context, sessionID, commandID string) (*model.Item, error) {
+	a, err := o.actor(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return a.sendDraft(ctx, commandID)
 }
 
 // Commands opens the session's agent only when the composer asks for suggestions.

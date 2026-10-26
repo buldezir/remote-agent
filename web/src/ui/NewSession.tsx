@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, Folder, FolderGit2, FolderPlus, ImagePlus, TriangleAlert } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Folder, FolderGit2, FolderPlus, ImagePlus, Save, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { effortsForModel, usable, type FSListing, type HarnessInfo, type Session } from "../protocol/models";
 import { Attachments } from "../store/attachments";
@@ -12,7 +12,8 @@ import { Modal, Spinner } from "./primitives";
 const custom = "__custom";
 
 /** Starts in `projectID` when given, else in the project used last.
- *  `onCreated` gets the new session, and whether it started empty, without a prompt. */
+ *  `onCreated` gets the new session, and whether it started empty, without
+ *  a prompt or a draft. */
 export function NewSession({
   projectID: initialProject,
   onClose,
@@ -113,7 +114,8 @@ export function NewSession({
     };
   }, [projectID]);
 
-  const create = async () => {
+  /** With `draft`, the prompt stays in the session, unsent. */
+  const create = async (draft = false) => {
     if (!project || !harness || creating) return;
     setCreating(true);
     setError(undefined);
@@ -127,6 +129,7 @@ export function NewSession({
         workspace: useWorktree ? { kind: "worktree", branch: branch || undefined, baseRef: baseRef || undefined } : { kind: "root" },
         prompt,
         images: attachments.refs.length ? attachments.refs.map((r) => r.id) : undefined,
+        draft,
       });
       storage.set("lastHarness", harness.id);
       storage.set("lastProject", project.id);
@@ -135,7 +138,7 @@ export function NewSession({
       storage.set("lastMode." + harness.id, mode);
       onClose();
       // As rad decides whether to start a turn.
-      onCreated(s, prompt.trim() === "" && attachments.refs.length === 0);
+      onCreated(s, !hasPrompt);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -158,6 +161,8 @@ export function NewSession({
   const efforts = harness ? effortsForModel(harness, chosenModel) : [];
   const drop = useImageDrop(attachments);
   const canStart = !!project && !!harness && attachments.ready;
+  const hasPrompt = prompt.trim() !== "" || !attachments.isEmpty;
+  const drafts = !!connection.info?.drafts;
 
   if (browsing) {
     return (
@@ -183,7 +188,7 @@ export function NewSession({
         creating ? (
           <Spinner />
         ) : (
-          <button className="link strong" disabled={!canStart} onClick={create}>
+          <button className="link strong" disabled={!canStart} onClick={() => create()}>
             Start
           </button>
         )
@@ -375,8 +380,16 @@ export function NewSession({
           <AttachButton attachments={attachments} className="form-row link with-icon">
             <ImagePlus size={17} /> Add Images
           </AttachButton>
+          {drafts && (
+            <button className="form-row link with-icon" disabled={!canStart || !hasPrompt || creating} onClick={() => create(true)}>
+              <Save size={17} /> Save as Draft
+            </button>
+          )}
         </section>
-        <p className="form-footer">Optional. Without one, the session starts empty and you write the first prompt in it.</p>
+        <p className="form-footer">
+          Optional. Without one, the session starts empty and you write the first prompt in it.
+          {drafts && " Save as Draft keeps the prompt in the session, unsent, to send later from any device."}
+        </p>
 
         {(error || attachments.error) && (
           <div className="form-message c-red">

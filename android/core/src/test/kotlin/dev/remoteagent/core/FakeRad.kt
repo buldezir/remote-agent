@@ -95,7 +95,10 @@ class FakeRad : WebSocketListener() {
             put("createdAt", "2026-10-09T12:00:00Z")
         }
 
-        fun session(id: String, updatedAt: String = "2026-10-09T12:00:00Z", archived: Boolean = false, unread: Boolean = false) = buildJsonObject {
+        fun session(
+            id: String, updatedAt: String = "2026-10-09T12:00:00Z", archived: Boolean = false, unread: Boolean = false,
+            draft: String? = null,
+        ) = buildJsonObject {
             put("id", id)
             put("projectId", "p1")
             put("harness", "fake")
@@ -108,6 +111,7 @@ class FakeRad : WebSocketListener() {
             put("archived", archived)
             // As rad: left out unless set.
             if (unread) put("unread", true)
+            if (draft != null) put("draft", buildJsonObject { put("text", draft) })
             put("createdAt", "2026-10-09T12:00:00Z")
             put("updatedAt", updatedAt)
         }

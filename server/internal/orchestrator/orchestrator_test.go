@@ -991,6 +991,122 @@ func TestUnread(t *testing.T) {
 	}
 }
 
+func TestDraft(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	var b bytes.Buffer
+	png.Encode(&b, image.NewGray(image.Rect(0, 0, 8, 6)))
+	ref, err := e.imgs.Put(b.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Saved with the session: named from it, and nothing runs.
+	s := e.create(CreateSessionParams{CommandID: "c1", Prompt: "tidy the notes\nand more", Images: []string{ref.ID}, Draft: true})
+	if s.Title != "tidy the notes" || s.Draft == nil || s.Draft.Text != "tidy the notes\nand more" || len(s.Draft.Images) != 1 || s.Draft.Images[0] != ref {
+		t.Fatalf("created %q with draft %+v", s.Title, s.Draft)
+	}
+	if got := e.session(s.ID); got.Draft == nil || got.Status != model.SessionIdle || got.Unread {
+		t.Fatalf("stored session = %+v", got)
+	}
+	if n := len(e.items(s.ID)); n != 0 || len(e.turns(s.ID)) != 0 {
+		t.Fatalf("a draft made %d items", n)
+	}
+	if _, err := e.o.CreateSession(bg, CreateSessionParams{ProjectID: e.proj.ID, Harness: "fake", Prompt: "x", Images: []string{"nope.png"}, Draft: true}); CodeOf(err) != CodeInvalid {
+		t.Errorf("draft with an unknown image: %v", err)
+	}
+
+	// Sending it runs it, as the user message; the draft goes with it.
+	it, err := e.o.SendDraft(bg, s.ID, "send-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.Kind != model.ItemUserMessage || it.Text != "tidy the notes\nand more" || len(it.Images) != 1 {
+		t.Fatalf("sent %+v", it)
+	}
+	e.waitTurn(s.ID, 1)
+	items := e.items(s.ID)
+	if got := kinds(items); got != "user_message,reasoning,assistant_message" {
+		t.Fatalf("items = %s", got)
+	}
+	if !strings.HasPrefix(items[2].Text, "Echo (1 image(s)): tidy the notes") {
+		t.Errorf("reply = %q", items[2].Text)
+	}
+	if got := e.session(s.ID); got.Draft != nil || got.Title != "tidy the notes" {
+		t.Errorf("after sending: %q, draft %+v", got.Title, got.Draft)
+	}
+	// A retry gets the same message; another send has nothing to send.
+	if again, err := e.o.SendDraft(bg, s.ID, "send-1"); err != nil || again.ID != it.ID {
+		t.Errorf("retried send: %v, %v", again, err)
+	}
+	if _, err := e.o.SendDraft(bg, s.ID, "send-2"); CodeOf(err) != CodeConflict {
+		t.Errorf("send without a draft: %v", err)
+	}
+	if n := len(e.turns(s.ID)); n != 1 {
+		t.Errorf("turns = %d", n)
+	}
+
+	// Saved in an empty session, the draft names it; removed, the session
+	// is new again.
+	empty := e.create(CreateSessionParams{})
+	saved, err := e.o.SaveDraft(bg, empty.ID, "plan the release", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Title != "plan the release" || saved.Draft == nil || saved.Draft.Text != "plan the release" {
+		t.Fatalf("saved %+v", saved)
+	}
+	if got := e.session(empty.ID); got.Title != "plan the release" || got.Draft == nil {
+		t.Fatalf("stored %+v", got)
+	}
+	if removed, err := e.o.SaveDraft(bg, empty.ID, "  ", nil); err != nil || removed.Draft != nil || removed.Title != "New session" {
+		t.Fatalf("removed: %+v, %v", removed, err)
+	}
+	_, seq, err := e.st.Changes(bg, model.IndexStream, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.o.SaveDraft(bg, empty.ID, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, again, _ := e.st.Changes(bg, model.IndexStream, 0); again != seq {
+		t.Errorf("removing no draft moved the index from %d to %d", seq, again)
+	}
+	if _, err := e.o.SaveDraft(bg, empty.ID, "x", []string{"nope.png"}); CodeOf(err) != CodeInvalid {
+		t.Errorf("unknown image: %v", err)
+	}
+
+	// After a turn, a draft waits beside the prompts, and keeps the title.
+	if _, err := e.o.SaveDraft(bg, s.ID, "later", nil); err != nil {
+		t.Fatal(err)
+	}
+	e.prompt(s.ID, "now", "")
+	e.waitTurn(s.ID, 2)
+	if got := e.session(s.ID); got.Draft == nil || got.Draft.Text != "later" || got.Title != "tidy the notes" {
+		t.Errorf("draft beside a prompt: %q, %+v", got.Title, got.Draft)
+	}
+	if removed, err := e.o.SaveDraft(bg, s.ID, "", nil); err != nil || removed.Title != "tidy the notes" {
+		t.Errorf("removed after turns: %+v, %v", removed, err)
+	}
+
+	// Not in an archived session.
+	if _, err := e.o.SaveDraft(bg, s.ID, "more", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.o.Archive(bg, s.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.o.SaveDraft(bg, s.ID, "x", nil); CodeOf(err) != CodeConflict {
+		t.Errorf("save in an archived session: %v", err)
+	}
+	if _, err := e.o.SendDraft(bg, s.ID, "send-3"); CodeOf(err) != CodeConflict {
+		t.Errorf("send in an archived session: %v", err)
+	}
+	if _, err := e.o.SaveDraft(bg, "nope", "x", nil); CodeOf(err) != CodeNotFound {
+		t.Errorf("unknown session: %v", err)
+	}
+}
+
 func TestDelete(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, true)

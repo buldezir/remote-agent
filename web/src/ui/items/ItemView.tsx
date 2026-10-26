@@ -16,8 +16,8 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
-import type { ImageRef, Item, JSONValue, Plan, Turn } from "../../protocol/models";
+import { useState, type ReactNode } from "react";
+import type { Draft, ImageRef, Item, JSONValue, Plan, Turn } from "../../protocol/models";
 import type { SessionStore } from "../../store/sessionStore";
 import { ImageGallery } from "../images";
 import { Markdown } from "../Markdown";
@@ -64,23 +64,28 @@ export function ItemView({ item, store }: { item: Item; store: SessionStore }) {
 }
 
 /** A prompt. Queued on the server, it offers to send it now; in the outbox
- *  (`pending` without `onSendNow`) it only waits. */
+ *  (`pending` without `onSendNow`) it only waits. A `draft` is drawn in
+ *  outline, with `note` under it. */
 export function UserBubble({
   text,
   images = [],
   pending = false,
   cancelled = false,
+  draft = false,
   onSendNow,
+  note,
 }: {
   text: string;
   images?: ImageRef[];
   pending?: boolean;
   cancelled?: boolean;
+  draft?: boolean;
   onSendNow?: () => Promise<void>;
+  note?: ReactNode;
 }) {
   const faded = pending || cancelled;
   return (
-    <div className="user-message">
+    <div className={"user-message" + (draft ? " draft" : "")}>
       {images.length > 0 && (
         <div style={{ opacity: faded ? 0.55 : 1 }}>
           <ImageGallery images={images} height={120} align="end" />
@@ -93,7 +98,53 @@ export function UserBubble({
       )}
       {pending && (onSendNow ? <QueuedNote onSendNow={onSendNow} /> : <div className="bubble-note">Queued</div>)}
       {cancelled && <div className="bubble-note">Not sent</div>}
+      {note}
     </div>
+  );
+}
+
+/** The session's draft, a prompt kept to send later from any device: Send
+ *  sends it, and Edit takes it back into the composer. An archived session
+ *  does neither. */
+export function DraftBubble({
+  draft,
+  archived,
+  onSend,
+  onEdit,
+}: {
+  draft: Draft;
+  archived: boolean;
+  onSend: () => Promise<void>;
+  onEdit: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const act = async (f: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await f();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <UserBubble
+      text={draft.text}
+      images={draft.images}
+      draft
+      note={
+        <div className="draft-note">
+          <span className="bubble-note with-icon">
+            <Pencil size={11} /> Draft · not sent
+          </span>
+          <button className="button small" onClick={() => void act(onEdit)} disabled={busy || archived}>
+            Edit
+          </button>
+          <button className="button prominent small" onClick={() => void act(onSend)} disabled={busy || archived}>
+            Send
+          </button>
+        </div>
+      }
+    />
   );
 }
 

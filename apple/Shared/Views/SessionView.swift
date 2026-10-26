@@ -12,6 +12,8 @@ struct SessionView: View {
     @State private var commandsError = false
     @State private var loadingCommands = false
     @State private var sending = false
+    /// The draft is being saved, or taken back into the composer.
+    @State private var savingDraft = false
     @State private var error: String?
     @State private var showDiff = false
     @State private var showTerminal = false
@@ -27,6 +29,8 @@ struct SessionView: View {
     @State private var attachments = Attachments()
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @FocusState private var composerFocused: Bool
+    /// Where the prompt's cursor goes, when it's set from here.
+    @State private var promptSelection: TextSelection?
     #if os(macOS)
     @Environment(\.inlineSessionTitle) private var inlineTitle
     @Environment(\.appearsActive) private var appearsActive
@@ -163,7 +167,11 @@ struct SessionView: View {
                 ForEach(store.outbox.sorted(by: { $0.key < $1.key }), id: \.key) { _, out in
                     UserBubble(text: out.text, images: out.images, store: store, pending: true)
                 }
-                if store.synced, store.transcript.isEmpty, store.outbox.isEmpty {
+                if store.synced, let draft = store.unsentDraft {
+                    DraftBubble(draft: draft, store: store, disabled: savingDraft || session?.archived == true,
+                                edit: { editDraft(draft) }, send: sendDraft)
+                }
+                if store.synced, store.transcript.isEmpty, store.outbox.isEmpty, session?.hasDraft != true {
                     Text("No prompts yet. Write the first one below.")
                         .scaledFont(.footnote)
                         .foregroundStyle(.secondary)
@@ -408,7 +416,7 @@ struct SessionView: View {
     }
 
     private var promptField: some View {
-        TextField(text: $store.draft, prompt: Text(placeholder).foregroundStyle(Palette.overlay), axis: .vertical) {
+        TextField(text: $store.draft, selection: $promptSelection, prompt: Text(placeholder).foregroundStyle(Palette.overlay), axis: .vertical) {
             Text(placeholder)
         }
             .textFieldStyle(.plain)
@@ -454,7 +462,7 @@ struct SessionView: View {
             .disabled(session?.archived == true)
     }
 
-    /// Stop, while a turn runs, then dictate or send.
+    /// Stop, while a turn runs, then save as a draft, and dictate or send.
     @ViewBuilder private var actionButtons: some View {
         if store.isRunning {
             Button {
@@ -467,6 +475,22 @@ struct SessionView: View {
             .tint(Palette.red)
             .keyboardShortcut(".")
             .accessibilityLabel("Stop")
+        }
+        if offersDraft {
+            Button(action: saveDraft) {
+                // Smaller than the round buttons, on their middle.
+                ZStack {
+                    Image(systemName: "circle").font(.system(size: Metrics.roundButton)).hidden()
+                    Image(systemName: "square.and.arrow.down").font(.system(size: 18))
+                }
+            }
+            .buttonStyle(.borderless)
+            .roundButtonFrame()
+            .tint(Palette.subtext)
+            .keyboardShortcut("s")
+            .disabled(!attachments.ready || savingDraft)
+            .help("Save as Draft")
+            .accessibilityLabel("Save as Draft")
         }
         Button(action: mainButtonTapped) {
             Image(systemName: mainAction.symbol)
@@ -522,6 +546,13 @@ struct SessionView: View {
     /// There is something to send, and its images are on the server.
     private var canSend: Bool { !nothingToSend && attachments.ready }
 
+    /// What the composer holds can wait in the session as its draft, to send
+    /// from any device: a first prompt, on a server that keeps drafts.
+    private var offersDraft: Bool {
+        connection.info?.drafts == true && session?.archived == false && session?.hasDraft == false
+            && store.synced && store.transcript.isEmpty && store.outbox.isEmpty && !nothingToSend
+    }
+
     private func mainButtonTapped() {
         switch mainAction {
         case .dictate:
@@ -544,6 +575,51 @@ struct SessionView: View {
                     attachments.restore(sent)
                     self.error = error.localizedDescription
                 }
+            }
+        }
+    }
+
+    /// Saves what the composer holds as the session's draft, which then shows
+    /// in the transcript in its place. It stays in the composer if that fails.
+    private func saveDraft() {
+        let text = store.draft, saved = attachments.entries
+        savingDraft = true
+        Task {
+            defer { savingDraft = false }
+            do {
+                try await connection.saveDraft(store.sessionID, text: text, images: saved.compactMap(\.ref))
+                // Whatever was written meanwhile stays.
+                if store.draft == text { store.draft = "" }
+                for entry in saved { attachments.remove(entry.id) }
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
+    /// Sends the session's draft as its prompt.
+    private func sendDraft() {
+        withAnimation { scrollPosition.scrollTo(edge: .bottom) }
+        Task { await run { try await store.sendDraft() } }
+    }
+
+    /// Takes the draft off the server and back into the composer, ahead of
+    /// anything written there since.
+    private func editDraft(_ draft: Draft) {
+        savingDraft = true
+        Task {
+            defer { savingDraft = false }
+            do {
+                try await connection.saveDraft(store.sessionID, text: "")
+                store.draft = [draft.text, store.draft].filter { !$0.isEmpty }.joined(separator: "\n")
+                attachments.restore(draft.images ?? [], via: connection)
+                composerFocused = true
+                // On the Mac a field that takes focus selects its text, which
+                // the next key would replace: the cursor goes to its end.
+                await Task.yield()
+                promptSelection = TextSelection(insertionPoint: store.draft.endIndex)
+            } catch {
+                self.error = error.localizedDescription
             }
         }
     }

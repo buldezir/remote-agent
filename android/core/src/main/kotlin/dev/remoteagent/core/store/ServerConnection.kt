@@ -477,6 +477,23 @@ class ServerConnection(
         return s
     }
 
+    /**
+     * Keeps a prompt in the session, unsent, for any device to send later
+     * (`SessionStore.sendDraft`), replacing the one it had; no text and no
+     * images removes it. The session changes here at once, without waiting
+     * for its event. Only for a server whose `info.drafts` is true.
+     */
+    suspend fun saveDraft(sessionID: String, text: String, images: List<ImageRef>): Session {
+        val saved = deliver("session.saveDraft", params("sessionId" to sessionID, "text" to text, "images" to imageIds(images)))
+        val s: Session = WireCoding.json.decodeFromJsonElement(saved)
+        // Unless an event brought a later change first, such as its new name.
+        if (_sessions.value[s.id]?.updatedAt?.isAfter(s.updatedAt) != true) _sessions.value += s.id to s
+        sessionStores[s.id]?.let { store ->
+            if (store.session.value?.updatedAt?.isAfter(s.updatedAt) != true) store.setSession(s)
+        }
+        return s
+    }
+
     suspend fun archive(sessionID: String, removeWorktree: Boolean) {
         client.callRaw("session.archive", params("sessionId" to sessionID, "removeWorktree" to removeWorktree))
     }
@@ -568,6 +585,11 @@ data class NewSession(
     val prompt: String,
     /** Ids of uploaded images (`uploadImage`) that go with the prompt. */
     val images: List<String>? = null,
+    /**
+     * True: the prompt and images become the session's draft, and no turn
+     * starts. Only for a server whose `info.drafts` is true; null isn't sent.
+     */
+    val draft: Boolean? = null,
 ) {
     @Serializable
     data class WorkspaceParams(val kind: Workspace.Kind, val branch: String? = null, val baseRef: String? = null)

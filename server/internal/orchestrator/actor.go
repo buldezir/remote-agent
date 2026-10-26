@@ -112,6 +112,31 @@ func (a *actor) putSession(w *store.W) error {
 func (a *actor) prompt(ctx context.Context, text string, refs []model.ImageRef, files []harness.Image, commandID string) (*model.Item, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	return a.promptLocked(ctx, text, refs, files, commandID, false)
+}
+
+// sendDraft sends the session's draft as prompt does, and removes it.
+func (a *actor) sendDraft(ctx context.Context, commandID string) (*model.Item, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var d model.Draft // none: a retry of a send that went, which its receipt answers
+	if a.sess.Draft != nil {
+		d = *a.sess.Draft
+	}
+	ids := make([]string, len(d.Images))
+	for i, ref := range d.Images {
+		ids[i] = ref.ID
+	}
+	_, files, err := a.o.images(ids)
+	if err != nil {
+		return nil, err
+	}
+	return a.promptLocked(ctx, d.Text, d.Images, files, commandID, true)
+}
+
+// promptLocked is prompt, with a.mu held. With draft, the prompt is the
+// session's draft, which goes with the user message.
+func (a *actor) promptLocked(ctx context.Context, text string, refs []model.ImageRef, files []harness.Image, commandID string, draft bool) (*model.Item, error) {
 	if a.deleted {
 		return nil, errorf(CodeNotFound, "session %s not found", a.sess.ID)
 	}
@@ -124,6 +149,13 @@ func (a *actor) prompt(ctx context.Context, text string, refs []model.ImageRef, 
 		var prev model.Item
 		return &prev, json.Unmarshal(res, &prev)
 	}
+	saved := a.sess.Draft
+	if draft {
+		if saved == nil {
+			return nil, errorf(CodeConflict, "the session has no draft")
+		}
+		a.sess.Draft = nil
+	}
 	it := a.newItem(model.ItemUserMessage, model.ItemQueued)
 	it.TurnID = "" // set when its turn starts
 	it.Text, it.Images = text, refs
@@ -135,13 +167,14 @@ func (a *actor) prompt(ctx context.Context, text string, refs []model.ImageRef, 
 		if err := a.putItem(w, it); err != nil {
 			return err
 		}
-		if retitle {
+		if retitle || draft {
 			if err := a.putSession(w); err != nil {
 				return err
 			}
 		}
 		return w.PutReceipt(commandID, it)
 	}); err != nil {
+		a.sess.Draft = saved // still there to send again
 		return nil, err
 	}
 	if retitle {
@@ -886,6 +919,53 @@ func (a *actor) archive(ctx context.Context, removeWorktree bool) error {
 	a.sess.Status = model.SessionStopped
 	a.sess.Unread = false // and not for the turn the agent stopping ended
 	return a.write(ctx, a.putSession)
+}
+
+// saveDraft keeps a prompt in the session to send later, or, with nothing
+// in it, removes the draft. A draft names a session that has the default
+// title, as a first prompt does. Removing the draft of a session that never
+// had a prompt gives it the default title back, so that the next draft or
+// prompt names it.
+func (a *actor) saveDraft(ctx context.Context, text string, refs []model.ImageRef) (*model.Session, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deleted {
+		return nil, errorf(CodeNotFound, "session %s not found", a.sess.ID)
+	}
+	if a.sess.Archived || a.archiving {
+		return nil, errorf(CodeConflict, "session is archived")
+	}
+	retitle := false
+	if strings.TrimSpace(text) == "" && len(refs) == 0 {
+		if a.sess.Draft == nil {
+			cp := *a.sess
+			return &cp, nil
+		}
+		a.sess.Draft = nil
+		if a.sess.ItemCount == 0 {
+			a.sess.Title = "New session"
+		}
+	} else {
+		a.sess.Draft = &model.Draft{Text: text, Images: refs}
+		retitle = a.sess.Title == "" || a.sess.Title == "New session"
+		if retitle {
+			a.sess.Title = titleFrom(text)
+		}
+	}
+	if err := a.write(ctx, a.putSession); err != nil {
+		return nil, err
+	}
+	if a.sess.Draft == nil {
+		a.o.log.Info("draft removed", a.logAttrs("device", clientOf(ctx))...)
+	} else {
+		a.o.log.Info("draft saved", a.logAttrs("chars", utf8.RuneCountInString(text), "images", len(refs), "device", clientOf(ctx))...)
+	}
+	if retitle {
+		ws := a.sess.Workspace
+		a.o.nameSession(a.sess.ID, a.projectName(), text, true, ws.Kind == model.WorkspaceWorktree && isProvisional(ws.Branch, a.sess.ID))
+	}
+	cp := *a.sess
+	return &cp, nil
 }
 
 // markRead records that a client showed the session. It keeps the session's

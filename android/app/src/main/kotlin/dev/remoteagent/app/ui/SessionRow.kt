@@ -44,7 +44,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun SessionRow(session: Session, project: Project?, harness: HarnessInfo?, modifier: Modifier = Modifier) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-        Box(Modifier.padding(top = 2.dp)) { StatusIcon(session.status, background = session.backgroundTasks.isNotEmpty(), unread = session.unread) }
+        Box(Modifier.padding(top = 2.dp)) {
+            StatusIcon(session.status, background = session.backgroundTasks.isNotEmpty(), unread = session.unread, draft = session.draft != null)
+        }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 session.title, style = Type.body.copy(fontWeight = if (session.standsOut) FontWeight.SemiBold else FontWeight.Medium),

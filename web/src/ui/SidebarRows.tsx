@@ -1,4 +1,4 @@
-import { Archive, Clock, GitBranch, Hand, Square, TriangleAlert } from "lucide-react";
+import { Archive, Clock, GitBranch, Hand, Pencil, Square, TriangleAlert } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { contextFraction, modelName, parseDate, type Session } from "../protocol/models";
 import { Spinner } from "./primitives";
@@ -140,8 +140,8 @@ export function SessionPlace({ item, server }: { item: ServerSession; server: bo
 }
 
 /** A session's state in the sidebar's denser rows: a ring while idle, a
- *  dot once it is unread, a spinner while it works, and the symbols that
- *  ask for the user. */
+ *  dot once it is unread, a pencil while it keeps a draft, a spinner while
+ *  it works, and the symbols that ask for the user. */
 export function StatusGlyph({ session }: { session: Session }) {
   let icon;
   let label;
@@ -169,6 +169,9 @@ export function StatusGlyph({ session }: { session: Session }) {
       } else if (session.unread) {
         icon = <span className="unread-dot" />;
         label = "Unread";
+      } else if (session.draft) {
+        icon = <Pencil size={12} className="c-subtext" />;
+        label = "Draft";
       } else {
         icon = <span className="idle-ring" />;
         label = "Idle";

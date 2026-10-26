@@ -38,6 +38,10 @@ export interface NewSession {
   prompt: string;
   /** Ids of uploaded images that go with the prompt. */
   images?: string[];
+  /** Keep the prompt and images as the session's draft rather than send
+   *  them. Only when the server has drafts (`info.drafts`): an older one
+   *  would send them. */
+  draft?: boolean;
 }
 
 /** A live connection to one server: keeps the index (projects and sessions)
@@ -474,8 +478,24 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
   }
 
   async createSession(p: NewSession): Promise<Session> {
-    const s = await this.deliver<Session>("session.create", { commandId: crypto.randomUUID(), ...p }, 90);
+    const s = await this.deliver<Session>("session.create", { commandId: crypto.randomUUID(), ...p, draft: p.draft || undefined }, 90);
     this.sessions.set(s.id, s);
+    this.changed();
+    return s;
+  }
+
+  /** Keeps a prompt in the session, unsent, for any device to send later,
+   *  in place of the draft it had; no text and no images remove it. The
+   *  session changes here at once, as the server returns it. Saving it
+   *  twice does no harm, so it is sent again after a drop, as commands are. */
+  async saveDraft(sessionId: string, text: string, images: ImageRef[] = []): Promise<Session> {
+    const s = await this.deliver<Session>("session.saveDraft", {
+      sessionId,
+      text,
+      images: images.length ? images.map((i) => i.id) : undefined,
+    });
+    this.sessions.set(s.id, s);
+    this.sessionStores.get(s.id)?.setSession(s);
     this.changed();
     return s;
   }

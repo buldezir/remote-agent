@@ -63,11 +63,14 @@ struct ConnectionTests {
         #expect(commands.isEmpty)
     }
 
+    /// A session as the index sends it.
+    private func session(_ id: String, unread: Bool = false, draft: String? = nil) -> String {
+        #"{"id":"\#(id)","projectId":"p","harness":"fake","status":"idle","title":"\#(id)","archived":false,"unread":\#(unread),"#
+            + (draft.map { #""draft":{"text":"\#($0)"},"# } ?? "")
+            + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
+    }
+
     @Test func marksReadOnce() async throws {
-        func session(_ id: String, unread: Bool) -> String {
-            #"{"id":"\#(id)","projectId":"p","harness":"fake","status":"idle","title":"\#(id)","archived":false,"unread":\#(unread),"#
-                + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
-        }
         let server = try TestServer(index: [session("new", unread: true), session("seen", unread: false)])
         let connection = try await connect(to: server)
         defer { connection.stop(); server.stop() }
@@ -82,6 +85,100 @@ struct ConnectionTests {
         try await wait { server.calls.contains { $0.method == "session.markRead" } }
         try await Task.sleep(for: .milliseconds(50))
         #expect(server.calls.filter { $0.method == "session.markRead" }.count == 1)
+    }
+
+    @Test func createsADraftOnlyWhenAsked() throws {
+        func json(_ p: ServerConnection.NewSession) throws -> JSONValue {
+            try JSONDecoder().decode(JSONValue.self, from: WireCoding.encoder().encode(p))
+        }
+        let ws = ServerConnection.NewSession.WorkspaceParams(kind: .root)
+        let draft = try json(.init(projectId: "p", harness: "fake", model: nil, mode: nil, workspace: ws, prompt: "later", draft: true))
+        #expect(draft["draft"] == .bool(true))
+        // An older server would start the session with the prompt either way.
+        let started = try json(.init(projectId: "p", harness: "fake", model: nil, mode: nil, workspace: ws, prompt: "now"))
+        #expect(started["draft"] == nil)
+    }
+
+    @Test func savesADraftIntoTheIndexAtOnce() async throws {
+        let server = try TestServer(index: [session("s")])
+        let connection = try await connect(to: server)
+        defer { connection.stop(); server.stop() }
+        try await wait { connection.indexSynced }
+        let store = connection.sessionStore("s")
+        #expect(store.unsentDraft == nil)
+
+        let image = ImageRef(id: "a.png", mimeType: "image/png", size: 1)
+        let saved = try await connection.saveDraft("s", text: "later", images: [image])
+        #expect(saved.draft?.text == "later")
+        // The session's views have it before its event comes.
+        #expect(connection.sessions["s"]?.draft?.text == "later")
+        #expect(store.unsentDraft?.text == "later")
+        let call = try #require(server.calls.last { $0.method == "session.saveDraft" })
+        #expect(call.params?["sessionId"] == .string("s"))
+        #expect(call.params?["text"] == .string("later"))
+        #expect(call.params?["images"] == .array([.string("a.png")]))
+
+        // Nothing saved removes it.
+        try await connection.saveDraft("s", text: "")
+        #expect(server.calls.last { $0.method == "session.saveDraft" }?.params?["images"] == nil)
+        #expect(connection.sessions["s"]?.hasDraft == false)
+        #expect(store.unsentDraft == nil)
+    }
+
+    @Test func draftSentOnADeadSocketIsDeliveredAfterReconnecting() async throws {
+        let server = try TestServer(index: [session("s", draft: "later")])
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        try await wait { c.indexSynced }
+        let store = c.sessionStore("s")
+        #expect(store.unsentDraft?.text == "later")
+
+        server.quiet()
+        try await store.sendDraft()
+
+        // Sent again on the new socket, with the same commandId.
+        let sends = server.calls.filter { $0.method == "session.sendDraft" }
+        #expect(sends.last?.connection == 1)
+        #expect(Set(sends.map(\.commandID)).count == 1)
+        #expect(sends.last?.params?["sessionId"] == .string("s"))
+        // The outbox shows it in place of the draft until the transcript has it,
+        // which comes with the session without its draft.
+        #expect(store.outbox.values.map(\.text) == ["later"])
+        #expect(store.unsentDraft == nil)
+        store._testSynchronized(seq: 0, reset: true)
+        let session = #"{"stream":"session:s","seq":1,"type":"session.upserted","session":\#(self.session("s"))}"#
+        let item = #"{"stream":"session:s","seq":2,"type":"item.upserted","item":{"id":"i1","sessionId":"s","order":1,"#
+            + #""kind":"user_message","status":"completed","text":"later","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}}"#
+        store._testApply(try [session, item].map { try WireCoding.decoder().decode(Event.self, from: Data($0.utf8)) })
+        #expect(store.outbox.isEmpty)
+        #expect(store.unsentDraft == nil)
+        #expect(store.transcript.map(\.text) == ["later"])
+    }
+
+    @Test func sendingNoDraftFails() async throws {
+        let server = try TestServer(index: [session("s")])
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        try await wait { c.indexSynced }
+        let store = c.sessionStore("s")
+        await #expect(throws: RPCError.self) { try await store.sendDraft() }
+        #expect(store.outbox.isEmpty)
+        #expect(!server.calls.contains { $0.method == "session.sendDraft" })
+    }
+
+    @Test func draftFailsOnceTheConnectionGivesUp() async throws {
+        let server = try TestServer(index: [session("s", draft: "later")])
+        let c = try await connect(to: server)
+        defer { c.stop() }
+        try await wait { c.indexSynced }
+        let store = c.sessionStore("s")
+
+        server.stop()
+        await #expect(throws: RPCError.self) { try await store.sendDraft() }
+        #expect(failed(c))
+        // Not sent: the session's draft again.
+        #expect(store.outbox.isEmpty)
+        #expect(store.unsentDraft?.text == "later")
     }
 
     @Test func dropsASocketThatStopsAnswering() async throws {

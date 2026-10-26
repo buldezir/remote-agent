@@ -5,6 +5,7 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac, an And
 - **`rad`**: a Go server that runs on the dev machine. It spawns agent CLIs as child processes, normalizes what they do into one event model, persists it in SQLite, and serves it over a WebSocket.
 - **Remote Agent**: a native SwiftUI app for iPhone, iPad and Mac. You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, one sidebar lists every server's sessions next to the one you have open. From the app you can:
   - start sessions in any project
+  - save a session's first prompt as a draft, and send it later from any device
   - watch agents stream their work
   - dictate prompts, in any of your keyboard languages
   - attach images to prompts, and see the ones agents return, such as screenshots

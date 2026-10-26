@@ -9,6 +9,7 @@ import {
   Drama,
   Hand,
   MousePointerClick,
+  Pencil,
   Pi,
   Sparkle,
   TriangleAlert,
@@ -20,8 +21,19 @@ import type { ConnectionState } from "../store/serverConnection";
 import { Spinner } from "./primitives";
 
 /** `background`: the agent left work running, which shows on an idle
- *  session. `unread`: something happened since a device last showed it. */
-export function StatusIcon({ status, background = false, unread = false }: { status: SessionStatus; background?: boolean; unread?: boolean }) {
+ *  session. `unread`: something happened since a device last showed it.
+ *  `draft`: it keeps a prompt to send later. */
+export function StatusIcon({
+  status,
+  background = false,
+  unread = false,
+  draft = false,
+}: {
+  status: SessionStatus;
+  background?: boolean;
+  unread?: boolean;
+  draft?: boolean;
+}) {
   let icon;
   let title = status.replace("_", " ");
   switch (status) {
@@ -49,6 +61,9 @@ export function StatusIcon({ status, background = false, unread = false }: { sta
           </svg>
         );
         title = "unread";
+      } else if (draft) {
+        icon = <Pencil size={14} className="c-subtext" />;
+        title = "draft";
       } else {
         icon = <Circle size={15} className="c-overlay" />;
       }

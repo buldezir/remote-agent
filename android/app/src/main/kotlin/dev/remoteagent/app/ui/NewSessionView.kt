@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +69,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     val scope = rememberCoroutineScope()
     val projects by connection.projects.collectAsStateWithLifecycle()
     val harnesses by connection.harnesses.collectAsStateWithLifecycle()
+    val info by connection.info.collectAsStateWithLifecycle()
     var projectID by rememberSaveable { mutableStateOf(projectId ?: "") }
     var harnessID by rememberSaveable { mutableStateOf("") }
     var model by rememberSaveable { mutableStateOf("") }
@@ -139,7 +141,8 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
         if (project?.isGitRepo == true) branches = runCatching { connection.branches(projectID).branches }.getOrDefault(emptyList())
     }
 
-    fun create() {
+    // As a draft, the prompt waits in the new session, unsent, for any device to send.
+    fun create(asDraft: Boolean = false) {
         val p = project ?: return
         val h = harness ?: return
         creating = true
@@ -157,6 +160,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                         ),
                         prompt = prompt,
                         images = attachments.refs.map { it.id }.ifEmpty { null },
+                        draft = true.takeIf { asDraft },
                     ),
                 )
                 settings.put(Keys.lastHarness, h.id)
@@ -164,8 +168,9 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                 settings.put(Keys.lastModel(h.id), chosenModel ?: "")
                 settings.put(Keys.lastEffort(h.id), effort)
                 settings.put(Keys.lastMode(h.id), mode)
-                // As rad decides whether to start a turn.
-                onCreated(s, prompt.isBlank() && attachments.refs.isEmpty())
+                // As rad decides whether to start a turn. A draft is there to
+                // read, so the prompt doesn't take the keyboard.
+                onCreated(s, !asDraft && prompt.isBlank() && attachments.refs.isEmpty())
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -201,7 +206,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                     CircularProgressIndicator(Modifier.size(24.dp).padding(end = 4.dp), color = palette.subtext, strokeWidth = 2.dp)
                 } else {
                     val enabled = project != null && harness != null && attachments.ready
-                    TextButton(::create, enabled = enabled, modifier = Modifier.testTag("start")) {
+                    TextButton({ create() }, enabled = enabled, modifier = Modifier.testTag("start")) {
                         Text("Start", color = if (enabled) palette.accent else palette.overlay, style = Type.headline)
                     }
                 }
@@ -314,7 +319,11 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                     }
                 }
 
-                FormSection("Prompt", footer = AnnotatedString("Optional. Without one, the session starts empty and you write the first prompt in it.")) {
+                // An older server would start the session with the prompt.
+                val drafts = info?.drafts == true
+                val footer = "Optional. Without one, the session starts empty and you write the first prompt in it." +
+                    if (drafts) " Save as Draft keeps the prompt in the session, unsent, to send later from any device." else ""
+                FormSection("Prompt", footer = AnnotatedString(footer)) {
                     FormTextField(prompt, { prompt = it }, "What should the agent do?", style = messageStyle(), maxLines = 12, minLines = 4, modifier = Modifier.testTag("new-prompt"))
                     if (!attachments.isEmpty) {
                         FormDivider()
@@ -322,6 +331,21 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                     }
                     FormDivider()
                     AttachMenu(attachments, title = "Add Images")
+                    if (drafts) {
+                        FormDivider()
+                        val enabled = project != null && harness != null && attachments.ready && !creating &&
+                            (prompt.isNotBlank() || !attachments.isEmpty)
+                        val color = if (enabled) palette.accent else palette.overlay
+                        Row(
+                            Modifier.fillMaxWidth().clickable(enabled = enabled, role = Role.Button) { create(asDraft = true) }.padding(12.dp)
+                                .testTag("save-as-draft"),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(painterResource(Icons.saveDraft), null, tint = color)
+                            Text("Save as Draft", color = color, style = Type.body)
+                        }
+                    }
                 }
 
                 error?.let {

@@ -43,6 +43,7 @@ describe("fixtures", () => {
     expect(events).toHaveLength(14);
     const session = events[0].session!;
     expect(session.status).toBe("awaiting_approval");
+    expect(session.draft?.images).toHaveLength(1);
     expect(session.workspace.kind).toBe("worktree");
     expect(events[1].turn?.usage?.costUsd).toBe(0.0123);
     const items = events.flatMap((e) => (e.item ? [e.item] : []));
@@ -86,6 +87,7 @@ describe("fixtures", () => {
     const events: Event[] = load("notification_events_index.json").params.events;
     expect(events.map((e) => e.type)).toEqual(["project.upserted", "session.upserted", "project.removed"]);
     expect(events[0].project?.isGitRepo).toBe(true);
+    expect(events[1].session?.draft?.text).toBe("Then update the changelog");
     expect(events[2].id).toBe("p0");
   });
 
@@ -121,6 +123,8 @@ describe("fixtures", () => {
     const s: Session = load("response_session.json").result;
     expect(s.title).toBe("Fix the tests");
     expect(s.unread).toBe(true);
+    expect(s.draft?.text).toBe("Then update the changelog");
+    expect(s.draft?.images?.map((i) => [i.mimeType, i.width, i.height, i.size])).toEqual([["image/jpeg", 800, 600, 65536]]);
     expect(contextFraction(s.context)).toBe(0.26);
     expect(modelName(s, undefined)).toBe("Sonnet 5.5");
     expect(s.modelInfo?.effort).toBe("high");
@@ -135,6 +139,7 @@ describe("fixtures", () => {
 
     const info: ServerInfo = load("response_server_info.json").result;
     expect(info.terminal).toBe(true);
+    expect(info.drafts).toBe(true);
     expect(info.deviceId).toBe("dev1");
   });
 

@@ -26,7 +26,7 @@ export function SessionRow({
   return (
     <div className={"session-row" + (selected ? " selected" : "")}>
       <button className="session-row-main" onClick={onOpen} aria-current={selected ? "page" : undefined}>
-        <StatusIcon status={session.status} background={!!session.backgroundTasks?.length} unread={!!session.unread} />
+        <StatusIcon status={session.status} background={!!session.backgroundTasks?.length} unread={!!session.unread} draft={!!session.draft} />
         <span className="session-row-text">
           <span className={"session-title" + (needsYou(session) || session.unread ? " strong" : "")}>{session.title}</span>
           <span className="session-meta">

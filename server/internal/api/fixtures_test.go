@@ -29,6 +29,8 @@ func fixtures() map[string]any {
 		Status:    model.SessionAwaitingApproval, NativeID: "n1", Title: "Fix the tests", Unread: true, CreatedAt: t0, UpdatedAt: t1,
 		Context:   &model.ContextUsage{Used: 52000, Window: 200000},
 		ModelInfo: &model.ModelInfo{ID: "claude-sonnet-5-5", Name: "Sonnet 5.5", Effort: "high"},
+		Draft: &model.Draft{Text: "Then update the changelog", Images: []model.ImageRef{
+			{ID: "3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b.jpg", MimeType: "image/jpeg", Width: 800, Height: 600, Size: 65536}}},
 		BackgroundTasks: []model.BackgroundTask{
 			{ID: "b1", Kind: model.BackgroundCommand, Description: "Watch the release run"},
 			{ID: "a1", Kind: model.BackgroundAgent, Description: "Explore the protocol"},
@@ -122,7 +124,7 @@ func fixtures() map[string]any {
 		"response_session.json": response{ID: json.RawMessage("6"), Result: sess},
 		"response_server_info.json": response{ID: json.RawMessage("1"), Result: serverInfoResult{
 			serverInfo: serverInfo{ServerID: "srv1", Name: "studio", ProtocolVersion: model.ProtocolVersion, Version: "0.4.0"},
-			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true}},
+			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true}},
 		"response_server_settings.json": response{ID: json.RawMessage("8"), Result: model.ServerSettings{
 			SystemAgent: &model.SystemAgent{Harness: "claude", Model: "haiku", Effort: "low"}}},
 		"response_check_update.json": response{ID: json.RawMessage("9"), Result: model.UpdateInfo{

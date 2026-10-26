@@ -44,6 +44,8 @@ struct UserBubble: View {
     var store: SessionStore?
     var pending = false
     var cancelled = false
+    /// The session's draft: outlined, since it hasn't gone.
+    var draft = false
     /// Sends a queued prompt at once, stopping the turn it waits for.
     var sendNow: (() async throws -> Void)?
     @State private var sending = false
@@ -64,8 +66,8 @@ struct UserBubble: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .foregroundStyle(Palette.onAccent)
-                        .background(Palette.accent.opacity(pending || cancelled ? 0.55 : 1), in: RoundedRectangle(cornerRadius: Metrics.Corner.bubble))
+                        .foregroundStyle(draft ? Palette.text : Palette.onAccent)
+                        .background { bubble }
                 }
                 if pending {
                     HStack(spacing: 4) {
@@ -90,6 +92,16 @@ struct UserBubble: View {
         }
     }
 
+    @ViewBuilder private var bubble: some View {
+        let shape = RoundedRectangle(cornerRadius: Metrics.Corner.bubble)
+        if draft {
+            shape.fill(Palette.accent.opacity(0.12))
+                .overlay(shape.strokeBorder(Palette.accent, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        } else {
+            shape.fill(Palette.accent.opacity(pending || cancelled ? 0.55 : 1))
+        }
+    }
+
     private func send(_ f: @escaping () async throws -> Void) {
         sending = true
         error = nil
@@ -97,6 +109,44 @@ struct UserBubble: View {
             defer { sending = false }
             do { try await f() } catch { self.error = error.localizedDescription }
         }
+    }
+}
+
+/// The session's draft at the foot of its transcript: the prompt as it will
+/// go, outlined, with what to do with it under it.
+struct DraftBubble: View {
+    let draft: Draft
+    let store: SessionStore
+    /// Edit and Send wait: the session is archived, or a change to the draft
+    /// is on its way to the server.
+    var disabled = false
+    /// Takes the draft back into the composer.
+    let edit: () -> Void
+    let send: () -> Void
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            UserBubble(text: draft.text, images: draft.images ?? [], store: store, draft: true)
+            HStack(spacing: 10) {
+                Label("Draft · not sent", systemImage: "pencil")
+                    .scaledFont(.caption)
+                    .foregroundStyle(Palette.subtext)
+                Button(action: edit) {
+                    Text("Edit").scaledFont(.footnote, weight: .medium).foregroundStyle(Palette.subtext)
+                }
+                .buttonStyle(.borderless)
+                .help("Take the draft back into the prompt to change it")
+                Button(action: send) {
+                    Text("Send").scaledFont(.footnote, weight: .semibold).foregroundStyle(Palette.onAccent)
+                }
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.roundedRectangle(radius: Metrics.Corner.card))
+                .controlSize(.small)
+                .tint(Palette.accent)
+            }
+            .disabled(disabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 

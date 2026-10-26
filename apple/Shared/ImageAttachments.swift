@@ -11,7 +11,8 @@ import UniformTypeIdentifiers
 final class Attachments {
     struct Entry: Identifiable {
         let id = UUID()
-        let thumbnail: CGImage
+        /// nil while an image that was on the server already loads.
+        var thumbnail: CGImage?
         var state: State
 
         var ref: ImageRef? { if case .uploaded(let r) = state { r } else { nil } }
@@ -43,6 +44,21 @@ final class Attachments {
     /// added since. They are on the server already.
     func restore(_ sent: [Entry]) {
         entries.insert(contentsOf: sent, at: 0)
+    }
+
+    /// Puts back images that are on the server already, such as a draft's,
+    /// ahead of any added since. Their thumbnails come from the server.
+    func restore(_ refs: [ImageRef], via connection: ServerConnection) {
+        let restored = refs.map { Entry(state: .uploaded($0)) }
+        entries.insert(contentsOf: restored, at: 0)
+        for (entry, ref) in zip(restored, refs) {
+            Task {
+                guard let data = try? await connection.imageData(ref.id),
+                      let thumbnail = await Task.detached(operation: { ImageCoding.thumbnail(data, maxPixels: 240) }).value,
+                      let i = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+                entries[i].thumbnail = thumbnail
+            }
+        }
     }
 
     func remove(_ id: UUID) {

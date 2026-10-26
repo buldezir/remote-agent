@@ -8,17 +8,21 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -31,14 +35,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.remoteagent.core.protocol.Draft
 import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.Item
 import dev.remoteagent.core.protocol.ItemKind
@@ -88,14 +102,16 @@ fun ItemView(item: Item, store: SessionStore, children: Map<String, List<Item>>)
 /**
  * A prompt. `pending` fades it, as one waiting to be sent or queued behind the
  * running turn; `sendNow`, for one queued on the server, sends it at once.
+ * `draft` outlines it, as a prompt saved to send later (DraftBubble).
  */
 @Composable
 fun UserBubble(
     text: String, images: List<ImageRef> = emptyList(), pending: Boolean = false, cancelled: Boolean = false,
-    sendNow: (suspend () -> Unit)? = null,
+    draft: Boolean = false, sendNow: (suspend () -> Unit)? = null,
 ) {
     val faded = pending || cancelled
-    Row(Modifier.fillMaxWidth().testTag("user-bubble"), horizontalArrangement = Arrangement.End) {
+    val shape = RoundedCornerShape(Metrics.Corner.bubble)
+    Row(Modifier.fillMaxWidth().testTag(if (draft) "draft-bubble" else "user-bubble"), horizontalArrangement = Arrangement.End) {
         Spacer(Modifier.width(40.dp))
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (images.isNotEmpty()) {
@@ -104,8 +120,12 @@ fun UserBubble(
             if (text.isNotEmpty()) {
                 SelectionContainer {
                     Text(
-                        text, style = messageStyle(), color = palette.onAccent,
-                        modifier = Modifier.background(palette.accent.copy(alpha = if (faded) 0.55f else 1f), RoundedCornerShape(Metrics.Corner.bubble))
+                        text, style = messageStyle(), color = if (draft) palette.text else palette.onAccent,
+                        modifier = Modifier
+                            .then(
+                                if (draft) Modifier.background(palette.accent.copy(alpha = 0.12f), shape).dashedOutline(palette.accent, Metrics.Corner.bubble)
+                                else Modifier.background(palette.accent.copy(alpha = if (faded) 0.55f else 1f), shape),
+                            )
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                     )
                 }
@@ -144,6 +164,55 @@ private fun QueuedCaption(sendNow: suspend () -> Unit) {
         )
     }
     ErrorDialog(error, title = "Error") { error = null }
+}
+
+/**
+ * The session's draft: a prompt saved to send later, from any device. It
+ * shows as the prompt it will be, outlined, with Send, and Edit, which takes
+ * it back into the composer. [enabled]: neither is under way, and the
+ * session isn't archived.
+ */
+@Composable
+fun DraftBubble(draft: Draft, enabled: Boolean, onEdit: () -> Unit, onSend: () -> Unit) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        UserBubble(draft.text, draft.images, draft = true)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.semantics(mergeDescendants = true) {}.padding(end = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(painterResource(Icons.draft), null, Modifier.size(13.dp), tint = palette.subtext)
+                Text("Draft · not sent", style = Type.caption2, color = palette.subtext)
+            }
+            DraftButton("Edit", palette.surface0, palette.text, enabled, onEdit, Modifier.testTag("edit-draft"))
+            DraftButton("Send", palette.accent, palette.onAccent, enabled, onSend, Modifier.testTag("send-draft"))
+        }
+    }
+}
+
+@Composable
+private fun DraftButton(label: String, container: Color, content: Color, enabled: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    Button(
+        onClick, modifier.heightIn(min = 30.dp), enabled = enabled,
+        shape = RoundedCornerShape(Metrics.Corner.card),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = container, contentColor = content,
+            disabledContainerColor = container.copy(alpha = 0.35f), disabledContentColor = content.copy(alpha = 0.7f),
+        ),
+    ) {
+        Text(label, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold))
+    }
+}
+
+/** A dashed outline inside the bounds, with rounded corners: what isn't sent yet. */
+private fun Modifier.dashedOutline(color: Color, corner: Dp): Modifier = drawBehind {
+    val stroke = 1.dp.toPx()
+    drawRoundRect(
+        color, topLeft = Offset(stroke / 2, stroke / 2), size = Size(size.width - stroke, size.height - stroke),
+        cornerRadius = CornerRadius(corner.toPx() - stroke / 2),
+        style = Stroke(stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 3.dp.toPx()))),
+    )
 }
 
 @Composable

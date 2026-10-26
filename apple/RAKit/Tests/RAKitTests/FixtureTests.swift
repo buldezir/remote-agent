@@ -22,6 +22,7 @@ struct FixtureTests {
         let session = try #require(n.params.events[0].session)
         #expect(session.status == .awaitingApproval)
         #expect(session.workspace.kind == .worktree)
+        #expect(session.hasDraft)
         let turn = try #require(n.params.events[1].turn)
         #expect(turn.usage?.costUsd == 0.0123)
         let items = n.params.events.compactMap(\.item)
@@ -52,6 +53,7 @@ struct FixtureTests {
         let n = try WireCoding.decoder().decode(Notification<EventsParams>.self, from: load("notification_events_index.json"))
         #expect(n.params.events.map(\.type) == ["project.upserted", "session.upserted", "project.removed"])
         #expect(n.params.events[0].project?.isGitRepo == true)
+        #expect(n.params.events[1].session?.draft?.images?.first?.width == 800)
         #expect(n.params.events[2].id == "p0")
     }
 
@@ -100,12 +102,15 @@ struct FixtureTests {
         #expect(s.result?.backgroundTasks?.map(\.kind) == [.command, .agent])
         #expect(s.result?.backgroundTasks?.first?.description == "Watch the release run")
         #expect(s.result?.isUnread == true)
+        #expect(s.result?.draft?.text == "Then update the changelog")
+        #expect(s.result?.draft?.images?.map(\.mimeType) == ["image/jpeg"])
 
         let p = try dec.decode(PairResult.self, from: load("http_pair_response.json"))
         #expect(p.token == "0123abcd")
 
         let info = try dec.decode(Response<ServerInfo>.self, from: load("response_server_info.json"))
         #expect(info.result?.terminal == true)
+        #expect(info.result?.drafts == true)
         #expect(info.result?.deviceId == "dev1")
     }
 

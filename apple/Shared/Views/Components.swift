@@ -7,6 +7,8 @@ struct StatusIcon: View {
     var background = false
     /// Something happened since a device last showed the session.
     var unread = false
+    /// A prompt waits in the session, unsent (`Session.draft`).
+    var draft = false
 
     var body: some View {
         Group {
@@ -29,6 +31,10 @@ struct StatusIcon: View {
                     .fill(Palette.accent)
                     .frame(width: 10, height: 10)
                     .accessibilityLabel("Unread")
+            case .idle where draft, .unknown where draft:
+                Image(systemName: "pencil")
+                    .foregroundStyle(Palette.subtext)
+                    .accessibilityLabel("Draft")
             case .idle, .unknown:
                 Image(systemName: "circle").foregroundStyle(.tertiary)
             }
@@ -148,8 +154,8 @@ struct ConnectionDot: View {
 }
 
 /// A session's state in the sidebar's denser rows: a ring while idle, a
-/// spinner while it works, and the symbols that ask for the user. It sits on
-/// the middle of the first line of text beside it.
+/// pencil for a draft, a spinner while it works, and the symbols that ask for
+/// the user. It sits on the middle of the first line of text beside it.
 struct StatusGlyph: View {
     let session: Session
 
@@ -169,6 +175,9 @@ struct StatusGlyph: View {
             case .idle where session.isUnread, .unknown where session.isUnread:
                 // Mail's unread dot, where the ring would be.
                 Circle().fill(Palette.accent).frame(width: 8, height: 8)
+            case .idle where session.hasDraft, .unknown where session.hasDraft:
+                // A prompt waits to be sent.
+                Image(systemName: "pencil").foregroundStyle(Palette.subtext)
             case .idle, .unknown:
                 Circle().strokeBorder(Palette.overlay, lineWidth: 1.2).frame(width: 7, height: 7)
             }
@@ -188,6 +197,7 @@ struct StatusGlyph: View {
         case .stopped: "Stopped"
         case .idle where session.backgroundTasks?.isEmpty == false: "Running in the background"
         case .idle where session.isUnread, .unknown where session.isUnread: "Unread"
+        case .idle where session.hasDraft, .unknown where session.hasDraft: "Draft"
         case .idle, .unknown: "Idle"
         }
     }

@@ -104,9 +104,7 @@ struct AttachmentStrip: View {
     }
 
     private func thumbnail(_ entry: Attachments.Entry) -> some View {
-        Image(decorative: entry.thumbnail, scale: 1)
-            .resizable()
-            .scaledToFill()
+        picture(entry)
             .frame(width: 56, height: 56)
             .clipShape(RoundedRectangle(cornerRadius: Metrics.Corner.card))
             .overlay {
@@ -142,6 +140,20 @@ struct AttachmentStrip: View {
                 .offset(x: 6, y: -6)
                 .accessibilityLabel("Remove image")
             }
+    }
+
+    /// The thumbnail, or a placeholder while one on the server loads.
+    @ViewBuilder private func picture(_ entry: Attachments.Entry) -> some View {
+        if let thumbnail = entry.thumbnail {
+            Image(decorative: thumbnail, scale: 1)
+                .resizable()
+                .scaledToFill()
+        } else {
+            ZStack {
+                Rectangle().fill(.quaternary)
+                Image(systemName: "photo").foregroundStyle(.secondary)
+            }
+        }
     }
 }
 

@@ -147,7 +147,11 @@ export function AttachmentStrip({ attachments }: { attachments: Attachments }) {
     <div className="attachment-strip">
       {attachments.entries.map((e) => (
         <div key={e.id} className="attachment">
-          <img src={e.thumbnail} alt="" style={{ opacity: e.state.kind === "uploaded" ? 1 : 0.5 }} />
+          {e.thumbnail ? (
+            <img src={e.thumbnail} alt="" style={{ opacity: e.state.kind === "uploaded" ? 1 : 0.5 }} />
+          ) : (
+            e.state.kind === "uploaded" && <ServerThumbnail id={e.state.ref.id} />
+          )}
           {e.state.kind === "uploading" && (
             <span className="attachment-overlay">
               <Spinner size={14} />
@@ -165,6 +169,13 @@ export function AttachmentStrip({ attachments }: { attachments: Attachments }) {
       ))}
     </div>
   );
+}
+
+/** An attachment that was on the server already: the server's copy. */
+function ServerThumbnail({ id }: { id: string }) {
+  const { url, failed } = useImageURL(id);
+  if (url) return <img src={url} alt="" />;
+  return <span className="attachment-placeholder">{failed && <ImageOff size={16} className="c-overlay" />}</span>;
 }
 
 /** Opens the file picker for images. */

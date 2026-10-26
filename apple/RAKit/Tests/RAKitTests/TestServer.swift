@@ -1,9 +1,10 @@
 import Foundation
 import Network
+import RAKit
 
 /// A WebSocket server on loopback that stands in for rad: it answers
-/// `server.info`, `session.prompt`, the index's `subscribe` and pings, and
-/// records the calls. `quiet()`
+/// `server.info`, `session.prompt`, the drafts' calls, the index's
+/// `subscribe` and pings, and records the calls. `quiet()`
 /// makes the sockets open so far ignore everything, as a socket that died
 /// while the Mac slept does: nothing comes back, and nothing says it closed.
 final class TestServer: @unchecked Sendable {
@@ -11,6 +12,7 @@ final class TestServer: @unchecked Sendable {
         var connection: Int
         var method: String
         var commandID: String?
+        var params: JSONValue?
     }
 
     private let listener: NWListener
@@ -89,7 +91,9 @@ final class TestServer: @unchecked Sendable {
         guard let req = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let id = req["id"] as? Int, let method = req["method"] as? String else { return }
         let params = req["params"] as? [String: Any]
-        recorded.append(Call(connection: n, method: method, commandID: params?["commandId"] as? String))
+        let raw = params.flatMap { try? JSONSerialization.data(withJSONObject: $0) }
+        recorded.append(Call(connection: n, method: method, commandID: params?["commandId"] as? String,
+                             params: raw.flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) }))
         let result: String
         switch method {
         case "server.info":
@@ -104,10 +108,17 @@ final class TestServer: @unchecked Sendable {
             send(c, Data(#"{"method":"events","params":{"stream":"index","events":[\#(events.joined(separator: ","))]}}"#.utf8), opcode: .text)
             send(c, Data(#"{"method":"synchronized","params":{"stream":"index","seq":\#(index.count),"reset":true}}"#.utf8), opcode: .text)
             result = #"{"stream":"index","seq":\#(index.count)}"#
-        case "session.prompt":
+        case "session.prompt", "session.sendDraft":
             let sid = params?["sessionId"] as? String ?? ""
             result = #"{"id":"i\#(id)","sessionId":"\#(sid)","order":1,"kind":"user_message","status":"queued","#
                 + #""createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
+        case "session.saveDraft":
+            // The session, with the draft as saved: none for no text.
+            let sid = params?["sessionId"] as? String ?? ""
+            let text = params?["text"] as? String ?? ""
+            let draft = text.isEmpty ? "" : #""draft":{"text":"\#(text)"},"#
+            result = #"{"id":"\#(sid)","projectId":"p","harness":"fake","status":"idle","title":"\#(sid)","archived":false,"#
+                + draft + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
         default:
             result = "{}"
         }

@@ -40,9 +40,10 @@ import kotlin.math.roundToInt
  * Mirrors apple/Shared/Views/Components.swift. [background]: an idle session
  * whose agent left work running, which shows a clock. [unread]: something
  * happened since a device last showed the session, which shows a dot.
+ * [draft]: a prompt waits in it, unsent, which shows a pencil.
  */
 @Composable
-fun StatusIcon(status: SessionStatus, size: Dp = 18.dp, background: Boolean = false, unread: Boolean = false) {
+fun StatusIcon(status: SessionStatus, size: Dp = 18.dp, background: Boolean = false, unread: Boolean = false, draft: Boolean = false) {
     Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         when (status) {
             SessionStatus.RUNNING -> CircularProgressIndicator(Modifier.size(size - 4.dp), color = palette.subtext, strokeWidth = 2.dp)
@@ -54,6 +55,7 @@ fun StatusIcon(status: SessionStatus, size: Dp = 18.dp, background: Boolean = fa
                 // Mail's unread dot, smaller than the ring: a filled circle its
                 // size reads as a chosen radio button. 10dp in the usual box.
                 unread -> UnreadDot(size * (5f / 9f), Modifier.semantics { contentDescription = "Unread" })
+                draft -> Icon(painterResource(Icons.draft), "Draft", Modifier.size(size - 2.dp), tint = palette.subtext)
                 else -> Icon(painterResource(Icons.circle), "Idle", tint = palette.overlay)
             }
         }
@@ -64,8 +66,8 @@ fun StatusIcon(status: SessionStatus, size: Dp = 18.dp, background: Boolean = fa
  * A session's state as a small glyph, for the tablet sidebars' compact rows:
  * a spinner while it works, a hand while it waits for an answer, a triangle
  * once it failed, a stop, a clock while tasks run in the background, a dot
- * while it is unread, else a ring. Mirrors StatusGlyph in
- * apple/Shared/Views/Components.swift.
+ * while it is unread, a pencil while a draft waits in it, else a ring.
+ * Mirrors StatusGlyph in apple/Shared/Views/Components.swift.
  */
 @Composable
 fun StatusGlyph(session: Session, modifier: Modifier = Modifier) {
@@ -78,6 +80,7 @@ fun StatusGlyph(session: Session, modifier: Modifier = Modifier) {
         else -> when {
             background -> "Running in the background"
             session.unread -> "Unread"
+            session.draft != null -> "Draft"
             else -> "Idle"
         }
     }
@@ -91,6 +94,7 @@ fun StatusGlyph(session: Session, modifier: Modifier = Modifier) {
                 background -> Icon(painterResource(Icons.background), null, Modifier.size(13.dp), tint = palette.subtext)
                 // Mail's unread dot, where the ring would be.
                 session.unread -> UnreadDot(8.dp)
+                session.draft != null -> Icon(painterResource(Icons.draft), null, Modifier.size(13.dp), tint = palette.subtext)
                 else -> {
                     val ring = palette.overlay
                     Canvas(Modifier.size(7.dp)) {

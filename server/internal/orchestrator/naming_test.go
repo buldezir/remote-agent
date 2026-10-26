@@ -121,6 +121,40 @@ func TestNamingAtFirstPrompt(t *testing.T) {
 	}
 }
 
+func TestNamingFromDraft(t *testing.T) {
+	e := newEnv(t, true)
+	e.setSystemAgent("fake")
+	// A draft names the session as its first prompt would, and nothing runs.
+	s := e.create(CreateSessionParams{Prompt: "add a changelog", Draft: true, Workspace: WorkspaceParams{Kind: model.WorkspaceWorktree}})
+	e.named(s.ID, s.Title)
+	e.o.naming.Wait()
+	got := e.session(s.ID)
+	if got.Title != "Named: add a changelog" || got.Workspace.Branch != "ra/named-add-a-changelog" {
+		t.Fatalf("named %q on %q", got.Title, got.Workspace.Branch)
+	}
+	if n := len(e.turns(s.ID)); n != 0 {
+		t.Fatalf("turns = %d", n)
+	}
+	// Sending it doesn't name it again.
+	if _, err := e.o.SendDraft(bg, s.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	e.waitTurn(s.ID, 1)
+	e.o.naming.Wait()
+	if got := e.session(s.ID); got.Title != "Named: add a changelog" {
+		t.Fatalf("renamed to %q", got.Title)
+	}
+
+	// Saved in a session started empty.
+	empty := e.create(CreateSessionParams{})
+	if _, err := e.o.SaveDraft(bg, empty.ID, "write the docs", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.named(empty.ID, "write the docs"); got.Title != "Named: write the docs" {
+		t.Fatalf("named %q", got.Title)
+	}
+}
+
 func TestNamingFailureKeepsNames(t *testing.T) {
 	e := newEnv(t, true)
 	e.setSystemAgent("fake")

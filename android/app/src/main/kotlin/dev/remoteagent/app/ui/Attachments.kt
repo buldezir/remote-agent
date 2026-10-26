@@ -29,7 +29,8 @@ class Attachments(private val connection: ServerConnection, private val onError:
         data class Failed(val message: String) : State
     }
 
-    data class Entry(val id: Long, val thumbnail: Bitmap, val state: State) {
+    /** [thumbnail]: null for an image that was on the server already, which shows from there. */
+    data class Entry(val id: Long, val thumbnail: Bitmap?, val state: State) {
         val ref: ImageRef? get() = (state as? State.Uploaded)?.ref
     }
 
@@ -53,6 +54,11 @@ class Attachments(private val connection: ServerConnection, private val onError:
      */
     fun restore(sent: List<Entry>) {
         entries.addAll(0, sent)
+    }
+
+    /** Puts images that are on the server already, such as a draft's, ahead of the others. */
+    fun insert(refs: List<ImageRef>) {
+        entries.addAll(0, refs.map { Entry(nextID++, null, State.Uploaded(it)) })
     }
 
     fun remove(id: Long) {

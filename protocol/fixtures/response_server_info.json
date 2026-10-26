@@ -9,6 +9,7 @@
       "/Users/me/projects"
     ],
     "deviceId": "dev1",
-    "terminal": true
+    "terminal": true,
+    "drafts": true
   }
 }

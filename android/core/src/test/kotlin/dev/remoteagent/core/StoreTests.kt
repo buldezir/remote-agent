@@ -3,7 +3,9 @@ package dev.remoteagent.core
 import dev.remoteagent.core.net.PairingLink
 import dev.remoteagent.core.net.RpcError
 import dev.remoteagent.core.net.params
+import dev.remoteagent.core.protocol.Draft
 import dev.remoteagent.core.protocol.Event
+import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.Item
 import dev.remoteagent.core.protocol.ItemKind
 import dev.remoteagent.core.protocol.ItemStatus
@@ -24,6 +26,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -36,12 +39,15 @@ import kotlin.time.Duration
 
 /** As apple/RAKit/Tests/RAKitTests/StoreTests.swift and web/src/store/sessionStore.test.ts. */
 class SessionStoreTests {
-    private fun event(seq: Long, id: String, order: Long, text: String, kind: ItemKind = ItemKind.ASSISTANT_MESSAGE, parent: String? = null) =
+    private fun event(
+        seq: Long, id: String, order: Long, text: String, kind: ItemKind = ItemKind.ASSISTANT_MESSAGE, parent: String? = null,
+        images: List<ImageRef>? = null,
+    ) =
         Event(
             stream = "session:s", seq = seq, type = "item.upserted",
             item = Item(
                 id = id, sessionId = "s", parentItemId = parent, order = order, kind = kind, status = ItemStatus.COMPLETED, text = text,
-                createdAt = Instant.parse("2026-10-09T12:00:00.123456789Z"), updatedAt = Instant.parse("2026-10-09T12:00:00Z"),
+                images = images, createdAt = Instant.parse("2026-10-09T12:00:00.123456789Z"), updatedAt = Instant.parse("2026-10-09T12:00:00Z"),
             ),
         )
 
@@ -200,6 +206,57 @@ class SessionStoreTests {
         // Other errors are the server's own.
         h.fail = RpcError("not_found", "no such session")
         assertEquals("no such session", assertFailsWith<RpcError> { s.sendNow("q") }.message)
+    }
+
+    private val ref = ImageRef(id = "a1b2.png", mimeType = "image/png", width = 4, height = 3, size = 100)
+
+    /** The session, with a draft of `text` and an image, or none. */
+    private fun session(draft: String?) =
+        WireCoding.json.decodeFromJsonElement<Session>(FakeRad.session("s")).copy(draft = draft?.let { Draft(it, listOf(ref)) })
+
+    @Test
+    fun sentDraftShowsInTheOutboxUntilConfirmed() = runTest {
+        val h = Host(this)
+        val s = SessionStore("s", h)
+        s.setSession(session(draft = "then the changelog"))
+        s.synchronized(0, true)
+        s.sendDraft()
+        assertEquals("session.sendDraft", h.calls[0].first)
+        val p = h.calls[0].second as JsonObject
+        assertEquals(setOf("commandId", "sessionId"), p.keys)
+        assertEquals("s", p.getValue("sessionId").jsonPrimitive.content)
+        assertEquals(listOf(Outgoing("then the changelog", listOf(ref))), s.outbox.value.values.toList())
+        // As rad: the draft goes, and its prompt comes, in one batch.
+        s.apply(
+            listOf(
+                Event(stream = "session:s", seq = 1, type = "session.upserted", session = session(draft = null)),
+                event(2, "u", 1, "then the changelog", ItemKind.USER_MESSAGE, images = listOf(ref)),
+            ),
+        )
+        assertTrue(s.outbox.value.isEmpty())
+        assertNull(s.session.value?.draft)
+        assertEquals(listOf("u"), s.transcript.value.map { it.id })
+    }
+
+    @Test
+    fun sendingWithoutADraftFails() = runTest {
+        val h = Host(this)
+        val s = SessionStore("s", h)
+        s.setSession(session(draft = null))
+        assertEquals("conflict", assertFailsWith<RpcError> { s.sendDraft() }.code)
+        assertTrue(h.calls.isEmpty())
+        assertTrue(s.outbox.value.isEmpty())
+    }
+
+    @Test
+    fun draftThatIsNotSentLeavesTheOutbox() = runTest {
+        val h = Host(this).apply { fail = RpcError("disconnected", "Not connected to the server") }
+        val s = SessionStore("s", h)
+        s.setSession(session(draft = "later"))
+        assertFailsWith<RpcError> { s.sendDraft() }
+        assertTrue(s.outbox.value.isEmpty())
+        // Still there to send again.
+        assertEquals("later", s.session.value?.draft?.text)
     }
 
     private fun turn(seq: Long, id: String) = Event(

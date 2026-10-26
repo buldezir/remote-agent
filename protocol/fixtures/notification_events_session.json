@@ -25,6 +25,18 @@
           "title": "Fix the tests",
           "archived": false,
           "unread": true,
+          "draft": {
+            "text": "Then update the changelog",
+            "images": [
+              {
+                "id": "3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b.jpg",
+                "mimeType": "image/jpeg",
+                "width": 800,
+                "height": 600,
+                "size": 65536
+              }
+            ]
+          },
           "context": {
             "used": 52000,
             "window": 200000

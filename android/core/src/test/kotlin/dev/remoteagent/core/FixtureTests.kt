@@ -62,6 +62,7 @@ class FixtureTests {
         assertEquals(SessionStatus.AWAITING_APPROVAL, session.status)
         assertEquals(Workspace.Kind.WORKTREE, session.workspace.kind)
         assertTrue(session.unread)
+        assertEquals("Then update the changelog", session.draft?.text)
         assertEquals(0.0123, events[1].turn?.usage?.costUsd)
         val items = events.mapNotNull { it.item }
         assertEquals(11, items.size)
@@ -98,6 +99,7 @@ class FixtureTests {
         val events = assertIs<ServerMessage.Events>(notification("notification_events_index.json")).events
         assertEquals(listOf("project.upserted", "session.upserted", "project.removed"), events.map { it.type })
         assertEquals(true, events[0].project?.isGitRepo)
+        assertEquals(listOf("image/jpeg"), events[1].session?.draft?.images?.map { it.mimeType })
         assertEquals("p0", events[2].id)
     }
 
@@ -144,6 +146,10 @@ class FixtureTests {
         val s = result<Session>("response_session.json")
         assertEquals("Fix the tests", s.title)
         assertTrue(s.unread)
+        val draft = assertNotNull(s.draft)
+        assertEquals("Then update the changelog", draft.text)
+        assertEquals(listOf(800 to 600), draft.images.map { it.width to it.height })
+        assertEquals("image/jpeg", draft.images[0].mimeType)
         assertEquals(0.26, s.context?.fraction)
         assertEquals("Sonnet 5.5", s.modelName(null))
         assertEquals("high", s.modelInfo?.effort)
@@ -157,6 +163,7 @@ class FixtureTests {
 
         val info = result<ServerInfo>("response_server_info.json")
         assertEquals(true, info.terminal)
+        assertEquals(true, info.drafts)
         assertEquals("dev1", info.deviceId)
     }
 

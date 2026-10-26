@@ -602,6 +602,28 @@ func TestSessionOverWebSocket(t *testing.T) {
 		t.Errorf("read an unknown session: %+v", e)
 	}
 
+	// A draft waits in the session until a device sends it.
+	var drafted model.Session
+	c.mustCall("session.saveDraft", map[string]any{"sessionId": sess.ID, "text": "next"}, &drafted)
+	if drafted.Draft == nil || drafted.Draft.Text != "next" {
+		t.Errorf("saved draft = %+v", drafted.Draft)
+	}
+	var undrafted model.Session // the draft is left out once removed
+	c.mustCall("session.saveDraft", map[string]any{"sessionId": sess.ID, "text": ""}, &undrafted)
+	if undrafted.Draft != nil || undrafted.Title != "hello api" {
+		t.Errorf("removed draft: %q, %+v", undrafted.Title, undrafted.Draft)
+	}
+	if _, e := c.call("session.sendDraft", map[string]any{"commandId": "draft-1", "sessionId": sess.ID}); e == nil || e.Code != "conflict" {
+		t.Errorf("send without a draft: %+v", e)
+	}
+	var draftOnly model.Session
+	c.mustCall("session.create", map[string]any{"commandId": "create-draft", "projectId": proj.ID, "harness": "fake",
+		"workspace": map[string]any{"kind": "root"}, "prompt": "later", "draft": true}, &draftOnly)
+	if draftOnly.Draft == nil || draftOnly.Draft.Text != "later" || draftOnly.Title != "later" || draftOnly.Status != model.SessionIdle {
+		t.Errorf("created with a draft: %+v", draftOnly)
+	}
+	c.mustCall("session.delete", map[string]any{"sessionId": draftOnly.ID}, nil)
+
 	// Deleting the session removes it from the index, and its subscribers
 	// hear so on its own stream, next in seq.
 	cursor = c.subscribe(stream, 0).sync.Seq

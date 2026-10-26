@@ -38,11 +38,21 @@ export interface Session {
   /** A turn ended, or the agent asked for an answer, since a client last
    *  showed the session (`session.markRead`). Absent: false. */
   unread?: boolean;
+  /** A prompt saved to send later, from any device (`session.saveDraft`).
+   *  Absent: none. */
+  draft?: Draft;
   context?: ContextUsage;
   modelInfo?: ModelInfo;
   backgroundTasks?: BackgroundTask[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** A prompt kept in a session, unsent: the transcript shows it at its foot,
+ *  and `session.sendDraft` sends it. */
+export interface Draft {
+  text: string;
+  images?: ImageRef[];
 }
 
 export type BackgroundTaskKind = Open<"command" | "agent" | "other">;
@@ -385,6 +395,10 @@ export interface ServerInfo {
   deviceId?: string;
   /** The server runs shells for sessions (`GET /v1/terminal`). */
   terminal?: boolean;
+  /** The server keeps drafts (`session.saveDraft`, `session.sendDraft` and
+   *  `session.create`'s `draft`). An older one would start a session
+   *  created as a draft with its prompt, so clients offer drafts only then. */
+  drafts?: boolean;
 }
 
 /** A text frame on a terminal socket. The shell's output and the user's

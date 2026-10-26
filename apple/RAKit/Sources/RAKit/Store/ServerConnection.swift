@@ -400,6 +400,9 @@ public final class ServerConnection {
         public var prompt: String
         /// Ids of uploaded images (`uploadImage`) that go with the prompt.
         public var images: [String]?
+        /// Keep the prompt and images as the session's draft, and start no
+        /// turn. Only for a server whose `info.drafts` is true.
+        public var draft: Bool?
 
         public struct WorkspaceParams: Encodable, Sendable {
             public var kind: Workspace.Kind
@@ -413,7 +416,7 @@ public final class ServerConnection {
         }
 
         public init(projectId: String, harness: String, model: String?, effort: String? = nil, mode: String?,
-                    workspace: WorkspaceParams, prompt: String, images: [ImageRef] = []) {
+                    workspace: WorkspaceParams, prompt: String, images: [ImageRef] = [], draft: Bool = false) {
             self.projectId = projectId
             self.harness = harness
             self.model = model
@@ -422,12 +425,28 @@ public final class ServerConnection {
             self.workspace = workspace
             self.prompt = prompt
             self.images = images.isEmpty ? nil : images.map(\.id)
+            self.draft = draft ? true : nil
         }
     }
 
     public func createSession(_ p: NewSession) async throws -> Session {
         let s: Session = try await deliver("session.create", p, timeout: 90)
         sessions[s.id] = s
+        return s
+    }
+
+    /// Keeps a prompt in the session to send later, from any device, in place
+    /// of the draft it had; no text and no images remove it. The session the
+    /// server returns goes into the index at once, so the views change before
+    /// its event comes. Saving again is harmless, so a dropped call is made
+    /// again once the connection is back.
+    @discardableResult
+    public func saveDraft(_ sessionID: String, text: String, images: [ImageRef] = []) async throws -> Session {
+        struct P: Encodable, Sendable { var sessionId: String; var text: String; var images: [String]? }
+        let s: Session = try await deliver("session.saveDraft", P(sessionId: sessionID, text: text,
+                                                                  images: images.isEmpty ? nil : images.map(\.id)))
+        sessions[s.id] = s
+        sessionStores[s.id]?.session = s
         return s
     }
 

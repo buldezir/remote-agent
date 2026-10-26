@@ -166,6 +166,49 @@ describe("SessionStore", () => {
     expect(s.outbox.size).toBe(0);
   });
 
+  it("sends the draft through the outbox", async () => {
+    const h = host();
+    const s = new SessionStore("s", h);
+    s.synchronized(0, true);
+    const image = { id: "img.png", mimeType: "image/png", size: 1 };
+    s.setSession({ id: "s", draft: { text: "later", images: [image] } } as Session);
+    expect(s.unsentDraft?.text).toBe("later");
+    await s.sendDraft();
+    // On its way: in the outbox, as a prompt sent, and no longer a draft to show.
+    expect([...s.outbox.values()]).toEqual([{ text: "later", images: [image] }]);
+    expect(s.unsentDraft).toBeUndefined();
+    expect(h.calls.map(([m]) => m)).toEqual(["session.sendDraft"]);
+    expect(h.calls[0][1]).toMatchObject({ sessionId: "s", commandId: expect.any(String) });
+    // The user message comes with the session without its draft.
+    const message = event(2, "u", 1, "later", "user_message");
+    message.item!.images = [image];
+    s.apply([{ stream: "session:s", seq: 1, type: "session.upserted", session: { id: "s" } as Session }, message]);
+    expect(s.outbox.size).toBe(0);
+    expect(s.unsentDraft).toBeUndefined();
+    expect(s.transcript.map((i) => i.text)).toEqual(["later"]);
+  });
+
+  it("keeps the draft when sending it fails", async () => {
+    const h = host();
+    h.call = async () => {
+      throw new Error("nope");
+    };
+    const s = new SessionStore("s", h);
+    s.setSession({ id: "s", draft: { text: "later" } } as Session);
+    await expect(s.sendDraft()).rejects.toThrow("nope");
+    expect(s.outbox.size).toBe(0);
+    expect(s.unsentDraft).toEqual({ text: "later" });
+  });
+
+  it("has no draft to send without one", async () => {
+    const h = host();
+    const s = new SessionStore("s", h);
+    s.setSession({ id: "s" } as Session);
+    await expect(s.sendDraft()).rejects.toMatchObject({ code: "conflict" });
+    expect(h.calls).toEqual([]);
+    expect(s.outbox.size).toBe(0);
+  });
+
   it("sends a queued prompt now", async () => {
     const h = host();
     const s = new SessionStore("s", h);

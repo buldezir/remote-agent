@@ -75,6 +75,8 @@ data class Session(
     val archived: Boolean = false,
     /** A turn ended, or the agent asked for an answer, since a client last showed it. */
     val unread: Boolean = false,
+    /** A prompt saved to send later, from any device (`session.saveDraft`); null: none. */
+    val draft: Draft? = null,
     val context: ContextUsage? = null,
     val modelInfo: ModelInfo? = null,
     val backgroundTasks: List<BackgroundTask> = emptyList(),
@@ -91,6 +93,14 @@ data class Session(
         return harness?.models?.firstOrNull { it.id == id }?.name ?: id
     }
 }
+
+/**
+ * A prompt kept in a session, unsent, to send later from any device with
+ * `SessionStore.sendDraft`. Not the composer's text, which stays on the
+ * device (`SessionStore.draft`).
+ */
+@Serializable
+data class Draft(val text: String, val images: List<ImageRef> = emptyList())
 
 /**
  * What the agent left running after its turn (a command it watches, a
@@ -457,6 +467,11 @@ data class ServerInfo(
     val deviceId: String? = null,
     /** The server runs shells for sessions (`GET /v1/terminal`). */
     val terminal: Boolean? = null,
+    /**
+     * The server keeps drafts (`Session.draft`). An older one would ignore
+     * `NewSession.draft` and start the session with the prompt.
+     */
+    val drafts: Boolean? = null,
 )
 
 /**

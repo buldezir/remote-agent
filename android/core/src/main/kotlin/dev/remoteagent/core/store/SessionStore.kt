@@ -263,6 +263,25 @@ class SessionStore(val sessionID: String, private val host: SessionHost?) {
         }
     }
 
+    /**
+     * Sends the session's draft (`Session.draft`) as its prompt. As `send`,
+     * it shows in `outbox` until the transcript has it, and waits out a
+     * dropped connection; it throws once the connection gives up, or when the
+     * session has no draft.
+     */
+    suspend fun sendDraft() {
+        val c = c
+        val saved = _session.value?.draft ?: throw RpcError("conflict", "The session has no draft.")
+        val commandId = UUID.randomUUID().toString()
+        _outbox.value += commandId to Outgoing(saved.text, saved.images)
+        try {
+            c.deliver("session.sendDraft", params("commandId" to commandId, "sessionId" to sessionID))
+        } catch (e: Throwable) {
+            _outbox.value -= commandId
+            throw e
+        }
+    }
+
     suspend fun commands(): List<SlashCommand> {
         try {
             val result = c.callRaw("session.commands", params("sessionId" to sessionID), timeout = 80.seconds)

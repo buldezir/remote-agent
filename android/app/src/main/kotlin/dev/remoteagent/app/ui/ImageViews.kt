@@ -123,7 +123,9 @@ fun AttachmentStrip(attachments: Attachments, modifier: Modifier = Modifier) {
         items(attachments.entries, key = { it.id }) { entry ->
             Box(Modifier.padding(top = 6.dp, end = 6.dp)) {
                 Box(Modifier.size(56.dp).clip(RoundedCornerShape(Metrics.Corner.card)), contentAlignment = Alignment.Center) {
-                    Image(entry.thumbnail.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    val thumbnail = entry.thumbnail
+                    if (thumbnail != null) Image(thumbnail.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    else entry.ref?.let { RemoteImage(it, 56.dp) }
                     when (val state = entry.state) {
                         Attachments.State.Uploading -> CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                         is Attachments.State.Uploaded -> {}

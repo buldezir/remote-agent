@@ -289,6 +289,96 @@ if ((await prompt.inputValue()) !== "hi") throw new Error("typing in a session s
 await shot("empty-session");
 await prompt.fill("");
 
+step("draft: saved from New Session, edited, saved from the composer, sent");
+const draftText = "keep this for later";
+const draftBubble = page.locator(".user-message.draft");
+const draftIcon = page.getByRole("img", { name: "Draft" });
+const isFocused = (l) => l.evaluate((el) => el === document.activeElement);
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
+await page.locator(".harness-row", { hasText: "Fake" }).click();
+const sheet = page.locator("dialog.modal");
+const sheetSave = sheet.getByRole("button", { name: "Save as Draft" });
+if (!(await sheetSave.isDisabled())) throw new Error("Save as Draft is offered without a prompt");
+await sheet.getByPlaceholder("What should the agent do?").fill(draftText);
+await sheet.locator("input[type=file]").setInputFiles({ name: "draft.png", mimeType: "image/png", buffer: png });
+await sheet.locator(".attachment img").waitFor();
+await page.waitForFunction(() => !document.querySelector("dialog .attachment .spinner"));
+await sheetSave.scrollIntoViewIfNeeded();
+await shot("new-session-draft");
+await page.emulateMedia({ colorScheme: "light" });
+await shot("new-session-draft-light");
+await page.emulateMedia({ colorScheme: "dark" });
+await sheetSave.click();
+// The session opens with the draft at its foot; nothing runs, and its
+// prompt doesn't take the keyboard.
+await draftBubble.locator(".remote-image img").waitFor();
+await draftBubble.locator(".bubble", { hasText: draftText }).waitFor();
+await page.locator(".session-heading h1", { hasText: draftText }).waitFor();
+await page.waitForTimeout(500);
+if (await page.getByText("Working…").count()) throw new Error("a draft started a turn");
+if (await page.getByText(/^Echo/).filter({ hasText: draftText }).count()) throw new Error("a draft was sent");
+if (await page.getByText("No prompts yet").count()) throw new Error("a session with a draft says it has no prompts");
+if (await isFocused(prompt)) throw new Error("a session saved as a draft focused its prompt");
+if (await page.getByRole("button", { name: "Save as Draft" }).count()) throw new Error("the composer offers a second draft");
+await draftIcon.waitFor(); // its row has the pencil
+await shot("draft");
+await page.emulateMedia({ colorScheme: "light" });
+await shot("draft-light");
+await page.emulateMedia({ colorScheme: "dark" });
+await page.setViewportSize({ width: 390, height: 844 });
+await shot("phone-draft");
+await page.getByRole("button", { name: "Back" }).click();
+const draftRow = page.locator(".session-row", { has: page.locator(".status-icon[title=draft]") });
+await draftRow.locator(".session-title", { hasText: draftText }).waitFor();
+await shot("phone-draft-row");
+await draftRow.locator(".session-row-main").click();
+await page.setViewportSize({ width: 1280, height: 820 });
+
+// Edit takes it back into the composer, images and all.
+await draftBubble.getByRole("button", { name: "Edit" }).click();
+await draftBubble.waitFor({ state: "detached" });
+if ((await prompt.inputValue()) !== draftText) throw new Error("Edit didn't put the draft in the composer");
+await page.locator(".composer .attachment img").waitFor();
+if (!(await isFocused(prompt))) throw new Error("Edit didn't focus the prompt");
+await draftIcon.waitFor({ state: "detached" });
+await page.getByText("No prompts yet").waitFor();
+const composerSave = page.locator(".composer").getByRole("button", { name: "Save as Draft" });
+await composerSave.waitFor();
+await shot("draft-edit");
+await page.emulateMedia({ colorScheme: "light" });
+await shot("draft-edit-light");
+await page.emulateMedia({ colorScheme: "dark" });
+
+// Ctrl+S saves it again from the composer, which empties.
+await page.keyboard.press("Control+s");
+await draftBubble.locator(".remote-image img").waitFor();
+if ((await prompt.inputValue()) !== "") throw new Error("saving a draft left its text in the composer");
+if (await page.locator(".composer .attachment").count()) throw new Error("saving a draft left its images in the composer");
+await draftIcon.waitFor();
+
+// And so does the button, at a phone's width too. (A view of the other
+// width is a new one, without the images attached in this one.)
+await page.setViewportSize({ width: 390, height: 844 });
+await draftBubble.getByRole("button", { name: "Edit" }).click();
+await page.locator(".composer .attachment img").waitFor();
+await shot("phone-draft-edit");
+await composerSave.click();
+await draftBubble.locator(".remote-image img").waitFor();
+await shot("phone-draft-saved");
+await page.setViewportSize({ width: 1280, height: 820 });
+
+// Send runs it, and it becomes a prompt like any other.
+await draftBubble.getByRole("button", { name: "Send" }).click();
+await page.getByText(`Echo (1 image(s)): ${draftText}`).waitFor();
+await page.locator(".user-message:not(.draft) .bubble", { hasText: draftText }).waitFor();
+if (await draftBubble.count()) throw new Error("a sent draft is still shown as one");
+await draftIcon.waitFor({ state: "detached" });
+// Drafts are for the first prompt only.
+await prompt.fill("one more");
+if (await composerSave.count()) throw new Error("the composer offers a draft in a session with prompts");
+await prompt.fill("");
+await shot("draft-sent");
+
 step("settings and light theme");
 await page.getByRole("button", { name: "Settings", exact: true }).click();
 await page.locator("select").first().selectOption("light");

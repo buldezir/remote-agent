@@ -27,6 +27,13 @@ public final class SessionStore {
         public var images: [ImageRef]
     }
 
+    /// The session's draft (`Session.draft`), unless it is on its way: while
+    /// `sendDraft` sends it, the outbox shows it instead.
+    public var unsentDraft: Draft? {
+        guard let d = (session ?? connection?.sessions[sessionID])?.draft else { return nil }
+        return outbox.values.contains(Outgoing(text: d.text, images: d.images ?? [])) ? nil : d
+    }
+
     var lastSeq: Int64 = 0
     var live = false
     // Views showing the session. On iPad, two windows can show the same one.
@@ -187,6 +194,25 @@ public final class SessionStore {
         do {
             let _: Item = try await c.deliver("session.prompt", P(commandId: commandID, sessionId: sessionID, text: text,
                                                                   images: images.isEmpty ? nil : images.map(\.id)))
+        } catch {
+            outbox[commandID] = nil
+            throw error
+        }
+    }
+
+    /// Sends the session's draft as its prompt. Like `send`, it shows in
+    /// `outbox` until the transcript has it, which comes with the session
+    /// without its draft, and it waits out a dropped connection.
+    public func sendDraft() async throws {
+        guard let c = connection else { throw RPCError.disconnected }
+        guard let d = (session ?? c.sessions[sessionID])?.draft else {
+            throw RPCError(code: "conflict", message: "The session has no draft to send.")
+        }
+        let commandID = UUID().uuidString
+        outbox[commandID] = Outgoing(text: d.text, images: d.images ?? [])
+        struct P: Encodable, Sendable { var commandId: String; var sessionId: String }
+        do {
+            let _: Item = try await c.deliver("session.sendDraft", P(commandId: commandID, sessionId: sessionID))
         } catch {
             outbox[commandID] = nil
             throw error

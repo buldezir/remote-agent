@@ -12,14 +12,15 @@ import {
   Mic,
   OctagonX,
   OctagonAlert,
+  Save,
   Square,
   SquareSlash,
   SquareTerminal,
   Users,
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { commandQuery, commandSuggestions } from "../protocol/commandSuggestions";
-import type { SlashCommand } from "../protocol/models";
+import type { Draft, SlashCommand } from "../protocol/models";
 import { contextFraction, modelName, type BackgroundTask, type HarnessInfo, type Item, type Session, type Turn } from "../protocol/models";
 import { Attachments } from "../store/attachments";
 import { useObserved } from "../store/observable";
@@ -29,7 +30,7 @@ import { useConnection } from "./context";
 import { DiffView } from "./DiffView";
 import { useDictation } from "./dictation";
 import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./images";
-import { ItemView, TurnFooter, UserBubble } from "./items/ItemView";
+import { DraftBubble, ItemView, TurnFooter, UserBubble } from "./items/ItemView";
 import { ErrorAlert, Menu, Spinner, type MenuEntry } from "./primitives";
 import { usePageInFront, useWide } from "./router";
 import { useSettings } from "./settings";
@@ -119,6 +120,30 @@ export function SessionView({
   const rows = useMemo(() => transcriptRows(store.transcript, store.turns), [store.transcript, store.turns, store.getVersion()]);
   const outbox = [...store.outbox.entries()].sort(([a], [b]) => a.localeCompare(b));
   const drop = useImageDrop(session?.archived ? undefined : attachments);
+  const composer = useRef<ComposerHandle>(null);
+
+  // The draft at the foot of the transcript, until it's sent. A session with
+  // nothing in it yet can keep the prompt being written as one.
+  const draft = store.unsentDraft;
+  const draftable =
+    !!connection.info?.drafts &&
+    !!session &&
+    !session.archived &&
+    !session.draft &&
+    store.synced &&
+    store.transcript.length === 0 &&
+    store.outbox.size === 0;
+  const sendDraft = () => {
+    pinned.current = true;
+    scrollToEnd();
+    return run(() => store.sendDraft());
+  };
+  // Taken off the server, then into the composer.
+  const editDraft = (d: Draft) =>
+    run(async () => {
+      await connection.saveDraft(sessionID, "", []);
+      composer.current?.edit(d);
+    });
 
   // ⌘J or ⌘` shows and hides the terminal, and Ctrl does too outside it:
   // in the terminal, Ctrl+J and Ctrl+` are the shell's. Hiding it gives
@@ -249,7 +274,8 @@ export function SessionView({
               {outbox.map(([id, out]) => (
                 <UserBubble key={id} text={out.text} images={out.images} pending />
               ))}
-              {store.synced && store.transcript.length === 0 && outbox.length === 0 && (
+              {draft && <DraftBubble draft={draft} archived={!!session?.archived} onSend={sendDraft} onEdit={() => editDraft(draft)} />}
+              {store.synced && store.transcript.length === 0 && outbox.length === 0 && !session?.draft && (
                 <div className="hint center pad">No prompts yet. Write the first one below.</div>
               )}
               {session?.status === "running" && (
@@ -271,6 +297,8 @@ export function SessionView({
             attachments={attachments}
             commands={harness?.commands ?? []}
             field={composerField}
+            handle={composer}
+            draftable={draftable}
             onSend={() => {
               pinned.current = true;
               scrollToEnd();
@@ -379,12 +407,23 @@ function subtitle(s: Session, harness: HarnessInfo | undefined): string {
   return [modelName(s, harness) ?? harness?.name ?? s.harness, s.modelInfo?.effort ?? s.effort, mode].filter(Boolean).join(" · ");
 }
 
+/** What the session view asks of its composer. */
+interface ComposerHandle {
+  /** Takes in a draft taken back to edit: its text ahead of what is
+   *  written, its images ahead of those attached, and the keyboard. */
+  edit(d: Draft): void;
+}
+
+/** With `draftable`, a session with nothing in it yet, the prompt can be
+ *  saved as the session's draft rather than sent. */
 function Composer({
   commands: builtins,
   store,
   session,
   attachments,
   field,
+  handle,
+  draftable,
   onSend,
   onError,
 }: {
@@ -393,15 +432,26 @@ function Composer({
   session: Session | undefined;
   attachments: Attachments;
   field: React.RefObject<HTMLTextAreaElement | null>;
+  handle: React.Ref<ComposerHandle>;
+  draftable: boolean;
   onSend: () => void;
   onError: (e: string) => void;
 }) {
+  const connection = useConnection();
   // The store keeps the draft for when the session is open again.
   const [draft, setDraftState] = useState(() => store.draft);
   const setDraft = (text: string) => {
     setDraftState(text);
     store.draft = text;
   };
+  useImperativeHandle(handle, () => ({
+    edit(d: Draft) {
+      // As a prompt that couldn't be sent comes back.
+      setDraft([d.text, store.draft].filter((t) => t !== "").join("\n"));
+      attachments.restoreUploaded(d.images ?? []);
+      field.current?.focus();
+    },
+  }));
   const [focused, setFocused] = useState(false);
   const dictation = useDictation();
   const archived = session?.archived === true;
@@ -465,6 +515,42 @@ function Composer({
   const nothingToSend = draft.trim() === "" && attachments.isEmpty;
   const canSend = !nothingToSend && attachments.ready;
   const action = dictation.phase !== "idle" ? "stopDictation" : nothingToSend && dictation.supported ? "dictate" : "send";
+
+  // Kept in the session rather than sent; it then shows in the transcript.
+  const [savingDraft, setSavingDraft] = useState(false);
+  const offersDraft = draftable && !nothingToSend;
+  const saveDraft = () => {
+    if (!offersDraft || !canSend || savingDraft) return;
+    setSavingDraft(true);
+    connection
+      .saveDraft(store.sessionID, draft, attachments.refs)
+      .then(
+        () => {
+          setDraft("");
+          attachments.clear();
+        },
+        (e) => onError(e.message),
+      )
+      .finally(() => setSavingDraft(false));
+  };
+
+  // ⌘S or Ctrl+S saves it, while the button shows, but not from a sheet
+  // over the session. In the terminal, Ctrl+S is the shell's.
+  const saveDraftKey = useRef(saveDraft);
+  saveDraftKey.current = saveDraft;
+  useEffect(() => {
+    if (!offersDraft) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "s" || e.shiftKey || e.altKey) return;
+      if ((e.target as Element | null)?.closest?.("dialog")) return;
+      const inTerminal = !!(e.target as Element | null)?.closest?.(".terminal");
+      if (!e.metaKey && !(e.ctrlKey && !inTerminal)) return;
+      e.preventDefault();
+      saveDraftKey.current();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [offersDraft]);
 
   const send = () => {
     if (!canSend || archived) return;
@@ -565,6 +651,17 @@ function Composer({
               }
             }}
           />
+          {offersDraft && (
+            <button
+              className="round-button c-subtext"
+              onClick={saveDraft}
+              disabled={!canSend || savingDraft}
+              title="Save as Draft (⌘S)"
+              aria-label="Save as Draft"
+            >
+              {savingDraft ? <Spinner size={15} /> : <Save size={18} />}
+            </button>
+          )}
           {store.isRunning && (
             <button className="round-button main c-red" onClick={() => store.interrupt().catch((e) => onError(e.message))} title="Stop (⌘.)" aria-label="Stop">
               <Square size={11} fill="currentColor" />

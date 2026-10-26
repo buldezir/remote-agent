@@ -897,7 +897,8 @@ dialog::backdrop {
   padding: 7px 12px;
   overflow-wrap: anywhere;
 }
-.form-row + .form-row { border-top: 1px solid var(--surface0); }
+.form-row + .form-row,
+.form-row + input[hidden] + .form-row { border-top: 1px solid var(--surface0); }
 .form-row > span:first-child:not(:only-child):not([class]) { flex: 1; }
 button.form-row:hover:not(:disabled) { background: var(--surface0); }
 .form-footer {
@@ -1134,6 +1135,27 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   font-size: 0.75em;
   color: var(--subtext);
 }
+/* A draft: the prompt in outline, not sent yet. */
+.user-message.draft .bubble {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text);
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -1.5px;
+}
+.user-message.draft .remote-image {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: 2px;
+}
+.draft-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 8px;
+  margin-top: 4px;
+}
+.draft-note .bubble-note { gap: 4px; }
+.draft-note .button { padding: 3px 12px; }
 .assistant { min-width: 0; }
 .notice {
   text-align: center;
@@ -1486,11 +1508,18 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   height: 56px;
   flex: none;
 }
-.attachment img {
+.attachment img,
+.attachment-placeholder {
   width: 100%;
   height: 100%;
   object-fit: cover;
   border-radius: var(--r-card);
+}
+.attachment-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface0);
 }
 .attachment-overlay {
   position: absolute;

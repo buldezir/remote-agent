@@ -91,6 +91,7 @@ type Session struct {
 	// Unread: a turn ended, or the agent asked for an answer, since a client
 	// last showed the session (session.markRead).
 	Unread    bool          `json:"unread,omitempty"`
+	Draft     *Draft        `json:"draft,omitempty"` // a prompt saved to send later (session.saveDraft)
 	Context   *ContextUsage `json:"context,omitempty"`
 	ModelInfo *ModelInfo    `json:"modelInfo,omitempty"`
 	// BackgroundTasks lists what the agent left running, while its process runs.
@@ -98,6 +99,13 @@ type Session struct {
 	ItemCount       int64            `json:"-"`
 	CreatedAt       time.Time        `json:"createdAt"`
 	UpdatedAt       time.Time        `json:"updatedAt"`
+}
+
+// Draft is a prompt the user saved in a session to send later: from any
+// device, with session.sendDraft.
+type Draft struct {
+	Text   string     `json:"text"`
+	Images []ImageRef `json:"images,omitempty"`
 }
 
 type TurnStatus string

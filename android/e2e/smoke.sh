@@ -2,8 +2,9 @@
 # Walks the Android app through the fake harness on an emulator, as
 # web/e2e/smoke.mjs does the web client: pairing by deep link, a new worktree
 # session, the fake keywords, images, changes and revert, the terminal, a
-# tablet's sidebar, the dark theme, and the server's settings (updating and
-# signing in the fake agent, naming sessions with it). Saves screenshots to
+# tablet's sidebar, the dark theme, the server's settings (updating and
+# signing in the fake agent, naming sessions with it), and a draft saved,
+# edited, saved again and sent. Saves screenshots to
 # $SCRATCH/shots and removes the server at the end, which unpairs it. Never
 # point it at the developer's rad.
 #
@@ -36,6 +37,7 @@ for k in window_animation_scale transition_animation_scale animator_duration_sca
 restore() {
   for k in window_animation_scale transition_animation_scale animator_duration_scale; do "$A" shell settings put global $k 1; done
   if [ -n "${WIDE:-}" ]; then "$A" shell wm size reset; "$A" shell wm density reset; fi
+  if [ -n "${NIGHT:-}" ]; then "$A" shell cmd uimode night no; fi
 }
 trap restore EXIT
 
@@ -230,6 +232,56 @@ type_text 'hi'
 wait_for 'text=hi' 5 || fail "typing in a session started empty doesn't reach its prompt"
 shot 13-empty-session
 hide_keyboard; tap 'desc=Back'; sleep 1
+
+step "draft"
+# Save as Draft starts a session that keeps the prompt, unsent: nothing runs.
+tap 'id=new-session'
+wait_for 'id=project-picker' 10 || fail "no new session sheet"
+tap 'id=project-picker'; sleep 0.5; tap "text=$PROJECT"; sleep 0.5
+tap 'id=harness-fake'; sleep 0.3
+"$A" shell input swipe 540 1800 540 500 300; sleep 0.5
+fill 'id=new-prompt' 'remember the milk'; hide_keyboard
+shot 14-new-draft
+tap 'id=save-as-draft' || fail "no Save as Draft in the new session sheet"
+wait_for 'id=draft-bubble' 10 || fail "the session didn't open with its draft"
+sleep 2
+! find_view 'contains=Echo' > /dev/null || fail "the draft ran"
+! find_view 'contains=No prompts yet' > /dev/null || fail "an empty session's hint shows with the draft"
+shot 15-draft
+# The server's list shows a pencil where the idle ring would be.
+tap 'desc=Back'; sleep 1
+wait_for 'desc=Draft' 5 || fail "no pencil for the draft in the list"
+shot 16-draft-in-list
+# Edit takes the draft back into the composer, which saves it again.
+tap 'text=remember the milk' || fail "no draft session in the list"
+wait_for 'id=edit-draft' 10 || fail "no Edit under the draft"
+tap 'id=edit-draft'
+wait_for 'id=save-draft' 10 || fail "Edit didn't put the draft in the composer"
+! find_view 'id=draft-bubble' > /dev/null || fail "the draft stayed in the transcript after Edit"
+type_text ' and eggs'
+shot 17-draft-in-composer
+tap 'id=save-draft'
+wait_for 'id=draft-bubble' 10 || fail "Save as Draft in the composer didn't keep the draft"
+! find_view 'id=save-draft' > /dev/null || fail "the composer kept the saved draft"
+hide_keyboard
+shot 18-draft-saved
+# The same in the system's dark theme.
+NIGHT=1; "$A" shell cmd uimode night yes; sleep 2
+shot 19-draft-dark
+tap 'desc=Back'; sleep 1
+wait_for 'desc=Draft' 5 || fail "no pencil for the draft in the dark list"
+shot 20-draft-in-list-dark
+"$A" shell cmd uimode night no; NIGHT=; sleep 2
+# Send runs it, and the draft becomes the session's first prompt.
+tap 'text=remember the milk and eggs' || fail "the draft didn't name the session"
+wait_for 'id=send-draft' 10 || fail "no Send under the draft"
+tap 'id=send-draft'
+wait_for 'contains=Echo: remember the milk and eggs' 15 || fail "the draft didn't run once sent"
+! find_view 'id=draft-bubble' > /dev/null || fail "the draft stayed after it was sent"
+find_view 'id=user-bubble' > /dev/null || fail "the sent draft isn't a prompt in the transcript"
+shot 21-draft-sent
+hide_keyboard; tap 'desc=Back'; sleep 1
+! find_view 'desc=Draft' > /dev/null || fail "the list still shows the sent draft's pencil"
 
 step "remove the server"
 tap 'desc=More'; sleep 0.5; tap 'text=Remove server'; sleep 0.5; tap 'text=Remove'; sleep 2

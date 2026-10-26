@@ -7,8 +7,12 @@ import dev.remoteagent.core.FakeRad.Companion.upserted
 import dev.remoteagent.core.net.PING_INTERVAL
 import dev.remoteagent.core.net.RpcError
 import dev.remoteagent.core.net.params
+import dev.remoteagent.core.protocol.ImageRef
+import dev.remoteagent.core.protocol.WireCoding
+import dev.remoteagent.core.protocol.Workspace
 import dev.remoteagent.core.store.ConnectionState
 import dev.remoteagent.core.store.ImageCache
+import dev.remoteagent.core.store.NewSession
 import dev.remoteagent.core.store.SavedServer
 import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.activeSessions
@@ -22,8 +26,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
@@ -38,6 +46,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -240,6 +249,87 @@ class ServerConnectionTests {
         assertEquals("disconnected", e.code)
         assertIs<ConnectionState.Failed>(c.state.value)
         assertTrue(store.outbox.value.isEmpty())
+        withContext(dispatcher) { c.stop() }
+    }
+
+    @Test
+    fun draftSentOnADeadSocketIsDeliveredAfterReconnecting() = runBlocking {
+        server.upgrade(rad)
+        server.upgrade(next)
+        val c = connect(base = relay.value.base, pingInterval = 100.milliseconds)
+        withTimeout(5.seconds) { c.state.first { it == ConnectionState.Connected } }
+        val store = withContext(dispatcher) {
+            c.sessionStore("s1").also { it.setSession(WireCoding.json.decodeFromJsonElement(session("s1", draft = "later"))) }
+        }
+
+        relay.value.quiet()
+        withContext(dispatcher) { store.sendDraft() }
+
+        // Sent again on the new socket, with the same commandId.
+        assertEquals(2, relay.value.connectionCount)
+        assertEquals(commandId(rad.nextCall("session.sendDraft")), commandId(next.nextCall("session.sendDraft")))
+        assertEquals(listOf("later"), store.outbox.value.values.map { it.text })
+        withContext(dispatcher) { c.stop() }
+    }
+
+    /** rad's answers for an index of one session, s1, that takes drafts. */
+    private fun answerDrafts(r: FakeRad, method: String, params: JsonObject) = when (method) {
+        "server.info" -> FakeRad.serverInfo
+        "subscribe" -> {
+            r.notify("events", events("index", 1L to upserted("project", project("p1")), 2L to upserted("session", session("s1"))))
+            r.notify("synchronized", synchronized(2, reset = true))
+            subscribed(2)
+        }
+        "session.create" -> session("s2", draft = params["draft"]?.let { params.getValue("prompt").jsonPrimitive.content })
+        "session.saveDraft" -> session("s1", updatedAt = "2026-10-09T13:00:00Z", draft = params.getValue("text").jsonPrimitive.content.ifEmpty { null })
+        else -> JsonObject(emptyMap())
+    }
+
+    @Test
+    fun savedDraftChangesTheSessionAtOnce() = runBlocking {
+        rad.answer = ::answerDrafts
+        server.upgrade(rad)
+        val c = connect()
+        withTimeout(5.seconds) { c.indexSynced.first { it } }
+        val store = withContext(dispatcher) { c.sessionStore("s1") }
+        val ref = ImageRef("a1b2.png", "image/png", size = 100)
+
+        val s = withContext(dispatcher) { c.saveDraft("s1", "then the changelog", listOf(ref)) }
+        assertEquals(
+            params("sessionId" to "s1", "text" to "then the changelog", "images" to JsonArray(listOf(JsonPrimitive("a1b2.png")))),
+            rad.nextCall("session.saveDraft")["params"],
+        )
+        assertEquals("then the changelog", s.draft?.text)
+        // In the lists and the open session, without waiting for the event.
+        assertEquals("then the changelog", c.sessions.value.getValue("s1").draft?.text)
+        assertEquals("then the changelog", store.session.value?.draft?.text)
+
+        // Nothing removes it.
+        withContext(dispatcher) { c.saveDraft("s1", "", emptyList()) }
+        assertEquals(params("sessionId" to "s1", "text" to ""), rad.nextCall("session.saveDraft")["params"])
+        assertNull(c.sessions.value.getValue("s1").draft)
+        assertNull(store.session.value?.draft)
+        withContext(dispatcher) { c.stop() }
+    }
+
+    @Test
+    fun newSessionAsksForADraftOnlyWhenSaving() = runBlocking {
+        rad.answer = ::answerDrafts
+        server.upgrade(rad)
+        val c = connect()
+        withTimeout(5.seconds) { c.indexSynced.first { it } }
+        fun new(prompt: String, draft: Boolean?) = NewSession(
+            projectId = "p1", harness = "fake", workspace = NewSession.WorkspaceParams(Workspace.Kind.ROOT), prompt = prompt, draft = draft,
+        )
+
+        val s = withContext(dispatcher) { c.createSession(new("later", draft = true)) }
+        assertEquals(true, (rad.nextCall("session.create")["params"] as JsonObject).getValue("draft").jsonPrimitive.boolean)
+        assertEquals("later", s.draft?.text)
+        assertEquals("later", c.sessions.value.getValue("s2").draft?.text)
+
+        // An older rad would start the session with it, so it's left out.
+        withContext(dispatcher) { c.createSession(new("now", draft = null)) }
+        assertFalse("draft" in (rad.nextCall("session.create")["params"] as JsonObject))
         withContext(dispatcher) { c.stop() }
     }
 

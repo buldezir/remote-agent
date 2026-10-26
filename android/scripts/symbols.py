@@ -29,7 +29,7 @@ SYMBOLS = {
     "theater_comedy": False, "undo": False, "unfold_more": False, "arrow_selector_tool": False,
     "warning": True, "wifi_off": False, "wrap_text": False, "dangerous": False, "link": False,
     "keyboard_hide": False, "functions": False, "play_circle": False, "inbox": False,
-    "dns": False, "login": False, "open_in_new": False,
+    "dns": False, "login": False, "open_in_new": False, "save": False,
 }
 
 URL = "https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsrounded/{name}/{style}/24px.svg"

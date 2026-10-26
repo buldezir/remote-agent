@@ -76,8 +76,10 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -94,6 +96,7 @@ import dev.remoteagent.core.protocol.SlashCommand
 import dev.remoteagent.core.protocol.Turn
 import dev.remoteagent.core.protocol.TurnStatus
 import dev.remoteagent.core.protocol.Workspace
+import dev.remoteagent.core.store.Outgoing
 import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.SessionStore
 import kotlinx.coroutines.CancellationException
@@ -164,6 +167,7 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, foc
 
     var draft by rememberDraft(store)
     var focused by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
     val connectionState by connection.state.collectAsStateWithLifecycle()
     var commands by remember(store) { mutableStateOf<List<SlashCommand>>(emptyList()) }
     var loadingCommands by remember(store) { mutableStateOf(false) }
@@ -209,7 +213,15 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, foc
         snapshotFlow { listState.isScrollInProgress to (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0) }
             .collect { (scrolling, atFoot) -> if (scrolling) follow = atFoot }
     }
-    LaunchedEffect(transcript.size, outbox.size, session?.status, session?.backgroundTasks?.size) {
+    // The session's draft, unless it is on its way: then the outbox shows it.
+    val savedDraft = session?.draft?.takeIf { d -> Outgoing(d.text, d.images) !in outbox.values }
+    // Drafts are for the first prompt: a server that keeps them, a session with nothing yet.
+    val offersDraft = info?.drafts == true && synced && transcript.isEmpty() && outbox.isEmpty() && session != null &&
+        session.draft == null && !archived
+    // A draft is being saved, sent or taken back into the composer.
+    var draftBusy by remember(store) { mutableStateOf(false) }
+
+    LaunchedEffect(transcript.size, outbox.size, session?.status, session?.backgroundTasks?.size, savedDraft != null) {
         if (follow) listState.scrollToItem(0)
     }
 
@@ -277,6 +289,67 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, foc
                 draft = listOf(text, store.draft).filter { it.isNotEmpty() }.joinToString("\n")
                 attachments.restore(sent)
                 error = e.message ?: "The request failed"
+            }
+        }
+    }
+
+    // The composer's prompt becomes the session's draft, kept on the server
+    // for any device to send. It leaves the composer once it is saved.
+    val canSaveDraft = offersDraft && !draftBusy && (draft.isNotBlank() || !attachments.isEmpty) && attachments.ready
+    fun saveDraft() {
+        if (!canSaveDraft) return
+        val text = draft
+        val sent = attachments.entries.toList()
+        draftBusy = true
+        connection.scope.launch {
+            try {
+                connection.saveDraft(store.sessionID, text, sent.mapNotNull { it.ref })
+                draft = ""
+                attachments.clear()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.message ?: "The request failed"
+            } finally {
+                draftBusy = false
+            }
+        }
+    }
+
+    fun sendDraft() {
+        toBottom()
+        draftBusy = true
+        connection.scope.launch {
+            try {
+                store.sendDraft()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.message ?: "The request failed"
+            } finally {
+                draftBusy = false
+            }
+        }
+    }
+
+    // Takes the draft off the server and into the composer, ahead of what it
+    // has, to change it there.
+    fun editDraft() {
+        val saved = session?.draft ?: return
+        draftBusy = true
+        connection.scope.launch {
+            try {
+                connection.saveDraft(store.sessionID, "", emptyList())
+                draft = listOf(saved.text, store.draft).filter { it.isNotEmpty() }.joinToString("\n")
+                attachments.insert(saved.images)
+                // Not while the terminal covers the composer.
+                runCatching { focusRequester.requestFocus() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.message ?: "The request failed"
+            } finally {
+                draftBusy = false
             }
         }
     }
@@ -360,7 +433,12 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, foc
                             }
                         }
                     }
-                    if (synced && transcript.isEmpty() && outbox.isEmpty()) {
+                    savedDraft?.let { d ->
+                        item(key = "draft") {
+                            DraftBubble(d, enabled = !draftBusy && !archived, onEdit = ::editDraft, onSend = ::sendDraft)
+                        }
+                    }
+                    if (synced && transcript.isEmpty() && outbox.isEmpty() && session?.draft == null) {
                         item(key = "empty") {
                             Text(
                                 "No prompts yet. Write the first one below.", style = Type.footnote, color = palette.subtext,
@@ -404,7 +482,8 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, foc
                         Dictation.Phase.STARTING, Dictation.Phase.LISTENING -> "Listening…"
                         else -> if (running) "Queue a follow-up…" else "Prompt"
                     },
-                    running = running, enabled = !archived, canSend = canSend, focusPrompt = focusPrompt,
+                    running = running, enabled = !archived, canSend = canSend, focusPrompt = focusPrompt, focusRequester = focusRequester,
+                    onSaveDraft = if (offersDraft) ::saveDraft else null, canSaveDraft = canSaveDraft,
                     // The keyboard has its own dictation key.
                     onFocus = { focused = it; if (it) dictation.stop() }, onSend = ::send, onStop = { run { store.interrupt() } },
                 )
@@ -561,15 +640,19 @@ private fun Composer(
     enabled: Boolean,
     canSend: Boolean,
     focusPrompt: Boolean,
+    focusRequester: FocusRequester,
+    // Null: the session can't take a draft (offersDraft).
+    onSaveDraft: (() -> Unit)?,
+    canSaveDraft: Boolean,
     onFocus: (Boolean) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
 ) {
     var focusedNow by remember { mutableStateOf(false) }
+    var field by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
     var commandIndex by remember(draft) { mutableStateOf(0) }
     var commandsDismissed by remember(draft) { mutableStateOf(false) }
     val suggestions = if (focusedNow && enabled && !commandsDismissed) commandSuggestions(draft, commands) else emptyList()
-    val focusRequester = remember { FocusRequester() }
     val suggestionList = rememberLazyListState()
     LaunchedEffect(draft, suggestions, commandIndex) {
         if (suggestions.isNotEmpty()) suggestionList.scrollToItem(commandIndex.coerceAtMost(suggestions.lastIndex))
@@ -615,9 +698,15 @@ private fun Composer(
         ) {
             AttachMenu(attachments, enabled = enabled)
             val style = messageStyle().copy(color = palette.text)
+            // Text that comes from elsewhere (a draft to edit, dictation, a
+            // completed command) puts the cursor at its end.
+            val value = if (field.text == draft) field else TextFieldValue(draft, TextRange(draft.length))
             BasicTextField(
-                value = draft,
-                onValueChange = onDraft,
+                value = value,
+                onValueChange = {
+                    field = it
+                    if (it.text != draft) onDraft(it.text)
+                },
                 enabled = enabled,
                 textStyle = style,
                 maxLines = 6,
@@ -664,6 +753,14 @@ private fun Composer(
             // The mic is the main button until the keyboard is up or there is
             // text to send; while listening, it stops.
             val nothingToSend = draft.isBlank() && attachments.isEmpty
+            if (onSaveDraft != null && !nothingToSend) {
+                IconButton(onSaveDraft, Modifier.size(40.dp).testTag("save-draft"), enabled = canSaveDraft) {
+                    Icon(
+                        painterResource(Icons.saveDraft), "Save as Draft", Modifier.size(Metrics.roundButton * 0.85f),
+                        tint = if (canSaveDraft) palette.accent else palette.overlay,
+                    )
+                }
+            }
             when {
                 dictation != Dictation.Phase.IDLE -> IconButton(onStopDictation, Modifier.size(40.dp).testTag("dictate"), enabled = dictation != Dictation.Phase.FINISHING) {
                     RoundIcon(Icons.dictating, palette.red, "Stop dictation")

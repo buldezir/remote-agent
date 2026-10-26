@@ -37,6 +37,10 @@ struct NewSessionView: View {
 
     private var project: Project? { connection.projects[projectID] }
     private var harness: HarnessInfo? { connection.harness(harnessID) }
+    private var canStart: Bool { project != nil && harness != nil && attachments.ready }
+    private var hasPrompt: Bool { !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty }
+    /// The server keeps drafts; an older one would start the session.
+    private var offersDrafts: Bool { connection.info?.drafts == true }
 
     var body: some View {
         NavigationStack {
@@ -165,10 +169,21 @@ struct NewSessionView: View {
                             AttachmentStrip(attachments: attachments, connection: connection)
                         }
                         AttachMenu(attachments: attachments, connection: connection, title: "Add Images")
+                        if offersDrafts {
+                            Button {
+                                Task { await create(draft: true) }
+                            } label: {
+                                Label("Save as Draft", systemImage: "square.and.arrow.down")
+                            }
+                            .disabled(!canStart || !hasPrompt || creating)
+                        }
                     } header: {
                         Text("Prompt").formHeaderFont()
                     } footer: {
-                        Text("Optional. Without one, the session starts empty and you write the first prompt in it.").formFooterFont()
+                        Text(offersDrafts
+                             ? "Optional. Without one, the session starts empty and you write the first prompt in it. Save as Draft keeps the prompt in the session, unsent, to send later from any device."
+                             : "Optional. Without one, the session starts empty and you write the first prompt in it.")
+                            .formFooterFont()
                     }
 
                     if let error {
@@ -194,7 +209,7 @@ struct NewSessionView: View {
                         ProgressView()
                     } else {
                         Button("Start") { Task { await create() } }
-                            .disabled(project == nil || harness == nil || !attachments.ready)
+                            .disabled(!canStart)
                     }
                 }
             }
@@ -297,7 +312,8 @@ struct NewSessionView: View {
         }
     }
 
-    private func create() async {
+    /// Starts the session, or with `draft`, keeps the prompt in it unsent.
+    private func create(draft: Bool = false) async {
         guard let project, let harness else { return }
         creating = true
         error = nil
@@ -310,15 +326,16 @@ struct NewSessionView: View {
             let s = try await connection.createSession(.init(
                 projectId: project.id, harness: harness.id,
                 model: chosenModel, effort: effort.isEmpty ? nil : effort,
-                mode: mode.isEmpty ? nil : mode, workspace: ws, prompt: prompt, images: attachments.refs))
+                mode: mode.isEmpty ? nil : mode, workspace: ws, prompt: prompt, images: attachments.refs, draft: draft))
             lastHarness = harness.id
             lastProject = project.id
             UserDefaults.standard.set(chosenModel ?? "", forKey: "lastModel." + harness.id)
             UserDefaults.standard.set(effort, forKey: "lastEffort." + harness.id)
             UserDefaults.standard.set(mode, forKey: "lastMode." + harness.id)
             dismiss()
-            // As rad decides whether to start a turn.
-            onCreated(s, prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.refs.isEmpty)
+            // As rad decides whether to start a turn. A draft isn't empty:
+            // the prompt is there, waiting.
+            onCreated(s, !draft && prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && attachments.refs.isEmpty)
         } catch {
             self.error = error.localizedDescription
         }

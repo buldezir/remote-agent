@@ -68,7 +68,9 @@ export type AttachmentState = { kind: "uploading" } | { kind: "uploaded"; ref: I
 
 export interface Attachment {
   id: string;
-  thumbnail: string;
+  /** The image as prepared here. Absent for one that was on the server
+   *  already, such as a draft's: it shows the server's copy. */
+  thumbnail?: string;
   state: AttachmentState;
 }
 
@@ -108,6 +110,13 @@ export class Attachments extends Observable {
   restore(sent: Attachment[]) {
     this.entries = [...sent, ...this.entries];
     this.changed();
+  }
+
+  /** Puts back images that are on the server already, such as those of a
+   *  draft taken back to edit, ahead of any added since. */
+  restoreUploaded(refs: ImageRef[]) {
+    if (!refs.length) return;
+    this.restore(refs.map((ref) => ({ id: crypto.randomUUID(), state: { kind: "uploaded", ref } })));
   }
 
   remove(id: string) {

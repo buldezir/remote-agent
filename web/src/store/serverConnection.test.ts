@@ -333,6 +333,78 @@ describe("ServerConnection", () => {
     }
   });
 
+  it("creates a session as a draft and saves its draft", async () => {
+    const server = new TestServer();
+    const at = "2026-10-09T12:00:00Z";
+    const session = { id: "s1", projectId: "p1", harness: "fake", workspace: { kind: "root", path: "/p" }, status: "idle", title: "New session", archived: false, createdAt: at, updatedAt: at };
+    const refs = (ids?: string[]) => ids?.map((id) => ({ id, mimeType: "image/png", size: 1 }));
+    server.handlers["session.create"] = (p) => ({ ...session, title: p.prompt, draft: p.draft ? { text: p.prompt, images: refs(p.images) } : undefined });
+    server.handlers["session.saveDraft"] = (p) => ({ ...session, draft: p.text || p.images ? { text: p.text, images: refs(p.images) } : undefined });
+    const c = await connect(server);
+    try {
+      // Only a draft says so: an older server would send the prompt either way.
+      const workspace = { kind: "root" as const };
+      await c.createSession({ projectId: "p1", harness: "fake", workspace, prompt: "now" });
+      await c.createSession({ projectId: "p1", harness: "fake", workspace, prompt: "now", draft: false });
+      await c.createSession({ projectId: "p1", harness: "fake", workspace, prompt: "later", draft: true });
+      expect(server.calls.filter((m) => m.method === "session.create").map((m) => m.params.draft)).toEqual([undefined, undefined, true]);
+      expect(c.sessions.get("s1")?.draft).toEqual({ text: "later" });
+
+      // The session changes at once, in the index and in its store, before
+      // its events come.
+      const store = c.sessionStore("s1");
+      let changes = 0;
+      store.watch(() => changes++);
+      const image = { id: "img.png", mimeType: "image/png", size: 1 };
+      expect((await c.saveDraft("s1", "again", [image])).draft).toEqual({ text: "again", images: [image] });
+      expect(c.sessions.get("s1")?.draft?.text).toBe("again");
+      expect(store.session?.draft?.text).toBe("again");
+      expect(changes).toBe(1);
+
+      // No text and no images remove it.
+      await c.saveDraft("s1", "", []);
+      expect(c.sessions.get("s1")?.draft).toBeUndefined();
+      expect(store.unsentDraft).toBeUndefined();
+      expect(server.calls.filter((m) => m.method === "session.saveDraft").map((m) => m.params)).toEqual([
+        { sessionId: "s1", text: "again", images: ["img.png"] },
+        { sessionId: "s1", text: "" },
+      ]);
+    } finally {
+      c.stop();
+      await server.stop();
+    }
+  });
+
+  it("delivers a draft saved or sent on a dead socket after reconnecting", async () => {
+    const server = new TestServer();
+    const at = "2026-10-09T12:00:00Z";
+    const session = { id: "s1", projectId: "p1", harness: "fake", workspace: { kind: "root", path: "/p" }, status: "idle", title: "t", archived: false, createdAt: at, updatedAt: at };
+    server.handlers["session.saveDraft"] = (p) => ({ ...session, draft: { text: p.text } });
+    server.handlers["session.sendDraft"] = (p) => ({ id: "u1", sessionId: p.sessionId, order: 1, kind: "user_message", status: "queued", createdAt: at, updatedAt: at });
+    const c = await connect(server);
+    try {
+      const store = c.sessionStore("s1");
+      server.quiet();
+      await c.saveDraft("s1", "later");
+      const saves = server.calls.filter((m) => m.method === "session.saveDraft");
+      expect(saves.map((m) => m.connection)).toEqual([0, 1]);
+      expect(store.session?.draft?.text).toBe("later");
+
+      server.quiet();
+      await store.sendDraft();
+      // Sent again on the new socket, with the same commandId.
+      const sends = server.calls.filter((m) => m.method === "session.sendDraft");
+      expect(sends.map((m) => m.connection)).toEqual([1, 2]);
+      expect(new Set(sends.map((m) => m.commandId)).size).toBe(1);
+      // Shown as a prompt on its way until the transcript has it.
+      expect([...store.outbox.values()].map((o) => o.text)).toEqual(["later"]);
+      expect(store.unsentDraft).toBeUndefined();
+    } finally {
+      c.stop();
+      await server.stop();
+    }
+  });
+
   it("fails a prompt once the connection gives up", async () => {
     const server = new TestServer();
     const c = await connect(server);

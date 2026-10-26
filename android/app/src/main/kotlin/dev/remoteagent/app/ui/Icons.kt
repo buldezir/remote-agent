@@ -39,6 +39,7 @@ object Icons {
     @DrawableRes val save = R.drawable.sym_download // square.and.arrow.down
     @DrawableRes val update = R.drawable.sym_download // arrow.down.circle
     @DrawableRes val toolEdit = R.drawable.sym_edit // pencil
+    @DrawableRes val draft = R.drawable.sym_edit // pencil
     @DrawableRes val newSession = R.drawable.sym_edit_square // square.and.pencil
     @DrawableRes val expand = R.drawable.sym_expand_more // chevron.down
     @DrawableRes val folder = R.drawable.sym_folder // folder
@@ -68,6 +69,7 @@ object Icons {
     @DrawableRes val radioOn = R.drawable.sym_radio_button_checked // largecircle.fill.circle
     @DrawableRes val radioOff = R.drawable.sym_radio_button_unchecked // circle
     @DrawableRes val reconnect = R.drawable.sym_refresh // arrow.clockwise
+    @DrawableRes val saveDraft = R.drawable.sym_save // square.and.arrow.down
     @DrawableRes val expired = R.drawable.sym_schedule // clock
     @DrawableRes val background = R.drawable.sym_schedule // clock
     @DrawableRes val toolSearch = R.drawable.sym_search // magnifyingglass

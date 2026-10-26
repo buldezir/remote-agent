@@ -42,6 +42,9 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
     /// A turn ended, or the agent asked for an answer, since a device last
     /// showed the session (`ServerConnection.markRead`). Absent: read.
     public var unread: Bool?
+    /// A prompt saved to send later, from any device (`ServerConnection.saveDraft`,
+    /// `SessionStore.sendDraft`). Absent: none.
+    public var draft: Draft?
     public var context: ContextUsage?
     public var modelInfo: ModelInfo?
     public var backgroundTasks: [BackgroundTask]?
@@ -51,6 +54,7 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
 
 extension Session {
     public var isUnread: Bool { unread == true }
+    public var hasDraft: Bool { draft != nil }
 
     /// The model to show: the one the agent reported, else the requested one.
     /// Ids are named from the harness's model list when the agent gave no name.
@@ -58,6 +62,18 @@ extension Session {
         if let name = modelInfo?.name, !name.isEmpty { return name }
         guard let id = modelInfo?.id ?? model, !id.isEmpty else { return nil }
         return harness?.models?.first(where: { $0.id == id })?.name ?? id
+    }
+}
+
+/// A prompt kept in a session, unsent, for any device to send later. The
+/// transcript shows it at its foot.
+public struct Draft: Codable, Hashable, Sendable {
+    public var text: String
+    public var images: [ImageRef]?
+
+    public init(text: String, images: [ImageRef]? = nil) {
+        self.text = text
+        self.images = images
     }
 }
 
@@ -421,6 +437,9 @@ public struct ServerInfo: Codable, Hashable, Sendable {
     public var deviceId: String?
     /// The server runs shells for sessions (`GET /v1/terminal`).
     public var terminal: Bool?
+    /// The server keeps drafts (`Session.draft`). An older one would start a
+    /// session created as a draft with its prompt.
+    public var drafts: Bool?
 }
 
 /// A text frame on a terminal socket. The shell's output and the user's
