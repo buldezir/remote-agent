@@ -73,10 +73,13 @@ type conn struct {
 
 	mu   sync.Mutex
 	subs map[string]*events.Sub
+	// subscribe and unsubscribe, handled one at a time in the order they came
+	streamReqs chan request
 }
 
 func newConn(s *Server, ws *websocket.Conn, d store.Device) *conn {
-	return &conn{s: s, ws: ws, device: d, out: make(chan []byte, 256), subs: map[string]*events.Sub{}}
+	return &conn{s: s, ws: ws, device: d, out: make(chan []byte, 256), subs: map[string]*events.Sub{},
+		streamReqs: make(chan request, 64)}
 }
 
 func (c *conn) run(parent context.Context) {
@@ -84,6 +87,7 @@ func (c *conn) run(parent context.Context) {
 	defer c.cancel()
 	go c.writer()
 	go c.s.keepalive(c.ctx, c.ws, c.device.ID, c.cancel)
+	go c.handleStreamRequests()
 	defer c.unsubscribeAll()
 	for {
 		_, data, err := c.ws.Read(c.ctx)
@@ -95,7 +99,28 @@ func (c *conn) run(parent context.Context) {
 			c.reply(req.ID, nil, &rpcError{Code: "invalid", Message: "malformed request"})
 			continue
 		}
+		if req.Method == "subscribe" || req.Method == "unsubscribe" {
+			// A view that takes another's place unsubscribes and subscribes
+			// at once: swapped, the stream would end unsubscribed.
+			select {
+			case c.streamReqs <- req:
+			case <-c.ctx.Done():
+				return
+			}
+			continue
+		}
 		go c.handle(req)
+	}
+}
+
+func (c *conn) handleStreamRequests() {
+	for {
+		select {
+		case req := <-c.streamReqs:
+			c.handle(req)
+		case <-c.ctx.Done():
+			return
+		}
 	}
 }
 

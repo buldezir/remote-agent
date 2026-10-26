@@ -659,6 +659,46 @@ func TestSessionOverWebSocket(t *testing.T) {
 	}
 }
 
+// A view that takes another's place unsubscribes and subscribes again at
+// once, without waiting for the answers: rad must apply the two in order, or
+// the session stops updating.
+func TestResubscribeInOrder(t *testing.T) {
+	s := startServer(t)
+	c := connect(t, s)
+	dir := filepath.Join(s.root, "proj")
+	os.Mkdir(dir, 0o755)
+	var proj model.Project
+	c.mustCall("project.add", map[string]any{"path": dir}, &proj)
+	var sess model.Session
+	c.mustCall("session.create", map[string]any{"commandId": "c1", "projectId": proj.ID, "harness": "fake", "workspace": map[string]any{"kind": "root"}}, &sess)
+	stream := model.SessionStream(sess.ID)
+	c.subscribe(stream, 0)
+
+	for i := range 30 {
+		for _, method := range []string{"unsubscribe", "subscribe"} {
+			c.nextID++
+			data, _ := json.Marshal(map[string]any{"id": c.nextID, "method": method, "params": map[string]any{"stream": stream}})
+			if err := c.ws.Write(context.Background(), websocket.MessageText, data); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for answered := 0; answered < 2; {
+			if f := c.read(); f.Method == "" {
+				answered++
+			}
+		}
+		c.mustCall("session.saveDraft", map[string]any{"sessionId": sess.ID, "text": fmt.Sprint("draft ", i)}, nil)
+		for heard := false; !heard; {
+			f := c.note()
+			var p eventsParams
+			json.Unmarshal(f.Params, &p)
+			for _, ev := range p.Events {
+				heard = heard || p.Stream == stream && ev.Session != nil && ev.Session.Draft != nil && ev.Session.Draft.Text == fmt.Sprint("draft ", i)
+			}
+		}
+	}
+}
+
 func contains(xs []string, s string) bool {
 	for _, x := range xs {
 		if x == s {
