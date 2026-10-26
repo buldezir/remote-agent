@@ -215,9 +215,9 @@ private struct PasteCatcher: NSViewRepresentable {
 // MARK: Showing
 
 /// An item's images as thumbnails that wrap onto more lines; a tap opens one
-/// in Quick Look, which zooms and shares it: full screen on iOS, and in a
-/// window that resizes on the Mac. The item's other images are a swipe or an
-/// arrow key away.
+/// in Quick Look, which zooms and shares it: full screen on iOS, where a
+/// swipe down closes it, and in a window that resizes on the Mac. The item's
+/// other images are a swipe or an arrow key away.
 struct ImageGallery: View {
     let images: [ImageRef]
     let store: SessionStore
@@ -236,6 +236,9 @@ struct ImageGallery: View {
                     Task { await open(ref) }
                 } label: {
                     RemoteImage(ref: ref, store: store, height: height)
+                        #if os(iOS)
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { preview?.thumbnails[ref.id] = $0 }
+                        #endif
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Image")
@@ -251,14 +254,16 @@ struct ImageGallery: View {
         opening = true
         defer { opening = false }
         var files: [URL] = []
+        var ids: [String] = []
         var target: URL?
         for image in browsing ?? images {
             guard let url = try? await store.imageFile(image.id) else { continue }
             files.append(url)
+            ids.append(image.id)
             if image.id == ref.id { target = url }
         }
         guard let target else { return }
-        preview?.show(target, among: files)
+        preview?.show(target, among: files, ids: ids)
     }
 }
 
@@ -267,14 +272,72 @@ struct ImageGallery: View {
 /// preview to close.
 @MainActor @Observable
 final class ImagePreview {
+    #if os(macOS)
     var files: [URL] = []
     var shown: URL?
+    #else
+    /// Where each image's thumbnail is in the window, by id, for Quick Look to
+    /// zoom from and back to. Not observed: it changes as the transcript scrolls.
+    @ObservationIgnored var thumbnails: [String: CGRect] = [:]
+    @ObservationIgnored private let presenter = QuickLookPresenter()
+    #endif
 
-    func show(_ url: URL, among files: [URL]) {
+    /// Shows `url` among `files`, the images with those `ids`.
+    func show(_ url: URL, among files: [URL], ids: [String]) {
+        #if os(macOS)
         self.files = files
         shown = url
+        #else
+        var sources: [URL: CGRect] = [:]
+        for (file, id) in zip(files, ids) { sources[file] = thumbnails[id] }
+        presenter.show(url, among: files, from: sources)
+        #endif
     }
 }
+
+#if os(iOS)
+/// Presents Quick Look from UIKit, zooming from the image's thumbnail and back
+/// to it. The zoom also lets a swipe down close it; SwiftUI's
+/// `quickLookPreview` has neither.
+@MainActor
+private final class QuickLookPresenter: NSObject, @MainActor QLPreviewControllerDataSource, @MainActor QLPreviewControllerDelegate {
+    private var files: [URL] = []
+    private var sources: [URL: CGRect] = [:]
+    private weak var window: UIWindow?
+
+    func show(_ url: URL, among files: [URL], from sources: [URL: CGRect]) {
+        guard let window = UIApplication.shared.connectedScenes.lazy.compactMap({ ($0 as? UIWindowScene)?.keyWindow }).first,
+              var top = window.rootViewController else { return }
+        // Over a sheet, when one is open.
+        while let presented = top.presentedViewController { top = presented }
+        self.files = files
+        self.sources = sources
+        self.window = window
+        let controller = QLPreviewController()
+        controller.dataSource = self
+        controller.delegate = self
+        controller.currentPreviewItemIndex = files.firstIndex(of: url) ?? 0
+        top.present(controller, animated: true)
+    }
+
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int { files.count }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem { files[index] as NSURL }
+
+    /// The thumbnail, while it's on screen. Without one Quick Look fades.
+    func previewController(_ controller: QLPreviewController, frameFor item: any QLPreviewItem,
+                           inSourceView view: AutoreleasingUnsafeMutablePointer<UIView?>) -> CGRect {
+        guard let window, let url = item.previewItemURL, let frame = sources[url], window.bounds.intersects(frame) else { return .zero }
+        view.pointee = window
+        return frame
+    }
+
+    func previewController(_ controller: QLPreviewController, transitionImageFor item: any QLPreviewItem,
+                           contentRect: UnsafeMutablePointer<CGRect>) -> UIImage? {
+        item.previewItemURL.flatMap { UIImage(contentsOfFile: $0.path) }
+    }
+}
+#endif
 
 extension EnvironmentValues {
     @Entry var imagePreview: ImagePreview? = nil
@@ -282,7 +345,8 @@ extension EnvironmentValues {
 
 extension View {
     /// Shows the images that the galleries inside open, in one Quick Look
-    /// preview. On the Mac, Esc or a click in the window closes it.
+    /// preview. On the Mac, Esc or a click in the window closes it; on iOS, a
+    /// swipe down.
     func imagePreviews() -> some View { modifier(ImagePreviewHost()) }
 }
 
@@ -290,11 +354,10 @@ private struct ImagePreviewHost: ViewModifier {
     @State private var preview = ImagePreview()
 
     func body(content: Content) -> some View {
-        @Bindable var preview = preview
         content
             .environment(\.imagePreview, preview)
-            .quickLookPreview($preview.shown, in: preview.files)
             #if os(macOS)
+            .quickLookPreview(Bindable(preview).shown, in: preview.files)
             .background { PreviewCloser(preview: preview) }
             #endif
     }

@@ -99,6 +99,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.telephoto.zoomable)
+    implementation(libs.telephoto.flick)
     implementation(libs.markdown.m3)
     implementation(libs.termlib)
     implementation(libs.play.services.code.scanner)

@@ -40,12 +40,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -65,8 +69,14 @@ import dev.remoteagent.core.store.ConnectionState
 import dev.remoteagent.core.store.ServerConnection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.saket.telephoto.ExperimentalTelephotoApi
+import me.saket.telephoto.flick.FlickToDismiss
+import me.saket.telephoto.flick.FlickToDismissState
+import me.saket.telephoto.flick.rememberFlickToDismissState
 import me.saket.telephoto.zoomable.ZoomableContentLocation
 import me.saket.telephoto.zoomable.rememberZoomableState
 import me.saket.telephoto.zoomable.zoomable
@@ -230,18 +240,38 @@ fun ReplyImage(ref: ImageRef, all: List<ImageRef>) {
     }
 }
 
-/** Images full screen: pinch or double-tap to zoom, swipe between them, share or save one. */
+/**
+ * Images full screen: pinch or double-tap to zoom, swipe between them, flick
+ * one up or down to close, share or save one.
+ */
+@OptIn(ExperimentalTelephotoApi::class)
 @Composable
 fun ImageViewer(images: List<ImageRef>, start: Int, onDismiss: () -> Unit) {
     val connection = LocalConnection.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pager = rememberPagerState(start) { images.size }
+    // How far the shown image is dragged away: the background and the bar fade with it.
+    var flicked by remember { mutableFloatStateOf(0f) }
+    val close by rememberUpdatedState(onDismiss)
     FullScreenDialog(onDismiss, lightBars = false) {
-        Box(Modifier.fillMaxSize().background(Color.Black).testTag("image-viewer")) {
-            HorizontalPager(pager, Modifier.fillMaxSize()) { page -> ZoomableImage(connection, images[page]) }
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 1f - flicked)).testTag("image-viewer")) {
+            HorizontalPager(pager, Modifier.fillMaxSize()) { page ->
+                val flick = rememberFlickToDismissState()
+                if (page == pager.currentPage) {
+                    LaunchedEffect(flick) { snapshotFlow { flick.offsetFraction }.collect { flicked = it } }
+                }
+                LaunchedEffect(flick) {
+                    // Halfway through the image's exit, or at once when it's already gone,
+                    // as with animations off.
+                    val gesture = snapshotFlow { flick.gestureState }.first { it is FlickToDismissState.GestureState.Dismissing || it is FlickToDismissState.GestureState.Dismissed }
+                    if (gesture is FlickToDismissState.GestureState.Dismissing) delay(gesture.animationDuration / 2)
+                    close()
+                }
+                FlickToDismiss(flick) { ZoomableImage(connection, images[page]) }
+            }
             Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp),
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp).alpha(1f - flicked),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(onDismiss) { Icon(painterResource(Icons.close), "Close", tint = Color.White) }
