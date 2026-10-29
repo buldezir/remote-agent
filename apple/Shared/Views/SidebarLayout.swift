@@ -4,7 +4,7 @@ import SwiftUI
 /// How the iPad and the Mac lay out sessions: chosen in View › Sidebar on the
 /// Mac, and in Settings.
 enum SidebarLayout: String, CaseIterable, Identifiable {
-    /// Every server's sessions by state: what needs you, what runs, the rest.
+    /// Every server's sessions by state: what needs you or is unread, then the rest.
     case inbox
     /// Each server's projects, folding open to their sessions.
     case projects

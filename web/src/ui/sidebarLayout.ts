@@ -30,6 +30,11 @@ export function needsYou(s: Session): boolean {
   return s.status === "awaiting_approval" || s.status === "error";
 }
 
+/** Needs you or is unread: its title is bold in the lists. */
+export function standsOut(s: Session): boolean {
+  return needsYou(s) || !!s.unread;
+}
+
 /** Working, or done but with tasks left running in the background. */
 export function isBusy(s: Session): boolean {
   return s.status === "running" || (s.status === "idle" && !!s.backgroundTasks?.length);
@@ -61,6 +66,22 @@ export function allSessions(store: ServerStore, archived: boolean): ServerSessio
     .map((s) => store.connection(s))
     .flatMap((c) => (archived ? c.archivedSessions : c.activeSessions).map((session) => ({ connection: c, session })))
     .sort((a, b) => parseDate(b.session.updatedAt) - parseDate(a.session.updatedAt));
+}
+
+/** The open session, by `sessionKey`, and whether it stood out when it was opened. */
+export interface OpenedSession {
+  key?: string;
+  stoodOut: boolean;
+}
+
+/** The Inbox's groups, each in the order given: what needs you or is unread,
+ *  then the rest. The open session counts as unread if it was when it was
+ *  opened: reading it leaves its row where it is, and so does a turn that
+ *  ends in view. */
+export function inboxGroups(active: ServerSession[], opened?: OpenedSession): { needsYou: ServerSession[]; recent: ServerSession[] } {
+  const stands = (i: ServerSession) =>
+    needsYou(i.session) || (opened?.key !== undefined && sessionKey(i) === opened.key ? opened.stoodOut : !!i.session.unread);
+  return { needsYou: active.filter(stands), recent: active.filter((i) => !stands(i)) };
 }
 
 /** What needs you first, then the rest, each in the order given. */

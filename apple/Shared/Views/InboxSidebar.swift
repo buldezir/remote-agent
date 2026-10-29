@@ -1,21 +1,28 @@
 import RAKit
 import SwiftUI
 
-/// The Inbox layout: every server's sessions by state. What needs you comes
-/// first, with any server that gave up connecting; then what is working, then
-/// the rest, the latest first in each. The servers are a section at the end,
-/// one line each, rather than at the foot, where a window can hide them.
+/// The Inbox layout: every server's sessions by state. What needs you or is
+/// unread comes first, with any server that gave up connecting; then the
+/// rest, working or not, the latest first in each. The servers are a section
+/// at the end, one line each, rather than at the foot, where a window can
+/// hide them.
 struct InboxSidebar: View {
     @Environment(ServerStore.self) private var store
     @Binding var selection: SessionRoute?
     @State private var showArchived = false
+    @State private var opened = OpenedSession()
 
     var body: some View {
         let active = store.sessions(archived: false)
         let offline = store.connections.filter { if case .failed = $0.state { true } else { false } }
-        let needsYou = active.filter(\.session.needsYou)
-        let busy = active.filter { !$0.session.needsYou && $0.session.isBusy }
-        let recent = active.filter { !$0.session.needsYou && !$0.session.isBusy }
+        // The open session counts as unread if it was when it was opened: reading
+        // it leaves its row where it is, and so does a turn that ends in view.
+        let openedStoodOut = opened.stoodOut(selection, in: active)
+        let standsOut = { (item: ServerSession) in
+            item.session.needsYou || (item.id == selection ? openedStoodOut : item.session.isUnread)
+        }
+        let needsYou = active.filter(standsOut)
+        let recent = active.filter { !standsOut($0) }
         let archived = store.sessions(archived: true)
         List(selection: $selection) {
             if !needsYou.isEmpty || !offline.isEmpty {
@@ -24,13 +31,6 @@ struct InboxSidebar: View {
                     rows(needsYou)
                 } header: {
                     GroupHeader(title: "Needs You", count: needsYou.count + offline.count, tint: Palette.yellow)
-                }
-            }
-            if !busy.isEmpty {
-                Section {
-                    rows(busy)
-                } header: {
-                    GroupHeader(title: "Running", count: busy.count)
                 }
             }
             if !recent.isEmpty {
@@ -73,6 +73,21 @@ struct InboxSidebar: View {
         guard let route = selection,
               let server = store.servers.first(where: { $0.id == route.serverID }) else { return false }
         return store.connection(for: server).sessions[route.sessionID]?.archived == true
+    }
+}
+
+/// Whether the open session stood out, needing you or unread, when it was
+/// opened. The body works it out, before the session's view reads it.
+@MainActor private final class OpenedSession {
+    private var route: SessionRoute?
+    private var stoodOutThen = false
+
+    func stoodOut(_ selection: SessionRoute?, in active: [ServerSession]) -> Bool {
+        if route != selection {
+            route = selection
+            stoodOutThen = active.first { $0.id == selection }?.session.standsOut ?? false
+        }
+        return stoodOutThen
     }
 }
 

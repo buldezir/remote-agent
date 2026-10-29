@@ -38,14 +38,18 @@ import androidx.compose.ui.unit.dp
 import dev.remoteagent.core.store.ConnectionState
 
 /**
- * The Inbox layout: every server's sessions by state. What needs you comes
- * first, with any server that gave up connecting; then what is working, then
- * the rest, the latest first in each. The servers are a section at the end,
- * one line each. Mirrors apple/Shared/Views/InboxSidebar.swift.
+ * The Inbox layout: every server's sessions by state. What needs you or is
+ * unread comes first, with any server that gave up connecting; then the
+ * rest, working or not, the latest first in each. The servers are a section
+ * at the end, one line each. Mirrors apple/Shared/Views/InboxSidebar.swift.
  */
 @Composable
 fun InboxSidebar(servers: List<ServerState>, selection: SessionKey?, onOpenSession: (SessionKey) -> Unit) {
-    val groups = inboxGroups(servers.sessions(archived = false))
+    val active = servers.sessions(archived = false)
+    // Whether the open session stood out when it was opened, worked out as it
+    // opens, before its view reads it.
+    val openedStoodOut = remember(selection) { active.firstOrNull { it.key == selection }?.session?.standsOut == true }
+    val groups = inboxGroups(active, selection, openedStoodOut)
     val offline = servers.filter { it.offline }
     val archived = servers.sessions(archived = true)
     val showsServer = servers.size > 1
@@ -71,10 +75,6 @@ fun InboxSidebar(servers: List<ServerState>, selection: SessionKey?, onOpenSessi
             }
             items(offline, key = { "offline/${it.id}" }) { OfflineServerRow(it, Modifier.animateItem()) }
             rows(groups.needsYou)
-        }
-        if (groups.running.isNotEmpty()) {
-            item(key = "h/running") { GroupHeader("Running", Modifier.animateItem(), groups.running.size) }
-            rows(groups.running)
         }
         if (groups.recent.isNotEmpty()) {
             item(key = "h/recent") { GroupHeader("Recent", Modifier.animateItem(), groups.recent.size) }

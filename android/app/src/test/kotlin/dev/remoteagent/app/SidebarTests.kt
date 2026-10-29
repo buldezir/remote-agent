@@ -96,9 +96,22 @@ class SidebarTests {
     fun inboxGroupsByState() {
         val groups = inboxGroups(servers.sessions(archived = false))
         assertEquals(listOf("approval", "error"), groups.needsYou.ids())
-        // Idle with a task in the background is still working.
-        assertEquals(listOf("running", "background"), groups.running.ids())
-        assertEquals(listOf("stopped", "idle", "b-idle"), groups.recent.ids())
+        // Work goes with the rest.
+        assertEquals(listOf("running", "stopped", "idle", "b-idle", "background"), groups.recent.ids())
+    }
+
+    @Test
+    fun inboxPutsUnreadSessionsFirstAndKeepsTheOpenOneWhereItWas() {
+        val unread = session("unread", 2, unread = true)
+        val active = listOf(server("a", session("running", 1, SessionStatus.RUNNING), unread, session("approval", 3, SessionStatus.AWAITING_APPROVAL)))
+            .sessions(archived = false)
+        assertEquals(listOf("unread", "approval"), inboxGroups(active).needsYou.ids())
+        // Read where it shows, it stays; a turn that ends in view doesn't move it up.
+        val read = listOf(server("a", unread.copy(unread = false))).sessions(archived = false)
+        assertEquals(listOf("unread"), inboxGroups(read, SessionKey("a", "unread"), openedStoodOut = true).needsYou.ids())
+        assertEquals(listOf("approval"), inboxGroups(active, SessionKey("a", "unread"), openedStoodOut = false).needsYou.ids())
+        // One that comes to need you moves up.
+        assertEquals(listOf("unread", "approval"), inboxGroups(active, SessionKey("a", "approval"), openedStoodOut = false).needsYou.ids())
     }
 
     @Test

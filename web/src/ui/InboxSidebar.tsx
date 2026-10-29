@@ -7,24 +7,33 @@ import { useServerStore } from "./context";
 import { Menu, Spinner } from "./primitives";
 import { navigate, type Route } from "./router";
 import { serverMenuEntries, type ServerActions } from "./SessionsSidebar";
-import { allSessions, isBusy, needsYou, sessionKey, type ServerSession } from "./sidebarLayout";
+import { allSessions, inboxGroups, sessionKey, standsOut, type OpenedSession, type ServerSession } from "./sidebarLayout";
 import { InboxRow, SessionLink } from "./SidebarRows";
 
-/** The Inbox layout: every server's sessions by state. What needs you comes
- *  first, with any server that gave up connecting; then what is working,
- *  then the rest, the latest first in each. The servers are a section at the
- *  end, one line each, rather than at the foot, where a window can hide them. */
+/** The Inbox layout: every server's sessions by state. What needs you or is
+ *  unread comes first, with any server that gave up connecting; then the
+ *  rest, working or not, the latest first in each. The servers are a section
+ *  at the end, one line each, rather than at the foot, where a window can
+ *  hide them. */
 export function InboxSidebar({ route, actions }: { route: Route; actions: ServerActions }) {
   const store = useServerStore();
   const connections = store.servers.map((s) => store.connection(s));
   useObservedAll(connections);
   const [showArchived, setShowArchived] = useState(false);
+  const [opened, setOpened] = useState<OpenedSession>({ stoodOut: false });
 
   const active = allSessions(store, false);
   const offline = connections.filter((c) => c.state.kind === "failed");
-  const waiting = active.filter((i) => needsYou(i.session));
-  const busy = active.filter((i) => !needsYou(i.session) && isBusy(i.session));
-  const recent = active.filter((i) => !needsYou(i.session) && !isBusy(i.session));
+  // Whether the open session stood out when it was opened, worked out as it
+  // opens, before its view reads it.
+  const openKey = route.serverID && route.sessionID ? route.serverID + " " + route.sessionID : undefined;
+  let open = opened;
+  if (open.key !== openKey) {
+    const item = active.find((i) => sessionKey(i) === openKey);
+    open = { key: openKey, stoodOut: !!item && standsOut(item.session) };
+    setOpened(open);
+  }
+  const { needsYou: waiting, recent } = inboxGroups(active, open);
   const archived = allSessions(store, true);
   const showsServer = store.servers.length > 1;
 
@@ -63,12 +72,6 @@ export function InboxSidebar({ route, actions }: { route: Route; actions: Server
             <OfflineServerRow key={c.server.id} connection={c} />
           ))}
           {rows(waiting)}
-        </section>
-      )}
-      {busy.length > 0 && (
-        <section aria-label="Running">
-          <GroupHeader title="Running" count={busy.length} />
-          {rows(busy)}
         </section>
       )}
       {recent.length > 0 && (

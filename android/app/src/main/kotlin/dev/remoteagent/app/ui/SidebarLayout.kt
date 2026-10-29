@@ -155,13 +155,19 @@ suspend fun refreshConnections(servers: List<ServerState>) = coroutineScope {
     }
 }
 
-/** The Inbox's groups, the latest first in each: what needs you, what is working, the rest. */
-class InboxGroups(val needsYou: List<ServerSession>, val running: List<ServerSession>, val recent: List<ServerSession>)
+/** The Inbox's groups, the latest first in each: what needs you or is unread, then the rest. */
+class InboxGroups(val needsYou: List<ServerSession>, val recent: List<ServerSession>)
 
-fun inboxGroups(active: List<ServerSession>): InboxGroups {
-    val (needsYou, rest) = active.partition { it.session.needsYou }
-    val (running, recent) = rest.partition { it.session.isBusy }
-    return InboxGroups(needsYou, running, recent)
+/**
+ * The open session, [opened], counts as unread if it was when it was opened
+ * ([openedStoodOut]): reading it leaves its row where it is, and so does a
+ * turn that ends in view.
+ */
+fun inboxGroups(active: List<ServerSession>, opened: SessionKey? = null, openedStoodOut: Boolean = false): InboxGroups {
+    val (needsYou, recent) = active.partition {
+        it.session.needsYou || if (opened != null && it.key == opened) openedStoodOut else it.session.unread
+    }
+    return InboxGroups(needsYou, recent)
 }
 
 /** A project in the Projects layout, with its sessions. */

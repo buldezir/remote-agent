@@ -3,14 +3,17 @@ import type { Session } from "../protocol/models";
 import type { ServerConnection } from "../store/serverConnection";
 import {
   addingRecent,
+  inboxGroups,
   isBusy,
   mostPressing,
   needsYou,
   parseCollection,
   recentSessions,
   revealCollection,
+  sessionKey,
   sessionToOpen,
   shortAge,
+  standsOut,
   storedCollection,
   urgency,
   type ServerSession,
@@ -53,6 +56,33 @@ describe("sidebar layouts", () => {
     expect(isBusy(session({ backgroundTasks: [{ id: "b", kind: "command", description: "watch" }] }))).toBe(true);
     expect(isBusy(session({}))).toBe(false);
     expect(isBusy(session({ status: "stopped", backgroundTasks: [{ id: "b", kind: "command", description: "watch" }] }))).toBe(false);
+  });
+
+  it("puts what needs you or is unread first in the Inbox, work with the rest", () => {
+    const connection = { server: { id: "srv" } } as unknown as ServerConnection;
+    const items: ServerSession[] = [
+      session({ id: "running", status: "running" }),
+      session({ id: "unread", unread: true }),
+      session({ id: "background", backgroundTasks: [{ id: "b", kind: "command", description: "watch" }] }),
+      session({ id: "waiting", status: "awaiting_approval" }),
+      session({ id: "idle" }),
+      session({ id: "failed", status: "error" }),
+    ].map((s) => ({ connection, session: s }));
+    const ids = (list: ServerSession[]) => list.map((i) => i.session.id);
+    expect(standsOut(session({ unread: true }))).toBe(true);
+    expect(standsOut(session({ status: "running" }))).toBe(false);
+
+    const groups = inboxGroups(items);
+    expect(ids(groups.needsYou)).toEqual(["unread", "waiting", "failed"]);
+    expect(ids(groups.recent)).toEqual(["running", "background", "idle"]);
+
+    // The open session stays where it was when it was opened: read there,
+    // or finishing a turn while it shows.
+    const read = items.map((i) => ({ ...i, session: { ...i.session, unread: false } }));
+    expect(ids(inboxGroups(read, { key: sessionKey(items[1]), stoodOut: true }).needsYou)).toEqual(["unread", "waiting", "failed"]);
+    expect(ids(inboxGroups(items, { key: sessionKey(items[1]), stoodOut: false }).needsYou)).toEqual(["waiting", "failed"]);
+    // But one that comes to need you moves up.
+    expect(ids(inboxGroups(items, { key: sessionKey(items[3]), stoodOut: false }).needsYou)).toEqual(["unread", "waiting", "failed"]);
   });
 
   it("shows a project's most pressing session", () => {
