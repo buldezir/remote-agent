@@ -666,6 +666,14 @@ struct SessionView: View {
                 }
             }
         }
+        #else
+        // In three columns the title over the transcript has it.
+        if !inlineTitle, let s = session, showsWorkspace(s) {
+            ToolbarItem(placement: .primaryAction) {
+                WorkspaceLabel(workspace: s.workspace)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
         #endif
         ToolbarItem(placement: .primaryAction) {
             Menu {
@@ -765,16 +773,21 @@ struct SessionView: View {
     /// The title and subtitle over the transcript, where the toolbar's title
     /// is the session list's: in three columns, as in Mail.
     private func titleHeader(_ s: Session) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(s.title)
-                .scaledFont(.headline)
-                .foregroundStyle(Palette.text)
-            Text(macSubtitle(s))
-                .scaledFont(.caption)
-                .foregroundStyle(Palette.subtext)
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(s.title)
+                    .scaledFont(.headline)
+                    .foregroundStyle(Palette.text)
+                Text(macSubtitle(s))
+                    .scaledFont(.caption)
+                    .foregroundStyle(Palette.subtext)
+            }
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if showsWorkspace(s) {
+                WorkspaceLabel(workspace: s.workspace)
+            }
         }
-        .lineLimit(1)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Metrics.margin)
         .padding(.vertical, 8)
         .background(Palette.base)
@@ -783,12 +796,19 @@ struct SessionView: View {
         }
     }
 
-    /// The subtitle under the window title: where the agent works, then the
-    /// agent, with the context use at the end.
+    /// The branch is worth showing: the project is a git repo, or the session
+    /// has a worktree of its own.
+    private func showsWorkspace(_ s: Session) -> Bool {
+        project?.isGitRepo == true || s.workspace.kind == .worktree
+    }
+
+    /// The subtitle under the window title: the project, then the agent, with
+    /// the context use at the end. The branch has a place of its own beside
+    /// the title (`WorkspaceLabel`).
     private func macSubtitle(_ s: Session) -> String {
         let context = s.context?.fraction.map { "\($0.formatted(.percent.precision(.fractionLength(0)))) context" }
         let agent = [subtitle(s), context].compactMap { $0 }.joined(separator: " · ")
-        return [place(s), agent].compactMap { $0 }.joined(separator: " — ")
+        return [place(s, branch: false), agent].compactMap { $0 }.joined(separator: " — ")
     }
     #endif
 
@@ -855,6 +875,41 @@ private struct ComposerLayout: Layout {
         var frames = buttons(centeredIn: buttonsHeight, at: fieldHeight + rowSpacing)
         frames.insert(CGRect(x: 0, y: 0, width: width, height: fieldHeight), at: 1)
         return (frames, fieldHeight + rowSpacing + buttonsHeight)
+    }
+}
+
+/// The branch the agent works on, and that it is a worktree when it is one,
+/// across from the session's title: in the toolbar, or in three columns, in
+/// the header over the transcript. The path is its help.
+private struct WorkspaceLabel: View {
+    let workspace: Workspace
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if workspace.kind == .worktree {
+                Label("Worktree", systemImage: "square.on.square.dashed")
+            }
+            if workspace.branch != nil || workspace.kind == .root {
+                Label(workspace.branch ?? "Detached HEAD", systemImage: "arrow.triangle.branch")
+                    .truncationMode(.middle)
+            }
+        }
+        .labelStyle(WorkspaceLabelStyle())
+        .lineLimit(1)
+        .scaledFont(.callout)
+        .foregroundStyle(Palette.subtext)
+        .frame(maxWidth: 360, alignment: .trailing)
+        .help(workspace.path)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct WorkspaceLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 4) {
+            configuration.icon.foregroundStyle(Palette.overlay)
+            configuration.title
+        }
     }
 }
 #endif
