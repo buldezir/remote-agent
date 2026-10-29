@@ -3,7 +3,7 @@
 Drive coding agents running on your computer from your iPhone, iPad, Mac, an Android phone or tablet, or a browser.
 
 - **`rad`**: a Go server that runs on the dev machine. It spawns agent CLIs as child processes, normalizes what they do into one event model, persists it in SQLite, and serves it over a WebSocket.
-- **Remote Agent**: a native SwiftUI app for iPhone, iPad and Mac. You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, one sidebar lists every server's sessions next to the one you have open; on iPhone, an Inbox tab lists them all, beside the Servers tab with each server's own. From the app you can:
+- **Remote Agent**: a native SwiftUI app for iPhone, iPad and Mac. Get it for iPhone and iPad on [TestFlight](https://testflight.apple.com/join/SHpGMtve). You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, one sidebar lists every server's sessions next to the one you have open; on iPhone, an Inbox tab lists them all, beside the Servers tab with each server's own. From the app you can:
   - start sessions in any project
   - save a session's first prompt as a draft, and send it later from any device
   - watch agents stream their work
@@ -140,7 +140,7 @@ The `rad` CLI keeps working next to the app (`rad pair`, `rad devices`); the app
 
 ## Installing the app on an iPhone or iPad
 
-You need an iPhone or iPad on iOS 27 or later, Xcode, an Apple ID and, for the first run, a cable.
+The quickest way is the beta on [TestFlight](https://testflight.apple.com/join/SHpGMtve). To build it yourself, you need an iPhone or iPad on iOS 27 or later, Xcode, an Apple ID and, for the first run, a cable.
 
 - **Free Apple ID:** builds expire after 7 days; run from Xcode again to renew.
 - **Paid Developer Program membership:** builds last a year.
