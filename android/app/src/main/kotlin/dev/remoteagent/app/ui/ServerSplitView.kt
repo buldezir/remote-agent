@@ -22,11 +22,13 @@ import dev.remoteagent.core.store.SavedServer
  * The tablet's list pane, for every layout: every server's sessions in the
  * sidebar, or in the Columns layout, the collections and a list of sessions
  * beside them. The open session is the detail pane beside it (AppNavigation).
- * It shows the dialogs the sidebars ask for. Mirrors apple/Shared/Views/ServerSplitView.swift.
+ * [narrow], it is a phone's Inbox tab, and a session opens over it. It shows
+ * the dialogs the sidebars ask for. Mirrors apple/Shared/Views/ServerSplitView.swift.
  */
 @Composable
 fun ServerSplitView(
     layout: SidebarLayout,
+    narrow: Boolean,
     selection: SessionKey?,
     onOpenSession: (SessionKey) -> Unit,
     onStartedSession: (SessionKey, empty: Boolean) -> Unit,
@@ -120,7 +122,7 @@ fun ServerSplitView(
                 servers, collection, onChoose = { choose(it) },
                 selection = selection, onOpenSession = onOpenSession, onAdd = onAdd, onSettings = onSettings,
             )
-            else -> SessionsSidebar(layout, servers, selection, onOpenSession, onAdd, onSettings)
+            else -> SessionsSidebar(layout, servers, selection, onOpenSession, onAdd, onSettings, narrow)
         }
     }
 

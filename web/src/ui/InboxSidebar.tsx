@@ -14,8 +14,9 @@ import { InboxRow, SessionLink } from "./SidebarRows";
  *  unread comes first, with any server that gave up connecting; then the
  *  rest, working or not, the latest first in each. The servers are a section
  *  at the end, one line each, rather than at the foot, where a window can
- *  hide them. */
-export function InboxSidebar({ route, actions }: { route: Route; actions: ServerActions }) {
+ *  hide them. As a narrow window's Inbox tab (`tab`), it leaves the servers
+ *  to the Servers tab, and opens sessions in the tab. */
+export function InboxSidebar({ route, actions, tab = false }: { route: Route; actions: ServerActions; tab?: boolean }) {
   const store = useServerStore();
   const connections = store.servers.map((s) => store.connection(s));
   useObservedAll(connections);
@@ -52,7 +53,7 @@ export function InboxSidebar({ route, actions }: { route: Route; actions: Server
             item={item}
             className="compact"
             selected={route.serverID === item.connection.server.id && route.sessionID === item.session.id}
-            onOpen={() => navigate({ serverID: item.connection.server.id, sessionID: item.session.id })}
+            onOpen={() => navigate({ serverID: item.connection.server.id, sessionID: item.session.id, tab: tab ? "inbox" : undefined })}
             onArchive={() => actions.archive(item.connection, item.session)}
             onDelete={() => actions.delete(item.connection, item.session)}
           >
@@ -97,7 +98,7 @@ export function InboxSidebar({ route, actions }: { route: Route; actions: Server
           {showArchived && rows(archived)}
         </section>
       )}
-      {connections.length > 0 && (
+      {connections.length > 0 && !tab && (
         <section aria-label="Servers">
           <GroupHeader title="Servers" />
           <ul className="session-list">

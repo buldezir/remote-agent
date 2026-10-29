@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Walks the Android app through the fake harness on an emulator, as
 # web/e2e/smoke.mjs does the web client: pairing by deep link, a new worktree
-# session, the fake keywords, images, changes and revert, the terminal, a
-# tablet's sidebar, the dark theme, the server's settings (updating and
+# session, the fake keywords, images, changes and revert, the terminal, the
+# Inbox and Servers tabs, a tablet's sidebar, the dark theme, the server's settings (updating and
 # signing in the fake agent, naming sessions with it), and a draft saved,
 # edited, saved again and sent. Saves screenshots to
 # $SCRATCH/shots and removes the server at the end, which unpairs it. Never
@@ -54,19 +54,20 @@ if [ "$("$A" shell getprop ro.build.version.sdk | tr -d '\r')" -ge 37 ]; then
   tap 'id=permission_deny_button'
   wait_for 'text=Local network access denied' 10 || fail "no permission denial guidance"
   tap 'text=OK'
-  wait_for 'text=Servers' 8 || wait_for 'id=new-session' 8 || fail "denial blocked the app"
+  wait_for 'id=tab-inbox' 8 || fail "denial blocked the app"
   "$A" shell am force-stop "$PKG"
   "$A" shell am start -W -n "$PKG/dev.remoteagent.app.MainActivity" > /dev/null
   wait_for 'id=permission_allow_button' 10 || fail "no permission retry"
   tap 'id=permission_allow_button'
-  wait_for 'text=Servers' 8 || wait_for 'id=new-session' 8 || fail "grant didn't open the app"
+  wait_for 'id=tab-inbox' 8 || fail "grant didn't open the app"
   "$A" shell am force-stop "$PKG"
 fi
 "$A" shell am start -W -n "$PKG/dev.remoteagent.app.MainActivity" > /dev/null
-wait_for 'text=Servers' 8 || wait_for 'id=new-session' 8 || fail "app didn't start"
+wait_for 'id=tab-inbox' 8 || fail "app didn't start"
 devices_before=$(radctl devices | grep -c . || true)
 open_link "$(radctl pair --print-url)"
 wait_for 'id=pair' 10 && tap 'id=pair' || fail "no pairing sheet"
+# Pairing opens the server in the Servers tab.
 wait_for 'id=new-session' 15 || fail "pairing didn't open the server"
 shot 01-server
 
@@ -151,6 +152,43 @@ fill 'id=terminal' 'expr 40 + 2 > t42.txt'; "$A" shell input keyevent KEYCODE_EN
 [ "$(cat "$(worktree)/t42.txt" 2>/dev/null)" = 42 ] || fail "the shell didn't write t42.txt"
 shot 06-terminal
 tap 'desc=Hide Terminal'; sleep 0.5
+
+step "inbox tab"
+# Every server's sessions: what needs you or is unread first, the rest,
+# working or not, under Recent. A session that ended with no one looking is
+# unread.
+hide_keyboard; tap 'desc=Back'; sleep 1
+tap 'id=tab-inbox'
+wait_for 'text=Inbox' 5 || fail "no Inbox tab"
+radctl debug run --cwd "$SCRATCH/root/$PROJECT" "hello from the inbox" > /dev/null
+wait_for 'text=hello from the inbox' 10 || fail "the new session isn't in the Inbox"
+wait_for 'text=Needs You' 5 || fail "no Needs You for an unread session"
+find_view 'text=Recent' > /dev/null || fail "the read session isn't under Recent"
+shot 06b-inbox
+tap 'text=hello from the inbox'
+wait_for 'contains=Echo: hello from the inbox' 10 || fail "the unread session didn't open"
+! find_view 'id=tab-inbox' > /dev/null || fail "the tabs show over a session"
+shot 06c-inbox-session
+# Wide and narrow again, the session stays open, then back goes to the Inbox.
+WIDE=1; "$A" shell wm size 2560x1600; "$A" shell wm density 320
+wait_for 'id=sidebar' 10 || fail "no sidebar beside the Inbox's session"
+[ "$(texts 'text=hello from the inbox' | grep -c .)" -ge 2 ] || fail "the Inbox's session isn't open beside the sidebar"
+shot 06d-inbox-tablet
+"$A" shell wm size reset; "$A" shell wm density reset; WIDE=; sleep 2
+wait_for 'contains=Echo: hello from the inbox' 10 || fail "narrowing closed the Inbox's session"
+tap 'desc=Back'; sleep 1
+wait_for 'text=Recent' 5 || fail "no Recent after reading"
+! find_view 'text=Needs You' > /dev/null || fail "the session read is still under Needs You"
+shot 06e-inbox-read
+
+step "servers tab keeps its place"
+tap 'id=tab-servers'
+# The server's sessions, which have a back button, not the list of servers.
+wait_for 'desc=Back' 5 || fail "the Servers tab lost its place"
+find_view 'text=hello from the inbox' > /dev/null || fail "the server's sessions don't list the Inbox's"
+shot 06f-servers-tab
+tap 'text=write smoke.txt' || fail "no smoke session"
+wait_for 'id=composer' 10 || fail "the session didn't open"
 
 step "tablet"
 # Wide, every server's sessions are in a sidebar beside the open session.
@@ -286,4 +324,10 @@ hide_keyboard; tap 'desc=Back'; sleep 1
 step "remove the server"
 tap 'desc=More'; sleep 0.5; tap 'text=Remove server'; sleep 0.5; tap 'text=Remove'; sleep 2
 [ "$(radctl devices | grep -c . || true)" -lt "$((devices_before + 1))" ] || fail "the device is still paired"
+# Both tabs offer to pair one.
+wait_for 'text=No servers' 5 || fail "the Servers tab doesn't offer to pair a server"
+shot 22-no-servers
+tap 'id=tab-inbox'
+wait_for 'text=No servers' 5 || fail "the Inbox tab doesn't offer to pair a server"
+shot 23-no-servers-inbox
 echo "ok: screenshots in $SHOTS"

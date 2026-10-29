@@ -1602,8 +1602,59 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
 .modal-wide .modal-content:has(.file-diff) { background: var(--base); }
 
 @media (max-width: 859px) {
-  #root > .server-home,
+  #root > .tabs,
   #root > .session { height: 100dvh; }
+}
+
+/* A narrow window's tabs, as on a phone: the tab's page, and the bar at its foot. */
+.tabs {
+  display: flex;
+  flex-direction: column;
+}
+.tab-content {
+  flex: 1;
+  min-height: 0;
+}
+.inbox-tab {
+  height: 100%;
+  background: var(--mantle);
+}
+.tab-bar {
+  display: flex;
+  background: var(--mantle);
+  border-top: 1px solid var(--crust);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0 4px;
+  font-size: 0.72em;
+  font-weight: 500;
+  color: var(--subtext);
+}
+.tab.current { color: var(--accent); }
+.tab-icon {
+  position: relative;
+  display: inline-flex;
+}
+.tab-badge {
+  position: absolute;
+  top: -5px;
+  left: 15px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--yellow);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
 }
 .turn-footer.c-red { color: var(--red); }
 

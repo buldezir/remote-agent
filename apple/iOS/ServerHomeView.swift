@@ -1,8 +1,9 @@
 import RAKit
 import SwiftUI
 
-/// A server's sessions on iPhone, pushed from the server list. It pushes
-/// sessions in turn. The iPad has every server's in its sidebar instead.
+/// A server's sessions on iPhone, pushed from the server list in the Servers
+/// tab. It pushes sessions in turn. The Inbox tab, and the iPad's sidebar,
+/// have every server's.
 struct ServerHomeView: View {
     let connection: ServerConnection
     @Environment(\.dismiss) private var dismiss
@@ -77,6 +78,7 @@ struct ServerHomeView: View {
             }
             .navigationDestination(item: $openSession) { id in
                 SessionView(connection: connection, store: connection.sessionStore(id), focusesPrompt: id == startedEmpty)
+                    .toolbar(.hidden, for: .tabBar)
             }
             .onChange(of: openSession) { _, id in
                 // Only when it first opens.

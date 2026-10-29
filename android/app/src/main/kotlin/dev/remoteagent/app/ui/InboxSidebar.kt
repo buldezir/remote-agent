@@ -41,10 +41,11 @@ import dev.remoteagent.core.store.ConnectionState
  * The Inbox layout: every server's sessions by state. What needs you or is
  * unread comes first, with any server that gave up connecting; then the
  * rest, working or not, the latest first in each. The servers are a section
- * at the end, one line each. Mirrors apple/Shared/Views/InboxSidebar.swift.
+ * at the end, one line each, unless [showsServers] is false, as in a phone's
+ * Inbox tab, beside its Servers tab. Mirrors apple/Shared/Views/InboxSidebar.swift.
  */
 @Composable
-fun InboxSidebar(servers: List<ServerState>, selection: SessionKey?, onOpenSession: (SessionKey) -> Unit) {
+fun InboxSidebar(servers: List<ServerState>, selection: SessionKey?, onOpenSession: (SessionKey) -> Unit, showsServers: Boolean = true) {
     val active = servers.sessions(archived = false)
     // Whether the open session stood out when it was opened, worked out as it
     // opens, before its view reads it.
@@ -86,7 +87,7 @@ fun InboxSidebar(servers: List<ServerState>, selection: SessionKey?, onOpenSessi
             }
             if (showArchived) rows(archived)
         }
-        if (servers.isNotEmpty()) {
+        if (showsServers && servers.isNotEmpty()) {
             item(key = "h/servers") { GroupHeader("Servers", Modifier.animateItem()) }
             items(servers, key = { "server/${it.id}" }) { InboxServerRow(it, Modifier.animateItem()) }
         }

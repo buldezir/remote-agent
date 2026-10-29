@@ -53,8 +53,11 @@ import kotlinx.coroutines.launch
 
 /**
  * The tablet's list pane beside a session: the Inbox or the Projects layout.
- * The Columns layout has its own (ColumnsSidebar.kt). The split view around
- * it shows the dialogs its rows ask for. Mirrors apple/Shared/Views/SessionsSidebar.swift.
+ * The Columns layout has its own (ColumnsSidebar.kt). [narrow], it is a
+ * phone's Inbox tab, which leaves the servers to the Servers tab and, with
+ * none paired, shows the way to pair one, which a tablet shows beside it.
+ * The split view around it shows the dialogs its rows ask for. Mirrors
+ * apple/Shared/Views/SessionsSidebar.swift.
  */
 @Composable
 fun SessionsSidebar(
@@ -64,16 +67,25 @@ fun SessionsSidebar(
     onOpenSession: (SessionKey) -> Unit,
     onAdd: () -> Unit,
     onSettings: () -> Unit,
+    narrow: Boolean = false,
 ) {
     Screen(
-        title = { Text("Sessions", style = Type.title) },
+        title = { Text(if (narrow) "Inbox" else "Sessions", style = Type.title) },
         background = palette.mantle,
         actions = { SidebarToolbar(servers, onAdd, onSettings) },
+        bottomBar = LocalTabBar.current,
     ) { padding ->
-        SidebarRefresh(servers, Modifier.padding(padding)) {
-            when (layout) {
-                SidebarLayout.PROJECTS -> ProjectsSidebar(servers, selection, onOpenSession)
-                else -> InboxSidebar(servers, selection, onOpenSession)
+        if (narrow && servers.isEmpty()) {
+            EmptyState(
+                Icons.server, "No servers", description = "Run `rad serve` on your computer, then `rad pair` and scan the QR code.",
+                action = "Pair a server" to onAdd, modifier = Modifier.padding(padding),
+            )
+        } else {
+            SidebarRefresh(servers, Modifier.padding(padding)) {
+                when (layout) {
+                    SidebarLayout.PROJECTS -> ProjectsSidebar(servers, selection, onOpenSession)
+                    else -> InboxSidebar(servers, selection, onOpenSession, showsServers = !narrow)
+                }
             }
         }
     }

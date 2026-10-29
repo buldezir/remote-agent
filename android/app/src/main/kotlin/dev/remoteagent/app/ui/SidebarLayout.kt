@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
  * Mirrors apple/Shared/Views/SidebarLayout.swift.
  */
 enum class SidebarLayout(val stored: String, val title: String, val summary: String) {
-    /** Every server's sessions by state: what needs you, what runs, the rest. */
+    /** Every server's sessions by state: what needs you or is unread, then the rest. */
     INBOX("inbox", "Inbox", "Sessions from every server, those that need you first."),
     /** Each server's projects, folding open to their sessions. */
     PROJECTS("projects", "Projects", "Each server's projects, with their sessions under them."),

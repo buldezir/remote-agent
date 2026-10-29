@@ -91,7 +91,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
           </label>
         </section>
         <p className="form-footer">
-          {sidebarLayouts.find((l) => l.id === s.sidebarLayout)?.summary} In a narrow window, a server's sessions are a list of their own.
+          {sidebarLayouts.find((l) => l.id === s.sidebarLayout)?.summary} A narrow window has the Inbox and the Servers as tabs.
         </p>
 
         <h4 className="form-header">Terminal</h4>

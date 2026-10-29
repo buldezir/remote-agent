@@ -34,7 +34,7 @@ import dev.remoteagent.core.store.ConnectionState
 import dev.remoteagent.core.store.SavedServer
 import java.net.URI
 
-/** The paired servers. Mirrors apple/iOS/ServersView.swift. */
+/** The paired servers: a phone's Servers tab. Mirrors apple/iOS/ServersView.swift. */
 @Composable
 fun ServersView(
     onOpen: (SavedServer) -> Unit,
@@ -68,6 +68,7 @@ fun ServersView(
             IconButton(onSettings) { Icon(painterResource(Icons.settings), "Settings") }
             IconButton(onAdd, Modifier.testTag("add-server")) { Icon(painterResource(Icons.add), "Add") }
         },
+        bottomBar = LocalTabBar.current,
     ) { padding ->
         if (servers.isEmpty()) {
             EmptyState(

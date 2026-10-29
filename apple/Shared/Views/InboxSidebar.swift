@@ -5,26 +5,30 @@ import SwiftUI
 /// unread comes first, with any server that gave up connecting; then the
 /// rest, working or not, the latest first in each. The servers are a section
 /// at the end, one line each, rather than at the foot, where a window can
-/// hide them.
+/// hide them; the iPhone's Inbox tab leaves them to the Servers tab.
 struct InboxSidebar: View {
     @Environment(ServerStore.self) private var store
-    @Binding var selection: SessionRoute?
+    /// The session open beside the list. The iPhone's Inbox tab has none: it
+    /// pushes the session over the list.
+    var selection: Binding<SessionRoute?>?
+    var showsServers = true
     @State private var showArchived = false
     @State private var opened = OpenedSession()
 
     var body: some View {
+        let open = selection?.wrappedValue
         let active = store.sessions(archived: false)
         let offline = store.connections.filter { if case .failed = $0.state { true } else { false } }
         // The open session counts as unread if it was when it was opened: reading
         // it leaves its row where it is, and so does a turn that ends in view.
-        let openedStoodOut = opened.stoodOut(selection, in: active)
+        let openedStoodOut = opened.stoodOut(open, in: active)
         let standsOut = { (item: ServerSession) in
-            item.session.needsYou || (item.id == selection ? openedStoodOut : item.session.isUnread)
+            item.session.needsYou || (item.id == open ? openedStoodOut : item.session.isUnread)
         }
         let needsYou = active.filter(standsOut)
         let recent = active.filter { !standsOut($0) }
         let archived = store.sessions(archived: true)
-        List(selection: $selection) {
+        List(selection: selection) {
             if !needsYou.isEmpty || !offline.isEmpty {
                 Section {
                     ForEach(offline, id: \.server.id) { OfflineServerRow(connection: $0) }
@@ -46,7 +50,7 @@ struct InboxSidebar: View {
                     if showArchived { rows(archived) }
                 }
             }
-            if !store.servers.isEmpty {
+            if showsServers && !store.servers.isEmpty {
                 Section {
                     ForEach(store.connections, id: \.server.id) { InboxServerRow(connection: $0) }
                 } header: {
@@ -62,7 +66,7 @@ struct InboxSidebar: View {
 
     private func rows(_ items: [ServerSession]) -> some View {
         ForEach(items) { item in
-            SessionLink(item: item, selected: selection == item.id) {
+            SessionLink(item: item, selected: selection?.wrappedValue == item.id) {
                 InboxRow(item: item, showsServer: store.servers.count > 1)
             }
         }
@@ -70,7 +74,7 @@ struct InboxSidebar: View {
 
     /// The open session is archived, which only the synced index can tell.
     private var selectionArchived: Bool {
-        guard let route = selection,
+        guard let route = selection?.wrappedValue,
               let server = store.servers.first(where: { $0.id == route.serverID }) else { return false }
         return store.connection(for: server).sessions[route.sessionID]?.archived == true
     }

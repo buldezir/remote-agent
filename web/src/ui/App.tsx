@@ -1,4 +1,4 @@
-import { ChevronRight, ChevronsUpDown, MessagesSquare, Monitor, Pencil, Plus, RefreshCw, Settings, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronsUpDown, Inbox as InboxIcon, MessagesSquare, Monitor, Pencil, Plus, RefreshCw, Settings, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "../protocol/models";
 import { pairingLinkInHash } from "../protocol/pairing";
@@ -11,7 +11,7 @@ import { ConnectionDot } from "./components";
 import { ConnectionContext, ServerStoreContext, useServerStore } from "./context";
 import { NewSession } from "./NewSession";
 import { Confirm, Empty, Menu } from "./primitives";
-import { navigate, useRoute, useWide, type Route } from "./router";
+import { navigate, useRoute, useWide, type Route, type Tab } from "./router";
 import { ServerHome } from "./ServerHome";
 import { CollectionsSidebar, SessionListColumn } from "./ColumnsSidebar";
 import { reconnect, serverSettingsEntry, SessionsSidebar, type ServerActions } from "./SessionsSidebar";
@@ -20,7 +20,9 @@ import { ArchiveConfirm, DeleteConfirm } from "./SessionRow";
 import { useSettings } from "./settings";
 import {
   addingRecent,
+  allSessions,
   collectionSessions,
+  inboxGroups,
   parseCollection,
   recentSessions,
   revealCollection,
@@ -94,12 +96,29 @@ function Root() {
   }, [openKey]);
   const focusPrompt = openKey !== undefined && openKey === startedEmpty;
 
-  // A phone with one server opens it at launch, as the iPhone app does.
+  // Every server connects; one that was given up on waits for a click.
+  useEffect(() => {
+    for (const s of store.servers) {
+      const c = store.connection(s);
+      if (c.state.kind === "idle") c.start();
+    }
+  }, [store.servers]);
+
+  // Where each of a narrow window's tabs was, so that switching back
+  // returns there.
+  const places = useRef<Record<Tab, Partial<Route>>>({ inbox: { tab: "inbox" }, servers: { tab: "servers" } });
+  useEffect(() => {
+    places.current[route.tab] = route;
+  }, [route.tab, route.serverID, route.sessionID]);
+
+  // A phone with one server opens it the first time the Servers tab shows,
+  // as the iPhone app does, rather than taking the user out of the Inbox.
   const openedOnce = useRef(false);
   useEffect(() => {
-    if (!openedOnce.current && !wide && !route.serverID && store.servers.length === 1) navigate({ serverID: store.servers[0].id });
+    if (wide || route.tab !== "servers" || openedOnce.current) return;
     openedOnce.current = true;
-  }, []);
+    if (!route.serverID && store.servers.length === 1) navigate({ serverID: store.servers[0].id });
+  }, [wide, route.tab, route.serverID]);
 
   const actions: ServerActions = {
     pair: () => setSheet({ kind: "pair" }),
@@ -116,30 +135,54 @@ function Root() {
   if (wide) {
     page = <Split route={route} connection={connection} actions={actions} focusPrompt={focusPrompt} />;
   } else if (connection && route.sessionID) {
+    // Back to the tab it was opened in: the Inbox, or its server's sessions.
+    const back: Partial<Route> = route.tab === "inbox" ? {} : { serverID: route.serverID };
     page = (
       <ConnectionContext.Provider value={connection}>
         <SessionView
           key={route.sessionID}
           sessionID={route.sessionID}
           focusPrompt={focusPrompt}
-          onBack={() => navigate({ serverID: route.serverID })}
-          onDeleted={() => navigate({ serverID: route.serverID }, true)}
-        />
-      </ConnectionContext.Provider>
-    );
-  } else if (connection) {
-    page = (
-      <ConnectionContext.Provider value={connection}>
-        <ServerHome
-          onOpen={(id) => navigate({ serverID: connection.server.id, sessionID: id })}
-          onNew={() => actions.newSession(connection)}
-          onBack={() => navigate({})}
-          toolbar={<ServerMenu connection={connection} actions={actions} />}
+          onBack={() => navigate(back)}
+          onDeleted={() => navigate(back, true)}
         />
       </ConnectionContext.Provider>
     );
   } else {
-    page = <ServerList actions={actions} />;
+    let content;
+    if (route.tab === "servers" && connection) {
+      content = (
+        <ConnectionContext.Provider value={connection}>
+          <ServerHome
+            onOpen={(id) => navigate({ serverID: connection.server.id, sessionID: id })}
+            onNew={() => actions.newSession(connection)}
+            onBack={() => navigate({ tab: "servers" })}
+            toolbar={<ServerMenu connection={connection} actions={actions} />}
+          />
+        </ConnectionContext.Provider>
+      );
+    } else if (route.tab === "servers") {
+      content = <ServerList actions={actions} />;
+    } else {
+      content = (
+        <div className="inbox-tab">
+          <SessionsSidebar
+            layout="inbox"
+            tab
+            route={route}
+            actions={actions}
+            placeholder={store.servers.length === 0 && <NoServers onPair={actions.pair} />}
+          />
+        </div>
+      );
+    }
+    // The current tab again goes to its root.
+    page = (
+      <div className="tabs">
+        <div className="tab-content">{content}</div>
+        <TabBar current={route.tab} onSelect={(t) => navigate(t === route.tab ? { tab: t } : places.current[t])} />
+      </div>
+    );
   }
 
   return (
@@ -156,7 +199,8 @@ function Root() {
             onCreated={(s, empty) => {
               const serverID = sheet.connection.server.id;
               setStartedEmpty(empty ? `${serverID} ${s.id}` : undefined);
-              navigate({ serverID, sessionID: s.id });
+              // In a narrow window, in the tab it was started from.
+              navigate({ serverID, sessionID: s.id, tab: wide ? undefined : route.tab });
             }}
           />
         </ConnectionContext.Provider>
@@ -182,7 +226,7 @@ function Root() {
               label: "Remove",
               destructive: true,
               onSelect: () => {
-                if (route.serverID === sheet.server.id) navigate({}, true);
+                if (route.serverID === sheet.server.id) navigate(wide ? {} : { tab: route.tab }, true);
                 store.remove(sheet.server);
               },
             },
@@ -240,11 +284,6 @@ function Split({
     const open = sessionToOpen(collectionSessions(c, store), recentSessions(storage.get(recentKey)));
     navigate(open ? { serverID: open.connection.server.id, sessionID: open.session.id } : { serverID: route.serverID });
   };
-
-  // Every server connects; one that was given up on waits for a click.
-  useEffect(() => {
-    for (const c of connections) if (c.state.kind === "idle") c.start();
-  }, [store.servers]);
 
   // In three columns, a session opened from elsewhere, such as a link or a
   // new session, shows in the list: when the collection doesn't have it,
@@ -339,6 +378,37 @@ function NoServers({ onPair }: { onPair: () => void }) {
   );
 }
 
+/** A narrow window's tabs, at its foot, as on a phone: the Inbox, whose
+ *  badge counts the sessions in its Needs You, and the Servers. */
+function TabBar({ current, onSelect }: { current: Tab; onSelect: (t: Tab) => void }) {
+  const store = useServerStore();
+  useObservedAll(store.servers.map((s) => store.connection(s)));
+  const waiting = inboxGroups(allSessions(store, false)).needsYou.length;
+  const tabs = [
+    { id: "inbox" as const, label: "Inbox", icon: InboxIcon, badge: waiting },
+    { id: "servers" as const, label: "Servers", icon: Monitor, badge: 0 },
+  ];
+  return (
+    <nav className="tab-bar" aria-label="Tabs">
+      {tabs.map(({ id, label, icon: Icon, badge }) => (
+        <button
+          key={id}
+          className={"tab" + (current === id ? " current" : "")}
+          aria-current={current === id ? "page" : undefined}
+          aria-label={badge ? `${label}, ${badge} need you` : label}
+          onClick={() => onSelect(id)}
+        >
+          <span className="tab-icon">
+            <Icon size={22} />
+            {badge > 0 && <span className="tab-badge">{badge}</span>}
+          </span>
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
+}
+
 /** The server actions, in the top bar of a server's sessions on a phone. */
 function ServerMenu({ connection, actions }: { connection: ServerConnection; actions: ServerActions }) {
   useObserved(connection); // Server Settings… waits for the connection
@@ -359,7 +429,7 @@ function ServerMenu({ connection, actions }: { connection: ServerConnection; act
   );
 }
 
-/** The iPhone's server list: each server with its status. */
+/** The Servers tab's list, as on iPhone: each server with its status. */
 function ServerList({ actions }: { actions: ServerActions }) {
   const store = useServerStore();
   return (

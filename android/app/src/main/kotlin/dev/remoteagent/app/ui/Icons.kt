@@ -48,6 +48,7 @@ object Icons {
     @DrawableRes val toolThink = R.drawable.sym_group // person.2
     @DrawableRes val image = R.drawable.sym_image // photo
     @DrawableRes val allSessions = R.drawable.sym_inbox // tray.full
+    @DrawableRes val inbox = R.drawable.sym_inbox // tray
     @DrawableRes val keyDown = R.drawable.sym_keyboard_arrow_down
     @DrawableRes val keyLeft = R.drawable.sym_keyboard_arrow_left
     @DrawableRes val keyRight = R.drawable.sym_keyboard_arrow_right

@@ -48,8 +48,8 @@ import dev.remoteagent.core.store.archivedSessions
 import kotlinx.coroutines.launch
 
 /**
- * A server's sessions on a phone, pushed from the server list. It pushes
- * sessions in turn. A tablet has every server's in its sidebar
+ * A server's sessions on a phone, pushed from the server list in the Servers
+ * tab. It pushes sessions in turn. A tablet has every server's in its sidebar
  * (SessionsSidebar) instead. Mirrors apple/iOS/ServerHomeView.swift.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -101,6 +101,7 @@ fun ServerHomeView(
                 }
             }
         },
+        bottomBar = LocalTabBar.current,
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = refreshing,

@@ -34,15 +34,34 @@ export function reconnect(c: ServerConnection) {
 
 /** The sidebar beside a session in a wide window, as on iPad and the Mac:
  *  the Inbox or the Projects layout. The Columns layout has its own
- *  (`CollectionsSidebar`). */
-export function SessionsSidebar({ layout, route, actions }: { layout: SidebarLayout; route: Route; actions: ServerActions }) {
+ *  (`CollectionsSidebar`). As a narrow window's Inbox tab (`tab`), it is
+ *  the Inbox without the servers, which the Servers tab lists. */
+export function SessionsSidebar({
+  layout,
+  route,
+  actions,
+  tab = false,
+  placeholder,
+}: {
+  layout: SidebarLayout;
+  route: Route;
+  actions: ServerActions;
+  tab?: boolean;
+  /** In place of the list, as a phone's with no servers. */
+  placeholder?: ReactNode;
+}) {
   return (
     <div className="server-home">
-      <SidebarBar title="Sessions" actions={actions}>
+      <SidebarBar title={tab ? "Inbox" : "Sessions"} actions={actions}>
         <NewSessionButton onNew={actions.newSession} />
       </SidebarBar>
       <div className="list-scroll">
-        {layout === "projects" ? <ProjectsSidebar route={route} actions={actions} /> : <InboxSidebar route={route} actions={actions} />}
+        {placeholder ||
+          (layout === "projects" && !tab ? (
+            <ProjectsSidebar route={route} actions={actions} />
+          ) : (
+            <InboxSidebar route={route} actions={actions} tab={tab} />
+          ))}
       </div>
       <SidebarFoot actions={actions} />
     </div>

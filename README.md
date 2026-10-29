@@ -3,7 +3,7 @@
 Drive coding agents running on your computer from your iPhone, iPad, Mac, an Android phone or tablet, or a browser.
 
 - **`rad`**: a Go server that runs on the dev machine. It spawns agent CLIs as child processes, normalizes what they do into one event model, persists it in SQLite, and serves it over a WebSocket.
-- **Remote Agent**: a native SwiftUI app for iPhone, iPad and Mac. You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, one sidebar lists every server's sessions next to the one you have open. From the app you can:
+- **Remote Agent**: a native SwiftUI app for iPhone, iPad and Mac. You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, one sidebar lists every server's sessions next to the one you have open; on iPhone, an Inbox tab lists them all, beside the Servers tab with each server's own. From the app you can:
   - start sessions in any project
   - save a session's first prompt as a draft, and send it later from any device
   - watch agents stream their work
@@ -276,7 +276,7 @@ Or open http://localhost:5173, choose **Pair a server** and paste the link that 
 - **Connection:** when a server can't be reached, the apps try five times, over about 15 seconds, then stop and show why. Retrying, opening the server, or a click on its name in the sidebar (on iPad, the Mac, an Android tablet or a wide browser window) tries again, and so does coming back to the app.
 - **Stop:** this interrupts the current turn. *Force stop* kills the agent process. Idle agents are stopped after `idle_timeout` and resume transparently on the next prompt.
 - **Queued prompts:** a prompt sent while the agent works waits, marked *Queued*, and goes out when the turn ends. *Send now* under it stops the turn and sends that prompt at once, ahead of any others waiting. Stop cancels them all.
-- **Text size:** Settings has two sizes: one for the interface, such as lists and labels, and one for messages: your prompts, the agent's replies and its tool calls. On the Mac it is under Remote Agent › Settings… (⌘,). On iPhone, tap the gear on the server list or open a server's ⋯ menu; on iPad, open the ⋯ menu above the sidebar. On iOS the interface follows the system's text size until you turn off **Match System**.
+- **Text size:** Settings has two sizes: one for the interface, such as lists and labels, and one for messages: your prompts, the agent's replies and its tool calls. On the Mac it is under Remote Agent › Settings… (⌘,). On iPhone, open the ⋯ menu in the Inbox, tap the gear on the server list, or open a server's ⋯ menu; on iPad, open the ⋯ menu above the sidebar. On iOS the interface follows the system's text size until you turn off **Match System**.
   - On the Mac, Settings also picks the messages' font, from the system font's designs or any installed family, and a code font from the installed fixed-width ones. The code font is used for code in messages, tool calls and diffs.
 - **Server Settings:** see [Managing a server from the apps](#managing-a-server-from-the-apps).
 - **Colours:** the apps use [Catppuccin](https://catppuccin.com): Frappé in dark mode, Latte in light mode, with mauve as the accent. They follow the system's appearance, or Settings › Theme keeps them light or dark.

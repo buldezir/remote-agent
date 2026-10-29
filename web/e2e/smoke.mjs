@@ -386,11 +386,34 @@ await shot("settings-light");
 await page.getByRole("button", { name: "Done" }).click();
 await shot("light");
 
-step("phone");
+step("phone: the Servers and Inbox tabs, each keeping its place");
 await page.setViewportSize({ width: 390, height: 844 });
 await shot("phone-session");
+const tabBar = page.locator(".tab-bar");
+const tab = (name) => tabBar.getByRole("button", { name: new RegExp(`^${name}`) });
+// A session a wide window opened is the Servers tab's: back is its server's sessions.
 await page.getByRole("button", { name: "Back" }).click();
+const serverSessions = page.locator("header.bar").getByRole("button", { name: "Servers", exact: true });
+await serverSessions.waitFor();
+if ((await tab("Servers").getAttribute("aria-current")) !== "page") throw new Error("a server's sessions aren't in the Servers tab");
 await shot("phone-sessions");
+await tab("Inbox").click();
+await page.locator(".bar-title", { hasText: "Inbox" }).waitFor();
+await page.locator(".list-header", { hasText: "Recent" }).waitFor();
+if (await page.locator(".list-header", { hasText: "Servers" }).count()) throw new Error("the Inbox tab lists the servers");
+await shot("phone-inbox");
+await page.locator(".session-row .row-title", { hasText: "write a.txt" }).first().click();
+await page.getByText("Echo: write a.txt").waitFor();
+if (await tabBar.count()) throw new Error("the tab bar shows over a session");
+await page.getByRole("button", { name: "Back" }).click();
+await page.locator(".bar-title", { hasText: "Inbox" }).waitFor();
+await tab("Servers").click();
+await serverSessions.waitFor(); // where the tab was
+await tab("Servers").click(); // and again, its root
+await page.locator(".bar-title", { hasText: "Servers" }).waitFor();
+await shot("phone-servers");
+await tab("Inbox").click();
+await page.locator(".bar-title", { hasText: "Inbox" }).waitFor();
 
 step("sidebar layouts");
 await page.setViewportSize({ width: 1280, height: 820 });

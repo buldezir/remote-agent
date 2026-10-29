@@ -37,18 +37,7 @@ struct ServersView: View {
             .listStyle(.plain)
             .listBackground(Palette.base)
             .overlay {
-                if store.servers.isEmpty {
-                    ContentUnavailableView {
-                        Label("No servers", systemImage: "desktopcomputer")
-                    } description: {
-                        Text("Run `rad serve` on your computer, then `rad pair` and scan the QR code.")
-                    } actions: {
-                        Button { showAdd = true } label: {
-                            Text("Pair a server").foregroundStyle(Palette.onAccent)
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-                }
+                if store.servers.isEmpty { NoServersView(showAdd: $showAdd) }
             }
             .navigationTitle("Servers")
             .navigationDestination(for: SavedServer.self) { server in
@@ -61,6 +50,7 @@ struct ServersView: View {
                 if let server = store.servers.first(where: { $0.id == route.serverID }) {
                     let connection = store.connection(for: server)
                     SessionView(connection: connection, store: connection.sessionStore(route.sessionID), focusesPrompt: route == startedEmpty)
+                        .toolbar(.hidden, for: .tabBar)
                 }
             }
             .toolbar {
@@ -94,7 +84,8 @@ struct ServersView: View {
             .onChange(of: path.count) { _, count in
                 if count < 2 { startedEmpty = nil }
             }
-            .onChange(of: pendingLink) { _, link in
+            // Initially too: a link switches to this tab, which may only now load.
+            .onChange(of: pendingLink, initial: true) { _, link in
                 if link != nil { showAdd = true }
             }
             .onChange(of: showAdd) { _, shown in

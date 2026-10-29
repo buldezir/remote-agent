@@ -73,8 +73,8 @@ struct RemoteAgentApp: App {
     #endif
 }
 
-/// The app's window: the server list on iPhone, the split view on iPad and
-/// the Mac. A pairing link opens the pairing sheet in it.
+/// The app's window: the Inbox and Servers tabs on iPhone, the split view on
+/// iPad and the Mac. A pairing link opens the pairing sheet in it.
 private struct WindowRoot: View {
     @State private var pendingLink: PairingLink?
     #if os(iOS)
@@ -91,7 +91,7 @@ private struct WindowRoot: View {
             if UIDevice.current.userInterfaceIdiom == .pad {
                 ServerSplitView(pendingLink: $pendingLink)
             } else {
-                ServersView(pendingLink: $pendingLink)
+                PhoneTabs(pendingLink: $pendingLink)
             }
             #endif
         }

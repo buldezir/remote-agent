@@ -43,8 +43,9 @@ fun SettingsView(onBack: () -> Unit) {
     val sidebarLayout = SidebarLayout.parse(layoutName)
     val systemScale = LocalConfiguration.current.fontScale
     // The sidebar's layout and where the terminal opens: for a wide window. A
-    // phone shows a server's sessions in a list of their own, and the terminal
-    // in place of the messages, as there's no room beside them.
+    // phone shows the Inbox and each server's sessions as screens of their
+    // own, and the terminal in place of the messages, as there's no room
+    // beside them.
     val wide = currentWindowAdaptiveInfoV2().windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)
 
     fun setAppearance(a: Appearance) {
