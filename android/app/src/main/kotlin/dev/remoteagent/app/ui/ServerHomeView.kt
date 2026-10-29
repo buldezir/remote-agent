@@ -122,7 +122,7 @@ fun ServerHomeView(
                 val attention = active.filter { it.status == SessionStatus.AWAITING_APPROVAL }
                 fun rows(list: List<Session>) = items(list, key = { it.id }) { s ->
                     SessionRowItem(
-                        s, projects[s.projectId], harnesses?.firstOrNull { it.id == s.harness }, background = palette.base,
+                        s, connection, projects[s.projectId], harnesses?.firstOrNull { it.id == s.harness }, background = palette.base,
                         onClick = { onOpenSession(s.id) },
                         onArchive = { archiving = SessionRequest(s, connection) },
                         onDelete = { deleting = SessionRequest(s, connection) },

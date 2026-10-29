@@ -250,7 +250,10 @@ fun MenuItem(text: String, icon: Int?, color: Color = palette.text, enabled: Boo
     )
 }
 
-/** A row that swipes from the end to reveal one action, as iOS swipe actions do. */
+/**
+ * A row that swipes from the end to reveal one action, as iOS swipe actions
+ * do. A drag past half the row, or a fling, takes it; a shorter one springs back.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SwipeAction(
@@ -265,7 +268,7 @@ fun SwipeAction(
         content()
         return
     }
-    val state = rememberSwipeToDismissBoxState()
+    val state = rememberSwipeToDismissBoxState(positionalThreshold = { it / 2 })
     val scope = rememberCoroutineScope()
     SwipeToDismissBox(
         state = state,

@@ -77,6 +77,11 @@ struct SessionRow: View {
 struct SessionRequest {
     let session: Session
     let connection: ServerConnection
+
+    /// Archives the session without asking, as a swipe does; its worktree stays.
+    func archive(removeWorktree: Bool = false) {
+        Task { try? await connection.archive(session.id, removeWorktree: removeWorktree) }
+    }
 }
 
 extension View {
@@ -89,9 +94,9 @@ extension View {
     func archiveSessionDialog(_ request: Binding<SessionRequest?>) -> some View {
         confirmationDialog("Archive session?", isPresented: .init(get: { request.wrappedValue != nil }, set: { if !$0 { request.wrappedValue = nil } }),
                            presenting: request.wrappedValue) { r in
-            Button("Archive") { archive(r, removeWorktree: false) }
+            Button("Archive") { r.archive() }
             if r.session.workspace.kind == .worktree {
-                Button("Archive and delete worktree", role: .destructive) { archive(r, removeWorktree: true) }
+                Button("Archive and delete worktree", role: .destructive) { r.archive(removeWorktree: true) }
             }
         } message: { r in
             Text(r.session.workspace.kind == .worktree ? "The branch \(r.session.workspace.branch ?? "") is kept either way." : "The agent process is stopped.")
@@ -127,10 +132,6 @@ extension View {
             Text(r.session.workspace.kind == .worktree ? "This can't be undone. The branch \(r.session.workspace.branch ?? "") is kept either way." : "This can't be undone.")
         }
     }
-}
-
-private func archive(_ r: SessionRequest, removeWorktree: Bool) {
-    Task { try? await r.connection.archive(r.session.id, removeWorktree: removeWorktree) }
 }
 
 private func delete(_ r: SessionRequest, removeWorktree: Bool) {

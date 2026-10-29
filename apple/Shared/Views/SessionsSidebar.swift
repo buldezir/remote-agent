@@ -167,8 +167,9 @@ struct NewSessionButton: View {
     }
 }
 
-/// A session's row in a sidebar list: choosing it opens the session, and a
-/// swipe or the context menu archives or deletes it.
+/// A session's row in a sidebar list: choosing it opens the session, a swipe
+/// archives it at once or deletes it, and the context menu archives or
+/// deletes it. Only the swipe's Archive goes ahead without asking.
 struct SessionLink<Content: View>: View {
     let item: ServerSession
     let selected: Bool
@@ -190,7 +191,7 @@ struct SessionLink<Content: View>: View {
         .listRowBackground(SidebarSelection(selected: selected, background: background))
         .swipeActions {
             if !item.session.archived {
-                Button("Archive", systemImage: "archivebox") { actions.archive(request) }
+                Button("Archive", systemImage: "archivebox") { request.archive() }
                     .tint(Palette.blue)
             }
             Button("Delete", systemImage: "trash") { actions.delete(request) }

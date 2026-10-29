@@ -73,7 +73,7 @@ fun SessionRow(session: Session, project: Project?, harness: HarnessInfo?, modif
 
 /**
  * A session in a list: a tap opens it, a long press offers to archive or
- * delete it, and a swipe archives it, or deletes one already archived.
+ * delete it, and a swipe archives it at once, or deletes one already archived.
  * The selected one is drawn as a surface inset from the edges, on the list's
  * [background], which also covers the swipe's colour behind the row.
  */
@@ -81,6 +81,7 @@ fun SessionRow(session: Session, project: Project?, harness: HarnessInfo?, modif
 @Composable
 fun SessionRowItem(
     session: Session,
+    connection: ServerConnection,
     project: Project?,
     harness: HarnessInfo?,
     background: Color,
@@ -92,7 +93,7 @@ fun SessionRowItem(
 ) {
     var menu by remember { mutableStateOf(false) }
     Box(modifier) {
-        SessionSwipe(session.archived, onArchive, onDelete) {
+        SessionSwipe(SessionRequest(session, connection), onDelete) {
             Box(Modifier.background(background)) {
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp)
@@ -108,13 +109,16 @@ fun SessionRowItem(
     }
 }
 
-/** A row's swipe: Archive, or for a session already archived, Delete. */
+/**
+ * A row's swipe: Archive, which goes ahead without asking and keeps a
+ * worktree, or for a session already archived, Delete, which asks first.
+ */
 @Composable
-fun SessionSwipe(archived: Boolean, onArchive: () -> Unit, onDelete: () -> Unit, content: @Composable () -> Unit) {
-    if (archived) {
+fun SessionSwipe(request: SessionRequest, onDelete: () -> Unit, content: @Composable () -> Unit) {
+    if (request.session.archived) {
         SwipeAction("Delete", Icons.delete, palette.red, onSwipe = onDelete, content = content)
     } else {
-        SwipeAction("Archive", Icons.archive, palette.blue, onSwipe = onArchive, content = content)
+        SwipeAction("Archive", Icons.archive, palette.blue, onSwipe = { request.archive() }, content = content)
     }
 }
 
@@ -128,26 +132,30 @@ fun SessionRowMenu(expanded: Boolean, onDismiss: () -> Unit, archived: Boolean, 
 }
 
 /** A session to archive or delete, and the server it is on. */
-data class SessionRequest(val session: Session, val connection: ServerConnection)
+data class SessionRequest(val session: Session, val connection: ServerConnection) {
+    /**
+     * Archives the session without asking. On the connection's scope: the
+     * row or dialog that asked leaves the composition as it goes.
+     */
+    fun archive(removeWorktree: Boolean = false) {
+        connection.scope.launch { runCatching { connection.archive(session.id, removeWorktree) } }
+    }
+}
 
 /** Confirmation before archiving a session, which can also delete its worktree. */
 @Composable
 fun ArchiveSessionDialog(request: SessionRequest?, onDismiss: () -> Unit) {
     request ?: return
-    val (s, connection) = request
-    // On the connection's scope: the dialog leaves the composition as it confirms.
-    fun archive(removeWorktree: Boolean) {
-        connection.scope.launch { runCatching { connection.archive(s.id, removeWorktree) } }
-    }
+    val s = request.session
     val worktree = s.workspace.kind == Workspace.Kind.WORKTREE
     ConfirmDialog(
         title = "Archive session?",
         message = if (worktree) "The branch ${s.workspace.branch ?: ""} is kept either way." else "The agent process is stopped.",
         confirm = "Archive",
         destructive = false,
-        onConfirm = { archive(removeWorktree = false) },
+        onConfirm = { request.archive() },
         onDismiss = onDismiss,
-        extra = if (worktree) "Archive and delete worktree" to { archive(removeWorktree = true) } else null,
+        extra = if (worktree) "Archive and delete worktree" to { request.archive(removeWorktree = true) } else null,
     )
 }
 

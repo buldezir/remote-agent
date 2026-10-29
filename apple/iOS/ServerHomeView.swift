@@ -152,7 +152,7 @@ struct ServerHomeView: View {
         .listRowBackground(Palette.base)
         .swipeActions {
             if !s.archived {
-                Button("Archive", systemImage: "archivebox") { archiving = SessionRequest(session: s, connection: connection) }
+                Button("Archive", systemImage: "archivebox") { SessionRequest(session: s, connection: connection).archive() }
                     .tint(Palette.blue)
             }
             Button("Delete", systemImage: "trash") { deleting = SessionRequest(session: s, connection: connection) }

@@ -60,8 +60,8 @@ import kotlin.math.roundToInt
 
 /**
  * A session's row in a sidebar list: a tap opens it, a long press offers to
- * archive or delete it, and a swipe archives it, or deletes one already
- * archived. The selection is drawn as a surface inset from the edges, on
+ * archive or delete it, and a swipe archives it at once, or deletes one
+ * already archived. The selection is drawn as a surface inset from the edges, on
  * the list's [background], which also covers the swipe's colour behind the row.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -81,7 +81,7 @@ fun SessionLink(
     val archive = { actions.archive(request) }
     val delete = { actions.delete(request) }
     Box(modifier) {
-        SessionSwipe(item.session.archived, archive, delete) {
+        SessionSwipe(request, delete) {
             Box(Modifier.background(background)) {
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = 8.dp).clip(RoundedCornerShape(Metrics.Corner.selection))
