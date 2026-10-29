@@ -77,7 +77,7 @@ func (a *actor) linkImages(text string) (string, []model.ImageRef) {
 
 // linkedImage stores the image file a Markdown image's destination names.
 func (a *actor) linkedImage(dest string) (model.ImageRef, bool) {
-	path, ok := localPath(dest, a.sess.Workspace.Path)
+	path, ok := localPath(dest, a.dir())
 	if !ok {
 		return model.ImageRef{}, false
 	}

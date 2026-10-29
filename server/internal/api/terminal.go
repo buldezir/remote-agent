@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 
 	"remote-agent/internal/model"
+	"remote-agent/internal/orchestrator"
 	"remote-agent/internal/terminal"
 )
 
@@ -92,7 +93,8 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 		fail("archived", "the session is archived")
 		return
 	}
-	if fi, err := os.Stat(sess.Workspace.Path); err != nil || !fi.IsDir() {
+	dir := orchestrator.Workdir(sess.Workspace)
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		fail("no_dir", "the session's folder is gone")
 		return
 	}
@@ -103,7 +105,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 			fail("gone", "the shell has ended")
 			return
 		}
-		if t, err = s.Terminals.Open(sess.ID, sess.Workspace.Path, cols, rows); errors.Is(err, terminal.ErrShutdown) {
+		if t, err = s.Terminals.Open(sess.ID, dir, cols, rows); errors.Is(err, terminal.ErrShutdown) {
 			fail("unavailable", err.Error())
 			return
 		} else if err != nil {

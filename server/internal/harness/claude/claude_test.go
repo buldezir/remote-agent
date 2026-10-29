@@ -448,3 +448,35 @@ func TestReplaySkills(t *testing.T) {
 	}
 	replaytest.CloseClean(t, rt)
 }
+
+func TestReplayWorktree(t *testing.T) {
+	rt, cwd := openReplay(t, "testdata/worktree.ndjson", "claude-rec/ws",
+		harness.OpenOptions{SessionID: "01a1875d-9c34-7ae8-b758-3c1a595d7ecc", Mode: "acceptEdits"})
+	moves := func(turn *replaytest.Turn) []harness.WorkdirChanged {
+		var out []harness.WorkdirChanged
+		for _, ev := range turn.Events {
+			if m, ok := ev.(harness.WorkdirChanged); ok {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+	// Claude enters a worktree of its own, and works there.
+	turn := replaytest.RunTurn(t, rt, "Use the EnterWorktree tool to enter a new worktree named fix. "+
+		"Then create note.txt in it containing the word hi. Then reply with one short sentence.", nil)
+	if got, want := moves(turn), []harness.WorkdirChanged{{Dir: filepath.Join(cwd, ".claude/worktrees/fix")}}; !slices.Equal(got, want) {
+		t.Errorf("moves = %v, want %v", got, want)
+	}
+	if got := moves(replaytest.RunTurn(t, rt, "Reply with just: ok", nil)); len(got) != 0 {
+		t.Errorf("moves = %v, want none", got)
+	}
+	// And leaves it.
+	turn = replaytest.RunTurn(t, rt, "Use the ExitWorktree tool with action keep. Then reply with one short sentence.", nil)
+	if got, want := moves(turn), []harness.WorkdirChanged{{Dir: cwd}}; !slices.Equal(got, want) {
+		t.Errorf("moves = %v, want %v", got, want)
+	}
+	if got := moves(replaytest.RunTurn(t, rt, "Reply with just: ok", nil)); len(got) != 0 {
+		t.Errorf("moves = %v, want none", got)
+	}
+	replaytest.CloseClean(t, rt)
+}

@@ -345,6 +345,9 @@ type frame struct {
 	Message json.RawMessage `json:"message"`
 	Event   json.RawMessage `json:"event"`
 
+	// user: what the tool returned, besides its text for the model
+	ToolUseResult json.RawMessage `json:"tool_use_result"`
+
 	// system/init
 	Model          string `json:"model"`
 	PermissionMode string `json:"permissionMode"`

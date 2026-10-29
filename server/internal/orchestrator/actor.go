@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -445,6 +446,8 @@ func (a *actor) handle(gen int, ev harness.Event) {
 			a.sess.ModelInfo = &m
 			a.write(ctx, a.putSession)
 		}
+	case harness.WorkdirChanged:
+		a.onWorkdir(ctx, ev.Dir)
 	case harness.BackgroundTasks:
 		if !slices.Equal(ev.Tasks, a.sess.BackgroundTasks) {
 			a.sess.BackgroundTasks = ev.Tasks
@@ -1017,21 +1020,80 @@ func (a *actor) dropWorkspace(ctx context.Context, removeWorktree bool) {
 	}
 }
 
-// refreshBranch records the branch checked out in the workspace, which the
-// agent (or the user) may have switched. The caller persists the session.
+// dir is the folder the agent works in: Workdir.
+func (a *actor) dir() string { return Workdir(a.sess.Workspace) }
+
+// refreshBranch records the branch checked out where the agent works, which
+// it (or the user) may have switched. The caller persists the session.
 func (a *actor) refreshBranch(ctx context.Context) {
 	if a.project == nil || !a.project.IsGitRepo {
 		return
 	}
-	a.sess.Workspace.Branch = gitx.CurrentBranch(ctx, a.sess.Workspace.Path)
+	a.sess.Workspace.Branch = gitx.CurrentBranch(ctx, a.dir())
 }
 
-// checkpoint snapshots the workspace; it returns "" for non-git projects.
+// onWorkdir follows the agent to the folder it moved to, such as a worktree
+// it made itself, or back to the workspace. From then on, the branch, the
+// checkpoints, the diffs and a new terminal are that folder's. The turn gets
+// a new first checkpoint there, so that its changes are the ones made in that
+// folder, and the session's changes start from it (movedRef).
+func (a *actor) onWorkdir(ctx context.Context, dir string) {
+	if sameDir(dir, a.sess.Workspace.Path) {
+		dir = ""
+	}
+	if dir == a.sess.Workspace.AgentPath {
+		return
+	}
+	a.o.log.Info("agent moved", a.logAttrs("dir", cmp.Or(dir, a.sess.Workspace.Path))...)
+	a.sess.Workspace.AgentPath = dir
+	a.refreshBranch(ctx)
+	turn := a.turn
+	if turn != nil {
+		if cp := a.checkpoint(ctx, turn.N, "before"); cp != "" {
+			turn.CheckpointBefore = cp
+			if dir != "" {
+				if err := gitx.SetRef(ctx, a.project.Path, movedRef(a.sess.ID), cp); err != nil {
+					a.o.log.Warn("marking the move failed", "session", a.sess.ID, "err", err)
+				}
+			}
+		}
+	}
+	a.write(ctx, func(w *store.W) error {
+		if turn != nil {
+			if err := w.PutTurn(turn); err != nil {
+				return err
+			}
+		}
+		return a.putSession(w)
+	})
+}
+
+// syncBranch records the branch checked out where the agent works when it
+// isn't the session's, such as after a switch in a terminal. It keeps the session's
+// place in the lists: the switch isn't news from the session.
+func (a *actor) syncBranch(ctx context.Context) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deleted || a.sess.Archived {
+		return
+	}
+	old := a.sess.Workspace.Branch
+	if a.refreshBranch(ctx); a.sess.Workspace.Branch == old {
+		return
+	}
+	a.write(ctx, func(w *store.W) error {
+		cp := *a.sess
+		return w.PutSessionKeepingTime(&cp)
+	})
+}
+
+// checkpoint snapshots the folder the agent works in; it returns "" for
+// non-git projects.
 func (a *actor) checkpoint(ctx context.Context, n int, phase string) string {
 	if a.project == nil || !a.project.IsGitRepo {
 		return ""
 	}
-	sha, err := gitx.Checkpoint(ctx, a.sess.Workspace.Path, checkpointRef(a.sess.ID, n, phase),
+	sha, err := gitx.Checkpoint(ctx, a.dir(), checkpointRef(a.sess.ID, n, phase),
 		fmt.Sprintf("rad checkpoint %s turn %d %s", a.sess.ID, n, phase))
 	if err != nil {
 		a.o.log.Warn("checkpoint failed", "session", a.sess.ID, "err", err)

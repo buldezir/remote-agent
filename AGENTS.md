@@ -43,6 +43,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
   Then regenerate the fixtures with `cd server && go test ./internal/api -update`, and assert the new field in `apple/RAKit/Tests/RAKitTests/FixtureTests.swift`, `web/src/protocol/fixtures.test.ts` and `android/core/src/test/kotlin/dev/remoteagent/core/FixtureTests.kt`. Clients ignore unknown fields, so prefer adding optional fields over changing existing ones.
 - **Images:** users upload with `POST /v1/images`, and prompts carry the ids. Adapters store images from agent output through `OpenOptions.Images` and put the refs on the item. Clients fetch them with `GET /v1/images/<id>`. The bytes never travel over the WebSocket.
   - Agents show image files in replies as Markdown images with their paths. The orchestrator stores those files and rewrites the links to `rad-image:<id>` (`orchestrator/linkedimages.go`), and the apps draw them: `AgentMarkdown` on Apple puts an image that stands alone in a paragraph between the texts, where a tap opens it. The text that tells agents to do this goes to each adapter as `OpenOptions.Instructions`; a new adapter has to pass it on too.
+- **The agent's folder:** an agent can move to a folder of its own, such as the worktree Claude Code's EnterWorktree makes in `.claude/worktrees/`. Its adapter reports the move with `harness.WorkdirChanged`, and the session keeps the folder as `workspace.agentPath`. The branch, checkpoints, diffs, revert, image links and the terminal look in `orchestrator.Workdir` (`a.dir()` in the actor), not `Workspace.Path`. The agent itself still starts in `Workspace.Path`; Claude goes back to its worktree when it resumes.
 - **Changing a harness adapter:** never call real agent CLIs from tests. Adapter tests replay recorded transcripts:
   - `server/internal/harness/*/testdata/*.ndjson`, one `{"dir":"in"|"out","frame":…}` per line, driven by `internal/harness/replaytest`.
   - Assert on the emitted `harness.Event`s.
@@ -141,7 +142,7 @@ The developer may have their own `rad serve` running on the default port 7421, w
 
 4. Stop it by its port: `kill $(lsof -tiTCP:7499 -sTCP:LISTEN)`. Don't use `pkill -f "rad serve"`: that matches the developer's rad too, including the one the Server app runs.
 
-Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `picture`, `markdown`, `background [duration]`, and the prompt `/compact`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
+Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `picture`, `markdown`, `background [duration]`, `enter worktree [name]` and `exit worktree`, and the prompt `/compact`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
 
 ## Web client
 

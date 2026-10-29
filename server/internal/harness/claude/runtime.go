@@ -684,6 +684,25 @@ func (r *runtime) onUser(f frame) {
 		}
 		r.emit(harness.ItemEvent{Item: snapshot(it)})
 		delete(r.tools, b.ToolUseID)
+		if !b.IsError && it.ParentItemID == "" {
+			r.onWorktree(it.Tool.Name, f.ToolUseResult)
+		}
+	}
+}
+
+// onWorktree follows Claude into a worktree it made with EnterWorktree, and
+// back out with ExitWorktree. A subagent's worktree is the subagent's.
+func (r *runtime) onWorktree(tool string, result json.RawMessage) {
+	var res struct {
+		WorktreePath string `json:"worktreePath"`
+		RestoredCwd  string `json:"restoredCwd"`
+	}
+	json.Unmarshal(result, &res)
+	switch {
+	case tool == "EnterWorktree" && res.WorktreePath != "":
+		r.emit(harness.WorkdirChanged{Dir: res.WorktreePath})
+	case tool == "ExitWorktree" && res.RestoredCwd != "":
+		r.emit(harness.WorkdirChanged{Dir: res.RestoredCwd})
 	}
 }
 

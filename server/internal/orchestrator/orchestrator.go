@@ -562,14 +562,19 @@ func (o *Orchestrator) Recover(ctx context.Context) error {
 	return err
 }
 
-// Run reaps idle runtimes until ctx is done.
+// Run reaps idle runtimes, and records switched branches, until ctx is done.
 func (o *Orchestrator) Run(ctx context.Context) {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
+	branches := time.NewTicker(branchPoll)
+	defer branches.Stop()
+	heads := map[string]*head{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-branches.C:
+			o.pollBranches(ctx, heads)
 		case <-t.C:
 			o.mu.Lock()
 			actors := make([]*actor, 0, len(o.actors))

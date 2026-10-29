@@ -25,7 +25,7 @@ func fixtures() map[string]any {
 	exit, signalled := 0, 129
 	sess := &model.Session{
 		ID: "s1", ProjectID: "p1", Harness: "claude", Model: "sonnet", Effort: "high", Mode: "default",
-		Workspace: model.Workspace{Kind: model.WorkspaceWorktree, Path: "/w/s1", Branch: "ra/fix-tests", BaseRef: "main"},
+		Workspace: model.Workspace{Kind: model.WorkspaceWorktree, Path: "/w/s1", Branch: "ra/fix-tests", BaseRef: "main", AgentPath: "/w/s1/.claude/worktrees/fix"},
 		Status:    model.SessionAwaitingApproval, NativeID: "n1", Title: "Fix the tests", Unread: true, CreatedAt: t0, UpdatedAt: t1,
 		Context:   &model.ContextUsage{Used: 52000, Window: 200000},
 		ModelInfo: &model.ModelInfo{ID: "claude-sonnet-5-5", Name: "Sonnet 5.5", Effort: "high"},

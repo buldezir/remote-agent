@@ -45,6 +45,7 @@ describe("fixtures", () => {
     expect(session.status).toBe("awaiting_approval");
     expect(session.draft?.images).toHaveLength(1);
     expect(session.workspace.kind).toBe("worktree");
+    expect(session.workspace.agentPath).toBe("/w/s1/.claude/worktrees/fix");
     expect(events[1].turn?.usage?.costUsd).toBe(0.0123);
     const items = events.flatMap((e) => (e.item ? [e.item] : []));
     expect(items).toHaveLength(11);

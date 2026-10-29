@@ -22,6 +22,7 @@ struct FixtureTests {
         let session = try #require(n.params.events[0].session)
         #expect(session.status == .awaitingApproval)
         #expect(session.workspace.kind == .worktree)
+        #expect(session.workspace.agentPath == "/w/s1/.claude/worktrees/fix")
         #expect(session.hasDraft)
         let turn = try #require(n.params.events[1].turn)
         #expect(turn.usage?.costUsd == 0.0123)

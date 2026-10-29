@@ -410,3 +410,49 @@ func TestWorktreesAndRefs(t *testing.T) {
 		t.Error("plain dir is a repo")
 	}
 }
+
+func TestHeadFiles(t *testing.T) {
+	for _, format := range []string{"files", "reftable"} {
+		t.Run(format, func(t *testing.T) {
+			repo := t.TempDir()
+			if out, err := exec.Command("git", "-C", repo, "init", "-q", "-b", "main", "--ref-format="+format).CombinedOutput(); err != nil {
+				t.Skipf("git init --ref-format=%s: %v\n%s", format, err, out)
+			}
+			writeFile(t, repo, "sub/a.txt", "a\n")
+			commitAll(t, repo, "init")
+			wt := filepath.Join(t.TempDir(), "wt")
+			git(t, repo, "worktree", "add", "-q", "-b", "wt", wt)
+
+			// The contents of the files tell a switch, in the repo, in a
+			// subfolder of it, and in a worktree.
+			for _, dir := range []string{repo, filepath.Join(repo, "sub"), wt} {
+				files, err := HeadFiles(ctx, dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				contents := func() string {
+					var b strings.Builder
+					for _, f := range files {
+						if !filepath.IsAbs(f) {
+							t.Errorf("%s isn't absolute", f)
+						}
+						data, _ := os.ReadFile(f)
+						b.Write(data)
+					}
+					return b.String()
+				}
+				before := contents()
+				if before == "" {
+					t.Fatalf("%s: no HEAD in %v", dir, files)
+				}
+				git(t, dir, "checkout", "-q", "-b", "switched-"+filepath.Base(dir))
+				if contents() == before {
+					t.Errorf("%s: the files didn't change with the branch", dir)
+				}
+			}
+			if _, err := HeadFiles(ctx, t.TempDir()); err == nil {
+				t.Error("HeadFiles outside a repo succeeded")
+			}
+		})
+	}
+}

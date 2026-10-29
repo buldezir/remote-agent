@@ -14,6 +14,9 @@
 //	"background [duration]" leave a task running in the background (5s by
 //	           default), then start a turn of its own to report on it
 //	"logout"   fail the turn as an agent whose login expired does
+//	"enter worktree [name]" move into a worktree of its own, as Claude's
+//	           EnterWorktree does: .claude/worktrees/<name> (fake by default),
+//	           on the branch worktree-<name>; "exit worktree" moves back
 //
 // As the system agent, it names sessions after their first words; its update
 // and login commands are scripts (maintenance.go).
@@ -26,6 +29,7 @@ package fake
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -40,6 +44,7 @@ import (
 	"sync"
 	"time"
 
+	"remote-agent/internal/gitx"
 	"remote-agent/internal/harness"
 	"remote-agent/internal/model"
 )
@@ -91,7 +96,11 @@ type runtime struct {
 	closed    bool
 	done      chan struct{} // closed with the runtime
 	tasks     []model.BackgroundTask
+	worktree  string // the worktree it moved to; "" in the cwd
 }
+
+// dir is the folder the fake works in.
+func (r *runtime) dir() string { return cmp.Or(r.worktree, r.opts.Cwd) }
 
 func (r *runtime) NativeID() string { return r.id }
 func (r *runtime) Commands(context.Context) ([]model.Command, error) {
@@ -174,6 +183,20 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 
 	r.emit(harness.ItemEvent{Item: model.Item{ID: key("think"), Kind: model.ItemReasoning, Status: model.ItemCompleted, Text: "Considering: " + text}})
 
+	if _, after, ok := strings.Cut(text, "enter worktree"); ok {
+		name := "fake"
+		if f := strings.Fields(after); len(f) > 0 && f[0] != "and" {
+			name = f[0]
+		}
+		r.enterWorktree(ctx, key("enter"), name)
+	}
+	if strings.Contains(text, "exit worktree") {
+		r.worktree = ""
+		r.emitItem(model.Item{ID: key("exit"), Kind: model.ItemToolCall, Status: model.ItemCompleted,
+			Tool: &model.ToolCall{Name: "ExitWorktree", Kind: model.ToolOther, Title: "ExitWorktree", Output: "Session is now back in " + r.opts.Cwd}})
+		r.emit(harness.WorkdirChanged{Dir: r.opts.Cwd})
+	}
+
 	if strings.Contains(text, "approve") || strings.Contains(text, "write ") {
 		file := "fake.txt"
 		if _, after, ok := strings.Cut(text, "write "); ok && len(strings.Fields(after)) > 0 {
@@ -209,7 +232,7 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 		}
 		tool.Status = model.ItemInProgress
 		r.emitItem(tool)
-		err := os.WriteFile(filepath.Join(r.opts.Cwd, file), []byte("hello from fake\n"), 0o644)
+		err := os.WriteFile(filepath.Join(r.dir(), file), []byte("hello from fake\n"), 0o644)
 		tool.Status, tool.Tool.Output = model.ItemCompleted, "wrote "+file
 		if err != nil {
 			tool.Status, tool.Tool.Output = model.ItemFailed, err.Error()
@@ -285,7 +308,7 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 		msg.Text += "\n\n" + sampleMarkdown
 	}
 	if strings.Contains(text, "picture") {
-		path := filepath.Join(r.opts.Cwd, fmt.Sprintf("picture-%d.png", n))
+		path := filepath.Join(r.dir(), fmt.Sprintf("picture-%d.png", n))
 		if err := os.WriteFile(path, screenshot(n), 0o644); err == nil {
 			msg.Text += "\n\n![Picture](" + path + ")"
 		}
@@ -293,6 +316,23 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 	msg.Status = model.ItemCompleted
 	r.emit(harness.ItemEvent{Item: msg})
 	end(model.TurnCompleted, "")
+}
+
+// enterWorktree makes a worktree in the cwd's repo and moves into it, as
+// Claude's EnterWorktree does.
+func (r *runtime) enterWorktree(ctx context.Context, id, name string) {
+	path, branch := filepath.Join(r.opts.Cwd, ".claude", "worktrees", name), "worktree-"+name
+	tool := model.Item{ID: id, Kind: model.ItemToolCall, Status: model.ItemCompleted,
+		Tool: &model.ToolCall{Name: "EnterWorktree", Kind: model.ToolOther, Title: "EnterWorktree",
+			Output: "Created worktree at " + path + " on branch " + branch}}
+	if err := gitx.AddWorktree(ctx, r.opts.Cwd, path, branch, ""); err != nil {
+		tool.Status, tool.Tool.Output = model.ItemFailed, err.Error()
+		r.emitItem(tool)
+		return
+	}
+	r.emitItem(tool)
+	r.worktree = path
+	r.emit(harness.WorkdirChanged{Dir: path})
 }
 
 // sampleMarkdown is the reply to "markdown": the blocks the apps draw.

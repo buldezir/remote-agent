@@ -17,6 +17,8 @@ public struct Workspace: Codable, Hashable, Sendable {
     public var path: String
     public var branch: String?
     public var baseRef: String?
+    /// The folder the agent moved to and works in, such as a worktree it made itself; `branch` is that folder's.
+    public var agentPath: String?
 }
 
 public enum SessionStatus: String, Codable, Sendable {

@@ -18,6 +18,8 @@ export interface Workspace {
   path: string;
   branch?: string;
   baseRef?: string;
+  /** The folder the agent moved to and works in, such as a worktree it made itself; branch is that folder's. */
+  agentPath?: string;
 }
 
 export type SessionStatus = Open<"idle" | "running" | "awaiting_approval" | "stopped" | "error">;

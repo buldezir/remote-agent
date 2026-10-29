@@ -316,6 +316,36 @@ func (s *Store) Session(ctx context.Context, id string) (*model.Session, error) 
 	return one(querySessions(ctx, s.db, `SELECT data, item_count FROM sessions WHERE id=?`, id))
 }
 
+// GitWorkspace is where a session works: its path, the agent's own folder
+// and the branch it has recorded.
+type GitWorkspace struct {
+	SessionID string
+	Workspace model.Workspace
+}
+
+// GitWorkspaces lists the workspaces of the unarchived sessions in git
+// projects, without reading the whole sessions.
+func (s *Store) GitWorkspaces(ctx context.Context) ([]GitWorkspace, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT s.id, json_extract(s.data, '$.workspace.path'), coalesce(json_extract(s.data, '$.workspace.agentPath'), ''),
+		        coalesce(json_extract(s.data, '$.workspace.branch'), '')
+		 FROM sessions s JOIN projects p ON p.id = s.project_id
+		 WHERE coalesce(json_extract(s.data, '$.archived'), 0) = 0 AND json_extract(p.data, '$.isGitRepo') = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GitWorkspace
+	for rows.Next() {
+		var ws GitWorkspace
+		if err := rows.Scan(&ws.SessionID, &ws.Workspace.Path, &ws.Workspace.AgentPath, &ws.Workspace.Branch); err != nil {
+			return nil, err
+		}
+		out = append(out, ws)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) Turns(ctx context.Context, sessionID string) ([]*model.Turn, error) {
 	return queryJSON[model.Turn](ctx, s.db, `SELECT data FROM turns WHERE session_id=? ORDER BY n`, sessionID)
 }

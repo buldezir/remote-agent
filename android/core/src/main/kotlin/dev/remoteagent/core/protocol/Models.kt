@@ -42,6 +42,8 @@ data class Workspace(
     val path: String,
     val branch: String? = null,
     val baseRef: String? = null,
+    /** The folder the agent moved to and works in, such as a worktree it made itself; [branch] is that folder's. */
+    val agentPath: String? = null,
 ) {
     @Serializable(with = Kind.Serializer::class)
     enum class Kind(override val wire: String) : WireEnum {

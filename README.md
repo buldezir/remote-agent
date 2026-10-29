@@ -406,6 +406,7 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 - `markdown`: adds Markdown to the reply: a heading, lists, a task list, a code block, a quote and a table
 - `background [duration]`: leaves a task running in the background (5s by default, or for example `background 1m`), then starts a turn of its own to report on it
 - `logout`: fails the turn as an agent whose login expired does, so Server Settings shows Fake as signed out
+- `enter worktree [name]`: moves into a git worktree of its own, `.claude/worktrees/<name>` on the branch `worktree-<name>`, as Claude Code's EnterWorktree does, so the session's branch and changes follow it there; `exit worktree` moves back
 - `/compact`: marks the transcript with *Context compacted* and reports less context in use
 
 It also says how many images came with a prompt. `rad debug run --image shot.png "…"` attaches one from the command line.

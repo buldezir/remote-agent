@@ -61,6 +61,7 @@ class FixtureTests {
         val session = assertNotNull(events[0].session)
         assertEquals(SessionStatus.AWAITING_APPROVAL, session.status)
         assertEquals(Workspace.Kind.WORKTREE, session.workspace.kind)
+        assertEquals("/w/s1/.claude/worktrees/fix", session.workspace.agentPath)
         assertTrue(session.unread)
         assertEquals("Then update the changelog", session.draft?.text)
         assertEquals(0.0123, events[1].turn?.usage?.costUsd)

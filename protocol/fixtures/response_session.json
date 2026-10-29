@@ -11,7 +11,8 @@
       "kind": "worktree",
       "path": "/w/s1",
       "branch": "ra/fix-tests",
-      "baseRef": "main"
+      "baseRef": "main",
+      "agentPath": "/w/s1/.claude/worktrees/fix"
     },
     "status": "awaiting_approval",
     "nativeId": "n1",

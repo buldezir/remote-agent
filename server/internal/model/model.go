@@ -30,6 +30,9 @@ type Workspace struct {
 	Path    string        `json:"path"` // effective cwd for the harness
 	Branch  string        `json:"branch,omitempty"`
 	BaseRef string        `json:"baseRef,omitempty"`
+	// AgentPath is the folder the agent moved to and works in, such as a
+	// worktree it made itself; the branch is that folder's.
+	AgentPath string `json:"agentPath,omitempty"`
 }
 
 // ContextUsage is how full the agent's context window was at its last model

@@ -891,6 +891,148 @@ func TestFailedTurn(t *testing.T) {
 	}
 }
 
+func TestBranchSwitchedBetweenTurns(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, true)
+	root := e.create(CreateSessionParams{Prompt: "hi"})
+	e.waitTurn(root.ID, 1)
+	root2 := e.create(CreateSessionParams{Draft: true, Prompt: "later"}) // no turn, no actor
+	wt := e.create(CreateSessionParams{Prompt: "hi", Workspace: WorkspaceParams{Kind: model.WorkspaceWorktree, Branch: "ra/mine"}})
+	e.waitTurn(wt.ID, 1)
+	old := e.create(CreateSessionParams{Prompt: "hi"})
+	e.waitTurn(old.ID, 1)
+	if err := e.o.Archive(bg, old.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	heads := map[string]*head{}
+	branches := func() string {
+		var bs []string
+		for _, id := range []string{root.ID, root2.ID, wt.ID, old.ID} {
+			bs = append(bs, e.session(id).Workspace.Branch)
+		}
+		return strings.Join(bs, " ")
+	}
+
+	e.o.pollBranches(bg, heads)
+	if got := branches(); got != "main main ra/mine main" {
+		t.Fatalf("branches = %s", got)
+	}
+	before := e.session(root.ID)
+
+	// The project's root switches for both of its sessions, the worktree for
+	// its own; the archived session keeps the branch it had.
+	run(t, e.dir, "git", "checkout", "-q", "-b", "feature")
+	run(t, wt.Workspace.Path, "git", "checkout", "-q", "-b", "ra/other")
+	e.o.pollBranches(bg, heads)
+	if got := branches(); got != "feature feature ra/other main" {
+		t.Errorf("branches = %s", got)
+	}
+	// The switch isn't news from the session: it keeps its place in the lists.
+	if s := e.session(root.ID); !s.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Errorf("updatedAt %v → %v", before.UpdatedAt, s.UpdatedAt)
+	}
+	_, seq, err := e.st.Changes(bg, model.IndexStream, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.o.pollBranches(bg, heads)
+	if _, again, _ := e.st.Changes(bg, model.IndexStream, 0); again != seq {
+		t.Errorf("a poll with nothing switched wrote %d changes", again-seq)
+	}
+
+	run(t, e.dir, "git", "checkout", "-q", "--detach")
+	e.o.pollBranches(bg, heads)
+	if got := branches(); got != "  ra/other main" {
+		t.Errorf("detached: branches = %q", got)
+	}
+
+	// A workspace that's gone is left alone, and forgotten.
+	if err := e.o.Delete(bg, wt.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	e.o.pollBranches(bg, heads)
+	if _, ok := heads[wt.Workspace.Path]; ok || len(heads) != 1 {
+		t.Errorf("heads = %v", heads)
+	}
+}
+
+func TestAgentMovesToItsOwnWorktree(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, true)
+	// The user's own file in the project, which the agent's worktree doesn't have.
+	os.WriteFile(filepath.Join(e.dir, "mine.txt"), []byte("mine\n"), 0o644)
+	s := e.create(CreateSessionParams{Mode: "auto", Prompt: "write before.txt"})
+	e.waitTurn(s.ID, 1)
+	diff := func(d *Diff, err error) string {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return fileStats(d.Files)
+	}
+
+	// The agent makes a worktree of its own and works there: the session's
+	// branch, changes and terminal are the worktree's.
+	e.prompt(s.ID, "enter worktree fix", "")
+	e.waitTurn(s.ID, 2)
+	wt := filepath.Join(e.dir, ".claude", "worktrees", "fix")
+	sess := e.session(s.ID)
+	if ws := sess.Workspace; ws.AgentPath != wt || ws.Branch != "worktree-fix" || ws.Path != e.dir {
+		t.Errorf("workspace = %+v", ws)
+	}
+	e.prompt(s.ID, "write note.txt", "")
+	turn := e.waitTurn(s.ID, 3)
+	sess = e.session(s.ID)
+	if _, err := os.Stat(filepath.Join(wt, "note.txt")); err != nil {
+		t.Error(err)
+	}
+	if got := diff(e.o.TurnDiff(bg, turn.ID, nil)); got != "added note.txt" {
+		t.Errorf("turn diff = %s, want the worktree's file alone", got)
+	}
+	if got := diff(e.o.SessionDiff(bg, s.ID, nil)); got != "added note.txt" {
+		t.Errorf("session diff = %s, want the changes since the move", got)
+	}
+	if dir := Workdir(sess.Workspace); dir != wt {
+		t.Errorf("terminal dir = %s", dir)
+	}
+
+	// A branch switched in the worktree shows; one in the project's root doesn't.
+	heads := map[string]*head{}
+	run(t, wt, "git", "checkout", "-q", "-b", "other")
+	run(t, e.dir, "git", "checkout", "-q", "-b", "elsewhere")
+	e.o.pollBranches(bg, heads)
+	if b := e.session(s.ID).Workspace.Branch; b != "other" {
+		t.Errorf("branch = %s", b)
+	}
+
+	// Back in the workspace, it's all the workspace's again, where the
+	// worktree it kept is a new folder.
+	e.prompt(s.ID, "exit worktree", "")
+	e.waitTurn(s.ID, 4)
+	if ws := e.session(s.ID).Workspace; ws.AgentPath != "" || ws.Branch != "elsewhere" {
+		t.Errorf("workspace = %+v", ws)
+	}
+	if got := diff(e.o.SessionDiff(bg, s.ID, nil)); got != "added .claude/worktrees/fix, added before.txt" {
+		t.Errorf("session diff = %s, want the workspace's", got)
+	}
+
+	// A worktree that's gone sends everything back to the workspace.
+	e.prompt(s.ID, "enter worktree gone", "")
+	e.waitTurn(s.ID, 5)
+	ws := e.session(s.ID).Workspace
+	if ws.AgentPath == "" || ws.Branch != "worktree-gone" {
+		t.Fatalf("workspace = %+v", ws)
+	}
+	run(t, e.dir, "git", "worktree", "remove", "--force", ws.AgentPath)
+	if dir := Workdir(ws); dir != e.dir {
+		t.Errorf("dir = %s, want the workspace", dir)
+	}
+	e.o.pollBranches(bg, heads)
+	if b := e.session(s.ID).Workspace.Branch; b != "elsewhere" {
+		t.Errorf("branch = %s, want the workspace's", b)
+	}
+}
+
 func TestSetModeAndArchive(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, true)

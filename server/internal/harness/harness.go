@@ -141,6 +141,10 @@ type ModelInfo struct{ ID, Name, Effort string }
 // each time. They end with the process, so it should not be stopped as idle.
 type BackgroundTasks struct{ Tasks []model.BackgroundTask }
 
+// WorkdirChanged reports the folder the agent moved to, such as a worktree
+// it made itself, or back to.
+type WorkdirChanged struct{ Dir string }
+
 // Exited is the last event; the runtime is unusable afterwards.
 type Exited struct{ Err error }
 
@@ -154,6 +158,7 @@ func (ModeChanged) isEvent()       {}
 func (ContextUsage) isEvent()      {}
 func (ModelInfo) isEvent()         {}
 func (BackgroundTasks) isEvent()   {}
+func (WorkdirChanged) isEvent()    {}
 func (Exited) isEvent()            {}
 
 type Response struct {

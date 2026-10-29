@@ -39,7 +39,12 @@ func IsRepo(ctx context.Context, dir string) bool {
 }
 
 func Head(ctx context.Context, dir string) (string, error) {
-	out, err := run(ctx, dir, nil, "rev-parse", "--verify", "-q", "HEAD")
+	return Resolve(ctx, dir, "HEAD")
+}
+
+// Resolve returns the commit rev names, such as a ref.
+func Resolve(ctx context.Context, dir, rev string) (string, error) {
+	out, err := run(ctx, dir, nil, "rev-parse", "--verify", "-q", rev)
 	return strings.TrimSpace(out), err
 }
 
@@ -48,6 +53,24 @@ func Head(ctx context.Context, dir string) (string, error) {
 func CurrentBranch(ctx context.Context, dir string) string {
 	out, _ := run(ctx, dir, nil, "symbolic-ref", "--short", "-q", "HEAD")
 	return strings.TrimSpace(out)
+}
+
+// HeadFiles returns the files whose contents change when the branch checked
+// out in dir does, so that a watcher reads them instead of running git: HEAD,
+// and the reftable stack that holds HEAD in a repo with reftable refs, whose
+// HEAD file is a stub.
+func HeadFiles(ctx context.Context, dir string) ([]string, error) {
+	out, err := run(ctx, dir, nil, "rev-parse", "--git-path", "HEAD", "--git-path", "reftable/tables.list")
+	if err != nil {
+		return nil, err
+	}
+	files := strings.Split(strings.TrimSpace(out), "\n")
+	for i, f := range files {
+		if !filepath.IsAbs(f) {
+			files[i] = filepath.Join(dir, f)
+		}
+	}
+	return files, nil
 }
 
 // RenameBranch renames a branch, also the one checked out in dir.
@@ -136,6 +159,12 @@ func Checkpoint(ctx context.Context, dir, ref, message string) (string, error) {
 		return "", err
 	}
 	return sha, nil
+}
+
+// SetRef points ref at sha.
+func SetRef(ctx context.Context, dir, ref, sha string) error {
+	_, err := run(ctx, dir, nil, "update-ref", ref, sha)
+	return err
 }
 
 func DeleteRefs(ctx context.Context, dir, prefix string) error {
