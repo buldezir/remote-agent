@@ -563,8 +563,7 @@ struct SessionView: View {
             let text = store.draft, sent = attachments.entries
             store.draft = ""
             attachments.clear()
-            // Back to the foot of the transcript, which then follows the reply.
-            withAnimation { scrollPosition.scrollTo(edge: .bottom) }
+            scrollToFoot()
             Task {
                 do {
                     try await store.send(text, images: sent.compactMap(\.ref))
@@ -599,7 +598,7 @@ struct SessionView: View {
 
     /// Sends the session's draft as its prompt.
     private func sendDraft() {
-        withAnimation { scrollPosition.scrollTo(edge: .bottom) }
+        scrollToFoot()
         Task { await run { try await store.sendDraft() } }
     }
 
@@ -627,8 +626,16 @@ struct SessionView: View {
     /// Runs a slash command, as a prompt of its own: the draft stays. While
     /// a turn runs, it waits for it, like a follow-up.
     private func send(_ command: SlashCommand) {
-        withAnimation { scrollPosition.scrollTo(edge: .bottom) }
+        scrollToFoot()
         Task { await run { try await store.send(command.prompt) } }
+    }
+
+    /// Back to the foot of the transcript, which then follows the reply. Not
+    /// animated: in a long transcript an animated jump goes by the estimated
+    /// heights of the rows it passes, which change as they're laid out, and
+    /// it often stopped short of the foot, or past it in blank space.
+    private func scrollToFoot() {
+        scrollPosition.scrollTo(edge: .bottom)
     }
 
     private var placeholder: String {
