@@ -20,6 +20,7 @@ struct ServerSplitView: View {
     /// A session started empty, whose prompt takes the keyboard when it opens.
     @State private var startedEmpty: SessionRoute?
     @State private var archiving: SessionRequest?
+    @State private var archivingOld: [ServerSession]?
     @State private var deleting: SessionRequest?
     @State private var removing: SavedServer?
     @State private var managing: ServerRequest?
@@ -104,6 +105,7 @@ struct ServerSplitView: View {
             .environment(\.sessionActions, SessionActions(
                 startSession: { newSession = inChosenProject($0) },
                 archive: { archiving = $0 },
+                archiveOld: { archivingOld = $0 },
                 delete: { deleting = $0 },
                 remove: { removing = $0 },
                 manage: { managing = ServerRequest(connection: $0) }))
@@ -169,6 +171,7 @@ struct ServerSplitView: View {
             NavigationSplitView {
                 CollectionsSidebar(collection: collection, showAdd: $showAdd)
                     .removeServerDialog($removing)
+                    .archiveOldSessionsDialog($archivingOld)
                     #if os(macOS)
                     .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 300)
                     #else
@@ -190,6 +193,7 @@ struct ServerSplitView: View {
             NavigationSplitView {
                 SessionsSidebar(layout: layout, selection: selection, showAdd: $showAdd)
                     .archiveSessionDialog($archiving)
+                    .archiveOldSessionsDialog($archivingOld)
                     .deleteSessionDialog($deleting)
                     .removeServerDialog($removing)
                     #if os(macOS)

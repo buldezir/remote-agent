@@ -68,8 +68,9 @@ private struct SidebarList: ViewModifier {
     }
 }
 
-/// The sidebar's toolbar: a new session, and on iPad, pairing and Settings,
-/// which the Mac has at the foot of the sidebar and in the app menu.
+/// The sidebar's toolbar: a new session, archiving old ones, and on iPad,
+/// pairing and Settings, which the Mac has at the foot of the sidebar and in
+/// the app menu.
 struct SidebarToolbar: ToolbarContent {
     var selection: SessionRoute?
     /// In three columns the session list has the button instead.
@@ -77,6 +78,11 @@ struct SidebarToolbar: ToolbarContent {
     @Binding var showAdd: Bool
 
     var body: some ToolbarContent {
+        #if os(macOS)
+        ToolbarItem(placement: .primaryAction) {
+            ArchiveOldSessionsButton()
+        }
+        #endif
         if newSession {
             ToolbarItem(placement: .primaryAction) {
                 NewSessionButton(selection: selection)
@@ -84,12 +90,31 @@ struct SidebarToolbar: ToolbarContent {
         }
         #if os(iOS)
         ToolbarItem(placement: .secondaryAction) {
+            ArchiveOldSessionsButton()
+        }
+        ToolbarItem(placement: .secondaryAction) {
             Button("Pair a server", systemImage: "plus") { showAdd = true }
         }
         ToolbarItem(placement: .secondaryAction) {
             SettingsButton()
         }
         #endif
+    }
+}
+
+/// Archives, once the split view confirms, every connected server's sessions
+/// with nothing new for a week.
+struct ArchiveOldSessionsButton: View {
+    @Environment(ServerStore.self) private var store
+    @Environment(\.sessionActions) private var actions
+
+    var body: some View {
+        // Counted again on the click: the body only runs again when a session changes.
+        let none = store.oldSessions().isEmpty
+        Button("Archive old sessions", systemImage: "archivebox") { actions.archiveOld(store.oldSessions()) }
+            .help(none ? "No sessions older than \(ServerStore.oldSessionAge) days"
+                       : "Archive sessions with nothing new for \(ServerStore.oldSessionAge) days")
+            .disabled(none)
     }
 }
 

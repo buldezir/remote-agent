@@ -37,6 +37,8 @@ enum SidebarLayout: String, CaseIterable, Identifiable {
 struct SessionActions {
     var startSession: (NewSessionRequest) -> Void = { _ in }
     var archive: (SessionRequest) -> Void = { _ in }
+    /// Every connected server's sessions with nothing new for a week (`ServerStore.oldSessions`).
+    var archiveOld: ([ServerSession]) -> Void = { _ in }
     var delete: (SessionRequest) -> Void = { _ in }
     var remove: (SavedServer) -> Void = { _ in }
     var manage: (ServerConnection) -> Void = { _ in }
@@ -151,6 +153,23 @@ extension ServerStore {
         connections
             .flatMap { c in (archived ? c.archivedSessions : c.activeSessions).map { ServerSession(connection: c, session: $0) } }
             .sorted { $0.session.updatedAt > $1.session.updatedAt }
+    }
+
+    /// In days.
+    static let oldSessionAge = 7
+
+    /// The connected servers' sessions with nothing new for a week, to archive
+    /// at once. Reading a session leaves its `updatedAt` as it was. Work in
+    /// progress stays: a session that runs, waits for an answer or keeps a
+    /// draft to send.
+    func oldSessions(now: Date = .now) -> [ServerSession] {
+        guard let cutoff = Calendar.current.date(byAdding: .day, value: -Self.oldSessionAge, to: now) else { return [] }
+        return connections
+            .filter { $0.state == .connected }
+            .flatMap { c in c.activeSessions.map { ServerSession(connection: c, session: $0) } }
+            .filter { s in
+                s.session.updatedAt < cutoff && !s.session.isBusy && s.session.status != .awaitingApproval && !s.session.hasDraft
+            }
     }
 
     /// Where a new session starts: in the project chosen in the Columns

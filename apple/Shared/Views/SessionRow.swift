@@ -98,6 +98,23 @@ extension View {
         }
     }
 
+    /// Confirmation before archiving the sessions with nothing new for a week,
+    /// on every connected server. Their worktrees stay.
+    func archiveOldSessionsDialog(_ sessions: Binding<[ServerSession]?>) -> some View {
+        let count = sessions.wrappedValue?.count ?? 0
+        return confirmationDialog(count == 1 ? "Archive 1 session?" : "Archive \(count) sessions?",
+                                  isPresented: .init(get: { sessions.wrappedValue != nil }, set: { if !$0 { sessions.wrappedValue = nil } }),
+                                  presenting: sessions.wrappedValue) { list in
+            Button("Archive") {
+                Task {
+                    for s in list { try? await s.connection.archive(s.session.id, removeWorktree: false) }
+                }
+            }
+        } message: { _ in
+            Text("Sessions on every connected server with nothing new for \(ServerStore.oldSessionAge) days. Their worktrees are kept.")
+        }
+    }
+
     /// Confirmation before deleting a session for good, which can also delete its worktree.
     func deleteSessionDialog(_ request: Binding<SessionRequest?>) -> some View {
         confirmationDialog("Delete session?", isPresented: .init(get: { request.wrappedValue != nil }, set: { if !$0 { request.wrappedValue = nil } }),
