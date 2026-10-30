@@ -460,7 +460,9 @@ struct ApprovalView: View {
             if q.multiSelect != true && !ownText(q).isEmpty { answers[q.question] = [] }
         }
         let placeholder = q.options.isEmpty ? "Your answer…" : "Other…"
-        return HStack(alignment: .firstTextBaseline) {
+        // Centred, as FlowChips' rows: a vertical field's first baseline
+        // sits below the circle's on iOS.
+        return HStack {
             Image(systemName: on ? "checkmark.circle.fill" : "circle")
             TextField(placeholder, text: text, prompt: Text(placeholder).foregroundStyle(Palette.overlay), axis: .vertical)
                 .textFieldStyle(.plain)
