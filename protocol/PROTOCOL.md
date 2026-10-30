@@ -1,6 +1,6 @@
 # Remote Agent wire protocol (v1)
 
-This is the contract between `rad` (the Go server on the dev machine) and its clients (the iOS and Mac apps, the Android app, the web client, `rad debug`).
+This is the contract between `rad` (the Go server on the dev machine) and its clients (the iOS and Mac apps, the Android app, the web client, `ra` in the terminal, `rad debug`).
 Go types in `server/internal/model` and `server/internal/api` are the source of truth. Golden frames in `protocol/fixtures/` are decoded by the Go, Swift, web and Android test suites.
 
 ## Transport

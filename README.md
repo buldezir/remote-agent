@@ -17,6 +17,7 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac, an And
   - see which sessions finished while you were away, marked unread until you open them
 - **Web client**: the same app for a browser, in `web/` (React and TypeScript). In a wide window it has the iPad's sidebar of every server's sessions. For now you run it from its dev server on your computer; see [Running the web client](#running-the-web-client).
 - **Android app**: the same app, native, for Android 16 or later, in `android/` (Kotlin and Jetpack Compose). On a tablet, as on iPad, one sidebar lists every server's sessions next to the one you have open. See [Installing the app on Android](#installing-the-app-on-android).
+- **`ra`**: a terminal client for the rad on the same machine, in Go with Bubble Tea, for when you'd rather stay in a terminal, or reach the computer over SSH. See [The terminal client](#the-terminal-client).
 
 <p>
   <img src="docs/screenshots/iphone-sessions.webp" width="19%" alt="A server's sessions, with three waiting under Needs you">
@@ -239,6 +240,28 @@ Or open http://localhost:5173, choose **Pair a server** and paste the link that 
 - **Sidebar:** in a wide window it lists every paired server with its sessions, those waiting for you first. Click a server's name to hide or show its sessions; the page remembers which you hid. Hover the name for + (a new session on that server) and ⋯ (reconnect, rename or remove it).
 - `npm run build` writes a static site to `web/dist`, which any web server can serve.
 - **Docker:** `web/Dockerfile` serves the client with nginx on port 8080, and `web/compose.example.yaml` runs it. [`.github/workflows/web-image.yml`](.github/workflows/web-image.yml) pushes the image to `ghcr.io/buldezir/remote-agent-web`: `edge` from main, `latest` and the version from a `v*` tag. It builds only when `web/` changed: a tag that leaves `web/` as it was puts its tags on the previous release's image. Add the address you open it at to rad's `web_origins`, such as `"my-server.local:8080"`, then pair with `rad pair --web http://my-server.local:8080`.
+
+## The terminal client
+
+`ra` drives the rad on its own machine from a terminal: the sessions, prompts, approvals, questions and plans the apps have, and Server Settings. It builds from the same Go module as rad, or download `ra-<os>-<arch>.tar.gz` from [Releases](https://github.com/buldezir/remote-agent/releases) and unpack it next to `rad`:
+
+```bash
+cd server && go build -o bin/ra ./cmd/ra
+./bin/ra
+```
+
+- **Pairing:** the first time, ra pairs itself: it runs `rad pair --print-url` and redeems the code over loopback. It finds rad as `$RAD`, on your PATH, or inside the Remote Agent Server app. rad must be running (`rad serve`, the service or the Server app). ra shows in `rad devices` as "ra on <host>"; if you revoke it, it pairs again by itself. `ra pair` pairs again by hand, also from a link (`ra pair "$(rad pair --print-url)"`), and `ra unpair` revokes it.
+- **Files:** ra keeps its token, settings and drafts in `~/.config/ra` (or `$XDG_CONFIG_HOME/ra`), and the images it shows in your cache folder. `RA_HOME=<dir>` puts all of it in `<dir>`. `rad uninstall` leaves them alone.
+- **Layout:** a terminal 100 columns wide or more shows the sessions beside the open one, in the sidebar layout from Settings: Inbox, Projects or Columns (Columns needs 150 columns for all three). A narrower one shows the list, then the session full screen. `ra --layout columns --theme light` tries a layout or theme without saving it.
+- **Keys:** `?` or F1 lists them all.
+  - `tab` moves between the list, the messages and the prompt. `ctrl+n` starts a session, `ctrl+k` jumps to one, `ctrl+p` opens its actions (permission modes, `/compact`, archive, delete, Server Settings, Settings), and `ctrl+b` hides the list or goes back to it.
+  - In the prompt, Return sends; ⇧Return (where the terminal reports it), ⌥Return or `ctrl+j` starts a new line. `/` suggests commands and skills. `ctrl+s` keeps a new session's first prompt as a draft. Esc stops the agent.
+  - When the agent asks, the question takes the prompt's place: `1`–`9` answer, Deny asks for a reason, and a question's choices take the arrows and space.
+  - In the messages, `↑↓` select an item, Return expands a tool call or the agent's thinking (twice shows long output whole), `o` opens its image, `y` copies it, and `s` sends a queued prompt now, or the draft.
+- **Images:** ra draws them in the transcript in half blocks. `o` opens one in the computer's viewer, or full screen in the terminal over SSH. To attach an image, paste its path, or drop the file on the terminal, which pastes its path; the actions menu also has Attach Image….
+- **Notifications:** when a session you aren't looking at needs you, finishes or fails, ra asks the terminal to post a notification (OSC 9 for iTerm2, WezTerm and Ghostty, OSC 99 for kitty, OSC 777 for foot), also through tmux. Settings › Notifications switches to the bell, or off.
+- **Theme:** Catppuccin, as in the apps: Frappé when the terminal is dark, Latte when it's light, or as Settings › Theme says. ra sets the terminal's background while it runs.
+- **Not in ra:** the session's shell and the diff and revert views, other servers than this machine's, dictation, and pasting an image from the clipboard (terminals paste text).
 
 ## Using it
 

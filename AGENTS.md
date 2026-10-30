@@ -13,7 +13,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - Textual comes from our fork, `buldezir/textual`: its `remote-agent` branch is 0.5.0 with fixes to selection (the selection model gets every layout, so text that settles in one frame stays selectable; `textSelectionColor`) and to copying (no list markers). `project.yml` pins its revision; to change Textual, commit to that branch, run its `swift test`, and update the revision.
   - A third target, `RemoteAgentServer` in `apple/ServerApp`, is the Mac menu bar app that runs rad. It shares no code with the clients. Its last build phase, `apple/scripts/build-rad.sh`, compiles rad from `server/` into the app and signs it.
 - **Web client:** `web/`, Vite, React and TypeScript, with no UI kit. It mirrors the apps:
-  - `src/protocol` and `src/store` port RAKit: the same sync rules (`synchronized`, gaps, `resync`), stores and outbox. A change to the client logic in RAKit goes into the web client and `android/core` too.
+  - `src/protocol` and `src/store` port RAKit: the same sync rules (`synchronized`, gaps, `resync`), stores and outbox. A change to the client logic in RAKit goes into the web client, `android/core` and `server/internal/client` too.
   - `src/ui` follows `apple/Shared/Views`: the split layout of the iPad and Mac in a wide window, with the sidebar in the chosen layout (see "Sidebar layouts"), and the iPhone's tabs in a narrow one. Colours are the palette's, as CSS variables in `src/ui/styles.css`; text sizes and fonts are variables that `src/ui/settings.ts` sets.
   - Browsers can't set headers on a WebSocket, so the client sends its token as the subprotocol `rad.token.<token>`. rad answers browsers only from the origins in its config's `web_origins` (default: localhost).
   - Agent Markdown goes through react-markdown, which doesn't render raw HTML; keep it that way, and keep the CSP in `index.html`, since tokens live in localStorage.
@@ -28,8 +28,14 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - Markdown is mikepenz's renderer, wrapped in `ui/AgentMarkdown.kt`, which shows raw HTML as text; keep it that way.
   - Pickers, the QR scanner and the share sheet are activities of their own, so the app stops while they're open and its sockets close. `ServerConnection.uploadImage` waits for the connection to come back.
   - Cleartext is allowed to any host (`res/xml/network_security_config.xml`): rad is plain http/ws on Tailscale and LAN addresses, which a domain config can't name.
-- **Sidebar layouts:** a wide window (iPad, Mac, the web, an Android tablet) shows sessions in one of three layouts, the `sidebarLayout` setting: Inbox (every server's sessions by state, Needs You first), Projects (each server's projects folding open to their sessions) and Columns (Mail's three columns: collections, their sessions, the session). Settings › Sidebar picks one, and on the Mac View › as Inbox, as Projects, as Columns (⌘1–3).
-  - The grouping, the collections and the short ages are in `SidebarLayout` (`Shared/Views/SidebarLayout.swift`, `web/src/ui/sidebarLayout.ts`, Android's `ui/SidebarLayout.kt`), the rows in `SidebarRows`, one file per layout (`InboxSidebar`, `ProjectsSidebar`, `ColumnsSidebar`), and the shared headers and status rows in `SessionsSidebar`. A change to a layout goes to all three clients.
+- **Terminal client:** `ra`, in rad's Go module so that it uses `internal/model` as it is: `cmd/ra` (the command), `internal/client` (the RAKit port) and `internal/tui` (Bubble Tea v2, Bubbles, Lip Gloss, Glamour). It talks only to the rad on its own machine, and pairs itself with `rad pair --print-url` (`client.PairLocal`); a revoked token pairs it again through `ServerConnection.Reauthorize`.
+  - `internal/client` has RAKit's names (`RPCClient`, `ServerConnection`, `SessionStore`, `ServerStore`, `ServerTaskProgress`, `ImageCache`) and its rules; its tests port the web client's. Its results that `model` lacks are in `wire.go`, checked against `protocol/fixtures` by `fixtures_test.go`.
+  - Client state changes on one goroutine, the `Dispatcher`'s, as the apps change theirs on the main thread. ra's is Bubble Tea's `Update`, which drains a `client.Queue` first thing, so `View` reads the stores without locks. Network goroutines post what they find; blocking calls (`Call`, `Deliver`, the `Job`s commands return) run in `tea.Cmd`s. Never block in `Update`.
+  - ra mustn't link rad's server: `cmd/ra`'s test fails if `go list -deps` finds the store, the API, the orchestrator, the harnesses or SQLite. Tests start a rad with `internal/client/radtest`, which only tests may import.
+  - Views follow `apple/Shared/Views` and `web/src/ui`: the three sidebars (`sidebar.go`), the transcript (`session.go`, `items.go`), the composer, the approval dock in its place, the new-session form, Server Settings. Colours are the palette's (`theme.go`, Frappé and Latte, Glamour's styles included). Agent Markdown (`markdown.go`) keeps raw HTML as text: it escapes the `<` of goldmark's HTML nodes, which Glamour would sanitize away.
+  - Overlays (menus, forms, the switcher) stack in `Model.overlays`; the top one gets the keys, and every one gets the other messages. Commands' results come back as messages that carry their view, so a stale one is dropped.
+- **Sidebar layouts:** a wide window (iPad, Mac, the web, an Android tablet, a wide terminal) shows sessions in one of three layouts, the `sidebarLayout` setting: Inbox (every server's sessions by state, Needs You first), Projects (each server's projects folding open to their sessions) and Columns (Mail's three columns: collections, their sessions, the session). Settings › Sidebar picks one, and on the Mac View › as Inbox, as Projects, as Columns (⌘1–3).
+  - The grouping, the collections and the short ages are in `SidebarLayout` (`Shared/Views/SidebarLayout.swift`, `web/src/ui/sidebarLayout.ts`, Android's `ui/SidebarLayout.kt`, ra's `internal/client/sidebar.go`), the rows in `SidebarRows`, one file per layout (`InboxSidebar`, `ProjectsSidebar`, `ColumnsSidebar`), and the shared headers and status rows in `SessionsSidebar`. A change to a layout goes to all the clients.
   - The split view (`ServerSplitView`, `Split` in `web/src/ui/App.tsx`) shows the new-session, archive and remove-server confirmations for every layout; rows ask for them through `SessionActions` (`ServerActions` on the web). On iPad each confirmation sits on the column its rows are in, where the popover points.
   - On Android, Columns puts the collections and the session list side by side in the list pane, made wider through the scaffold directive (`listPaneWidth`): a scene keeps the pane width it was first given.
   - Phones have two tabs, and so do narrow windows on Android and the web: Inbox, every server's sessions in the Inbox layout without its Servers section, and Servers, the server list, which pushes a server's own list, with `SessionRow`. Each tab keeps its place, and the tab bar hides in a session. On iPhone the Inbox is a `NavigationStack` around `InboxSidebar` (`iOS/InboxView.swift`), not the split view: a `NavigationSplitView` inside a `TabView` loops in its toolbar's layout there.
@@ -38,9 +44,10 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - `apple/RAKit/Sources/RAKit/Protocol/Models.swift`
   - `web/src/protocol/models.ts`
   - `android/core/src/main/kotlin/dev/remoteagent/core/protocol/Models.kt`
+  - `server/internal/client/wire.go`, for a result that isn't in `model`
   - `protocol/PROTOCOL.md`
 
-  Then regenerate the fixtures with `cd server && go test ./internal/api -update`, and assert the new field in `apple/RAKit/Tests/RAKitTests/FixtureTests.swift`, `web/src/protocol/fixtures.test.ts` and `android/core/src/test/kotlin/dev/remoteagent/core/FixtureTests.kt`. Clients ignore unknown fields, so prefer adding optional fields over changing existing ones.
+  Then regenerate the fixtures with `cd server && go test ./internal/api -update`, and assert the new field in `apple/RAKit/Tests/RAKitTests/FixtureTests.swift`, `web/src/protocol/fixtures.test.ts`, `android/core/src/test/kotlin/dev/remoteagent/core/FixtureTests.kt` and `server/internal/client/fixtures_test.go`. Clients ignore unknown fields, so prefer adding optional fields over changing existing ones.
 - **Images:** users upload with `POST /v1/images`, and prompts carry the ids. Adapters store images from agent output through `OpenOptions.Images` and put the refs on the item. Clients fetch them with `GET /v1/images/<id>`. The bytes never travel over the WebSocket.
   - Agents show image files in replies as Markdown images with their paths. The orchestrator stores those files and rewrites the links to `rad-image:<id>` (`orchestrator/linkedimages.go`), and the apps draw them: `AgentMarkdown` on Apple puts an image that stands alone in a paragraph between the texts, where a tap opens it. The text that tells agents to do this goes to each adapter as `OpenOptions.Instructions`; a new adapter has to pass it on too.
 - **The agent's folder:** an agent can move to a folder of its own, such as the worktree Claude Code's EnterWorktree makes in `.claude/worktrees/`. Its adapter reports the move with `harness.WorkdirChanged`, and the session keeps the folder as `workspace.agentPath`. The branch, checkpoints, diffs, revert, image links and the terminal look in `orchestrator.Workdir` (`a.dir()` in the actor), not `Workspace.Path`. The agent itself still starts in `Workspace.Path`; Claude goes back to its worktree when it resumes.
@@ -143,6 +150,37 @@ The developer may have their own `rad serve` running on the default port 7421, w
 4. Stop it by its port: `kill $(lsof -tiTCP:7499 -sTCP:LISTEN)`. Don't use `pkill -f "rad serve"`: that matches the developer's rad too, including the one the Server app runs.
 
 Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `picture`, `markdown`, `background [duration]`, `enter worktree [name]` and `exit worktree`, and the prompt `/compact`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
+
+## Terminal client
+
+Run ra against a scratch rad, with a home of its own, so that it pairs with the scratch rad and leaves the developer's `~/.config/ra` alone. `RAD` names the rad it pairs with:
+
+```bash
+go -C server build -o $SCRATCH/ra ./cmd/ra
+RA_HOME=$SCRATCH/rahome RAD_HOME=$SCRATCH/radhome RAD=$PWD/server/bin/rad $SCRATCH/ra
+```
+
+- **Drive it:** `cmd/ra/e2e` runs ra in a pseudo-terminal behind a terminal emulator (`charmbracelet/x/vt`), and serves its screen and keys over HTTP, on a Unix socket or a loopback port. A socket's path must be short (macOS allows about 100 bytes), so a port is often simpler. It passes its environment on:
+
+  ```bash
+  go -C server build -o $SCRATCH/drive ./cmd/ra/e2e
+  RA_HOME=$SCRATCH/rahome RAD_HOME=$SCRATCH/radhome RAD=… $SCRATCH/drive -listen 127.0.0.1:7598 -cols 150 -rows 40 -- $SCRATCH/ra &
+  curl -s 127.0.0.1:7598/wait --get --data-urlencode 'text=ctrl+n'     # waits for text on the screen
+  curl -s 127.0.0.1:7598/keys --data-binary '<c-n>markdown please<enter>'
+  curl -s 127.0.0.1:7598/screen                                       # the screen as text
+  curl -s '127.0.0.1:7598/png?path=/tmp/shot.png'                      # as a picture, in the Mac's fonts
+  ```
+
+  Keys are text with names in angle brackets (`<enter>`, `<esc>`, `<tab>`, `<s-tab>`, `<up>`, `<c-x>` …). Send `<esc>` on its own: a terminal reads ESC and the key after it as one alt key. `/paste` sends bracketed paste, `/resize?cols=&rows=` resizes, and `ctrl+q` quits ra, which ends the driver.
+- **Its tests** run the real program without a terminal (`tea.WithInput(nil)`), against `radtest`: keys go in as messages, and a filter hands the screen back as text (`internal/tui/tui_test.go`).
+- **Don't let it start a real agent:** new sessions default to Claude Code when the machine has it; choose the Fake agent in the form. Once one session was started with it, the form remembers it.
+- **In Ghostty:** Ghostty 1.4 can be scripted, and it's the real check of keys (kitty keyboard protocol, Shift+Enter), the mouse, paste, colours, images and notifications. Leave the developer's own Ghostty windows alone; quit Ghostty when done if it wasn't running before.
+  - A surface configuration runs ra: `set c to new surface configuration`, `set command of c to "<script that exports RA_HOME, RAD_HOME and RAD, then execs ra>"`, `new window with configuration c`; the terminal's `id` addresses it later (`first terminal whose id is "…"`).
+  - `send key "a" to t`, with `modifiers "shift"` or `"control"`. Its key names aren't the keybind ones: `enter`, `escape`, `space`, `digit1`, `period`, `slash`, `minus`, `arrowDown`. `input text` pastes (bracketed). `send mouse position`/`send mouse button`/`send mouse scroll` take points within the terminal.
+  - Capture the window with `screencapture -x -o -l <id>`, the id from `CGWindowListCopyWindowInfo` (owner `ghostty`).
+  - Scripting Ghostty needs the developer to allow Remote Agent Server to control it (Privacy & Security › Automation); until then every call that names a window hangs while macOS asks. Its notifications need Ghostty's own permission. Ask; don't answer those prompts.
+  - Ghostty withdraws its notifications while its window is in front. Its log shows each one (`Added notification request`): read it with `/usr/bin/log show --predicate 'process == "ghostty"'`, since zsh's `log` is a builtin.
+- **Coverage:** the driver's terminal doesn't post notifications or report Shift+Enter, and its pictures come from its emulator. Check those in Ghostty, or say they weren't.
 
 ## Web client
 
