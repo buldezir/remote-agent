@@ -233,6 +233,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wheel(msg)
 	case tea.MouseClickMsg:
 		cmds = append(cmds, m.click(msg))
+	case tea.MouseMotionMsg:
+		m.motion(msg)
+	case tea.MouseReleaseMsg:
+		cmds = append(cmds, m.release(msg))
 	default:
 		for _, o := range slices.Clone(m.overlays) {
 			if u, ok := o.(interface{ message(*Model, tea.Msg) tea.Cmd }); ok {
@@ -427,6 +431,14 @@ func (m *Model) layout() layout {
 	return l
 }
 
+// paneX is the session pane's first column.
+func (l layout) paneX() int {
+	if l.showSide {
+		return l.sideW + 1
+	}
+	return 0
+}
+
 // View
 
 func (m *Model) View() tea.View {
@@ -596,6 +608,13 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	}
 	if o := m.topOverlay(); o != nil {
 		return o.update(m, k)
+	}
+	// A key clears a selection; Esc only that.
+	if m.sess != nil && m.sess.sel.shown() && !m.sess.sel.down {
+		m.sess.sel = textSelection{}
+		if key == "esc" {
+			return nil
+		}
 	}
 	switch key {
 	case "ctrl+c":
@@ -774,10 +793,26 @@ func (m *Model) click(c tea.MouseClickMsg) tea.Cmd {
 			m.setFocus(focusComposer)
 		} else {
 			m.setFocus(focusTranscript)
-			m.sess.clickTranscript(m, mouse.Y)
+			m.sess.press(mouse.X-l.paneX(), mouse.Y)
 		}
 	}
 	return nil
+}
+
+// motion drags a selection over the transcript.
+func (m *Model) motion(e tea.MouseMotionMsg) {
+	if m.sess == nil || !m.sess.sel.down || len(m.overlays) > 0 {
+		return
+	}
+	mouse := e.Mouse()
+	m.sess.drag(mouse.X-m.layout().paneX(), mouse.Y)
+}
+
+func (m *Model) release(e tea.MouseReleaseMsg) tea.Cmd {
+	if m.sess == nil || !m.sess.sel.down {
+		return nil
+	}
+	return m.sess.release(m)
 }
 
 // newSession opens the new session form, in a project if given.

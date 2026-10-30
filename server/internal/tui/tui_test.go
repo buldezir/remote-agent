@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -28,6 +29,8 @@ type ui struct {
 	p    *tea.Program
 	rad  *radtest.Rad
 	conn *client.ServerConnection
+	// clip gets what the program puts on the clipboard.
+	clip chan string
 }
 
 type probeMsg struct{ ch chan string }
@@ -59,12 +62,19 @@ func startUIWith(t *testing.T, width, height int, setup func(rpc *client.RPCClie
 	conn := client.NewServerConnection(q, saved.URLs, token, ss.Drafts())
 	conn.Images = client.NewImageCache(t.TempDir())
 	m := New(Options{Queue: q, Conn: conn, Store: ss, Dir: dir, Theme: "dark"})
+	clip := make(chan string, 8)
 	p := tea.NewProgram(m,
 		tea.WithInput(nil), tea.WithOutput(io.Discard), tea.WithWindowSize(width, height), tea.WithoutSignalHandler(),
 		tea.WithFilter(func(model tea.Model, msg tea.Msg) tea.Msg {
 			if pr, ok := msg.(probeMsg); ok {
 				pr.ch <- ansi.Strip(model.(*Model).render())
 				return nil
+			}
+			if reflect.TypeOf(msg).String() == "tea.setClipboardMsg" {
+				select {
+				case clip <- reflect.ValueOf(msg).String():
+				default:
+				}
 			}
 			return msg
 		}))
@@ -80,7 +90,7 @@ func startUIWith(t *testing.T, width, height int, setup func(rpc *client.RPCClie
 		q.Drain()
 	})
 	p.Send(tea.WindowSizeMsg{Width: width, Height: height})
-	u := &ui{t: t, p: p, rad: r, conn: conn}
+	u := &ui{t: t, p: p, rad: r, conn: conn, clip: clip}
 	// The status bar's key hints, whatever has focus.
 	u.waitFor(" · ")
 	return u
@@ -449,4 +459,57 @@ func TestHalfBlocks(t *testing.T) {
 	if len(lines) != 5 || ansi.StringWidth(lines[0]) != 20 {
 		t.Fatalf("%d lines of %d", len(lines), ansi.StringWidth(lines[0]))
 	}
+}
+
+// at is where text first shows on the screen: its column and row.
+func at(screen, text string) (int, int, bool) {
+	for y, line := range strings.Split(screen, "\n") {
+		if i := strings.Index(line, text); i >= 0 {
+			return ansi.StringWidth(line[:i]), y, true
+		}
+	}
+	return 0, 0, false
+}
+
+// A drag over the messages selects their text alone, not the sidebar's
+// beside it, and copies it.
+func TestSelectingCopiesTheMessagesAlone(t *testing.T) {
+	u := startUIWith(t, 120, 36, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		ctx := context.Background()
+		var p model.Project
+		if err := rpc.Call(ctx, "project.add", map[string]any{"path": r.Root}, &p); err != nil {
+			t.Fatal(err)
+		}
+		var s model.Session
+		if err := rpc.Call(ctx, "session.create", map[string]any{"commandId": "c1", "projectId": p.ID, "harness": "fake", "workspace": map[string]any{"kind": "root"}}, &s); err != nil {
+			t.Fatal(err)
+		}
+		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: s.ID}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	u.waitFor("No prompts yet")
+	u.key("hello there")
+	u.key("enter")
+	s := u.waitFor("Echo: hello there")
+	x0, y0, ok0 := at(s, "▎ hello there")
+	x1, y1, ok1 := at(s, "Echo: hello there")
+	if !ok0 || !ok1 {
+		t.Fatalf("no prompt or reply on\n%s", s)
+	}
+	// From the prompt's text to the end of the reply.
+	left := tea.MouseLeft
+	u.p.Send(tea.MouseClickMsg{X: x0 + 2, Y: y0, Button: left})
+	u.p.Send(tea.MouseMotionMsg{X: x1 + 5, Y: y1 - 1, Button: left})
+	u.p.Send(tea.MouseMotionMsg{X: x1 + len("Echo: hello there") - 1, Y: y1, Button: left})
+	u.p.Send(tea.MouseReleaseMsg{X: x1 + len("Echo: hello there") - 1, Y: y1, Button: left})
+	select {
+	case got := <-u.clip:
+		if !strings.HasPrefix(got, "hello there\n") || !strings.HasSuffix(got, "\nEcho: hello there") || strings.Contains(got, "│") {
+			t.Errorf("copied %q", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing was copied")
+	}
+	u.waitFor("Copied.")
 }

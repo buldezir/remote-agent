@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -26,7 +27,10 @@ type sessionView struct {
 	cache    map[string]cachedLines
 	blocks   []tblock // as last drawn
 	total    int
-	avail    int // transcript lines last drawn
+	avail    int      // transcript lines last drawn
+	lines    []string // the transcript's lines, as last drawn
+	linesW   int      // and their width
+	sel      textSelection
 
 	bottomHeight int // the dock's or composer's lines, as last drawn
 	headerHeight int
@@ -202,6 +206,10 @@ func (v *sessionView) transcript(m *Model, w, height int) []string {
 		}
 	}
 	v.total, v.avail = len(lines), height
+	v.lines, v.linesW = lines, w
+	if v.sel.width != w {
+		v.sel = textSelection{}
+	}
 	maxScroll := max(0, len(lines)-height)
 	if v.pinned {
 		v.scroll = maxScroll
@@ -211,7 +219,8 @@ func (v *sessionView) transcript(m *Model, w, height int) []string {
 		v.pinned = true
 	}
 	end := min(len(lines), v.scroll+height)
-	out := lines[v.scroll:end]
+	out := slices.Clone(lines[v.scroll:end])
+	v.showSelection(m, out, v.scroll)
 	if v.scroll > 0 && len(out) > 0 {
 		out[0] = spread(out[0], m.st.Faint.Render("↑ more "), w)
 	}

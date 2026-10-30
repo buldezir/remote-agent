@@ -358,6 +358,7 @@ var helpSections = []struct {
 		{"s", "send a queued prompt now, or send the draft"},
 		{"x", "cancel a queued prompt"},
 		{"e", "edit the draft"},
+		{"drag the mouse", "select text, which is copied when you let go"},
 	}},
 	{"Prompt", [][2]string{
 		{"enter", "send"},
