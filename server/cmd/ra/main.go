@@ -27,6 +27,8 @@ Usage:
   ra pair [<link>]     pair again; without a link it asks this machine's rad
                        (rad pair --print-url)
   ra unpair            revoke this device on rad, and forget it
+  ra update [--check] [--force]
+                       install the latest release in place of this ra
   ra version
 
 --theme and --layout try a setting without saving it.
@@ -78,6 +80,8 @@ func run(args []string) error {
 			return pair(store, args[1:], os.Stdout)
 		case "unpair":
 			return unpair(store, os.Stdout)
+		case "update":
+			return updateRa(args[1:], os.Stdout)
 		case "version", "--version", "-v":
 			fmt.Println("ra", version)
 			return nil

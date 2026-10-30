@@ -113,7 +113,7 @@ func (u *selfUpdater) Install(ctx context.Context, t *tasks.Task) error {
 	}
 	t.Println("Downloading rad %s (%s)…", rel.Version, u.client.Asset())
 	old := u.exe + ".old"
-	if err := keepCopy(u.exe, old); err != nil {
+	if err := update.KeepCopy(u.exe, old); err != nil {
 		return writeHint(err, u.exe)
 	}
 	if err := u.client.Install(ctx, rel, u.exe); err != nil {

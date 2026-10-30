@@ -1,5 +1,6 @@
 // Package update finds rad's releases on GitHub and installs them: the
-// tarball for this platform, checked against the release's SHA256SUMS.
+// tarball for this platform, checked against the release's SHA256SUMS. It
+// installs rad, or ra, the terminal client, from the same releases.
 package update
 
 import (
@@ -31,19 +32,35 @@ type Client struct {
 	Repo         string // owner/name
 	HTTP         *http.Client
 	UserAgent    string
-	GOOS, GOARCH string // the platform to install rad for
+	GOOS, GOARCH string // the platform to install for
+	// Name is the binary installed: "rad" (also when empty) or "ra".
+	Name string
 }
 
 // Default is a client for rad's own releases on this platform.
 func Default(version string) *Client {
+	return For("rad", version)
+}
+
+// For is a client that installs name, rad or ra, at version, from rad's
+// releases on this platform.
+func For(name, version string) *Client {
 	return &Client{
 		API:       "https://api.github.com",
 		Repo:      Repo,
 		HTTP:      &http.Client{Timeout: 5 * time.Minute},
-		UserAgent: "rad/" + version,
+		UserAgent: name + "/" + version,
 		GOOS:      runtime.GOOS,
 		GOARCH:    runtime.GOARCH,
+		Name:      name,
 	}
+}
+
+func (c *Client) binary() string {
+	if c.Name == "" {
+		return "rad"
+	}
+	return c.Name
 }
 
 // Release is a published release.
@@ -90,15 +107,17 @@ func (c *Client) Latest(ctx context.Context) (*Release, error) {
 	return rel, nil
 }
 
-// Asset is the name of the release file that holds rad for this platform.
-func (c *Client) Asset() string { return "rad-" + c.GOOS + "-" + c.GOARCH + ".tar.gz" }
+// Asset is the name of the release file that holds the binary for this
+// platform, such as rad-linux-amd64.tar.gz.
+func (c *Client) Asset() string { return c.binary() + "-" + c.GOOS + "-" + c.GOARCH + ".tar.gz" }
 
 // maxSize caps downloads and the unpacked binary.
 const maxSize = 256 << 20
 
-// Install puts the release's rad at dst. It checks the download against the
-// release's SHA256SUMS and runs it once (`rad version`) before it replaces
-// dst, so dst is either the old file or a working new one.
+// Install puts the release's binary at dst. It checks the download against
+// the release's SHA256SUMS and runs it once (`rad version`, `ra version`)
+// before it replaces dst, so dst is either the old file or a working new
+// one.
 func (c *Client) Install(ctx context.Context, rel *Release, dst string) (err error) {
 	asset := c.Asset()
 	url, ok := rel.assets[asset]
@@ -111,7 +130,7 @@ func (c *Client) Install(ctx context.Context, rel *Release, dst string) (err err
 	}
 	// The new file goes next to dst so it can be renamed over it. Creating it
 	// first fails fast where dst's folder can't be written.
-	f, err := os.CreateTemp(filepath.Dir(dst), ".rad-update-*")
+	f, err := os.CreateTemp(filepath.Dir(dst), "."+c.binary()+"-update-*")
 	if err != nil {
 		return err
 	}
@@ -137,7 +156,7 @@ func (c *Client) Install(ctx context.Context, rel *Release, dst string) (err err
 	if got := sha256.Sum256(archive); hex.EncodeToString(got[:]) != want {
 		return fmt.Errorf("%s doesn't match its checksum in SHA256SUMS", asset)
 	}
-	if err := extract(archive, f); err != nil {
+	if err := extract(archive, c.binary(), f); err != nil {
 		return fmt.Errorf("%s: %w", asset, err)
 	}
 	if err := f.Chmod(0o755); err != nil {
@@ -146,7 +165,7 @@ func (c *Client) Install(ctx context.Context, rel *Release, dst string) (err err
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := verify(ctx, f.Name(), rel.Version); err != nil {
+	if err := verify(ctx, f.Name(), c.binary(), rel.Version); err != nil {
 		return err
 	}
 	return os.Rename(f.Name(), dst)
@@ -192,8 +211,8 @@ func checksum(sums []byte, name string) (string, error) {
 	return "", fmt.Errorf("SHA256SUMS has no line for %s", name)
 }
 
-// extract copies the file named rad out of a .tar.gz.
-func extract(archive []byte, w io.Writer) error {
+// extract copies the file named name out of a .tar.gz.
+func extract(archive []byte, name string, w io.Writer) error {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return err
@@ -202,12 +221,12 @@ func extract(archive []byte, w io.Writer) error {
 	for {
 		h, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return errors.New("no rad in the archive")
+			return fmt.Errorf("no %s in the archive", name)
 		}
 		if err != nil {
 			return err
 		}
-		if h.Typeflag == tar.TypeReg && strings.TrimPrefix(h.Name, "./") == "rad" {
+		if h.Typeflag == tar.TypeReg && strings.TrimPrefix(h.Name, "./") == name {
 			if _, err := io.Copy(w, io.LimitReader(tr, maxSize)); err != nil {
 				return err
 			}
@@ -218,15 +237,38 @@ func extract(archive []byte, w io.Writer) error {
 
 // verify runs the new binary, which also catches one built for another
 // platform, and checks that it is the version the release promised.
-func verify(ctx context.Context, path, version string) error {
+func verify(ctx context.Context, path, name, version string) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, path, "version").Output()
 	if err != nil {
-		return fmt.Errorf("the downloaded rad doesn't run: %w", err)
+		return fmt.Errorf("the downloaded %s doesn't run: %w", name, err)
 	}
-	if got := strings.TrimSpace(string(out)); got != "rad "+version {
-		return fmt.Errorf("the downloaded rad says %q, not \"rad %s\"", got, version)
+	if got := strings.TrimSpace(string(out)); got != name+" "+version {
+		return fmt.Errorf("the downloaded %s says %q, not \"%s %s\"", name, got, name, version)
 	}
 	return nil
+}
+
+// KeepCopy saves exe as old, with a hard link where it can, before an
+// install replaces exe.
+func KeepCopy(exe, old string) error {
+	os.Remove(old)
+	if os.Link(exe, old) == nil {
+		return nil
+	}
+	in, err := os.Open(exe)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(old, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

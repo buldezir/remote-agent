@@ -206,3 +206,57 @@ func TestInstall(t *testing.T) {
 		})
 	}
 }
+
+// The same releases hold ra, the terminal client, which installs as rad does.
+func TestInstallRa(t *testing.T) {
+	g := newFakeGitHub(t, script("0.2.0"))
+	ra := tarball(t, map[string]string{"ra": "#!/bin/sh\necho ra 0.2.0\n"})
+	g.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/o/r/releases/latest":
+			json.NewEncoder(w).Encode(map[string]any{
+				"tag_name": "v0.2.0",
+				"assets": []map[string]string{
+					{"name": "ra-linux-amd64.tar.gz", "browser_download_url": g.URL + "/dl/ra"},
+					{"name": "SHA256SUMS", "browser_download_url": g.URL + "/dl/SHA256SUMS"},
+				},
+			})
+		case "/dl/ra":
+			w.Write(ra)
+		case "/dl/SHA256SUMS":
+			w.Write([]byte(sumLine(ra, "ra-linux-amd64.tar.gz")))
+		}
+	})
+	c := g.client()
+	c.Name = "ra"
+	if c.Asset() != "ra-linux-amd64.tar.gz" {
+		t.Fatal(c.Asset())
+	}
+	dst := filepath.Join(t.TempDir(), "ra")
+	rel, err := c.Latest(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Install(context.Background(), rel, dst); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(dst); !strings.Contains(string(got), "ra 0.2.0") {
+		t.Errorf("dst = %q", got)
+	}
+}
+
+func TestKeepCopy(t *testing.T) {
+	dir := t.TempDir()
+	exe, old := filepath.Join(dir, "rad"), filepath.Join(dir, "rad.old")
+	os.WriteFile(exe, []byte("v1"), 0o755)
+	os.WriteFile(old, []byte("v0"), 0o755)
+	if err := KeepCopy(exe, old); err != nil {
+		t.Fatal(err)
+	}
+	// Replacing exe, as Install does, leaves the copy.
+	os.Remove(exe)
+	os.WriteFile(exe, []byte("v2"), 0o755)
+	if got, _ := os.ReadFile(old); string(got) != "v1" {
+		t.Errorf("old = %q", got)
+	}
+}

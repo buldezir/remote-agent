@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -83,7 +82,7 @@ func updateRad(args []string) error {
 
 	fmt.Printf("downloading rad %s (%s)\n", rel.Version, u.Asset())
 	old := exe + ".old"
-	if err := keepCopy(exe, old); err != nil {
+	if err := update.KeepCopy(exe, old); err != nil {
 		return writeHint(err, exe)
 	}
 	if err := u.Install(ctx, rel, exe); err != nil {
@@ -152,28 +151,6 @@ func checkReplaceable(exe string) error {
 		return fmt.Errorf("this rad is part of %s; update it from the app's menu", filepath.Base(exe[:i+len(".app")]))
 	}
 	return nil
-}
-
-// keepCopy saves exe as old, with a hard link where it can.
-func keepCopy(exe, old string) error {
-	os.Remove(old)
-	if os.Link(exe, old) == nil {
-		return nil
-	}
-	in, err := os.Open(exe)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(old, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		return err
-	}
-	return out.Close()
 }
 
 func writeHint(err error, exe string) error {

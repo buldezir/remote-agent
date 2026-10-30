@@ -251,6 +251,7 @@ cd server && go build -o bin/ra ./cmd/ra
 ```
 
 - **Pairing:** the first time, ra pairs itself: it runs `rad pair --print-url` and redeems the code over loopback. It finds rad as `$RAD`, on your PATH, or inside the Remote Agent Server app. rad must be running (`rad serve`, the service or the Server app). ra shows in `rad devices` as "ra on <host>"; if you revoke it, it pairs again by itself. `ra pair` pairs again by hand, also from a link (`ra pair "$(rad pair --print-url)"`), and `ra unpair` revokes it.
+- **Updating:** `ra update` installs the latest release in place of this `ra`, as `rad update` does for rad: it checks the download against the release's `SHA256SUMS`, runs it once, and keeps the old one as `ra.old`. `ra update --check` only says whether a newer one is out, and `--force` replaces a build from source. An `ra` that's open keeps running the old version until you start it again.
 - **Files:** ra keeps its token, settings and drafts in `~/.config/ra` (or `$XDG_CONFIG_HOME/ra`), and the images it shows in your cache folder. `RA_HOME=<dir>` puts all of it in `<dir>`. `rad uninstall` leaves them alone.
 - **Layout:** a terminal 100 columns wide or more shows the sessions beside the open one, in the sidebar layout from Settings: Inbox, Projects or Columns (Columns needs 150 columns for all three). A narrower one shows the list, then the session full screen. `ra --layout columns --theme light` tries a layout or theme without saving it.
 - **Keys:** `?` or F1 lists them all.

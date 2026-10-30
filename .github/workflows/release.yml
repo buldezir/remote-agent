@@ -313,7 +313,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           NOTES: |
             - **rad** (`rad-<os>-<arch>.tar.gz`): the server for Linux and macOS. Unpack it, put `rad` on your PATH and run `rad serve`. From then on, `rad update` installs new releases.
-            - **ra** (`ra-<os>-<arch>.tar.gz`): the terminal client, for the rad on the same machine. Unpack it next to `rad` and run `ra`.
+            - **ra** (`ra-<os>-<arch>.tar.gz`): the terminal client, for the rad on the same machine. Unpack it next to `rad` and run `ra`. From then on, `ra update` installs new releases.
             - **Remote Agent** (`Remote-Agent-macOS-arm64.zip`): the client app for the Mac.
             - **Remote Agent Server** (`Remote-Agent-Server-macOS-arm64.zip`): the menu bar app that runs rad on a Mac.
             - **Remote Agent for Android** (`Remote-Agent-Android.apk`): the client app for Android 16 or later. Open it on the phone and allow installing from your browser; later releases install over it.
