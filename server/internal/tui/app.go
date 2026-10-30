@@ -274,6 +274,19 @@ func (m *Model) afterUpdate() []tea.Cmd {
 			m.conn.MarkRead(id)
 		}
 	}
+	// Landing on an archived session shows its row, once: the fold still
+	// closes.
+	if m.sess != nil && m.sess.store.Session != nil && m.sess.store.Session.Archived {
+		if id := m.sess.store.ID; m.side.revealed != id {
+			m.side.revealed = id
+			if !m.state.Folded["archived"] {
+				m.state.Folded["archived"] = true
+				m.saveState()
+			}
+		}
+	} else {
+		m.side.revealed = ""
+	}
 	if m.sess != nil {
 		cmds = append(cmds, m.sess.sync(m))
 	}
@@ -725,6 +738,10 @@ func (m *Model) toList() {
 	if m.sess != nil {
 		m.side.cursor = "s:" + m.sess.store.ID
 		m.side.inColls = false
+		// An archived session folded away: its fold.
+		if _, ok := m.side.current(m.side.rows(m)); !ok && m.sess.store.Session != nil && m.sess.store.Session.Archived {
+			m.side.cursor = "f:archived"
+		}
 	}
 	m.setFocus(focusSidebar)
 }

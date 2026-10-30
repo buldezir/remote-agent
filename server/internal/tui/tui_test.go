@@ -322,6 +322,41 @@ func TestTypingInTheListDeletesNothing(t *testing.T) {
 	}
 }
 
+// Opening an archived session shows the Archived fold, which still folds.
+func TestFoldsTheArchiveAnArchivedSessionOpened(t *testing.T) {
+	u := startUIWith(t, 120, 36, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		ctx := context.Background()
+		var p model.Project
+		if err := rpc.Call(ctx, "project.add", map[string]any{"path": r.Root}, &p); err != nil {
+			t.Fatal(err)
+		}
+		var s model.Session
+		if err := rpc.Call(ctx, "session.create", map[string]any{"commandId": "c1", "projectId": p.ID, "harness": "fake", "workspace": map[string]any{"kind": "root"}}, &s); err != nil {
+			t.Fatal(err)
+		}
+		if err := rpc.Call(ctx, "session.archive", map[string]any{"sessionId": s.ID}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: s.ID}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	u.waitFor("▾ Archived")
+	u.key("esc")
+	u.waitFor("enter open")
+	u.key("up")
+	u.key("left")
+	u.waitFor("▸ Archived")
+	u.key("down")
+	if s := u.screen(); !strings.Contains(s, "▸ Archived") {
+		t.Errorf("the fold opened again:\n%s", s)
+	}
+	u.key("enter")
+	u.waitFor("▾ Archived")
+	u.key("space")
+	u.waitFor("▸ Archived")
+}
+
 func TestCancelsAQueuedPrompt(t *testing.T) {
 	u := startUI(t, 120, 36)
 	u.key("ctrl+n")

@@ -52,6 +52,9 @@ type sidebar struct {
 	filter    textinput.Model
 	lastRows  []sideRow // as last drawn, for clicks
 	lastColls []sideRow
+	// revealed is the archived session the Archived fold opened for, so
+	// that it opens once and folds again when asked.
+	revealed string
 }
 
 func (s *sidebar) filterText() string {
@@ -120,9 +123,6 @@ func (s *sidebar) archivedRows(m *Model, height int) []sideRow {
 		return nil
 	}
 	open := m.state.Folded["archived"] || s.filterText() != ""
-	if m.sess != nil && m.sess.store.Session != nil && m.sess.store.Session.Archived {
-		open = true
-	}
 	rows := []sideRow{{kind: rowFold, key: "f:archived", title: "Archived", count: len(archived), open: open, height: 1}}
 	if open {
 		rows = append(rows, s.sessionRows(archived, height)...)
