@@ -68,7 +68,7 @@ func newFakeGitHub(t *testing.T, rad string) *fakeGitHub {
 	g.sums = sumLine(g.archive, "rad-linux-amd64.tar.gz") + sumLine([]byte("x"), "rad-darwin-arm64.tar.gz")
 	g.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/repos/o/r/releases/latest":
+		case "/repos/o/r/releases/latest", "/repos/o/r/releases/tags/v0.2.0":
 			g.agent = r.Header.Get("User-Agent")
 			w.WriteHeader(g.status)
 			if g.status != http.StatusOK {
@@ -142,6 +142,20 @@ func TestLatest(t *testing.T) {
 	g.status = http.StatusNotFound
 	if _, err := g.client().Latest(context.Background()); err == nil || !strings.Contains(err.Error(), "no published releases") {
 		t.Errorf("not found: err = %v", err)
+	}
+}
+
+func TestRelease(t *testing.T) {
+	g := newFakeGitHub(t, script("0.2.0"))
+	rel, err := g.client().Release(context.Background(), "0.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Version != "0.2.0" || len(rel.assets) != 2 {
+		t.Errorf("release = %+v", rel)
+	}
+	if _, err := g.client().Release(context.Background(), "0.9.0"); err == nil || !strings.Contains(err.Error(), "o/r has no release 0.9.0") {
+		t.Errorf("missing release: err = %v", err)
 	}
 }
 

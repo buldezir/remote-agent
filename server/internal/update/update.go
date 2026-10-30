@@ -72,9 +72,18 @@ type Release struct {
 
 // Latest returns the newest release, leaving out drafts and prereleases.
 func (c *Client) Latest(ctx context.Context) (*Release, error) {
+	return c.release(ctx, "latest", fmt.Sprintf("%s has no published releases", c.Repo))
+}
+
+// Release returns the release of a version, such as the one this rad is.
+func (c *Client) Release(ctx context.Context, version string) (*Release, error) {
+	return c.release(ctx, "tags/v"+version, fmt.Sprintf("%s has no release %s", c.Repo, version))
+}
+
+func (c *Client) release(ctx context.Context, which, notFound string) (*Release, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	resp, err := c.get(ctx, c.API+"/repos/"+c.Repo+"/releases/latest", "application/vnd.github+json")
+	resp, err := c.get(ctx, c.API+"/repos/"+c.Repo+"/releases/"+which, "application/vnd.github+json")
 	if err != nil {
 		return nil, err
 	}
@@ -91,14 +100,14 @@ func (c *Client) Latest(ctx context.Context) (*Release, error) {
 	json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&body)
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, fmt.Errorf("%s has no published releases", c.Repo)
+		return nil, errors.New(notFound)
 	case resp.StatusCode != http.StatusOK:
 		if body.Message != "" {
 			return nil, fmt.Errorf("GitHub: %s: %s", resp.Status, body.Message)
 		}
 		return nil, fmt.Errorf("GitHub: %s", resp.Status)
 	case !IsRelease(body.TagName):
-		return nil, fmt.Errorf("the latest release's tag %q isn't a version", body.TagName)
+		return nil, fmt.Errorf("the release's tag %q isn't a version", body.TagName)
 	}
 	rel := &Release{Version: strings.TrimPrefix(body.TagName, "v"), URL: body.HTMLURL, assets: map[string]string{}}
 	for _, a := range body.Assets {

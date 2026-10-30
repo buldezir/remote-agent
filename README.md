@@ -243,12 +243,14 @@ Or open http://localhost:5173, choose **Pair a server** and paste the link that 
 
 ## The terminal client
 
-`ra` drives the rad on its own machine from a terminal: the sessions, prompts, approvals, questions and plans the apps have, and Server Settings. It builds from the same Go module as rad, or download `ra-<os>-<arch>.tar.gz` from [Releases](https://github.com/buldezir/remote-agent/releases) and unpack it next to `rad`:
+`ra` drives the rad on its own machine from a terminal: the sessions, prompts, approvals, questions and plans the apps have, and Server Settings. `rad install-ra` installs it next to `rad`, from rad's own release, so that the two versions match. You can also download `ra-<os>-<arch>.tar.gz` from [Releases](https://github.com/buldezir/remote-agent/releases) and unpack it next to `rad`, or build it from the same Go module as rad:
 
 ```bash
-cd server && go build -o bin/ra ./cmd/ra
-./bin/ra
+rad install-ra                 # or: cd server && go build -o bin/ra ./cmd/ra
+ra
 ```
+
+`rad install-ra` checks the download as `rad update` does. It leaves an `ra` that's already there and as new, and won't replace another program called `ra` without `--force`. The Server app's rad is inside the app, where ra can't go, so give it a folder: `"/Applications/Remote Agent Server.app/Contents/MacOS/rad" install-ra --dir ~/.local/bin`.
 
 - **Pairing:** the first time, ra pairs itself: it runs `rad pair --print-url` and redeems the code over loopback. It finds rad as `$RAD`, on your PATH, or inside the Remote Agent Server app. rad must be running (`rad serve`, the service or the Server app). ra shows in `rad devices` as "ra on <host>"; if you revoke it, it pairs again by itself. `ra pair` pairs again by hand, also from a link (`ra pair "$(rad pair --print-url)"`), and `ra unpair` revokes it.
 - **Updating:** `ra update` installs the latest release in place of this `ra`, as `rad update` does for rad: it checks the download against the release's `SHA256SUMS`, runs it once, and keeps the old one as `ra.old`. `ra update --check` only says whether a newer one is out, and `--force` replaces a build from source. An `ra` that's open keeps running the old version until you start it again.
