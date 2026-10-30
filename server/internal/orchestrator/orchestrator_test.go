@@ -723,6 +723,53 @@ func TestSendNow(t *testing.T) {
 	}
 }
 
+func TestCancelQueued(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	s := e.create(CreateSessionParams{Prompt: "slow reply with quite a few words in it"})
+	e.waitFor("streaming", func() bool { return len(byKind(e.items(s.ID), model.ItemAssistantMessage)) == 1 })
+	first := e.prompt(s.ID, "first", "")
+	second := e.prompt(s.ID, "second", "")
+	if err := e.o.CancelQueued(bg, s.ID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	// The turn goes on; the cancelled prompt stays in the transcript, unsent,
+	// and the other starts when the turn ends.
+	if turn := e.waitTurn(s.ID, 1); turn.Status != model.TurnCompleted {
+		t.Errorf("turn 1 = %s", turn.Status)
+	}
+	e.waitTurn(s.ID, 2)
+	turns := e.turns(s.ID)
+	for _, it := range e.items(s.ID) {
+		switch it.ID {
+		case first.ID:
+			if it.Status != model.ItemCancelled || it.TurnID != "" {
+				t.Errorf("cancelled prompt = %+v", it)
+			}
+		case second.ID:
+			if it.TurnID != turns[1].ID {
+				t.Errorf("%q ran in the wrong turn: %+v", it.Text, it)
+			}
+		}
+	}
+	if !strings.Contains(e.log.String(), `msg="queued prompt cancelled"`) {
+		t.Errorf("log:\n%s", e.log.String())
+	}
+
+	// A prompt that has left the queue is left as it is.
+	if err := e.o.CancelQueued(bg, s.ID, second.ID); err != nil {
+		t.Error(err)
+	}
+	for _, it := range e.items(s.ID) {
+		if it.ID == second.ID && it.Status != model.ItemCompleted {
+			t.Errorf("sent prompt = %+v", it)
+		}
+	}
+	if n := len(e.turns(s.ID)); n != 2 {
+		t.Errorf("turns = %d", n)
+	}
+}
+
 // slowInterrupt is the fake harness with an Interrupt that returns only when
 // released, as an agent's reply to it can come after the turn has ended.
 type slowInterrupt struct {

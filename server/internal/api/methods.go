@@ -72,7 +72,7 @@ type interruptParams struct {
 	Force     bool   `json:"force"`
 }
 
-type sendNowParams struct {
+type queuedPromptParams struct {
 	SessionID string `json:"sessionId"`
 	ItemID    string `json:"itemId"`
 }
@@ -233,7 +233,10 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 		return call(raw, func(p interruptParams) (any, error) { return nil, o.Interrupt(ctx, p.SessionID, p.Force) })
 
 	case "session.sendNow":
-		return call(raw, func(p sendNowParams) (any, error) { return nil, o.SendNow(ctx, p.SessionID, p.ItemID) })
+		return call(raw, func(p queuedPromptParams) (any, error) { return nil, o.SendNow(ctx, p.SessionID, p.ItemID) })
+
+	case "session.cancelQueued":
+		return call(raw, func(p queuedPromptParams) (any, error) { return nil, o.CancelQueued(ctx, p.SessionID, p.ItemID) })
 
 	case "session.setMode":
 		return call(raw, func(p setModeParams) (any, error) { return nil, o.SetMode(ctx, p.SessionID, p.Mode) })

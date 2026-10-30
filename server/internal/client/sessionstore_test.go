@@ -266,6 +266,22 @@ func TestSessionStoreSendsAQueuedPromptNow(t *testing.T) {
 	}
 }
 
+func TestSessionStoreCancelsAQueuedPrompt(t *testing.T) {
+	h := &fakeHost{}
+	s := newSessionStore("s", h)
+	if err := s.CancelQueued(context.Background(), "u"); err != nil || h.calls[0].method != "session.cancelQueued" {
+		t.Fatalf("err %v, calls %+v", err, h.calls)
+	}
+	h.err = &RPCError{"method_not_found", "unknown method session.cancelQueued"}
+	if err := s.CancelQueued(context.Background(), "u"); err == nil || err.Error() != "This rad is too old to cancel a queued prompt. Update rad." {
+		t.Fatalf("err %v", err)
+	}
+	h.err = &RPCError{"not_found", "no such item"}
+	if err := s.CancelQueued(context.Background(), "u"); err == nil || err.Error() != "no such item" {
+		t.Fatalf("err %v", err)
+	}
+}
+
 func TestSessionStoreCommandsFallBackOnOldServers(t *testing.T) {
 	h := &fakeHost{err: &RPCError{"method_not_found", "old server"}}
 	s := newSessionStore("s", h)

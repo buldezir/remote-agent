@@ -229,6 +229,27 @@ describe("SessionStore", () => {
     };
     await expect(s.sendNow("u")).rejects.toThrow("no such item");
   });
+
+  it("cancels a queued prompt", async () => {
+    const h = host();
+    const s = new SessionStore("s", h);
+    await s.cancelQueued("u");
+    expect(h.calls).toEqual([["session.cancelQueued", { sessionId: "s", itemId: "u" }]]);
+  });
+
+  it("says when rad is too old to cancel a queued prompt", async () => {
+    const h = host();
+    h.call = async () => {
+      throw new RPCError("method_not_found", "unknown method session.cancelQueued");
+    };
+    const s = new SessionStore("s", h);
+    await expect(s.cancelQueued("u")).rejects.toThrow("This server's rad is too old to cancel a queued prompt. Update rad on it.");
+    // Other errors pass through.
+    h.call = async () => {
+      throw new RPCError("not_found", "no such item");
+    };
+    await expect(s.cancelQueued("u")).rejects.toThrow("no such item");
+  });
 });
 
 it("falls back on old servers but preserves real discovery errors", async () => {

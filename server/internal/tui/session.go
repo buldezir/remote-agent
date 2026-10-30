@@ -525,6 +525,11 @@ func (v *sessionView) transcriptKey(m *Model, k tea.KeyPressMsg) tea.Cmd {
 			id := b.item.ID
 			return m.do(func(ctx context.Context) error { return v.store.SendNow(ctx, id) }, nil)
 		}
+	case "x":
+		if b, ok := v.current(); ok && b.item != nil && b.item.Kind == model.ItemUserMessage && b.item.Status == model.ItemQueued {
+			id := b.item.ID
+			return m.do(func(ctx context.Context) error { return v.store.CancelQueued(ctx, id) }, nil)
+		}
 	case "e":
 		if b, ok := v.current(); ok && b.key == "d:draft" {
 			return v.editDraft(m)

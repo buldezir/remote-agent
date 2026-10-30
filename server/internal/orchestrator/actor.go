@@ -895,6 +895,22 @@ func (a *actor) sendNow(ctx context.Context, itemID string) error {
 	return err
 }
 
+// cancelQueued takes the queued prompt itemID out of the queue, as not sent.
+// Once the prompt has left the queue, it does nothing.
+func (a *actor) cancelQueued(ctx context.Context, itemID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	i := slices.IndexFunc(a.queue, func(q queuedPrompt) bool { return q.item.ID == itemID })
+	if i < 0 {
+		return nil
+	}
+	q := a.queue[i]
+	a.queue = slices.Delete(a.queue, i, i+1)
+	a.o.log.Info("queued prompt cancelled", "session", a.sess.ID, "waited", time.Since(q.queuedAt).Round(time.Millisecond), "device", clientOf(ctx))
+	q.item.Status = model.ItemCancelled
+	return a.write(ctx, func(w *store.W) error { return a.putItem(w, q.item) })
+}
+
 func (a *actor) setMode(ctx context.Context, mode string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()

@@ -312,6 +312,16 @@ class SessionStore(val sessionID: String, private val host: SessionHost?) {
         }
     }
 
+    /** Takes a queued prompt out of the queue, unsent. */
+    suspend fun cancelQueued(itemId: String) {
+        try {
+            c.callRaw("session.cancelQueued", params("sessionId" to sessionID, "itemId" to itemId))
+        } catch (e: RpcError) {
+            if (e.code != "method_not_found") throw e
+            throw RpcError(e.code, "This server's rad is too old to cancel a queued prompt. Update rad on it.")
+        }
+    }
+
     suspend fun respond(approval: Item, option: ApprovalOption, message: String? = null, answers: Map<String, String>? = null) {
         c.callRaw(
             "approval.respond",

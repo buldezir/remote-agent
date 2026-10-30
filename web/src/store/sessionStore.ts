@@ -295,6 +295,18 @@ export class SessionStore extends Observable {
     }
   }
 
+  /** Takes this queued prompt out of the queue, unsent. */
+  async cancelQueued(itemId: string) {
+    try {
+      await this.c.call("session.cancelQueued", { sessionId: this.sessionID, itemId });
+    } catch (e) {
+      if (e instanceof RPCError && e.code === "method_not_found") {
+        throw new RPCError("method_not_found", "This server's rad is too old to cancel a queued prompt. Update rad on it.");
+      }
+      throw e;
+    }
+  }
+
   async respond(approval: Item, optionId: string, message?: string, answers?: Record<string, string>) {
     await this.c.call("approval.respond", {
       commandId: crypto.randomUUID(),

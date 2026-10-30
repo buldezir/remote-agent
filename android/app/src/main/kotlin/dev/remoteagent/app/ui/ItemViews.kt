@@ -79,6 +79,7 @@ fun ItemView(item: Item, store: SessionStore, children: Map<String, List<Item>>)
             item.text ?: "", item.images ?: emptyList(),
             pending = item.status == ItemStatus.QUEUED, cancelled = item.status == ItemStatus.CANCELLED,
             sendNow = if (item.status == ItemStatus.QUEUED) ({ store.sendNow(item.id) }) else null,
+            cancelQueued = if (item.status == ItemStatus.QUEUED) ({ store.cancelQueued(item.id) }) else null,
         )
         ItemKind.ASSISTANT_MESSAGE -> SelectionContainer {
             AgentMarkdown(item.text ?: "", Modifier.testTag("reply"), images = item.images ?: emptyList())
@@ -101,13 +102,14 @@ fun ItemView(item: Item, store: SessionStore, children: Map<String, List<Item>>)
 
 /**
  * A prompt. `pending` fades it, as one waiting to be sent or queued behind the
- * running turn; `sendNow`, for one queued on the server, sends it at once.
+ * running turn; `sendNow`, for one queued on the server, sends it at once, and
+ * `cancelQueued` takes it out of the queue, unsent.
  * `draft` outlines it, as a prompt saved to send later (DraftBubble).
  */
 @Composable
 fun UserBubble(
     text: String, images: List<ImageRef> = emptyList(), pending: Boolean = false, cancelled: Boolean = false,
-    draft: Boolean = false, sendNow: (suspend () -> Unit)? = null,
+    draft: Boolean = false, sendNow: (suspend () -> Unit)? = null, cancelQueued: (suspend () -> Unit)? = null,
 ) {
     val faded = pending || cancelled
     val shape = RoundedCornerShape(Metrics.Corner.bubble)
@@ -130,38 +132,47 @@ fun UserBubble(
                     )
                 }
             }
-            if (pending && sendNow != null) QueuedCaption(sendNow)
+            if (pending && sendNow != null) QueuedCaption(sendNow, cancelQueued)
             else if (pending) Text("Queued", style = Type.caption2, color = palette.subtext)
             else if (cancelled) Text("Not sent", style = Type.caption2, color = palette.subtext)
         }
     }
 }
 
-/** "Queued", with a way to send the prompt now: rad interrupts the turn and starts the next with it. */
+/**
+ * "Queued", with a way to send the prompt now, where rad interrupts the turn
+ * and starts the next with it, and one to cancel it.
+ */
 @Composable
-private fun QueuedCaption(sendNow: suspend () -> Unit) {
+private fun QueuedCaption(sendNow: suspend () -> Unit, cancelQueued: (suspend () -> Unit)?) {
     val connection = LocalConnection.current
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    @Composable
+    fun Action(label: String, tag: String, f: suspend () -> Unit) = Text(
+        label, style = Type.caption2.copy(fontWeight = FontWeight.SemiBold), color = if (busy) palette.overlay else palette.accent,
+        modifier = Modifier.clickable(enabled = !busy, role = Role.Button) {
+            busy = true
+            connection.scope.launch {
+                try {
+                    f()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    error = e.message ?: "The request failed"
+                } finally {
+                    busy = false
+                }
+            }
+        }.testTag(tag),
+    )
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Queued · ", style = Type.caption2, color = palette.subtext)
-        Text(
-            "Send now", style = Type.caption2.copy(fontWeight = FontWeight.SemiBold), color = if (busy) palette.overlay else palette.accent,
-            modifier = Modifier.clickable(enabled = !busy, role = Role.Button) {
-                busy = true
-                connection.scope.launch {
-                    try {
-                        sendNow()
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        error = e.message ?: "The request failed"
-                    } finally {
-                        busy = false
-                    }
-                }
-            }.testTag("send-now"),
-        )
+        Action("Send now", "send-now", sendNow)
+        if (cancelQueued != null) {
+            Text(" · ", style = Type.caption2, color = palette.subtext)
+            Action("Cancel", "cancel-queued", cancelQueued)
+        }
     }
     ErrorDialog(error, title = "Error") { error = null }
 }

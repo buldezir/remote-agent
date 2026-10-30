@@ -370,6 +370,15 @@ func (s *SessionStore) SendNow(ctx context.Context, itemID string) error {
 	return err
 }
 
+// CancelQueued takes this queued prompt out of the queue, unsent.
+func (s *SessionStore) CancelQueued(ctx context.Context, itemID string) error {
+	err := s.call(ctx, "session.cancelQueued", map[string]any{"sessionId": s.ID, "itemId": itemID}, nil, 30*time.Second)
+	if ErrorCode(err) == "method_not_found" {
+		return &RPCError{"method_not_found", "This rad is too old to cancel a queued prompt. Update rad."}
+	}
+	return err
+}
+
 // Respond answers an approval. answers is for a question's: question →
 // chosen labels, joined with ", ".
 func (s *SessionStore) Respond(ctx context.Context, approvalID, optionID, message string, answers map[string]string) error {

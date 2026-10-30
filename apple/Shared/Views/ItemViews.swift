@@ -10,7 +10,8 @@ struct ItemView: View {
         case .userMessage:
             UserBubble(text: item.text ?? "", images: item.images ?? [], store: store,
                        pending: item.status == .queued, cancelled: item.status == .cancelled,
-                       sendNow: item.status == .queued ? { try await store.sendNow(item) } : nil)
+                       sendNow: item.status == .queued ? { try await store.sendNow(item) } : nil,
+                       cancelQueued: item.status == .queued ? { try await store.cancelQueued(item) } : nil)
         case .assistantMessage:
             AgentMarkdown(text: item.text ?? "", images: item.images ?? [], store: store)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -48,6 +49,8 @@ struct UserBubble: View {
     var draft = false
     /// Sends a queued prompt at once, stopping the turn it waits for.
     var sendNow: (() async throws -> Void)?
+    /// Takes a queued prompt out of the queue, unsent.
+    var cancelQueued: (() async throws -> Void)?
     @State private var sending = false
     @State private var error: String?
 
@@ -80,6 +83,15 @@ struct UserBubble: View {
                                 .foregroundStyle(Palette.accent)
                                 .disabled(sending)
                                 .help("Stop the current turn and send this prompt now")
+                        }
+                        if let cancelQueued {
+                            Text("·")
+                            Button("Cancel") { send(cancelQueued) }
+                                .buttonStyle(.borderless)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Palette.accent)
+                                .disabled(sending)
+                                .help("Don't send this prompt")
                         }
                     }
                     .scaledFont(.caption2)

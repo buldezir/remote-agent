@@ -321,6 +321,7 @@ var helpSections = []struct {
 		{"o", "open the item's image"},
 		{"y", "copy the item's text"},
 		{"s", "send a queued prompt now, or send the draft"},
+		{"x", "cancel a queued prompt"},
 		{"e", "edit the draft"},
 	}},
 	{"Prompt", [][2]string{

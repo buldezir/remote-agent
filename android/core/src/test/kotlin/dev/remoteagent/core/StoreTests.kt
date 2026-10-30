@@ -208,6 +208,27 @@ class SessionStoreTests {
         assertEquals("no such session", assertFailsWith<RpcError> { s.sendNow("q") }.message)
     }
 
+    @Test
+    fun cancelQueuedNamesTheQueuedPrompt() = runTest {
+        val h = Host(this)
+        val s = SessionStore("s", h)
+        s.cancelQueued("q")
+        assertEquals("session.cancelQueued", h.calls[0].first)
+        assertEquals(params("sessionId" to "s", "itemId" to "q"), h.calls[0].second)
+    }
+
+    @Test
+    fun cancelQueuedOnAnOlderRadSaysToUpdateIt() = runTest {
+        val h = Host(this).apply { fail = RpcError("method_not_found", "unknown method session.cancelQueued") }
+        val s = SessionStore("s", h)
+        val e = assertFailsWith<RpcError> { s.cancelQueued("q") }
+        assertEquals("method_not_found", e.code)
+        assertEquals("This server's rad is too old to cancel a queued prompt. Update rad on it.", e.message)
+        // Other errors are the server's own.
+        h.fail = RpcError("not_found", "no such session")
+        assertEquals("no such session", assertFailsWith<RpcError> { s.cancelQueued("q") }.message)
+    }
+
     private val ref = ImageRef(id = "a1b2.png", mimeType = "image/png", width = 4, height = 3, size = 100)
 
     /** The session, with a draft of `text` and an image, or none. */

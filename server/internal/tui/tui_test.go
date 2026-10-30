@@ -231,6 +231,37 @@ func TestStopsATurnThatWaits(t *testing.T) {
 	}
 }
 
+func TestCancelsAQueuedPrompt(t *testing.T) {
+	u := startUI(t, 120, 36)
+	u.key("ctrl+n")
+	u.waitFor("New Session")
+	u.key("enter")
+	u.key("enter")
+	u.waitFor("▸ /")
+	u.key("a")
+	u.waitFor("Fake (scripted)")
+	for !strings.Contains(u.screen(), "save as draft") {
+		u.key("tab")
+	}
+	u.key("slow reply with a good many words in it, so that it streams for a while yet")
+	u.key("enter")
+	u.waitFor("Echo: slow")
+	u.key("never mind")
+	u.key("enter")
+	u.waitFor("x cancels it")
+	// The queued prompt is the last item.
+	u.key("shift+tab")
+	u.key("G")
+	u.key("x")
+	u.waitFor("Not sent")
+	// The reply ends; nothing starts after it.
+	u.waitFor("while yet")
+	time.Sleep(300 * time.Millisecond)
+	if s := u.screen(); strings.Contains(s, "Echo: never mind") || !strings.Contains(s, "Not sent") {
+		t.Errorf("the cancelled prompt ran:\n%s", s)
+	}
+}
+
 func TestNarrowWindowShowsOnePane(t *testing.T) {
 	u := startUI(t, 80, 30)
 	s := u.waitFor("No sessions yet")

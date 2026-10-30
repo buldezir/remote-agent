@@ -117,7 +117,8 @@ func (m *Model) renderPrompt(text string, images []model.ImageRef, width int, st
 	}
 	switch status {
 	case model.ItemQueued:
-		lines = append(lines, m.st.Faint.Render("  Queued · ")+m.st.Key.Render("s")+m.st.Faint.Render(" sends it now"))
+		lines = append(lines, m.st.Faint.Render("  Queued · ")+m.st.Key.Render("s")+m.st.Faint.Render(" sends it now · ")+
+			m.st.Key.Render("x")+m.st.Faint.Render(" cancels it"))
 	case model.ItemCancelled:
 		lines = append(lines, m.st.Faint.Render("  Not sent"))
 	}

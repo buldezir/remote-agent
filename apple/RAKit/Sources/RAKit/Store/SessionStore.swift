@@ -247,6 +247,17 @@ public final class SessionStore {
         }
     }
 
+    /// Takes this queued prompt out of the queue, unsent.
+    public func cancelQueued(_ item: Item) async throws {
+        guard let c = connection else { throw RPCError.disconnected }
+        struct P: Encodable, Sendable { var sessionId: String; var itemId: String }
+        do {
+            let _: Empty = try await c.call("session.cancelQueued", P(sessionId: sessionID, itemId: item.id))
+        } catch let e as RPCError where e.code == "method_not_found" {
+            throw RPCError(code: e.code, message: "This server's rad is too old to cancel a queued prompt. Update rad on it.")
+        }
+    }
+
     public func respond(to approval: Item, option: ApprovalOption, message: String? = nil, answers: [String: String]? = nil) async throws {
         guard let c = connection else { throw RPCError.disconnected }
         struct P: Encodable, Sendable {

@@ -416,6 +416,15 @@ func (o *Orchestrator) SendNow(ctx context.Context, sessionID, itemID string) er
 	return a.sendNow(ctx, itemID)
 }
 
+// CancelQueued takes the queued prompt itemID out of the queue, unsent.
+func (o *Orchestrator) CancelQueued(ctx context.Context, sessionID, itemID string) error {
+	a, err := o.actor(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	return a.cancelQueued(ctx, itemID)
+}
+
 func (o *Orchestrator) Respond(ctx context.Context, sessionID, approvalID string, r harness.Response, commandID string) error {
 	a, err := o.actor(ctx, sessionID)
 	if err != nil {

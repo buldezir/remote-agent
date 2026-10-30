@@ -34,6 +34,7 @@ export function ItemView({ item, store }: { item: Item; store: SessionStore }) {
           pending={item.status === "queued"}
           cancelled={item.status === "cancelled"}
           onSendNow={item.status === "queued" ? () => store.sendNow(item.id) : undefined}
+          onCancel={item.status === "queued" ? () => store.cancelQueued(item.id) : undefined}
         />
       );
     case "assistant_message":
@@ -63,8 +64,8 @@ export function ItemView({ item, store }: { item: Item; store: SessionStore }) {
   }
 }
 
-/** A prompt. Queued on the server, it offers to send it now; in the outbox
- *  (`pending` without `onSendNow`) it only waits. A `draft` is drawn in
+/** A prompt. Queued on the server, it offers to send it now or cancel it; in
+ *  the outbox (`pending` without `onSendNow`) it only waits. A `draft` is drawn in
  *  outline, with `note` under it. */
 export function UserBubble({
   text,
@@ -73,6 +74,7 @@ export function UserBubble({
   cancelled = false,
   draft = false,
   onSendNow,
+  onCancel,
   note,
 }: {
   text: string;
@@ -81,6 +83,7 @@ export function UserBubble({
   cancelled?: boolean;
   draft?: boolean;
   onSendNow?: () => Promise<void>;
+  onCancel?: () => Promise<void>;
   note?: ReactNode;
 }) {
   const faded = pending || cancelled;
@@ -96,7 +99,7 @@ export function UserBubble({
           {text}
         </div>
       )}
-      {pending && (onSendNow ? <QueuedNote onSendNow={onSendNow} /> : <div className="bubble-note">Queued</div>)}
+      {pending && (onSendNow ? <QueuedNote onSendNow={onSendNow} onCancel={onCancel} /> : <div className="bubble-note">Queued</div>)}
       {cancelled && <div className="bubble-note">Not sent</div>}
       {note}
     </div>
@@ -148,14 +151,15 @@ export function DraftBubble({
   );
 }
 
-/** "Queued · Send now": stops the running turn and sends this prompt next. */
-function QueuedNote({ onSendNow }: { onSendNow: () => Promise<void> }) {
+/** "Queued · Send now · Cancel": Send now stops the running turn and sends
+ *  this prompt next; Cancel takes it out of the queue, unsent. */
+function QueuedNote({ onSendNow, onCancel }: { onSendNow: () => Promise<void>; onCancel?: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const sendNow = async () => {
+  const act = async (f: () => Promise<void>) => {
     setBusy(true);
     try {
-      await onSendNow();
+      await f();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -166,9 +170,17 @@ function QueuedNote({ onSendNow }: { onSendNow: () => Promise<void> }) {
     <>
       <div className="bubble-note">
         Queued ·{" "}
-        <button className="link" onClick={() => void sendNow()} disabled={busy} title="Stop the current turn and send this prompt now" aria-label="Send now">
+        <button className="link" onClick={() => void act(onSendNow)} disabled={busy} title="Stop the current turn and send this prompt now" aria-label="Send now">
           Send now
         </button>
+        {onCancel && (
+          <>
+            {" · "}
+            <button className="link" onClick={() => void act(onCancel)} disabled={busy} title="Don't send this prompt" aria-label="Cancel">
+              Cancel
+            </button>
+          </>
+        )}
       </div>
       <ErrorAlert error={error} onClose={() => setError(undefined)} />
     </>
