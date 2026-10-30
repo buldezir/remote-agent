@@ -268,12 +268,25 @@
                     "label": "Postgres"
                   }
                 ]
+              },
+              {
+                "question": "Which port?",
+                "options": [
+                  {
+                    "label": "7421"
+                  },
+                  {
+                    "label": "7499"
+                  }
+                ],
+                "optionsOnly": true
               }
             ],
             "decision": {
               "optionId": "allow",
               "answers": {
-                "Which DB?": "SQLite"
+                "Which DB?": "SQLite",
+                "Which port?": "7421"
               },
               "at": "2026-10-09T12:00:05Z"
             }

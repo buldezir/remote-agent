@@ -158,6 +158,8 @@ export interface Question {
   header?: string;
   multiSelect?: boolean;
   options: QuestionOption[];
+  /** The agent takes only one of the options: no answer in the user's own words. */
+  optionsOnly?: boolean;
 }
 
 export interface Decision {

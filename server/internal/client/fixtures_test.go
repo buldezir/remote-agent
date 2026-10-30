@@ -102,6 +102,15 @@ func TestFixtures(t *testing.T) {
 	if s == nil || s.Workspace.AgentPath == "" || !s.Unread || s.Draft == nil || len(s.Draft.Images) != 1 || s.Context.Window == 0 || s.ModelInfo.Name == "" || len(s.BackgroundTasks) == 0 {
 		t.Errorf("session event: %+v", s)
 	}
+	var questions []model.Question
+	for _, e := range ev.Events {
+		if it := e.Item; it != nil && it.Approval != nil && it.Approval.Special == model.SpecialQuestion {
+			questions = it.Approval.Questions
+		}
+	}
+	if len(questions) != 2 || questions[0].OptionsOnly || !questions[1].OptionsOnly {
+		t.Errorf("questions: %+v", questions)
+	}
 	idx := fixture[notificationFrame[eventsParams]](t, "notification_events_index.json").Params
 	if idx.Stream != "index" || len(idx.Events) == 0 {
 		t.Errorf("index events: %+v", idx)

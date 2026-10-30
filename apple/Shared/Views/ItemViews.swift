@@ -377,6 +377,7 @@ struct ApprovalView: View {
     let item: Item
     let store: SessionStore
     @State private var answers: [String: Set<String>] = [:]
+    @State private var own: [String: String] = [:]  // answers in the user's own words
     @State private var denyReason = ""
     @State private var askingReason: ApprovalOption?
     @State private var busy = false
@@ -440,10 +441,44 @@ struct ApprovalView: View {
                     if set.contains(label) { set.remove(label) } else { set.insert(label) }
                 } else {
                     set = [label]
+                    // One answer: a label replaces the user's own.
+                    own[q.question] = nil
                 }
                 answers[q.question] = set
             }
+            if q.optionsOnly != true { ownAnswer(q) }
         }
+    }
+
+    /// The last choice: an answer in the user's own words.
+    private func ownAnswer(_ q: Question) -> some View {
+        let on = !ownText(q).isEmpty
+        let text = Binding {
+            own[q.question] ?? ""
+        } set: { text in
+            own[q.question] = text
+            if q.multiSelect != true && !ownText(q).isEmpty { answers[q.question] = [] }
+        }
+        let placeholder = q.options.isEmpty ? "Your answer…" : "Other…"
+        return HStack(alignment: .firstTextBaseline) {
+            Image(systemName: on ? "checkmark.circle.fill" : "circle")
+            TextField(placeholder, text: text, prompt: Text(placeholder).foregroundStyle(Palette.overlay), axis: .vertical)
+                .textFieldStyle(.plain)
+                .lineLimit(1...6)
+        }
+        .scaledFont(.footnote)
+        .padding(6)
+        .background(on ? Palette.accent.opacity(0.15) : Color.clear, in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
+    }
+
+    private func ownText(_ q: Question) -> String {
+        q.optionsOnly == true ? "" : (own[q.question] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The labels chosen, then the user's own words.
+    private func answer(_ q: Question) -> [String] {
+        let text = ownText(q)
+        return (answers[q.question] ?? []).sorted() + (text.isEmpty ? [] : [text])
     }
 
     private func buttons(_ a: Approval) -> some View {
@@ -468,13 +503,16 @@ struct ApprovalView: View {
     }
 
     private func allAnswered(_ a: Approval) -> Bool {
-        (a.questions ?? []).allSatisfy { !(answers[$0.question] ?? []).isEmpty }
+        (a.questions ?? []).allSatisfy { !answer($0).isEmpty }
     }
 
     private func respond(_ o: ApprovalOption, message: String?) {
         busy = true
         error = nil
-        let flat = answers.mapValues { $0.sorted().joined(separator: ", ") }
+        var flat: [String: String] = [:]
+        for q in approval?.questions ?? [] where !answer(q).isEmpty {
+            flat[q.question] = answer(q).joined(separator: ", ")
+        }
         Task {
             defer { busy = false }
             do {

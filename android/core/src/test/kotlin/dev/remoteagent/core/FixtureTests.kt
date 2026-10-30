@@ -88,6 +88,7 @@ class FixtureTests {
         assertEquals(listOf(OptionKind.ALLOW_ONCE, OptionKind.ALLOW_SESSION, OptionKind.DENY), items[4].approval?.options?.map { it.kind })
         assertEquals(Approval.Special.QUESTION, items[5].approval?.special)
         assertEquals("SQLite", items[5].approval?.decision?.answers?.get("Which DB?"))
+        assertEquals(listOf(null, true), items[5].approval?.questions?.map { it.optionsOnly })
         assertEquals(Approval.Special.PLAN, items[6].approval?.special)
         assertEquals(2, items[7].plan?.entries?.size)
         assertEquals("i3", items[10].parentItemId)

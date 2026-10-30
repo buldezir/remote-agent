@@ -151,3 +151,19 @@ func TestReplayCompact(t *testing.T) {
 		t.Errorf("end = %+v", turn.End)
 	}
 }
+
+func TestSplitAnswer(t *testing.T) {
+	labels := []string{"Red", "Red, dark", "Blue"}
+	for a, want := range map[string][]string{
+		"Blue":                  {"Blue"},
+		"Blue, Red":             {"Blue", "Red"},
+		"Red, dark":             {"Red, dark"},
+		"Red, dark, Blue":       {"Red, dark", "Blue"},
+		"Blue, teal, not green": {"Blue", "teal, not green"},
+		"teal, not green":       {"teal, not green"},
+	} {
+		if got := splitAnswer(a, labels); !slices.Equal(got, want) {
+			t.Errorf("splitAnswer(%q) = %q, want %q", a, got, want)
+		}
+	}
+}

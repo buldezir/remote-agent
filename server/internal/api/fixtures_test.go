@@ -57,9 +57,12 @@ func fixtures() map[string]any {
 		Options: []model.ApprovalOption{{ID: "allow", Label: "Allow", Kind: model.OptionAllowOnce}, {ID: "allow_session", Label: "Allow all edits this session", Kind: model.OptionAllowSession}, {ID: "deny", Label: "Deny", Kind: model.OptionDeny}}}
 	question := item("i6", 6, model.ItemApproval, model.ItemResolved)
 	question.Approval = &model.Approval{Title: "Claude has a question", Special: model.SpecialQuestion,
-		Questions: []model.Question{{Question: "Which DB?", Header: "DB", Options: []model.QuestionOption{{Label: "SQLite", Description: "embedded"}, {Label: "Postgres"}}}},
-		Options:   []model.ApprovalOption{{ID: "allow", Label: "Submit", Kind: model.OptionAllowOnce}, {ID: "deny", Label: "Skip", Kind: model.OptionDeny}},
-		Decision:  &model.Decision{OptionID: "allow", Answers: map[string]string{"Which DB?": "SQLite"}, At: t1}}
+		Questions: []model.Question{
+			{Question: "Which DB?", Header: "DB", Options: []model.QuestionOption{{Label: "SQLite", Description: "embedded"}, {Label: "Postgres"}}},
+			{Question: "Which port?", Options: []model.QuestionOption{{Label: "7421"}, {Label: "7499"}}, OptionsOnly: true},
+		},
+		Options:  []model.ApprovalOption{{ID: "allow", Label: "Submit", Kind: model.OptionAllowOnce}, {ID: "deny", Label: "Skip", Kind: model.OptionDeny}},
+		Decision: &model.Decision{OptionID: "allow", Answers: map[string]string{"Which DB?": "SQLite", "Which port?": "7421"}, At: t1}}
 	planApproval := item("i7", 7, model.ItemApproval, model.ItemCancelled)
 	planApproval.Approval = &model.Approval{Title: "Ready to code?", Special: model.SpecialPlan, PlanText: "1. Do it",
 		Options: []model.ApprovalOption{{ID: "allow", Label: "Yes", Kind: model.OptionAllowOnce}, {ID: "deny", Label: "Keep planning", Kind: model.OptionDeny}}}

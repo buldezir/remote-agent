@@ -217,6 +217,8 @@ data class Question(
     val header: String? = null,
     val multiSelect: Boolean? = null,
     val options: List<QuestionOption> = emptyList(),
+    /** The agent takes only one of the options: no answer in the user's own words. */
+    val optionsOnly: Boolean? = null,
 )
 
 @Serializable

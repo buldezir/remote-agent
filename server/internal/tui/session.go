@@ -604,7 +604,7 @@ func (v *sessionView) editDraft(m *Model) tea.Cmd {
 
 func (v *sessionView) paste(m *Model, text string) tea.Cmd {
 	if v.dock.active() {
-		return v.dock.paste(text)
+		return v.dock.paste(m, text)
 	}
 	return v.composer.paste(m, v, text)
 }

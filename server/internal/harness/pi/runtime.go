@@ -770,7 +770,8 @@ func (r *runtime) onDialog(raw []byte) {
 		}
 	default:
 		dl.question = strings.TrimSpace(d.Title)
-		q := model.Question{Question: dl.question}
+		// The extension takes one of its own options, nothing else.
+		q := model.Question{Question: dl.question, OptionsOnly: true}
 		for _, o := range d.Options {
 			q.Options = append(q.Options, model.QuestionOption{Label: o})
 		}

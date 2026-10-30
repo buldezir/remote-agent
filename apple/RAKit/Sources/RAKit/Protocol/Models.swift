@@ -197,6 +197,8 @@ public struct Question: Codable, Hashable, Sendable {
     public var header: String?
     public var multiSelect: Bool?
     public var options: [QuestionOption]
+    /// The agent takes only one of the options: no answer in the user's own words.
+    public var optionsOnly: Bool?
 }
 
 public struct Decision: Codable, Hashable, Sendable {

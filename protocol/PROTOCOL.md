@@ -200,7 +200,7 @@ Approval {
   options: [{ id, label, kind: "allow_once"|"allow_session"|"deny" }],
   special?: "plan" | "question",
   planText?,                                  // special = plan (markdown)
-  questions?: [{ question, header?, multiSelect?, options: [{label, description?}] }],
+  questions?: [{ question, header?, multiSelect?, options: [{label, description?}], optionsOnly? }],
   decision?: { optionId, message?, answers?, at }
 }
 ```
@@ -300,6 +300,7 @@ FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", addit
 - **Queued prompts.** A prompt sent while a turn runs waits as a `queued` user message, and the next turn starts with it once the turn ends. Interrupting the turn cancels every queued prompt. `session.sendNow` sends one of them at once instead: rad interrupts the turn and starts the next turn with that prompt, ahead of the others, which stay queued behind it. `session.cancelQueued` takes one of them out of the queue, `cancelled`, and leaves the turn and the other prompts as they are. A prompt no longer queued (it started, or was cancelled) is left as it is. Older servers answer `method_not_found`, which clients show as a reason to update rad.
 - **Images in prompts.** `images` lists ids from `POST /v1/images`. A prompt needs text, images or both. An unknown id is `invalid`.
 - **Approval answers.** For a `question` approval, put `answers` (question text → chosen label; join multiple labels with `", "`) in the request, along with the option of kind `allow_once`.
+- **Answers in the user's own words.** Clients offer one more choice under each question's options, a text field, for an answer of the user's own: it replaces the chosen option, or with `multiSelect` it comes after the chosen labels (`"Red, Blue, teal, not green"`). A question may have no options, and then the text is its only answer. `optionsOnly` questions take only their options (Pi's dialogs), so clients show no text field for them.
 - **Deny reasons.** For a deny, `message` is passed to the agent where the harness supports it.
 
 ### Managing the server

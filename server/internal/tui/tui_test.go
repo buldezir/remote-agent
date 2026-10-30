@@ -203,6 +203,56 @@ func TestStartsASessionAndAnswersItsQuestions(t *testing.T) {
 	u.key("esc")
 }
 
+// The last choice of a question is an answer in the user's own words.
+func TestAnswersAQuestionInOwnWords(t *testing.T) {
+	u := startUI(t, 120, 36)
+	u.key("ctrl+n")
+	u.waitFor("New Session")
+	u.key("enter")
+	u.key("enter")
+	u.waitFor("▸ /")
+	u.key("a")
+	u.waitFor("Fake (scripted)")
+	for !strings.Contains(u.screen(), "save as draft") {
+		u.key("tab")
+	}
+	u.key("a question")
+	u.key("enter")
+	u.waitFor("Other…")
+	// Past Red and Blue to Other, where keys type.
+	for range 3 {
+		u.key("right")
+	}
+	u.waitFor("your own answer")
+	u.key("teal, not green")
+	s := u.waitFor("Other: teal, not green")
+	if strings.Contains(s, "space choose") {
+		t.Errorf("the hints are the choices':\n%s", s)
+	}
+	// Enter takes it, and enter again answers.
+	u.key("enter")
+	u.key("enter")
+	u.waitFor("Which color? → teal, not green")
+
+	// A label replaces it again.
+	u.key("another question")
+	u.key("enter")
+	u.waitFor("Other…")
+	for range 3 {
+		u.key("right")
+	}
+	u.key("pink")
+	// ← moves through the text, then from its start back to Blue.
+	for range 5 {
+		u.key("left")
+	}
+	u.key("enter")
+	u.key("enter")
+	if s := u.waitFor("Which color? → Blue"); strings.Contains(s, "pink") {
+		t.Errorf("the label didn't replace the own answer:\n%s", s)
+	}
+}
+
 // ra opens the session it showed last; what's typed goes into its prompt.
 func TestTypesIntoTheSessionItReopens(t *testing.T) {
 	u := startUIWith(t, 120, 36, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {

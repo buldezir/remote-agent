@@ -20,7 +20,12 @@ type serverRequest struct {
 	id       json.RawMessage
 	method   string
 	params   json.RawMessage
-	question map[string]string // question text -> question id (requestUserInput)
+	question map[string]userInput // question text -> the question (requestUserInput)
+}
+
+type userInput struct {
+	id     string
+	labels []string
 }
 
 type runtime struct {
@@ -234,14 +239,34 @@ func (r *runtime) Respond(ctx context.Context, approvalID string, resp harness.R
 		answers := map[string]any{}
 		if resp.OptionID != "deny" {
 			for q, a := range resp.Answers {
-				if id, ok := req.question[q]; ok {
-					answers[id] = map[string]any{"answers": strings.Split(a, ", ")}
+				if in, ok := req.question[q]; ok {
+					answers[in.id] = map[string]any{"answers": splitAnswer(a, in.labels)}
 				}
 			}
 		}
 		return r.conn.Reply(req.id, map[string]any{"answers": answers})
 	}
 	return r.conn.ReplyError(req.id, -32601, "unsupported")
+}
+
+// splitAnswer takes apart an answer the clients joined with ", ": the
+// labels chosen, then the user's own words, which keep their commas.
+func splitAnswer(a string, labels []string) []string {
+	var out []string
+	for a != "" {
+		label := ""
+		for _, l := range labels {
+			if (a == l || strings.HasPrefix(a, l+", ")) && len(l) > len(label) {
+				label = l
+			}
+		}
+		if label == "" {
+			return append(out, a)
+		}
+		out = append(out, label)
+		a = strings.TrimPrefix(a[len(label):], ", ")
+	}
+	return out
 }
 
 // Notifications (read loop).
@@ -745,14 +770,17 @@ func (r *runtime) onRequest(id json.RawMessage, method string, raw json.RawMessa
 		ap.Options = std
 	case "item/tool/requestUserInput":
 		ap.Special, ap.Title = model.SpecialQuestion, "Codex has a question"
-		req.question = map[string]string{}
+		req.question = map[string]userInput{}
 		for _, q := range p.Questions {
-			mq := model.Question{Question: q.Question, Header: q.Header}
+			// A question may have no options, to answer in the user's own words.
+			mq := model.Question{Question: q.Question, Header: q.Header, Options: []model.QuestionOption{}}
+			in := userInput{id: q.ID}
 			for _, o := range q.Options {
 				mq.Options = append(mq.Options, model.QuestionOption{Label: o.Label, Description: o.Description})
+				in.labels = append(in.labels, o.Label)
 			}
 			ap.Questions = append(ap.Questions, mq)
-			req.question[q.Question] = q.ID
+			req.question[q.Question] = in
 		}
 		ap.Options = []model.ApprovalOption{{ID: "allow", Label: "Submit", Kind: model.OptionAllowOnce}, {ID: "deny", Label: "Skip", Kind: model.OptionDeny}}
 	case "mcpServer/elicitation/request":

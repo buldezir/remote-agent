@@ -76,6 +76,7 @@ describe("fixtures", () => {
     expect(items[4].approval?.options?.map((o) => o.kind)).toEqual(["allow_once", "allow_session", "deny"]);
     expect(items[5].approval?.special).toBe("question");
     expect(items[5].approval?.decision?.answers?.["Which DB?"]).toBe("SQLite");
+    expect(items[5].approval?.questions?.map((q) => q.optionsOnly)).toEqual([undefined, true]);
     expect(items[6].approval?.special).toBe("plan");
     expect(items[7].plan?.entries).toHaveLength(2);
     expect(items[10].parentItemId).toBe("i3");

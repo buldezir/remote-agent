@@ -251,6 +251,9 @@ type Question struct {
 	Header      string           `json:"header,omitempty"`
 	MultiSelect bool             `json:"multiSelect,omitempty"`
 	Options     []QuestionOption `json:"options"`
+	// OptionsOnly: the agent takes only one of the options, so clients
+	// don't offer an answer in the user's own words, as they otherwise do.
+	OptionsOnly bool `json:"optionsOnly,omitempty"`
 }
 
 type QuestionOption struct {

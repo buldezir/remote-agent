@@ -149,8 +149,12 @@ await prompt.fill("question");
 await prompt.press("Enter");
 await page.getByRole("button", { name: "Blue" }).click();
 await shot("question");
+// The last choice is an answer in the user's own words, which replaces Blue.
+await page.getByPlaceholder("Other…").fill("teal, not green");
+if (await page.getByRole("button", { name: "Blue" }).getAttribute("aria-pressed") !== "false") throw new Error("the own answer kept Blue");
+await shot("question-own-answer");
 await page.getByRole("button", { name: "Submit" }).click();
-await page.getByText(/answer:/).first().waitFor();
+await page.getByText("Which color? → teal, not green").waitFor();
 
 step("picture and screenshot");
 await prompt.fill("picture and screenshot");

@@ -22,6 +22,10 @@ type dock struct {
 	zone    int // questions: 0 the choices, 1 the buttons
 	q, chip int
 	answers map[int][]string // question → labels chosen
+	own     map[int]string   // question → an answer in the user's own words
+	// input edits own[inputQ] while its chip, the last, is chosen.
+	input   *textinput.Model
+	inputQ  int
 	denying *model.ApprovalOption
 	reason  textinput.Model
 	scroll  int
@@ -61,6 +65,7 @@ func (d *dock) sync(m *Model, pending []*model.Item) {
 	it := pending[0]
 	d.id = it.ID
 	d.answers = map[int][]string{}
+	d.own = map[int]string{}
 	if it.Approval != nil {
 		// The first option that allows, not deny, is chosen to begin with.
 		for i, o := range it.Approval.Options {
@@ -81,6 +86,8 @@ func (d *dock) hints() [][2]string {
 	switch {
 	case !d.picked:
 		return [][2]string{{"←→", "pick an answer"}, {"ctrl+x", "stop"}}
+	case question && d.zone == 0 && d.onOwn(it.Approval):
+		return [][2]string{{"↑↓", "question"}, {"type", "your own answer"}, {"enter", "done"}, {"ctrl+x", "stop"}}
 	case question && d.zone == 0:
 		return [][2]string{{"↑↓", "question"}, {"←→ space", "choose"}, {"ctrl+x", "stop"}}
 	}
@@ -89,11 +96,63 @@ func (d *dock) hints() [][2]string {
 
 func (d *dock) allAnswered(ap *model.Approval) bool {
 	for i := range ap.Questions {
-		if len(d.answers[i]) == 0 {
+		if len(d.answer(ap, i)) == 0 {
 			return false
 		}
 	}
 	return true
+}
+
+// answer is a question's labels chosen, then the user's own words.
+func (d *dock) answer(ap *model.Approval, qi int) []string {
+	labels := slices.Clone(d.answers[qi])
+	slices.Sort(labels)
+	if text := strings.TrimSpace(d.own[qi]); text != "" && !ap.Questions[qi].OptionsOnly {
+		labels = append(labels, text)
+	}
+	return labels
+}
+
+// chips counts a question's choices: its options, then, unless it takes
+// only those, the user's own answer.
+func chips(q model.Question) int {
+	if q.OptionsOnly {
+		return len(q.Options)
+	}
+	return len(q.Options) + 1
+}
+
+// onOwn: the user's own answer is the choice under the cursor.
+func (d *dock) onOwn(ap *model.Approval) bool {
+	if d.q >= len(ap.Questions) {
+		return false
+	}
+	q := ap.Questions[d.q]
+	return d.picked && d.zone == 0 && !q.OptionsOnly && d.chip == len(q.Options)
+}
+
+// ownInput is the field for question qi's own answer.
+func (d *dock) ownInput(m *Model, qi int) *textinput.Model {
+	if d.input == nil || d.inputQ != qi {
+		in := textinput.New()
+		in.Prompt = ""
+		in.Placeholder = "type here"
+		styleInput(&in, m)
+		in.SetValue(d.own[qi])
+		in.CursorEnd()
+		in.Focus()
+		d.input, d.inputQ = &in, qi
+	}
+	return d.input
+}
+
+// typed takes what was typed as question qi's own answer, which replaces
+// a single answer's label.
+func (d *dock) typed(ap *model.Approval, qi int) {
+	d.own[qi] = d.input.Value()
+	if !ap.Questions[qi].MultiSelect && strings.TrimSpace(d.own[qi]) != "" {
+		d.answers[qi] = nil
+	}
 }
 
 func (d *dock) enabled(ap *model.Approval, i int) bool {
@@ -103,10 +162,16 @@ func (d *dock) enabled(ap *model.Approval, i int) bool {
 	return true
 }
 
-func (d *dock) paste(text string) tea.Cmd {
+func (d *dock) paste(m *Model, text string) tea.Cmd {
 	if d.denying != nil {
 		d.reason.SetValue(d.reason.Value() + text)
 		d.reason.CursorEnd()
+	}
+	if it := d.current(); it != nil && it.Approval != nil && d.onOwn(it.Approval) {
+		in := d.ownInput(m, d.q)
+		in.SetValue(in.Value() + text)
+		in.CursorEnd()
+		d.typed(it.Approval, d.q)
 	}
 	return nil
 }
@@ -149,6 +214,24 @@ func (d *dock) key(m *Model, v *sessionView, k tea.KeyPressMsg) tea.Cmd {
 		d.picked = key == "up" || key == "down" || key == "left" || key == "right"
 		return nil
 	}
+	if question && d.zone == 0 && d.onOwn(ap) {
+		in := d.ownInput(m, d.q)
+		switch {
+		case key == "up" || key == "down":
+		case key == "left" && in.Position() == 0:
+		case key == "enter":
+			// Done: on to the next question, or the buttons.
+			if strings.TrimSpace(d.own[d.q]) != "" {
+				d.next(ap, d.q)
+			}
+			return nil
+		default:
+			var cmd tea.Cmd
+			*in, cmd = in.Update(k)
+			d.typed(ap, d.q)
+			return cmd
+		}
+	}
 	if question && d.zone == 0 {
 		q := ap.Questions[d.q]
 		switch key {
@@ -165,9 +248,11 @@ func (d *dock) key(m *Model, v *sessionView, k tea.KeyPressMsg) tea.Cmd {
 		case "left":
 			d.chip = max(0, d.chip-1)
 		case "right":
-			d.chip = min(len(q.Options)-1, d.chip+1)
+			d.chip = max(0, min(chips(q)-1, d.chip+1))
 		case "space", "enter":
-			d.pick(ap, d.q, d.chip)
+			if d.chip < len(q.Options) {
+				d.pick(ap, d.q, d.chip)
+			}
 		}
 		return nil
 	}
@@ -200,6 +285,14 @@ func (d *dock) pick(ap *model.Approval, qi, ci int) {
 		return
 	}
 	d.answers[qi] = []string{label}
+	// One answer: a label replaces the user's own.
+	delete(d.own, qi)
+	d.input = nil
+	d.next(ap, qi)
+}
+
+// next moves on from question qi to the next, or to the buttons.
+func (d *dock) next(ap *model.Approval, qi int) {
 	if qi < len(ap.Questions)-1 {
 		d.q, d.chip = qi+1, 0
 	} else {
@@ -231,10 +324,8 @@ func (d *dock) respond(m *Model, v *sessionView, it *model.Item, o model.Approva
 	if it.Approval.Special == model.SpecialQuestion {
 		answers = map[string]string{}
 		for i, q := range it.Approval.Questions {
-			labels := slices.Clone(d.answers[i])
-			slices.Sort(labels)
-			if len(labels) > 0 {
-				answers[q.Question] = strings.Join(labels, ", ")
+			if a := d.answer(it.Approval, i); len(a) > 0 {
+				answers[q.Question] = strings.Join(a, ", ")
 			}
 		}
 	}
@@ -328,6 +419,28 @@ func (d *dock) view(m *Model, v *sessionView, w, maxH int) []string {
 	return lines
 }
 
+// ownChip is the last choice, the user's own answer: the field while it's
+// chosen, else the text typed.
+func (d *dock) ownChip(m *Model, q model.Question, qi int, at bool) string {
+	label := "Other"
+	if len(q.Options) == 0 {
+		label = "Your answer"
+	}
+	text := d.own[qi]
+	st := m.st.Chip
+	if strings.TrimSpace(text) != "" {
+		st = m.st.ChipOn
+	}
+	switch {
+	case at:
+		// The chip's padding spaces the field from its label.
+		return st.Underline(true).Bold(true).Render(label+":") + d.ownInput(m, qi).View()
+	case strings.TrimSpace(text) != "":
+		return st.Render(label + ": " + strings.TrimSpace(text))
+	}
+	return st.Render(label + "…")
+}
+
 func (d *dock) questionLines(m *Model, ap *model.Approval, width int) []string {
 	var lines []string
 	for qi, q := range ap.Questions {
@@ -356,6 +469,9 @@ func (d *dock) questionLines(m *Model, ap *model.Approval, width int) []string {
 				st = st.Underline(true).Bold(true)
 			}
 			chips = append(chips, st.Render(o.Label))
+		}
+		if !q.OptionsOnly {
+			chips = append(chips, d.ownChip(m, q, qi, at && d.chip == len(q.Options)))
 		}
 		lines = append(lines, wrap(strings.Join(chips, " "), width)...)
 		if at && d.chip < len(q.Options) && q.Options[d.chip].Description != "" {

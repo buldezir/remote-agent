@@ -13,18 +13,24 @@ export function ApprovalView({ item, store }: { item: Item; store: SessionStore 
 
 function PendingApproval({ item, approval: a, store }: { item: Item; approval: Approval; store: SessionStore }) {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
+  const [own, setOwn] = useState<Record<string, string>>({}); // answers in the user's own words
   const [askingReason, setAskingReason] = useState<ApprovalOption>();
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
   const Icon = a.special === "question" ? MessageCircleQuestion : a.special === "plan" ? ClipboardList : Hand;
-  const allAnswered = (a.questions ?? []).every((q) => (answers[q.question] ?? []).length > 0);
+  // The labels chosen, then the user's own words.
+  const answerOf = (q: Question) => {
+    const text = q.optionsOnly ? "" : (own[q.question] ?? "").trim();
+    return [...(answers[q.question] ?? [])].sort().concat(text ? [text] : []);
+  };
+  const allAnswered = (a.questions ?? []).every((q) => answerOf(q).length > 0);
 
   const respond = async (o: ApprovalOption, message?: string) => {
     setBusy(true);
     setError(undefined);
-    const flat = Object.fromEntries(Object.entries(answers).map(([q, v]) => [q, [...v].sort().join(", ")]));
+    const flat = Object.fromEntries((a.questions ?? []).map((q) => [q.question, answerOf(q).join(", ")]).filter(([, v]) => v));
     try {
       await store.respond(item, o.id, message || undefined, a.special === "question" ? flat : undefined);
     } catch (e) {
@@ -40,6 +46,13 @@ function PendingApproval({ item, approval: a, store }: { item: Item; approval: A
       const next = q.multiSelect ? (set.includes(label) ? set.filter((l) => l !== label) : [...set, label]) : [label];
       return { ...prev, [q.question]: next };
     });
+    // One answer: a label replaces the user's own.
+    if (!q.multiSelect) setOwn((prev) => ({ ...prev, [q.question]: "" }));
+  };
+
+  const type = (q: Question, text: string) => {
+    setOwn((prev) => ({ ...prev, [q.question]: text }));
+    if (!q.multiSelect && text.trim()) setAnswers((prev) => ({ ...prev, [q.question]: [] }));
   };
 
   return (
@@ -70,6 +83,18 @@ function PendingApproval({ item, approval: a, store }: { item: Item; approval: A
                   </button>
                 );
               })}
+              {!q.optionsOnly && (
+                <label className={"chip own" + ((own[q.question] ?? "").trim() ? " on" : "")}>
+                  {(own[q.question] ?? "").trim() ? <CircleCheck size={14} /> : <span className="chip-dot" />}
+                  <textarea
+                    className="chip-input"
+                    rows={1}
+                    placeholder={q.options.length ? "Other…" : "Your answer…"}
+                    value={own[q.question] ?? ""}
+                    onChange={(e) => type(q, e.target.value)}
+                  />
+                </label>
+              )}
             </div>
           </div>
         ))

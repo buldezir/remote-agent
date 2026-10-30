@@ -43,6 +43,7 @@ struct FixtureTests {
         #expect(items[4].approval?.options.map(\.kind) == [.allowOnce, .allowSession, .deny])
         #expect(items[5].approval?.special == .question)
         #expect(items[5].approval?.decision?.answers?["Which DB?"] == "SQLite")
+        #expect(items[5].approval?.questions?.map(\.optionsOnly) == [nil, true])
         #expect(items[6].approval?.special == .plan)
         #expect(items[7].plan?.entries?.count == 2)
         #expect(items[10].parentItemId == "i3")
