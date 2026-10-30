@@ -291,6 +291,31 @@ func TestClosingTheFormKeepsADraft(t *testing.T) {
 	}
 }
 
+// A new session starts in the project ra was started in, the innermost
+// if projects nest.
+func TestProjectAtTheWorkingFolder(t *testing.T) {
+	ps := map[string]*model.Project{
+		"code": {ID: "code", Path: "/home/me/code"},
+		"app":  {ID: "app", Path: "/home/me/code/app"},
+		"web":  {ID: "web", Path: "/home/me/web/"},
+	}
+	for dir, want := range map[string]string{
+		"/home/me/code":                "code",
+		"/home/me/code/lib":            "code",
+		"/home/me/code/app":            "app",
+		"/home/me/code/app/.claude/wt": "app",
+		"/home/me/code/application":    "code",
+		"/home/me/web/src":             "web",
+		"/home/me/website":             "",
+		"/home/me":                     "",
+		"":                             "",
+	} {
+		if got := projectAt(ps, dir); got != want {
+			t.Errorf("projectAt(%q) = %q, want %q", dir, got, want)
+		}
+	}
+}
+
 // Text typed into the list by mistake doesn't delete the session: Delete
 // starts on Cancel, and a space doesn't choose.
 func TestTypingInTheListDeletesNothing(t *testing.T) {

@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -62,6 +63,9 @@ func newNewSession(m *Model, projectID string) *newSession {
 	ns.branch.Prompt = ""
 	styleInput(&ns.branch, m)
 	if projectID == "" {
+		projectID = projectAt(m.conn.Projects, m.cwd)
+	}
+	if projectID == "" {
 		projectID = m.state.LastProject
 	}
 	if m.conn.Projects[projectID] == nil {
@@ -86,6 +90,22 @@ func newNewSession(m *Model, projectID string) *newSession {
 }
 
 func (ns *newSession) init(m *Model) tea.Cmd { return nil }
+
+// projectAt is the project that holds dir, the innermost if they nest.
+func projectAt(ps map[string]*model.Project, dir string) string {
+	if dir == "" {
+		return ""
+	}
+	id, depth := "", -1
+	for _, p := range ps {
+		path := filepath.Clean(p.Path)
+		inside := dir == path || strings.HasPrefix(dir, strings.TrimSuffix(path, string(filepath.Separator))+string(filepath.Separator))
+		if inside && len(path) > depth {
+			id, depth = p.ID, len(path)
+		}
+	}
+	return id
+}
 
 func usable(h *model.HarnessInfo) bool { return h != nil && h.Installed && h.AuthOK }
 

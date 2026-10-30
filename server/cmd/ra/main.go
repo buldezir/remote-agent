@@ -133,7 +133,8 @@ func run(args []string) error {
 		}
 		return tok, s.URLs, nil
 	}
-	err = tui.Run(tui.Options{Queue: q, Conn: conn, Store: store, Dir: config, Version: version, Theme: *theme, Layout: *layout})
+	cwd, _ := os.Getwd()
+	err = tui.Run(tui.Options{Queue: q, Conn: conn, Store: store, Dir: config, Version: version, Theme: *theme, Layout: *layout, Cwd: cwd})
 	conn.Stop()
 	q.Drain()
 	return err

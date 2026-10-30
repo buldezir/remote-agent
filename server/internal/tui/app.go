@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -30,6 +31,9 @@ type Options struct {
 	// Theme and Layout, when set, replace the settings' without saving them.
 	Theme  string
 	Layout string
+	// Cwd is the folder ra was started in: a new session starts in the
+	// project that holds it.
+	Cwd string
 }
 
 type focusArea int
@@ -81,6 +85,7 @@ type Model struct {
 	images      *imageStore
 	notifier    notifier
 	sshSession  bool
+	cwd         string // Options.Cwd with its symlinks resolved, as rad resolves a project's path
 	// unsent is a new session's prompt kept for the next one, when its
 	// form closed and rad couldn't keep it as a draft.
 	unsent *unsentPrompt
@@ -111,6 +116,9 @@ func New(opts Options) *Model {
 		m.settings.Layout = client.Layout(opts.Layout)
 	}
 	m.settings.normalize()
+	if real, err := filepath.EvalSymlinks(opts.Cwd); err == nil {
+		m.cwd = real
+	}
 	m.images = newImageStore()
 	m.notifier = newNotifier()
 	m.applyTheme()
