@@ -105,7 +105,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - Sparkle refuses to update an app that macOS runs from a temporary copy (App Translocation: its path has `/AppTranslocation/`), which happens to a downloaded app that wasn't moved into Applications on its own, such as both apps dragged in together. `xattr -dr com.apple.quarantine` on the app in Applications fixes it; the README and the release notes say so.
   - Builds from Xcode (version `0.1`) don't update. Sparkle compares `CFBundleVersion`, which tags set from the version as Android's `versionCode` (`CURRENT_PROJECT_VERSION`).
   - The release asset names (`rad-<os>-<arch>.tar.gz`, `ra-<os>-<arch>.tar.gz`, `SHA256SUMS`, and the apps' `Remote-Agent-macOS-appcast.xml` and `Remote-Agent-Server-macOS-appcast.xml`) are what the updaters look for, so change both together.
-  - Tests use httptest, never GitHub. Don't run `rad update` on the developer's rad, its service, or agents-base unless asked. A scratch binary built with `-ldflags "-X remote-agent/internal/api.Version=0.1.2"` is safe; for ra, `-X main.version=0.1.2`.
+  - Tests use httptest, never GitHub. Don't run `rad update` on the developer's rad, its service, or agents-base unless asked. `rad update` as the Server app's rad, or through its link, asks whichever rad serves its config, so run it only with a scratch `RAD_HOME`: on the developer's config it updates their Server app. A scratch binary built with `-ldflags "-X remote-agent/internal/api.Version=0.1.2"` is safe; for ra, `-X main.version=0.1.2`.
 - **Commits:** tests green first. Don't commit `server/bin/`, `apple/build/`, the `.xcodeproj`, `apple/Local.xcconfig`, `web/node_modules`, `web/dist`, Android's `build/` folders, `.gradle`, `.kotlin`, `local.properties` or a keystore.
 
 ## Testing
@@ -289,6 +289,7 @@ osascript -e 'tell application id "dev.remote-agent.app" to quit'      # fails w
 
 Remote Agent Server runs `rad serve --supervised` as its child (`server/cmd/rad/supervised.go`): rad writes JSON status lines to stdout, logs to stderr, and shuts down when its stdin closes, so it never outlives the app. macOS attributes rad and its agents to the app, which is the point: the permissions granted in its Permissions window apply to them.
 
+- **The rad command:** Install rad Command… (`RadCommand.swift`) links `/usr/local/bin/rad` to the app's rad, with an administrator's password when the folder isn't the user's. `rad update` run as the app's rad (`cmd/rad/appupdate.go`) asks the rad that serves its config for `server.update`, as the apps do, with a device of its own until the update is in, and waits for the new version. Don't try the menu item on the developer's Mac: it replaces their `/usr/local/bin/rad`.
 - **rad's guards:** `serve` takes a lock on `<data>/rad.lock` and binds its ports before it touches the store. A second rad on the same config or port exits with status 75, and the app shows it as running elsewhere rather than restarting it.
 - **Test it against a scratch home,** never the developer's config:
 

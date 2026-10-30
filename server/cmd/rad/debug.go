@@ -97,11 +97,20 @@ func dial(ctx context.Context, cfg *config.Config) (*client, error) {
 	if u := os.Getenv("RAD_URL"); u != "" {
 		base = u
 	}
+	c, err := connect(ctx, base, tok)
+	if err != nil {
+		return nil, fmt.Errorf("%w (is `rad serve` running?)", err)
+	}
+	return c, nil
+}
+
+// connect opens a client's socket to the rad at base, as the device tok.
+func connect(ctx context.Context, base, tok string) (*client, error) {
 	ws, _, err := websocket.Dial(ctx, strings.Replace(base, "http", "ws", 1)+"/v1/ws", &websocket.DialOptions{
 		HTTPHeader: http.Header{"Authorization": {"Bearer " + tok}},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("connect %s: %w (is `rad serve` running?)", base, err)
+		return nil, fmt.Errorf("connect %s: %w", base, err)
 	}
 	ws.SetReadLimit(64 << 20)
 	c := &client{base: base, token: tok, ws: ws, pending: map[int64]chan rpcResp{}, notes: make(chan rpcNote, 1024)}

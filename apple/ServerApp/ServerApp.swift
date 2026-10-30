@@ -11,7 +11,7 @@ struct ServerApp: App {
 
     var body: some Scene {
         MenuBarExtra {
-            MenuContent(rad: delegate.rad, updater: delegate.updater, loginItem: delegate.loginItem)
+            MenuContent(rad: delegate.rad, updater: delegate.updater, loginItem: delegate.loginItem, command: delegate.command)
         } label: {
             Image(nsImage: menuBarIcon(running: delegate.rad.state == .running))
         }
@@ -47,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let rad: RadSupervisor
     let updater: AppUpdater
     let loginItem = LoginItem()
+    let command = RadCommand()
 
     override init() {
         let rad = RadSupervisor()
@@ -63,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         loginItem.refresh()
+        command.refresh()
     }
 
     /// Quitting stops rad and its agents first.
@@ -108,6 +110,7 @@ struct MenuContent: View {
     let rad: RadSupervisor
     let updater: AppUpdater
     let loginItem: LoginItem
+    let command: RadCommand
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -130,6 +133,9 @@ struct MenuContent: View {
         Divider()
         Button("Pair a Device…") { show("pair", with: openWindow) }
         Button("Permissions…") { show("permissions", with: openWindow) }
+        if !command.installed {
+            Button("Install rad Command…") { command.install(environment: rad.environment) }
+        }
         Divider()
         Toggle("Start at Login", isOn: Binding(get: { loginItem.status == .enabled }, set: loginItem.set))
         if loginItem.status == .requiresApproval {

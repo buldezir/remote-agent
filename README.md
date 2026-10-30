@@ -100,7 +100,7 @@ rad update             # install it
 - **As the background service:** if `install-service` set up this binary, the service is restarted and `rad update` waits for the new version to answer. A restart interrupts running turns, so while any session is busy (a turn running, or an approval waiting) it stops before downloading and names them. Pass `--now` to go ahead anyway.
 - **In a terminal:** restart `rad serve` yourself.
 - **Development builds:** a build from source (`rad version` says `dev`) isn't replaced without `--force`.
-- **Remote Agent Server app:** the app updates itself, and its rad, from its menu, below.
+- **Remote Agent Server app:** the app updates itself, and its rad, from its menu, below. `rad update` run as the app's rad, such as the `rad` command the app installs, has the app update itself without asking anyone at the Mac, then waits for rad to come back as the new version. As with the service, it stops first while a session is busy, unless you pass `--now`.
 - **From the apps:** a server's **Server Settings…** updates rad too (see [Managing a server from the apps](#managing-a-server-from-the-apps)).
 
 ## Running rad as a Mac app
@@ -130,14 +130,15 @@ The menu shows whether rad is running, its addresses and the agents it found:
 - **Pair a Device…** shows the pairing QR code.
 - **Start at Login** replaces `rad install-service`. If that service is installed, the menu offers to remove it, since only one rad can serve a config at a time.
 - **Open Log** opens `~/Library/Logs/Remote Agent Server/rad.log`.
+- **Install rad Command…** puts `rad` on your PATH: it links `/usr/local/bin/rad` to the app's rad, asking for an administrator's password if that folder isn't yours. The link keeps working across updates. The item is gone once the link is there.
 - **Check for Updates…**: the app updates itself, with the rad inside it, from this repository's releases. It checks once a day and downloads a newer release by itself; the menu then offers **Install … and Restart…**, and otherwise it installs when you quit the app. **Check for Updates…** shows what's new and installs it.
   - Installing restarts the app, and so rad. If that would interrupt a session, the app asks first. Choose **Later**, and the update installs when you quit the app, or when you choose **Install … and Restart…**.
-  - **Server Settings…** in the apps installs it from your phone: rad asks the app, which installs without asking, as you aren't at the Mac. The apps warn you first about sessions it would interrupt.
+  - **Server Settings…** in the apps installs it from your phone, and `rad update` from a terminal, over SSH too: rad asks the app, which installs without asking, as you aren't at the Mac. The apps warn you first about sessions it would interrupt, and `rad update` stops unless you pass `--now`.
   - Each release is signed like the last, so macOS keeps the app's permissions.
   - Builds from Xcode (version `0.1`) offer no updates.
 - Quitting the app stops rad and its agents.
 
-The `rad` CLI keeps working next to the app (`rad pair`, `rad devices`); the app's copy is `/Applications/Remote Agent Server.app/Contents/MacOS/rad`.
+The `rad` CLI keeps working next to the app (`rad pair`, `rad devices`, `rad update`): **Install rad Command…** puts it on your PATH, and otherwise the app's copy is `/Applications/Remote Agent Server.app/Contents/MacOS/rad`.
 
 ## Installing the app on an iPhone or iPad
 
@@ -250,7 +251,7 @@ rad install-ra                 # or: cd server && go build -o bin/ra ./cmd/ra
 ra
 ```
 
-`rad install-ra` checks the download as `rad update` does. It leaves an `ra` that's already there and as new, and won't replace another program called `ra` without `--force`. The Server app's rad is inside the app, where ra can't go, so give it a folder: `"/Applications/Remote Agent Server.app/Contents/MacOS/rad" install-ra --dir ~/.local/bin`.
+`rad install-ra` checks the download as `rad update` does. It leaves an `ra` that's already there and as new, and won't replace another program called `ra` without `--force`. The Server app's rad is inside the app, where ra can't go, so give it a folder: `rad install-ra --dir ~/.local/bin`.
 
 - **Pairing:** the first time, ra pairs itself: it runs `rad pair --print-url` and redeems the code over loopback. It finds rad as `$RAD`, on your PATH, or inside the Remote Agent Server app. rad must be running (`rad serve`, the service or the Server app). ra shows in `rad devices` as "ra on <host>"; if you revoke it, it pairs again by itself. `ra pair` pairs again by hand, also from a link (`ra pair "$(rad pair --print-url)"`), and `ra unpair` revokes it.
 - **Updating:** `ra update` installs the latest release in place of this `ra`, as `rad update` does for rad: it checks the download against the release's `SHA256SUMS`, runs it once, and keeps the old one as `ra.old`. `ra update --check` only says whether a newer one is out, and `--force` replaces a build from source. An `ra` that's open keeps running the old version until you start it again.

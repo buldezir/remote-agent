@@ -39,8 +39,8 @@ func installRaFor(ctx context.Context, u *update.Client, version, exe, dir strin
 		if strings.Contains(exe, "go-build") {
 			return errors.New("this is a temporary `go run` binary; pass --dir to say where ra goes")
 		}
-		if i := strings.Index(exe, ".app/Contents/"); i >= 0 {
-			return fmt.Errorf("this rad is part of %s, which ra can't go into; pass --dir, such as --dir ~/.local/bin", filepath.Base(exe[:i+len(".app")]))
+		if app := appBundle(exe); app != "" {
+			return fmt.Errorf("this rad is part of %s, which ra can't go into; pass --dir, such as --dir ~/.local/bin", filepath.Base(app))
 		}
 		dir = filepath.Dir(exe)
 	} else {

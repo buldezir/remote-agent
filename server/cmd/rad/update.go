@@ -10,9 +10,11 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"remote-agent/internal/api"
@@ -47,6 +49,21 @@ func updateRad(args []string) error {
 	if *busyOnly {
 		return printBusy(busySessions(ctx), *asJSON)
 	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	exe, _ = filepath.EvalSymlinks(exe)
+	if app := appBundle(exe); app != "" && !*check {
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		a := &appUpdate{cfg: cfg, app: app, now: *now, out: os.Stdout, poll: 500 * time.Millisecond, restart: 2 * time.Minute}
+		return a.run(ctx)
+	}
 	rel, err := u.Latest(ctx)
 	if err != nil {
 		return fmt.Errorf("look up the latest release: %w", err)
@@ -57,11 +74,6 @@ func updateRad(args []string) error {
 		return printCheck(ctx, rel, dev, newer, *asJSON)
 	}
 
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	exe, _ = filepath.EvalSymlinks(exe)
 	if err := checkReplaceable(exe); err != nil {
 		return err
 	}
@@ -147,10 +159,19 @@ func checkReplaceable(exe string) error {
 	if strings.Contains(exe, "go-build") {
 		return errors.New("this is a temporary `go run` binary; there is nothing to update")
 	}
-	if i := strings.Index(exe, ".app/Contents/"); i >= 0 {
-		return fmt.Errorf("this rad is part of %s; update it from the app's menu", filepath.Base(exe[:i+len(".app")]))
+	if app := appBundle(exe); app != "" {
+		return fmt.Errorf("this rad is part of %s; update it from the app's menu", filepath.Base(app))
 	}
 	return nil
+}
+
+// appBundle is the Mac app that exe is part of, such as
+// /Applications/Remote Agent Server.app, or "".
+func appBundle(exe string) string {
+	if i := strings.Index(exe, ".app/Contents/"); i >= 0 {
+		return exe[:i+len(".app")]
+	}
+	return ""
 }
 
 func writeHint(err error, exe string) error {

@@ -50,6 +50,7 @@ Usage:
   rad install-service [--uninstall]
                                  keep rad running in the background (launchd on macOS, systemd on Linux)
   rad update [--check] [--now]   install the latest release and restart the background service
+                                 (the Remote Agent Server app's rad has the app update itself)
   rad install-ra [--dir <folder>]
                                  put ra, the terminal client, next to rad (or in <folder>)
   rad uninstall [--yes]          remove rad's service, config, data, worktrees and checkpoint refs
