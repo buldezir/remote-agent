@@ -81,6 +81,14 @@ type Model struct {
 	images      *imageStore
 	notifier    notifier
 	sshSession  bool
+	// unsent is a new session's prompt kept for the next one, when its
+	// form closed and rad couldn't keep it as a draft.
+	unsent *unsentPrompt
+}
+
+type unsentPrompt struct {
+	text   string
+	images []model.ImageRef
 }
 
 // New makes the interface; Run runs it.
@@ -560,9 +568,9 @@ func (m *Model) hints() [][2]string {
 	}
 	switch m.focus {
 	case focusSidebar:
-		return [][2]string{{"enter", "open"}, {"ctrl+n", "new"}, {"ctrl+k", "jump"}, {"?", "help"}}
+		return [][2]string{{"enter", "open"}, {"ctrl+n", "new"}, {"ctrl+k", "jump"}, {"ctrl+h", "help"}}
 	case focusTranscript:
-		return [][2]string{{"enter", "expand"}, {"tab", "focus"}, {"ctrl+p", "actions"}, {"?", "help"}}
+		return [][2]string{{"enter", "expand"}, {"esc", "list"}, {"ctrl+p", "actions"}, {"ctrl+h", "help"}}
 	}
 	if m.sess != nil {
 		return m.sess.hints(m)
@@ -576,6 +584,15 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	key := k.String()
 	if key == "ctrl+q" {
 		return tea.Quit
+	}
+	// Help opens from anywhere, the prompt and forms included, and closes.
+	if key == "ctrl+h" || key == "f1" {
+		if _, ok := m.topOverlay().(*help); ok {
+			m.pop()
+		} else {
+			m.push(newHelp())
+		}
+		return nil
 	}
 	if o := m.topOverlay(); o != nil {
 		return o.update(m, k)
@@ -594,6 +611,11 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "ctrl+n":
 		return m.newSession("")
+	case "ctrl+x":
+		if m.sess != nil && m.sess.store.IsRunning() {
+			return m.sess.interrupt(m, false)
+		}
+		return nil
 	case "ctrl+k":
 		m.push(newSwitcher(m))
 		return nil
@@ -616,9 +638,6 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		} else if m.sess != nil {
 			m.closeSession()
 		}
-		return nil
-	case "f1":
-		m.push(newHelp())
 		return nil
 	case "tab", "shift+tab":
 		if m.focus == focusComposer && m.sess != nil && m.sess.composer.suggesting() && key == "tab" {
@@ -673,6 +692,24 @@ func (m *Model) cycleFocus(back bool) {
 	m.setFocus(order[i])
 }
 
+// toList goes up from the session to the list: beside it in a wide window,
+// showing the list again if it was hidden, or in its place in a narrow one.
+func (m *Model) toList() {
+	if !m.layout().wide {
+		m.closeSession()
+		return
+	}
+	if m.state.SidebarHidden {
+		m.state.SidebarHidden = false
+		m.saveState()
+	}
+	if m.sess != nil {
+		m.side.cursor = "s:" + m.sess.store.ID
+		m.side.inColls = false
+	}
+	m.setFocus(focusSidebar)
+}
+
 func (m *Model) setFocus(f focusArea) {
 	m.focus = f
 	if m.sess != nil {
@@ -713,6 +750,11 @@ func (m *Model) wheel(w tea.MouseWheelMsg) {
 		return
 	}
 	if m.sess != nil {
+		// Over an approval, the wheel scrolls its plan.
+		if mouse.Y >= l.bodyH-m.sess.bottomHeight && m.sess.dock.active() {
+			m.sess.dock.scroll = max(0, m.sess.dock.scroll+delta)
+			return
+		}
 		m.sess.scrollBy(delta)
 	}
 }

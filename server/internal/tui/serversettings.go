@@ -158,9 +158,9 @@ func (ss *serverSettings) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "esc", "q":
 		m.pop()
-	case "up", "k":
+	case "up", "shift+tab":
 		ss.row = max(0, ss.row-1)
-	case "down", "j", "tab":
+	case "down", "tab":
 		ss.row = min(ss.rowCount(m)-1, ss.row+1)
 	case "c":
 		ss.checking, ss.updateErr = true, ""

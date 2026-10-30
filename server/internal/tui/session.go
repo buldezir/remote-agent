@@ -318,7 +318,7 @@ func (v *sessionView) foot(m *Model, width int) []tblock {
 		return blocks
 	}
 	if s.Status == model.SessionRunning {
-		blocks = append(blocks, tblock{key: "f:working", lines: []string{m.st.Accent.Render(m.spinner()) + m.st.Faint.Render(" Working…  esc stops")}})
+		blocks = append(blocks, tblock{key: "f:working", lines: []string{m.st.Accent.Render(m.spinner()) + m.st.Faint.Render(" Working…  ctrl+x stops")}})
 	}
 	if len(s.BackgroundTasks) > 0 {
 		lines := []string{m.st.Header.Render("Running in the background")}
@@ -359,13 +359,13 @@ func (v *sessionView) hints(m *Model) [][2]string {
 		return [][2]string{{"↑↓", "choose"}, {"tab", "complete"}, {"esc", "dismiss"}}
 	}
 	if v.archived() {
-		return [][2]string{{"↑", "messages"}, {"ctrl+p", "actions"}}
+		return [][2]string{{"↑", "messages"}, {"ctrl+p", "actions"}, {"ctrl+h", "help"}}
 	}
 	h := [][2]string{{"enter", "send"}, {"shift+enter", "new line"}}
 	if v.store.IsRunning() {
-		h = append(h, [2]string{"esc", "stop"})
+		h = append(h, [2]string{"ctrl+x", "stop"})
 	}
-	return append(h, [2]string{"ctrl+p", "actions"})
+	return append(h, [2]string{"ctrl+p", "actions"}, [2]string{"ctrl+h", "help"})
 }
 
 func (v *sessionView) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
@@ -477,29 +477,26 @@ func (v *sessionView) toggle(b tblock) {
 
 func (v *sessionView) transcriptKey(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
-	case "up", "k":
+	case "up":
 		v.moveCursor(-1)
-	case "down", "j":
+	case "down":
 		v.moveCursor(1)
-	case "pgup", "ctrl+u":
+	case "pgup":
 		v.scrollBy(-max(1, v.avail-2))
-	case "pgdown", "ctrl+d":
+	case "pgdown":
 		v.scrollBy(max(1, v.avail-2))
-	case "home", "g":
+	case "home":
 		v.scroll, v.pinned = 0, false
 		if sel := v.selectable(); len(sel) > 0 {
 			v.cursor = sel[0].key
 		}
-	case "end", "G":
+	case "end":
 		v.pinned = true
 		if sel := v.selectable(); len(sel) > 0 {
 			v.cursor = sel[len(sel)-1].key
 		}
 	case "esc":
-		if v.store.IsRunning() {
-			return v.interrupt(m, false)
-		}
-		m.setFocus(focusComposer)
+		m.toList()
 	case "enter", "space":
 		if b, ok := v.current(); ok {
 			v.toggle(b)
@@ -668,7 +665,7 @@ func (v *sessionView) actions(m *Model) overlay {
 		}})
 	}
 	if v.store.IsRunning() {
-		items = append(items, menuItem{label: "Stop", hint: "esc", run: func(m *Model) tea.Cmd { return v.interrupt(m, false) }})
+		items = append(items, menuItem{label: "Stop", hint: "ctrl+x", run: func(m *Model) tea.Cmd { return v.interrupt(m, false) }})
 		items = append(items, menuItem{label: "Force Stop Agent", danger: true, detail: "Kills the agent's process.", run: func(m *Model) tea.Cmd { return v.interrupt(m, true) }})
 	}
 	if !s.Archived {

@@ -47,6 +47,8 @@ type menu struct {
 	items   []menuItem
 	cursor  int
 	width   int
+	// confirm: only enter chooses, so that a space typed by mistake doesn't.
+	confirm bool
 }
 
 func newMenu(title string, items []menuItem) *menu {
@@ -56,12 +58,19 @@ func newMenu(title string, items []menuItem) *menu {
 	return mn
 }
 
-// newConfirm asks before something that can't be undone.
+// newConfirm asks before something that can't be undone. When its first
+// choice is dangerous, Cancel comes first and is chosen.
 func newConfirm(title string, message string, items ...menuItem) *menu {
-	items = append(items, menuItem{label: "Cancel", run: func(*Model) tea.Cmd { return nil }})
+	cancel := menuItem{label: "Cancel", run: func(*Model) tea.Cmd { return nil }}
+	if len(items) > 0 && items[0].danger {
+		items = append([]menuItem{cancel}, items...)
+	} else {
+		items = append(items, cancel)
+	}
 	mn := newMenu(title, items)
 	mn.message = []string{message}
 	mn.width = 52
+	mn.confirm = true
 	return mn
 }
 
@@ -86,11 +95,14 @@ func (mn *menu) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "esc", "ctrl+p":
 		m.pop()
-	case "up", "k", "shift+tab":
+	case "up", "shift+tab":
 		mn.move(-1)
-	case "down", "j", "tab":
+	case "down", "tab":
 		mn.move(1)
 	case "enter", "space":
+		if k.String() == "space" && mn.confirm {
+			return nil
+		}
 		if mn.selectable(mn.cursor) {
 			it := mn.items[mn.cursor]
 			m.pop()
@@ -283,12 +295,31 @@ func expandHome(p string) string {
 
 // Help
 
-type help struct{}
+// help lists the keys, scrolling when they don't fit.
+type help struct {
+	scroll int
+}
 
 func newHelp() *help { return &help{} }
 
+func (h *help) hints() [][2]string {
+	return [][2]string{{"↑↓", "scroll"}, {"esc", "close"}}
+}
+
 func (h *help) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
-	m.pop()
+	switch k.String() {
+	case "up":
+		h.scroll--
+	case "down":
+		h.scroll++
+	case "pgup":
+		h.scroll -= 10
+	case "pgdown", "space":
+		h.scroll += 10
+	default:
+		m.pop()
+	}
+	h.scroll = max(0, h.scroll)
 	return nil
 }
 
@@ -300,24 +331,28 @@ var helpSections = []struct {
 		{"ctrl+n", "new session"},
 		{"ctrl+k", "jump to a session"},
 		{"ctrl+p", "actions: modes, commands, archive, delete, settings"},
+		{"ctrl+x", "stop the agent"},
+		{"esc", "back: close what's open, or leave the session for the list"},
 		{"tab · shift+tab", "move between the list, the messages and the prompt"},
 		{"ctrl+b", "hide the list, or go back to it"},
-		{"esc", "close what's open; stop the agent while it works"},
 		{"ctrl+c ctrl+c · ctrl+q", "quit"},
 		{"r", "reconnect, after rad went away"},
+		{"ctrl+h · f1", "these keys; ? too, outside the prompt"},
 	}},
 	{"List", [][2]string{
-		{"↑↓ · j k", "move"},
+		{"↑↓ · home end · pgup pgdn", "move"},
 		{"enter", "open the session"},
-		{"space · ←→", "fold or unfold"},
+		{"space", "open the session, staying in the list"},
+		{"←→ · space", "fold or unfold a project"},
 		{"n", "new session here"},
 		{"a · D", "archive · delete"},
+		{".", "the row's actions"},
 		{"/", "filter"},
 	}},
 	{"Messages", [][2]string{
-		{"↑↓ · j k", "move between items"},
-		{"enter · space", "expand a tool call or thinking"},
-		{"pgup pgdn · g G", "scroll"},
+		{"↑↓", "move between items"},
+		{"enter · space", "expand a tool call or thinking; twice shows it all"},
+		{"pgup pgdn · home end", "scroll"},
 		{"o", "open the item's image"},
 		{"y", "copy the item's text"},
 		{"s", "send a queued prompt now, or send the draft"},
@@ -328,29 +363,50 @@ var helpSections = []struct {
 		{"enter", "send"},
 		{"shift+enter · alt+enter · ctrl+j", "new line"},
 		{"/", "commands and skills"},
+		{"↑", "the last prompt again, when the prompt is empty"},
+		{"pgup pgdn", "scroll the messages"},
 		{"ctrl+s", "save as a draft, in a new session"},
+		{"esc", "in a new session: close it, keeping the prompt as a draft"},
+		{"ctrl+c", "clear the prompt"},
 		{"paste a path", "attach that image"},
+		{"backspace", "remove the last image, when the prompt is empty"},
 	}},
 	{"Approvals", [][2]string{
-		{"1–9 · ←→ enter", "answer"},
-		{"↑↓ space", "choose an answer to a question"},
+		{"←→ then enter", "pick an answer, then send it"},
+		{"↑↓ ←→ space", "choose a question's answers"},
+		{"pgup pgdn · wheel", "scroll a plan"},
 	}},
 }
 
 func (h *help) view(m *Model, width, height int) string {
-	w := min(72, width-4)
+	w := min(76, width-4)
+	inner := w - 4
+	keyW := 0
+	for _, s := range helpSections {
+		for _, k := range s.keys {
+			keyW = max(keyW, lipgloss.Width(k[0])+2)
+		}
+	}
+	keyW = min(keyW, inner/2)
 	var lines []string
 	for i, s := range helpSections {
 		if i > 0 {
 			lines = append(lines, "")
 		}
 		lines = append(lines, m.st.Header.Render(s.title))
+		// Descriptions wrap under themselves, so that the box is as many
+		// lines high as it has.
 		for _, k := range s.keys {
-			lines = append(lines, pad(m.st.Key.Render(k[0]), 34)+m.st.Text.Render(k[1]))
+			key := truncate(k[0], keyW-1)
+			for _, d := range wrap(k[1], inner-keyW) {
+				lines = append(lines, pad(m.st.Key.Render(key), keyW)+m.st.Text.Render(d))
+				key = ""
+			}
 		}
 	}
-	if len(lines) > height-4 {
-		lines = lines[:max(1, height-4)]
+	if fit := max(1, height-4); len(lines) > fit {
+		h.scroll = min(h.scroll, len(lines)-fit)
+		lines = lines[h.scroll : h.scroll+fit]
 	}
 	return box(m, "Keys", lines, w)
 }

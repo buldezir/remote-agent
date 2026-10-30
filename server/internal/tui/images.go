@@ -195,9 +195,9 @@ func (iv *imageViewer) hints() [][2]string {
 
 func (iv *imageViewer) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
-	case "left", "h":
+	case "left":
 		iv.i = max(0, iv.i-1)
-	case "right", "l", "space":
+	case "right", "space":
 		iv.i = min(len(iv.refs)-1, iv.i+1)
 	default:
 		m.pop()

@@ -61,13 +61,13 @@ func (sv *settingsView) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "esc", "q":
 		m.pop()
-	case "up", "k":
+	case "up", "shift+tab":
 		sv.row = max(0, sv.row-1)
-	case "down", "j", "tab":
+	case "down", "tab":
 		sv.row = min(n-1, sv.row+1)
-	case "left", "h":
+	case "left":
 		sv.step(m, -1)
-	case "right", "l", "enter", "space":
+	case "right", "enter", "space":
 		sv.step(m, 1)
 	}
 	return nil

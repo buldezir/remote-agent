@@ -575,13 +575,13 @@ func (s *sidebar) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	}
 	rows := s.rows(m)
 	switch k.String() {
-	case "up", "k":
+	case "up":
 		s.cursor = s.moveCursor(rows, s.cursor, -1)
-	case "down", "j":
+	case "down":
 		s.cursor = s.moveCursor(rows, s.cursor, 1)
-	case "home", "g":
+	case "home":
 		s.cursor = s.moveCursor(rows, "", 1)
-	case "end", "G":
+	case "end":
 		s.cursor = s.moveCursor(rows, rows[len(rows)-1].key+"\x00", -1)
 		if len(rows) > 0 && rows[len(rows)-1].selectable() {
 			s.cursor = rows[len(rows)-1].key
@@ -597,24 +597,24 @@ func (s *sidebar) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	case "/":
 		s.startFilter(m)
 	case "esc":
+		// Up a level: out of the filter, or to the collections.
 		if s.filterText() != "" {
 			s.filter.SetValue("")
-		} else if m.sess != nil && m.sess.store.IsRunning() {
-			return m.sess.interrupt(m, false)
+		} else if m.settings.Layout == client.LayoutColumns && l.collW > 0 {
+			s.inColls = true
 		}
-	case "left", "right", "h", "l":
+	case "left", "right":
+		left := k.String() == "left"
 		if m.settings.Layout == client.LayoutColumns {
 			if l.collW > 0 {
-				if k.String() == "left" || k.String() == "h" {
-					s.inColls = true
-				}
+				s.inColls = s.inColls || left
 				return nil
 			}
-			s.stepCollection(m, map[bool]int{true: -1, false: 1}[k.String() == "left" || k.String() == "h"])
+			s.stepCollection(m, map[bool]int{true: -1, false: 1}[left])
 			return nil
 		}
 		if r, ok := s.current(rows); ok && (r.kind == rowProject || r.kind == rowFold) {
-			s.setFold(m, r, k.String() == "right" || k.String() == "l")
+			s.setFold(m, r, !left)
 		}
 	default:
 		return s.rowKey(m, rows, k)
@@ -724,13 +724,13 @@ func (s *sidebar) collectionKey(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	colls := s.collections(m)
 	cur := s.collKey(m)
 	switch k.String() {
-	case "up", "k":
+	case "up":
 		s.collCur = s.moveCursor(colls, cur, -1)
 		s.chooseCollection(m)
-	case "down", "j":
+	case "down":
 		s.collCur = s.moveCursor(colls, cur, 1)
 		s.chooseCollection(m)
-	case "right", "l", "enter":
+	case "right", "enter":
 		s.inColls = false
 		list := client.CollectionSessions(s.collection(m), m.conn)
 		if open := client.SessionToOpen(list, m.state.Recent); open != nil {

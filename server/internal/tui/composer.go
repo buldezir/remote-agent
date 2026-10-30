@@ -243,7 +243,10 @@ func (c *composer) message(m *Model, msg tea.Msg) tea.Cmd {
 
 func (c *composer) key(m *Model, v *sessionView, k tea.KeyPressMsg) tea.Cmd {
 	if v.archived() {
-		if k.String() == "esc" || k.String() == "up" {
+		switch k.String() {
+		case "esc":
+			m.toList()
+		case "up":
 			m.setFocus(focusTranscript)
 		}
 		return nil
@@ -278,16 +281,22 @@ func (c *composer) key(m *Model, v *sessionView, k tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+s":
 		return c.saveDraft(m, v)
 	case "esc":
-		if v.store.IsRunning() {
-			return v.interrupt(m, false)
-		}
+		m.toList()
 		return nil
 	case "up":
-		if c.value() == "" {
-			m.setFocus(focusTranscript)
-			v.moveCursor(-1)
+		// An empty prompt takes back the last one sent, as a shell does.
+		if c.value() == "" && len(c.atts) == 0 {
+			if text, images, ok := lastPrompt(v.store); ok {
+				c.restore(m, text, images)
+			}
 			return nil
 		}
+	case "pgup":
+		v.scrollBy(-max(1, v.avail-2))
+		return nil
+	case "pgdown":
+		v.scrollBy(max(1, v.avail-2))
+		return nil
 	case "backspace":
 		if c.value() == "" && len(c.atts) > 0 {
 			c.atts = c.atts[:len(c.atts)-1]
@@ -302,6 +311,31 @@ func (c *composer) key(m *Model, v *sessionView, k tea.KeyPressMsg) tea.Cmd {
 func (c *composer) complete() {
 	c.setValue("/" + c.sugg[c.suggIdx].Name + " ")
 	c.sugg = nil
+}
+
+// lastPrompt is the session's last prompt: the newest one sent, or else
+// the last in the transcript.
+func lastPrompt(s *client.SessionStore) (string, []model.ImageRef, bool) {
+	if n := len(s.Outbox); n > 0 {
+		return s.Outbox[n-1].Text, s.Outbox[n-1].Images, true
+	}
+	for i := len(s.Transcript) - 1; i >= 0; i-- {
+		if it := s.Transcript[i]; it.Kind == model.ItemUserMessage {
+			return it.Text, it.Images, true
+		}
+	}
+	return "", nil, false
+}
+
+// uploaded are the attachments' refs that have finished uploading.
+func (c *composer) uploaded() []model.ImageRef {
+	var refs []model.ImageRef
+	for _, a := range c.atts {
+		if a.state == uploaded {
+			refs = append(refs, a.ref)
+		}
+	}
+	return refs
 }
 
 // images are the attachments' refs, once all are uploaded.

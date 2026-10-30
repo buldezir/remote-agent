@@ -26,6 +26,10 @@ type dock struct {
 	reason  textinput.Model
 	scroll  int
 	busy    bool
+	// picked: an arrow has chosen an answer. Until then nothing is
+	// highlighted and enter answers nothing, so that what's typed as the
+	// approval appears can't answer it.
+	picked bool
 }
 
 type respondedMsg struct {
@@ -72,10 +76,15 @@ func (d *dock) hints() [][2]string {
 	if d.denying != nil {
 		return [][2]string{{"enter", "deny"}, {"esc", "back"}}
 	}
-	if it := d.current(); it != nil && it.Approval != nil && it.Approval.Special == model.SpecialQuestion {
-		return [][2]string{{"↑↓", "question"}, {"←→ space", "choose"}, {"enter", "answer"}}
+	it := d.current()
+	question := it != nil && it.Approval != nil && it.Approval.Special == model.SpecialQuestion
+	switch {
+	case !d.picked:
+		return [][2]string{{"←→", "pick an answer"}, {"ctrl+x", "stop"}}
+	case question && d.zone == 0:
+		return [][2]string{{"↑↓", "question"}, {"←→ space", "choose"}, {"ctrl+x", "stop"}}
 	}
-	return [][2]string{{"1–9", "answer"}, {"←→ enter", "choose"}, {"esc", "stop"}}
+	return [][2]string{{"←→", "pick"}, {"enter", "answer"}, {"ctrl+x", "stop"}}
 }
 
 func (d *dock) allAnswered(ap *model.Approval) bool {
@@ -132,60 +141,49 @@ func (d *dock) key(m *Model, v *sessionView, k tea.KeyPressMsg) tea.Cmd {
 		d.scroll += 5
 		return nil
 	case "esc":
-		return v.interrupt(m, false)
+		m.toList()
+		return nil
+	}
+	if !d.picked {
+		// The first arrow shows the answer it starts on.
+		d.picked = key == "up" || key == "down" || key == "left" || key == "right"
+		return nil
 	}
 	if question && d.zone == 0 {
 		q := ap.Questions[d.q]
 		switch key {
-		case "up", "k":
+		case "up":
 			d.q = max(0, d.q-1)
 			d.chip = 0
-		case "down", "j":
+		case "down":
 			if d.q < len(ap.Questions)-1 {
 				d.q++
 				d.chip = 0
 			} else {
 				d.zone = 1
 			}
-		case "left", "h":
+		case "left":
 			d.chip = max(0, d.chip-1)
-		case "right", "l":
+		case "right":
 			d.chip = min(len(q.Options)-1, d.chip+1)
 		case "space", "enter":
 			d.pick(ap, d.q, d.chip)
-		default:
-			if n, ok := digit(key); ok && n < len(q.Options) {
-				d.chip = n
-				d.pick(ap, d.q, n)
-			}
 		}
 		return nil
 	}
 	switch key {
-	case "up", "k":
+	case "up":
 		if question {
 			d.zone = 0
 		}
-	case "left", "h", "shift+tab":
+	case "left":
 		d.option = max(0, d.option-1)
-	case "right", "l", "down", "j":
+	case "right", "down":
 		d.option = min(len(ap.Options)-1, d.option+1)
-	case "enter", "space":
+	case "enter":
 		return d.choose(m, v, it, d.option)
-	default:
-		if n, ok := digit(key); ok && n < len(ap.Options) {
-			d.option = n
-			return d.choose(m, v, it, n)
-		}
 	}
 	return nil
-}
-
-func digit(key string) (int, bool) {
-	if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
-		return int(key[0] - '1'), true
-	}
-	return 0, false
 }
 
 // pick chooses a question's answer: one replaces the last, or with
@@ -308,17 +306,16 @@ func (d *dock) view(m *Model, v *sessionView, w, maxH int) []string {
 	}
 	var buttons []string
 	for i, o := range ap.Options {
-		label := fmt.Sprintf("%d %s", i+1, o.Label)
 		style := m.st.Button
 		switch {
 		case !d.enabled(ap, i):
 			style = m.st.Chip.Foreground(m.pal.Overlay)
-		case i == d.option && (ap.Special != model.SpecialQuestion || d.zone == 1):
+		case d.picked && i == d.option && (ap.Special != model.SpecialQuestion || d.zone == 1):
 			style = m.st.ButtonOn
 		case o.Kind == model.OptionDeny:
 			style = m.st.ButtonDeny
 		}
-		buttons = append(buttons, style.Render(label))
+		buttons = append(buttons, style.Render(o.Label))
 	}
 	add("")
 	row := strings.Join(buttons, " ")
@@ -341,8 +338,9 @@ func (d *dock) questionLines(m *Model, ap *model.Approval, width int) []string {
 		if q.Header != "" {
 			title = q.Header + ": " + q.Question
 		}
+		at := d.picked && qi == d.q && d.zone == 0
 		style := m.st.Text
-		if qi == d.q && d.zone == 0 {
+		if at {
 			style = m.st.AccentBold
 		}
 		for _, l := range wrap(title, width) {
@@ -350,18 +348,17 @@ func (d *dock) questionLines(m *Model, ap *model.Approval, width int) []string {
 		}
 		var chips []string
 		for ci, o := range q.Options {
-			label := fmt.Sprintf("%d %s", ci+1, o.Label)
 			st := m.st.Chip
 			if slices.Contains(d.answers[qi], o.Label) {
 				st = m.st.ChipOn
 			}
-			if qi == d.q && ci == d.chip && d.zone == 0 {
+			if at && ci == d.chip {
 				st = st.Underline(true).Bold(true)
 			}
-			chips = append(chips, st.Render(label))
+			chips = append(chips, st.Render(o.Label))
 		}
 		lines = append(lines, wrap(strings.Join(chips, " "), width)...)
-		if qi == d.q && d.zone == 0 && d.chip < len(q.Options) && q.Options[d.chip].Description != "" {
+		if at && d.chip < len(q.Options) && q.Options[d.chip].Description != "" {
 			for _, l := range wrap(q.Options[d.chip].Description, width) {
 				lines = append(lines, m.st.Faint.Render(l))
 			}

@@ -30,6 +30,7 @@ type newSession struct {
 	field     int
 	busy      bool
 	chose     bool // an agent was chosen here
+	leaving   bool // closing, once its prompt is kept as a draft
 }
 
 const (
@@ -75,6 +76,10 @@ func newNewSession(m *Model, projectID string) *newSession {
 		ns.field = fieldProject
 	} else {
 		ns.field = fieldPrompt
+	}
+	if u := m.unsent; u != nil {
+		ns.prompt.restore(m, u.text, u.images)
+		m.unsent = nil
 	}
 	ns.focusField()
 	return ns
@@ -202,6 +207,9 @@ func (ns *newSession) hints() [][2]string {
 	if ns.field == fieldPrompt {
 		h = [][2]string{{"enter", "start"}, {"shift+enter", "new line"}, {"ctrl+s", "save as draft"}}
 	}
+	if ns.written() {
+		return append(h, [2]string{"esc", "close, keeping the prompt"})
+	}
 	return append(h, [2]string{"esc", "cancel"})
 }
 
@@ -253,8 +261,7 @@ func (ns *newSession) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	key := k.String()
 	switch key {
 	case "esc":
-		m.pop()
-		return nil
+		return ns.leave(m)
 	case "tab":
 		ns.move(m, 1)
 		return nil
@@ -302,12 +309,12 @@ func (ns *newSession) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 		return cmd
 	}
 	switch key {
-	case "up", "k":
+	case "up":
 		ns.move(m, -1)
-	case "down", "j":
+	case "down":
 		ns.move(m, 1)
-	case "left", "right", "h", "l":
-		ns.cycle(m, map[bool]int{true: -1, false: 1}[key == "left" || key == "h"])
+	case "left", "right":
+		ns.cycle(m, map[bool]int{true: -1, false: 1}[key == "left"])
 	case "enter", "space":
 		return ns.choose(m)
 	}
@@ -504,6 +511,29 @@ func (ns *newSession) choose(m *Model) tea.Cmd {
 	return nil
 }
 
+func (ns *newSession) written() bool {
+	return strings.TrimSpace(ns.prompt.value()) != "" || len(ns.prompt.atts) > 0
+}
+
+// leave closes the form, keeping a prompt written in it: as a draft
+// session, as Save as Draft does, or when rad can't keep that, for the
+// next new session.
+func (ns *newSession) leave(m *Model) tea.Cmd {
+	if !ns.written() {
+		m.pop()
+		return nil
+	}
+	if m.conn.Info != nil && m.conn.Info.Drafts && ns.project(m) != nil && usable(ns.h(m)) {
+		cmd := ns.start(m, true)
+		ns.leaving = cmd != nil
+		return cmd
+	}
+	m.unsent = &unsentPrompt{text: ns.prompt.value(), images: ns.prompt.uploaded()}
+	m.pop()
+	m.say("Kept the prompt for the next new session.")
+	return nil
+}
+
 func (ns *newSession) start(m *Model, draft bool) tea.Cmd {
 	if ns.project(m) == nil {
 		m.fail(fmt.Errorf("Choose a project first."))
@@ -552,6 +582,8 @@ type createdMsg struct {
 
 func (ns *newSession) created(m *Model, msg createdMsg) tea.Cmd {
 	ns.busy = false
+	leaving := ns.leaving
+	ns.leaving = false
 	if msg.err != nil {
 		m.fail(msg.err)
 		return nil
@@ -559,6 +591,10 @@ func (ns *newSession) created(m *Model, msg createdMsg) tea.Cmd {
 	ns.remember(m)
 	for m.topOverlay() != nil {
 		m.pop()
+	}
+	if leaving {
+		m.say("Saved “" + msg.s.Title + "” as a draft.")
+		return nil
 	}
 	m.openSession(msg.s.ID)
 	m.setFocus(focusComposer)
@@ -740,17 +776,17 @@ func (fb *folderBrowser) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	switch k.String() {
 	case "esc":
 		m.pop()
-	case "up", "k":
+	case "up":
 		fb.cursor = max(0, fb.cursor-1)
-	case "down", "j":
+	case "down":
 		fb.cursor = min(len(entries)-1, fb.cursor+1)
-	case "left", "h", "backspace":
+	case "left", "backspace":
 		if fb.listing != nil && fb.listing.Parent != "" {
 			return fb.load(m, fb.listing.Parent)
 		} else if fb.listing != nil && fb.listing.Path != "" {
 			return fb.load(m, "")
 		}
-	case "enter", "right", "l":
+	case "enter", "right":
 		if fb.cursor < len(entries) {
 			return fb.load(m, entries[fb.cursor].Path)
 		}

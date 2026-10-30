@@ -116,6 +116,7 @@ func (u *ui) waitFor(text string) string {
 var keyCodes = map[string]rune{
 	"enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab, "up": tea.KeyUp, "down": tea.KeyDown,
 	"left": tea.KeyLeft, "right": tea.KeyRight, "space": tea.KeySpace, "backspace": tea.KeyBackspace,
+	"home": tea.KeyHome, "end": tea.KeyEnd,
 }
 
 // key presses a named key, a ctrl+ key, or types text.
@@ -153,9 +154,14 @@ func TestStartsASessionAndAnswersItsQuestions(t *testing.T) {
 	u.key("write a.txt then a question")
 	u.key("enter")
 	u.waitFor("Needs your answer")
-	u.key("1")
+	// An arrow picks the first answer, Allow; enter sends it.
+	u.key("right")
+	u.key("enter")
 	u.waitFor("A question for you")
-	u.key("2")
+	// The second color, Blue, then the answer.
+	u.key("right")
+	u.key("right")
+	u.key("enter")
 	u.key("enter")
 	u.waitFor("Echo: write a.txt then a question")
 	s := u.waitFor("› Prompt")
@@ -207,6 +213,16 @@ func TestTypesIntoTheSessionItReopens(t *testing.T) {
 	u.key("hello there")
 	u.key("enter")
 	u.waitFor("Echo: hello there")
+	// ↑ in the empty prompt brings it back.
+	u.key("up")
+	u.waitFor("› hello there")
+	// ctrl+h opens the help from the prompt, and closes it.
+	u.key("ctrl+h")
+	u.waitFor("these keys")
+	u.key("ctrl+h")
+	if s := u.waitFor("› hello there"); strings.Contains(s, "these keys") {
+		t.Errorf("the help stayed open:\n%s", s)
+	}
 }
 
 func TestStopsATurnThatWaits(t *testing.T) {
@@ -224,10 +240,75 @@ func TestStopsATurnThatWaits(t *testing.T) {
 	u.key("write b.txt")
 	u.key("enter")
 	u.waitFor("Needs your answer")
+	// What's typed as the approval appears doesn't answer it.
+	u.key("2 files")
+	u.key("enter")
+	if s := u.waitFor("pick an answer"); strings.Contains(s, "Allow:") {
+		t.Errorf("typing answered the approval:\n%s", s)
+	}
+	// Esc goes back to the list and stops nothing; ctrl+x stops.
 	u.key("esc")
+	u.waitFor("enter open")
+	if s := u.screen(); strings.Contains(s, "Interrupted") || !strings.Contains(s, "Needs your answer") {
+		t.Errorf("esc stopped the turn:\n%s", s)
+	}
+	u.key("ctrl+x")
 	s := u.waitFor("— Interrupted")
 	if !strings.Contains(s, "Cancelled: Write b.txt") {
 		t.Errorf("approval not cancelled in\n%s", s)
+	}
+}
+
+// Esc closes the new session's form, keeping its prompt as a draft.
+func TestClosingTheFormKeepsADraft(t *testing.T) {
+	u := startUI(t, 120, 36)
+	u.key("ctrl+n")
+	u.waitFor("New Session")
+	u.key("enter")
+	u.key("enter")
+	u.waitFor("▸ /")
+	u.key("a")
+	u.waitFor("Fake (scripted)")
+	for !strings.Contains(u.screen(), "save as draft") {
+		u.key("tab")
+	}
+	u.key("write d.txt later")
+	u.waitFor("keeping the prompt")
+	u.key("esc")
+	u.waitFor("as a draft")
+	if s := u.waitFor("enter open"); !strings.Contains(s, "write d.txt later") {
+		t.Errorf("no draft in the list:\n%s", s)
+	}
+}
+
+// Text typed into the list by mistake doesn't delete the session: Delete
+// starts on Cancel, and a space doesn't choose.
+func TestTypingInTheListDeletesNothing(t *testing.T) {
+	var id string
+	u := startUIWith(t, 120, 36, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		ctx := context.Background()
+		var p model.Project
+		if err := rpc.Call(ctx, "project.add", map[string]any{"path": r.Root}, &p); err != nil {
+			t.Fatal(err)
+		}
+		var s model.Session
+		if err := rpc.Call(ctx, "session.create", map[string]any{"commandId": "c1", "projectId": p.ID, "harness": "fake", "workspace": map[string]any{"kind": "root"}}, &s); err != nil {
+			t.Fatal(err)
+		}
+		id = s.ID
+	})
+	u.waitFor("enter open")
+	u.key("down")
+	u.key("D")
+	u.waitFor("for good")
+	u.key("o it")
+	u.waitFor("for good")
+	u.key("enter")
+	u.waitFor("enter open")
+	// A deletion would be on its way by now; let it land.
+	time.Sleep(200 * time.Millisecond)
+	if s, err := u.rad.Store.Session(context.Background(), id); err != nil || s == nil {
+		t.Fatalf("the session went: %v", err)
 	}
 }
 
@@ -251,7 +332,7 @@ func TestCancelsAQueuedPrompt(t *testing.T) {
 	u.waitFor("x cancels it")
 	// The queued prompt is the last item.
 	u.key("shift+tab")
-	u.key("G")
+	u.key("end")
 	u.key("x")
 	u.waitFor("Not sent")
 	// The reply ends; nothing starts after it.
