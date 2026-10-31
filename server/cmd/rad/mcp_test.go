@@ -35,9 +35,6 @@ func TestBridge(t *testing.T) {
 			io.WriteString(w, `{"jsonrpc":"2.0","id":`+string(m.ID)+`,"result":{"slow":true}}`+"\n")
 		default:
 			io.WriteString(w, `{"jsonrpc":"2.0","id":`+string(m.ID)+`,"result":{}}`)
-			if m.Method == "ping" {
-				close(release) // only now does the slow one answer
-			}
 		}
 	}))
 	defer srv.Close()
@@ -46,7 +43,14 @@ func TestBridge(t *testing.T) {
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n\n" +
 		`{"jsonrpc":"2.0","id":2,"method":"ping"}` + "\n")
 	var out strings.Builder
-	if err := bridge(context.Background(), in, &out, srv.URL, "tok", srv.Client()); err != nil {
+	// Only once the ping's reply is out does the slow one answer.
+	w := writerFunc(func(b []byte) (int, error) {
+		if strings.Contains(string(b), `"id":2`) {
+			close(release)
+		}
+		return out.Write(b)
+	})
+	if err := bridge(context.Background(), in, w, srv.URL, "tok", srv.Client()); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
@@ -60,3 +64,7 @@ func TestBridge(t *testing.T) {
 		t.Errorf("refused = %q", got)
 	}
 }
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(b []byte) (int, error) { return f(b) }
