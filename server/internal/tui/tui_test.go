@@ -106,7 +106,29 @@ func startUIWith(t *testing.T, width, height int, setup func(rpc *client.RPCClie
 	u := &ui{t: t, p: p, rad: r, conn: conn, clip: clip}
 	// The status bar's key hints, whatever has focus.
 	u.waitFor(" · ")
+	u.synced()
 	return u
+}
+
+// synced waits until ra is connected and has rad's index, as a user sees
+// before they act. The interface takes keys from the start, but until then
+// a key finds nothing to act on: ctrl+n says ra isn't connected, and the
+// list has no rows, where a key only moves the cursor to the first. How
+// long that takes depends on how busy the machine is.
+func (u *ui) synced() {
+	u.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		ready := false
+		u.inspect(func(m *Model) { ready = m.conn.IsConnected() && m.conn.IndexSynced })
+		if ready {
+			return
+		}
+		if time.Now().After(deadline) {
+			u.t.Fatalf("not synced with rad:\n%s", u.screen())
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
 }
 
 func (u *ui) screen() string {
