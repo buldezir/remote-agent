@@ -245,7 +245,13 @@ struct ServerSplitView: View {
                     #endif
             }
         }
+        #if os(macOS)
+        // Room for the transcript and the composer: without it the window
+        // narrows the session to a sliver beside the sidebar's columns.
+        .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+        #else
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #endif
         .background(Palette.base)
         .environment(\.inlineSessionTitle, layout == .columns)
     }
