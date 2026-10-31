@@ -43,9 +43,9 @@ struct SessionView: View {
     @State private var dictation = Dictation()
     @State private var attachments = Attachments()
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
-    /// How tall the transcript is, and the room it has, as the scroll view
+    /// Whether the transcript is taller than its room, as the scroll view
     /// last laid it out.
-    @State private var heights = TranscriptHeights()
+    @State private var overflow = TranscriptOverflow()
     @FocusState private var composerFocused: Bool
     /// The find bar over the transcript, its query and the match it's on.
     @State private var findShown = false
@@ -268,10 +268,10 @@ struct SessionView: View {
         }
         .background(Palette.base)
         .scrollPosition($scrollPosition)
-        .onScrollGeometryChange(for: TranscriptHeights.Value.self) { geometry in
-            TranscriptHeights.Value(content: geometry.contentSize.height, visible: geometry.containerSize.height)
-        } action: { _, value in
-            heights.value = value
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            TranscriptFind.scrollsToItem(contentHeight: geometry.contentSize.height, visibleHeight: geometry.containerSize.height)
+        } action: { _, scrolls in
+            overflow.scrolls = scrolls
         }
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
@@ -426,10 +426,10 @@ struct SessionView: View {
     /// jump can stop short. Not while the whole transcript fits, where the
     /// item shows already (`TranscriptFind.scrollsToItem`).
     private func scrollTo(_ id: String) {
-        if heights.scrolls { scrollPosition.scrollTo(id: id, anchor: .center) }
+        if overflow.scrolls { scrollPosition.scrollTo(id: id, anchor: .center) }
         Task {
             try? await Task.sleep(for: .milliseconds(150))
-            if heights.scrolls, id == currentMatch(findMatches) || id == flashing {
+            if overflow.scrolls, id == currentMatch(findMatches) || id == flashing {
                 scrollPosition.scrollTo(id: id, anchor: .center)
             }
         }
@@ -1090,22 +1090,15 @@ struct SessionView: View {
     }
 }
 
-/// A transcript's height and the room it has in view, which the scroll view
-/// reports as it lays it out. A reference that the view reads when it
-/// scrolls to an item, not state: a lazy stack reports several heights a
-/// frame as it places its rows, and state set from them would draw the view
-/// again each time, which SwiftUI takes for a cycle and stops reporting,
-/// with the last height wrong.
-private final class TranscriptHeights {
-    struct Value: Equatable {
-        var content = 0.0
-        var visible = 0.0
-    }
-
-    var value = Value()
-
-    /// The transcript is taller than its room: `TranscriptFind.scrollsToItem`.
-    var scrolls: Bool { TranscriptFind.scrollsToItem(contentHeight: value.content, visibleHeight: value.visible) }
+/// Whether the transcript is taller than the room it has in view
+/// (`TranscriptFind.scrollsToItem`), as the scroll view reports it. Only
+/// that, not the heights: a lazy stack reports several heights a frame as it
+/// places its rows, by estimate, as a session opens, and SwiftUI logs that
+/// the modifier tried to update multiple times per frame. A reference that
+/// the view reads when it scrolls to an item, not state, which would draw
+/// the view again each time.
+private final class TranscriptOverflow {
+    var scrolls = false
 }
 
 #if os(macOS)
