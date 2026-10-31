@@ -19,6 +19,7 @@ import {
 import { useState, type ReactNode } from "react";
 import type { Draft, HarnessInfo, ImageRef, Item, JSONValue, Plan, Turn } from "../../protocol/models";
 import type { SessionStore } from "../../store/sessionStore";
+import { capitalized, runParts, runTitle, runTools, runWorking, type ToolRun } from "../../store/toolRuns";
 import { ImageGallery } from "../images";
 import { Markdown } from "../Markdown";
 import { ErrorAlert, Spinner } from "../primitives";
@@ -231,7 +232,7 @@ function ReasoningView({ item }: { item: Item }) {
   );
 }
 
-const toolIcons: Record<string, LucideIcon> = {
+export const toolIcons: Record<string, LucideIcon> = {
   read: FileText,
   edit: Pencil,
   execute: Terminal,
@@ -276,6 +277,46 @@ function ToolCallView({ item, store }: { item: Item; store: SessionStore }) {
           {children.length} sub-agent step{children.length === 1 ? "" : "s"}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A run of tool calls folded into what it did, "Ran 4 commands, edited 3
+ *  files", each part after its kind's icon (store/toolRuns). A click opens
+ *  it to the calls themselves, below it, and shuts it again. */
+export function ToolRunRow({ run, expanded, onToggle }: { run: ToolRun; expanded: boolean; onToggle: () => void }) {
+  const parts = runParts(runTools(run));
+  return (
+    <div className="tool-run card">
+      <button
+        className="tool-header"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-label={runTitle(parts)}
+        title={expanded ? "Hide these tool calls" : "Show these tool calls"}
+      >
+        <span className="tool-run-summary">
+          {parts.map((p, i) => {
+            const Icon = toolIcons[p.kind] ?? Wrench;
+            return (
+              <span key={p.kind}>
+                {i > 0 && ", "}
+                <span className="tool-run-part">
+                  <Icon size={14} className="c-subtext" aria-hidden /> {i === 0 ? capitalized(p.text) : p.text}
+                </span>
+              </span>
+            );
+          })}
+        </span>
+        {runWorking(run) && (
+          <span className="tool-status">
+            <Spinner size={13} />
+          </span>
+        )}
+        <span className="tool-status">
+          <ChevronRight size={15} className={"chevron c-subtext" + (expanded ? " open" : "")} aria-hidden />
+        </span>
+      </button>
     </div>
   );
 }

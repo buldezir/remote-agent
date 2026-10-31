@@ -14,10 +14,13 @@ type Settings struct {
 	Layout        client.Layout `json:"layout"`        // inbox, projects or columns
 	Notifications string        `json:"notifications"` // off, bell or desktop
 	Mouse         bool          `json:"mouse"`
+	// GroupToolCalls folds runs of tool calls into a line that sums them up
+	// (client.ToolRuns).
+	GroupToolCalls bool `json:"groupToolCalls"`
 }
 
 func DefaultSettings() Settings {
-	return Settings{Theme: "system", Layout: client.LayoutInbox, Notifications: "desktop", Mouse: true}
+	return Settings{Theme: "system", Layout: client.LayoutInbox, Notifications: "desktop", Mouse: true, GroupToolCalls: true}
 }
 
 func (s *Settings) normalize() {

@@ -1399,6 +1399,14 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   display: inline-flex;
   margin-top: 2px;
 }
+.tool-run { font-size: 0.9em; }
+.tool-run-summary {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.tool-run-part { white-space: nowrap; }
+.tool-run-part svg { vertical-align: -2px; }
 .tool-steps {
   font-size: 0.89em;
   color: var(--subtext);

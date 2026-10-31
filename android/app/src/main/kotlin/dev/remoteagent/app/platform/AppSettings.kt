@@ -63,6 +63,8 @@ class AppSettings(private val context: Context, private val scope: CoroutineScop
         val terminalPlacement = stringPreferencesKey("terminalPlacement")
         val terminalHeight = floatPreferencesKey("terminalHeight")
         val diffWrap = booleanPreferencesKey("diffWrap")
+        /** Whether runs of tool calls fold into a line that sums them up (ToolRuns). */
+        val groupToolCalls = booleanPreferencesKey("groupToolCalls")
         val lastHarness = stringPreferencesKey("lastHarness")
         val lastProject = stringPreferencesKey("lastProject")
         fun lastModel(harness: String) = stringPreferencesKey("lastModel.$harness")

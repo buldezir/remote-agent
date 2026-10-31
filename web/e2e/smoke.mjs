@@ -487,6 +487,65 @@ await page.locator(".find-bar input:focus").waitFor();
 await page.locator(".find-bar").getByRole("button", { name: "Done" }).click();
 await page.locator(".find-bar").waitFor({ state: "detached" });
 
+step("runs of tool calls fold, and open");
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
+await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
+await page.locator(".harness-row", { hasText: "Fake" }).click();
+await page.getByPlaceholder("What should the agent do?").fill("tools");
+await page.getByRole("button", { name: "Start", exact: true }).click();
+// While the agent works in it, the run shows open, its summary growing.
+const runs = page.locator(".tool-run .tool-header");
+await page.locator(".tool-run .tool-header[aria-expanded=true]").waitFor();
+await shot("tool-run-live");
+await page.getByText("Echo: tools", { exact: true }).waitFor();
+const firstRun = "Ran 1 command, edited 2 files, read 2 files, searched 1 time, fetched 1 page";
+const runLabels = async () => runs.evaluateAll((els) => els.map((e) => `${e.getAttribute("aria-label")} ${e.getAttribute("aria-expanded")}`));
+await page.waitForFunction(() => document.querySelectorAll(".tool-run .tool-header[aria-expanded=false]").length === 2);
+if (JSON.stringify(await runLabels()) !== JSON.stringify([`${firstRun} false`, "Ran 1 command, edited 1 file false"])) {
+  throw new Error(`runs: ${JSON.stringify(await runLabels())}`);
+}
+// The failed test run stands between them; the calls in the runs don't show.
+await page.locator(".tool-title", { hasText: "go test ./..." }).waitFor();
+if (await page.locator(".tool-title", { hasText: "Grep TODO" }).count()) throw new Error("a folded run shows its calls");
+await shot("tool-runs");
+await runs.first().click();
+await page.locator(".tool-title", { hasText: "Grep TODO" }).waitFor();
+await shot("tool-run-open");
+await runs.first().click();
+await page.locator(".tool-title", { hasText: "Grep TODO" }).waitFor({ state: "detached" });
+// Find shows the run its match is in open, while it's on that match.
+await page.keyboard.press("Control+f");
+await page.locator(".find-bar input:focus").waitFor();
+await findField.fill("go test");
+await page.locator(".tool-run .tool-header[aria-expanded=true]", { hasText: "edited 1 file" }).waitFor();
+await findField.fill("Grep");
+await findCount.filter({ hasText: /^1 of 1$/ }).waitFor();
+await page.locator(".item-row.find-current", { hasText: "Grep TODO" }).waitFor();
+await page.locator(".tool-run .tool-header[aria-expanded=false]", { hasText: "edited 1 file" }).waitFor();
+await shot("tool-run-find");
+// Closed, what it found stays open.
+await findField.press("Escape");
+await page.locator(".find-bar").waitFor({ state: "detached" });
+await page.locator(".tool-title", { hasText: "Grep TODO" }).waitFor();
+await runs.first().click();
+await page.emulateMedia({ colorScheme: "light" });
+await shot("tool-runs-light");
+await page.emulateMedia({ colorScheme: "dark" });
+await page.setViewportSize({ width: 390, height: 844 });
+await page.getByText("Echo: tools", { exact: true }).waitFor();
+await shot("phone-tool-runs");
+await page.setViewportSize({ width: 1280, height: 820 });
+// Settings › Transcript turns it off: every call shows.
+await page.getByRole("button", { name: "Settings", exact: true }).first().click();
+await page.getByLabel("Group tool calls").uncheck();
+await page.getByRole("button", { name: "Done" }).click();
+await page.locator(".tool-title", { hasText: "Grep TODO" }).waitFor();
+if (await runs.count()) throw new Error("runs fold with Group tool calls off");
+await page.getByRole("button", { name: "Settings", exact: true }).first().click();
+await page.getByLabel("Group tool calls").check();
+await page.getByRole("button", { name: "Done" }).click();
+await runs.first().waitFor();
+
 step("phone: search in the Inbox tab, and back to the results");
 await page.setViewportSize({ width: 390, height: 844 });
 await page.evaluate(() => {

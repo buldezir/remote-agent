@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -36,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.CornerRadius
@@ -47,8 +51,15 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import dev.remoteagent.core.protocol.Draft
 import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ImageRef
@@ -70,6 +82,7 @@ import dev.remoteagent.core.protocol.get
 import dev.remoteagent.core.protocol.pretty
 import dev.remoteagent.core.protocol.stringValue
 import dev.remoteagent.core.store.SessionStore
+import dev.remoteagent.core.store.ToolRuns
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
@@ -343,6 +356,50 @@ private fun ToolCallView(item: Item, children: List<Item>, store: SessionStore, 
                 style = messageStyle(Metrics.TOOL_LABEL), color = palette.subtext, modifier = Modifier.padding(start = 26.dp),
             )
         }
+    }
+}
+
+/**
+ * A run of tool calls folded into what it did, "Ran 4 commands, edited 3
+ * files", each part after its kind's icon (ToolRuns). A tap opens it to the
+ * calls themselves, below it, and shuts it again.
+ */
+@Composable
+fun ToolRunRow(run: ToolRuns.Run, expanded: Boolean, onToggle: () -> Unit) {
+    val parts = run.parts
+    val summary = remember(parts) {
+        buildAnnotatedString {
+            parts.forEachIndexed { i, p ->
+                if (i > 0) append(", ")
+                appendInlineContent(p.kind.wire)
+                // No-break spaces keep the icon with its words, and the words together.
+                append(("\u00A0" + if (i == 0) ToolRuns.capitalized(p.text) else p.text).replace(' ', '\u00A0'))
+            }
+        }
+    }
+    val tint = palette.subtext
+    val icons = parts.associate { p ->
+        p.kind.wire to InlineTextContent(Placeholder(1.1.em, 1.em, PlaceholderVerticalAlign.TextCenter)) {
+            Icon(painterResource(toolIcon(p.kind)), null, Modifier.fillMaxSize(), tint = tint)
+        }
+    }
+    val shape = RoundedCornerShape(Metrics.Corner.card)
+    val action = if (expanded) "Hide the tool calls" else "Show the tool calls"
+    Row(
+        Modifier.fillMaxWidth().clip(shape).background(palette.mantle, shape).clickable(onClickLabel = action, onClick = onToggle)
+            .padding(horizontal = Metrics.padding, vertical = 6.dp).testTag("tool-run")
+            .clearAndSetSemantics {
+                contentDescription = run.title
+                stateDescription = if (expanded) "Expanded" else "Collapsed"
+                role = Role.Button
+                onClick(action) { onToggle(); true }
+            },
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(summary, style = messageStyle(Metrics.TOOL_TEXT), color = palette.text, inlineContent = icons, modifier = Modifier.weight(1f))
+        if (run.working) CircularProgressIndicator(Modifier.size(14.dp), color = palette.subtext, strokeWidth = 2.dp)
+        Icon(painterResource(Icons.chevronRight), null, Modifier.size(16.dp).rotate(if (expanded) 90f else 0f), tint = palette.subtext)
     }
 }
 

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"remote-agent/internal/client"
 	"remote-agent/internal/model"
 )
 
@@ -216,6 +217,56 @@ func (m *Model) renderTool(v *sessionView, it *model.Item, width int) []string {
 		for _, l := range m.renderItem(v, c, width-4) {
 			lines = append(lines, gutter+l)
 		}
+	}
+	return lines
+}
+
+// renderRun draws a run of tool calls folded into what it did, "Ran 4
+// commands, edited 3 files", each part after its kind's glyph: ▸ while
+// shut, ▾ open, and a spinner while the agent works in it.
+func (m *Model) renderRun(run *client.ToolRun, open bool, width int) []string {
+	var b strings.Builder
+	glyphs := map[rune]bool{}
+	for i, p := range run.Parts() {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		text := p.Text
+		if i == 0 {
+			text = client.Capitalized(text)
+		}
+		g := m.toolGlyph(p.Kind)
+		for _, r := range g {
+			glyphs[r] = true
+		}
+		// A glyph stays with its words, and the words together.
+		b.WriteString(g + "\u00a0" + strings.ReplaceAll(text, " ", "\u00a0"))
+	}
+	mark := "▸ "
+	if open {
+		mark = "▾ "
+	}
+	var lines []string
+	for i, l := range wrap(b.String(), width-2) {
+		l = strings.ReplaceAll(l, "\u00a0", " ")
+		lead := "  "
+		if i == 0 {
+			lead = m.st.Subtext.Render(mark)
+		}
+		// The glyphs in the tool calls' colour, the words in the text's.
+		line, words := lead, ""
+		for _, r := range l {
+			if glyphs[r] {
+				line += m.st.Text.Render(words) + m.st.Subtext.Render(string(r))
+				words = ""
+			} else {
+				words += string(r)
+			}
+		}
+		lines = append(lines, line+m.st.Text.Render(words))
+	}
+	if run.Working() {
+		lines[len(lines)-1] += " " + m.st.Accent.Render(m.spinner())
 	}
 	return lines
 }

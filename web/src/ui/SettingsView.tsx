@@ -77,6 +77,15 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
+        <h4 className="form-header">Transcript</h4>
+        <section className="form-section">
+          <label className="form-row">
+            <span>Group tool calls</span>
+            <input type="checkbox" className="switch" checked={s.groupToolCalls} onChange={(e) => settings.update({ groupToolCalls: e.target.checked })} />
+          </label>
+        </section>
+        <p className="form-footer">Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them.</p>
+
         <h4 className="form-header">Sidebar</h4>
         <section className="form-section">
           <label className="form-row">

@@ -266,8 +266,23 @@ struct ToolCallView: View {
         .background(Palette.mantle, in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
     }
 
-    private var icon: String {
-        switch tool?.kind ?? .other {
+    private var icon: String { (tool?.kind ?? .other).symbol }
+
+    @ViewBuilder private var statusView: some View {
+        switch item.status {
+        case .inProgress: ProgressView().controlSize(.mini)
+        case .pending: Image(systemName: "hand.raised.fill").foregroundStyle(Palette.yellow).imageScale(.small)
+        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.red).imageScale(.small)
+        case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.green).imageScale(.small)
+        default: EmptyView()
+        }
+    }
+}
+
+extension ToolKind {
+    /// The kind's icon, on a tool call and in a run's summary.
+    var symbol: String {
+        switch self {
         case .read: "doc.text"
         case .edit: "pencil"
         case .execute: "terminal"
@@ -277,14 +292,54 @@ struct ToolCallView: View {
         case .other: "wrench.and.screwdriver"
         }
     }
+}
 
-    @ViewBuilder private var statusView: some View {
-        switch item.status {
-        case .inProgress: ProgressView().controlSize(.mini)
-        case .pending: Image(systemName: "hand.raised.fill").foregroundStyle(Palette.yellow).imageScale(.small)
-        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.red).imageScale(.small)
-        case .completed: Image(systemName: "checkmark.circle.fill").foregroundStyle(Palette.green).imageScale(.small)
-        default: EmptyView()
+/// A run of tool calls folded into what it did, "Ran 4 commands, edited 3
+/// files", each part after its kind's icon (`ToolRuns`). A tap opens it to
+/// the calls themselves, below it, and shuts it again.
+struct ToolRunRow: View {
+    /// Settings › Transcript › Group tool calls; off shows every call.
+    static let groupKey = "groupToolCalls"
+
+    let run: ToolRuns.Run
+    let expanded: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy) { toggle() }
+        } label: {
+            HStack(spacing: 8) {
+                summary
+                    .messageRelativeFont(Metrics.toolText)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if run.working { ProgressView().controlSize(.mini) }
+                Image(systemName: "chevron.right")
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                    .imageScale(.small)
+                    .foregroundStyle(Palette.subtext)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, Metrics.padding)
+        .padding(.vertical, 6)
+        .background(Palette.mantle, in: RoundedRectangle(cornerRadius: Metrics.Corner.card))
+        .accessibilityLabel(run.title)
+        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+        .help(expanded ? "Hide these tool calls" : "Show these tool calls")
+    }
+
+    /// The parts, each after its kind's icon.
+    private var summary: Text {
+        run.parts.enumerated().reduce(Text(verbatim: "")) { text, e in
+            let icon = Text(Image(systemName: e.element.kind.symbol).symbolRenderingMode(.monochrome))
+                .foregroundStyle(Palette.subtext)
+            // No-break spaces keep the icon with its words, and the words together.
+            let phrase = e.offset == 0 ? ToolRuns.capitalized(e.element.text) : e.element.text
+            let words = Text(verbatim: phrase.replacingOccurrences(of: " ", with: "\u{00A0}"))
+            return e.offset == 0 ? Text("\(icon)\u{00A0}\(words)") : Text("\(text), \(icon)\u{00A0}\(words)")
         }
     }
 }

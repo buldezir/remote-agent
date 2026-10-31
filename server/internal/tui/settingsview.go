@@ -7,7 +7,7 @@ import (
 )
 
 // settingsView is Settings: the theme, the sidebar's layout,
-// notifications and the mouse.
+// notifications, the mouse and tool calls.
 type settingsView struct {
 	row int
 }
@@ -47,6 +47,17 @@ var settingRows = []setting{
 			return "off"
 		},
 		set: func(s *Settings, v string) { s.Mouse = v == "on" },
+	},
+	{
+		title: "Group tool calls", summary: "Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which enter opens.",
+		values: []string{"on", "off"}, names: []string{"On", "Off"},
+		get: func(s *Settings) string {
+			if s.GroupToolCalls {
+				return "on"
+			}
+			return "off"
+		},
+		set: func(s *Settings, v string) { s.GroupToolCalls = v == "on" },
 	},
 }
 
@@ -113,10 +124,10 @@ func (sv *settingsView) view(m *Model, width, height int) string {
 				opts = append(opts, m.st.Chip.Render(r.names[j]))
 			}
 		}
-		title := m.st.Subtext.Render(pad(r.title, 15))
+		title := m.st.Subtext.Render(pad(r.title, 18))
 		marker := "  "
 		if i == sv.row {
-			title = m.st.AccentBold.Render(pad(r.title, 15))
+			title = m.st.AccentBold.Render(pad(r.title, 18))
 			marker = m.st.Accent.Render("▌ ")
 		}
 		line := marker + title

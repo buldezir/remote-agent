@@ -2,7 +2,8 @@
 # Walks the Android app through the fake harness on an emulator, as
 # web/e2e/smoke.mjs does the web client: pairing by deep link, a new worktree
 # session, the fake keywords, images, changes and revert, the terminal, the
-# Inbox and Servers tabs, search and find in a session, renaming a session, a tablet's sidebar, the dark theme, the server's settings (updating and
+# Inbox and Servers tabs, search and find in a session, runs of tool calls
+# folding and opening, renaming a session, a tablet's sidebar, the dark theme, the server's settings (updating and
 # signing in the fake agent, naming sessions with it), and a draft saved,
 # edited, saved again and sent. Saves screenshots to
 # $SCRATCH/shots and removes the server at the end, which unpairs it. Never
@@ -209,6 +210,59 @@ wait_for 'id=search-result' 5 || fail "back didn't return to the results"
 tap 'id=search-clear'
 wait_for 'text=Recent' 5 || fail "clearing the search didn't bring back the Inbox"
 hide_keyboard
+
+step "tool runs"
+# A run of tool calls folds into one row that says what it did, shut once the
+# agent has replied; the failed test stands between two runs. A tap opens the
+# run and shuts it again, and find opens the run its match is in.
+radctl debug run --cwd "$SCRATCH/root/$PROJECT" "run the tools" > /dev/null
+wait_for 'text=run the tools' 10 || fail "the tools session isn't in the Inbox"
+tap 'text=run the tools'
+wait_for 'contains=Echo: run the tools' 10 || fail "the tools session didn't open"
+first='Ran 1 command, edited 2 files, read 2 files, searched 1 time, fetched 1 page'
+run1=$(find_view "desc=$first") || fail "no run of the calls before the failed test"
+failed=$(find_view 'text=go test ./...') || fail "the failed test isn't shown"
+run2=$(find_view 'desc=Ran 1 command, edited 1 file') || fail "no run of the calls after the failed test"
+[ "${run1#* }" -lt "${failed#* }" ] && [ "${failed#* }" -lt "${run2#* }" ] || fail "the failed test isn't between the runs"
+[ "$(texts 'id=tool-run' | grep -c .)" -eq 2 ] || fail "not two runs"
+! find_view 'text=Grep TODO' > /dev/null || fail "a shut run shows its calls"
+shot 06l-tool-runs
+tap "desc=$first"
+wait_for 'text=Grep TODO' 5 || fail "tapping the run didn't open it"
+shot 06m-tool-run-open
+tap "desc=$first"
+for _ in $(seq 1 5); do find_view 'text=Grep TODO' > /dev/null || break; sleep 1; done
+! find_view 'text=Grep TODO' > /dev/null || fail "tapping the run again didn't shut it"
+tap 'id=session-menu'; sleep 0.5; tap 'text=Find in Session'
+wait_for 'id=find-field' 5 || fail "no find bar"
+fill 'id=find-field' 'Grep'
+wait_for 'text=1 of 1' 5 || fail "find didn't find Grep TODO"
+wait_for 'text=Grep TODO' 5 || fail "find didn't open the run its match is in"
+hide_keyboard; shot 06n-tool-run-find
+tap 'id=find-done'; sleep 0.5
+find_view 'text=Grep TODO' > /dev/null || fail "closing find shut the run it opened"
+tap "desc=$first"; sleep 1
+NIGHT=1; "$A" shell cmd uimode night yes; sleep 2
+shot 06o-tool-runs-dark
+"$A" shell cmd uimode night no; NIGHT=; sleep 2
+# Settings › Group tool calls off: every call shows, in no run.
+hide_keyboard; tap 'desc=Back'; sleep 1
+toggle_grouping() {
+  tap 'desc=More'; sleep 0.5; tap 'text=Settings' || fail "no Settings in the Inbox's menu"
+  wait_for 'text=Dark' 5 || fail "Settings didn't open"
+  for _ in 1 2 3 4; do find_view 'text=Group tool calls' > /dev/null && break; "$A" shell input swipe 540 1700 540 900 300; sleep 0.5; done
+  tap 'text=Group tool calls' || fail "no Group tool calls in Settings"
+  sleep 0.5; "$A" shell input keyevent KEYCODE_BACK; sleep 1
+}
+toggle_grouping
+tap 'text=run the tools'
+wait_for 'contains=Echo: run the tools' 10 || fail "the tools session didn't open"
+find_view 'text=Grep TODO' > /dev/null || fail "Group tool calls off didn't show every call"
+! find_view 'id=tool-run' > /dev/null || fail "runs fold with Group tool calls off"
+shot 06p-tool-runs-ungrouped
+tap 'desc=Back'; sleep 1
+toggle_grouping
+wait_for 'id=search-field' 5 || fail "Settings didn't go back to the Inbox"
 
 step "rename"
 # A row's long press renames the session: the prompt opens with its title

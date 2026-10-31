@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"image/color"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -55,6 +56,10 @@ func (v *sessionView) closeFind(m *Model, refocus bool) {
 	if v.find == nil {
 		return
 	}
+	// What it found stays in view.
+	if run := v.findRun(); run != "" {
+		v.runs[run] = true
+	}
 	back := v.find.back
 	v.find = nil
 	if refocus {
@@ -98,6 +103,19 @@ func (v *sessionView) refreshFind() {
 	}
 }
 
+// findRun is the id of the run of tool calls that holds the current match,
+// or "".
+func (v *sessionView) findRun() string {
+	f := v.find
+	if f == nil || f.current < 0 || f.current >= len(f.matches) {
+		return ""
+	}
+	if r := client.ToolRunContaining(f.matches[f.current], v.store.Transcript, v.store.Turns); r != nil {
+		return r.ID
+	}
+	return ""
+}
+
 // stepMatch moves to the next match, or the previous, round the ends.
 func (v *sessionView) stepMatch(d int) {
 	f := v.find
@@ -108,7 +126,8 @@ func (v *sessionView) stepMatch(d int) {
 }
 
 // showMatch makes a match current: selected, scrolled to the middle, and
-// a tool call or a plan opened when what matched is folded inside it.
+// a tool call or a plan opened when what matched is folded inside it. A
+// run of tool calls shows open while it holds the match (findRun).
 func (v *sessionView) showMatch(i int) {
 	f := v.find
 	f.current = i
@@ -252,14 +271,18 @@ func (v *sessionView) paintMarks(m *Model, lines []string, top, w int) {
 	tint := blend(m.pal.Base, m.pal.Yellow, 0.12)
 	strong := blend(m.pal.Base, m.pal.Yellow, 0.28)
 	word := blend(m.pal.Base, m.pal.Yellow, 0.55)
+	// A run shut is tinted for the matches inside it.
+	shutMatch := func(b tblock) bool {
+		return b.run != nil && !b.open && slices.ContainsFunc(b.run.Items, func(it *model.Item) bool { return matched[it.ID] })
+	}
 	for _, b := range v.blocks {
 		var bg color.Color
 		switch {
 		case flash != nil && b.key == v.flashKey:
 			bg = flash
-		case b.key == current:
+		case b.key == current || (shutMatch(b) && b.run.Contains(current)):
 			bg = strong
-		case matched[b.key]:
+		case matched[b.key] || shutMatch(b):
 			bg = tint
 		default:
 			continue

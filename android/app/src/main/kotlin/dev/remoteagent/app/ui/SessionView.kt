@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import dev.remoteagent.core.store.TranscriptFind
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
@@ -82,6 +83,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -114,16 +116,15 @@ import androidx.lifecycle.compose.currentStateAsState
 import dev.remoteagent.app.platform.Platform
 import dev.remoteagent.core.protocol.BackgroundTask
 import dev.remoteagent.core.protocol.HarnessInfo
-import dev.remoteagent.core.protocol.Item
 import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.SlashCommand
-import dev.remoteagent.core.protocol.Turn
 import dev.remoteagent.core.protocol.TurnStatus
 import dev.remoteagent.core.protocol.Workspace
 import dev.remoteagent.core.store.Outgoing
 import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.SessionStore
+import dev.remoteagent.core.store.ToolRuns
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -157,17 +158,11 @@ fun SessionView(
 /** An item that flashes as it opens: one each time, so that the same item can flash again. */
 private class Flash(val itemId: String)
 
-private sealed interface Row {
-    val key: String
-
-    data class ItemRow(val item: Item) : Row {
-        override val key get() = item.id
-    }
-
-    data class Footer(val turn: Turn) : Row {
-        override val key get() = "turn-" + turn.id
-    }
-}
+/** The runs of tool calls opened ("+id") or shut ("-id"), kept as the activity is made again. */
+private val runsSaver = Saver<Map<String, Boolean>, ArrayList<String>>(
+    save = { runs -> ArrayList(runs.map { (id, open) -> (if (open) "+" else "-") + id }) },
+    restore = { saved -> saved.associate { it.drop(1) to it.startsWith("+") } },
+)
 
 /** The composer's text. The store keeps each change, for when the session is open again. */
 @Composable
@@ -421,32 +416,6 @@ private fun SessionScreen(
         run { store.send(command.prompt) }
     }
 
-    // A footer after the last item of each interrupted or failed turn. A prompt
-    // queued during a turn sits among its items, so the last is looked up.
-    val rows = remember(transcript, turns) {
-        val last = buildMap { transcript.forEachIndexed { i, item -> item.turnId?.let { put(it, i) } } }
-        buildList<Row> {
-            transcript.forEachIndexed { i, item ->
-                add(Row.ItemRow(item))
-                val tid = item.turnId
-                if (tid != null && last[tid] == i) {
-                    turns[tid]?.takeIf { it.status == TurnStatus.INTERRUPTED || it.status == TurnStatus.FAILED }?.let { add(Row.Footer(it)) }
-                }
-            }
-        }
-    }
-
-    // What the list shows below the transcript's items, bottom first; an item's
-    // place in the list comes after them.
-    val showsError = session?.status == SessionStatus.ERROR && session.error != null
-    val background = session?.backgroundTasks.orEmpty()
-    val showsWorking = session?.status == SessionStatus.RUNNING
-    val showsEmpty = synced && transcript.isEmpty() && outbox.isEmpty() && session?.draft == null
-    val leading = listOf(showsError, background.isNotEmpty(), showsWorking, savedDraft != null, showsEmpty).count { it } + outbox.size
-    val listIndex by rememberUpdatedState { itemId: String ->
-        rows.asReversed().indexOfFirst { it is Row.ItemRow && it.item.id == itemId }.takeIf { it >= 0 }?.plus(leading)
-    }
-
     // Find in the session: the items whose text has the query, in the
     // transcript's order, and the current one, the newest until stepped from.
     var findOpen by remember(store) { mutableStateOf(false) }
@@ -460,11 +429,44 @@ private fun SessionScreen(
     }
     val matched = remember(findMatches) { findMatches.toHashSet() }
     val current = findCurrent?.takeIf { it in matched } ?: findMatches.lastOrNull()
+
+    // Runs of tool calls fold (Settings › Transcript): those the user opened or
+    // shut, by id, else open while the agent works in them. The run that holds
+    // find's match shows open while find is on it. A footer follows the last
+    // item of each interrupted or failed turn.
+    val groupToolCalls by settings.state(Keys.groupToolCalls, true)
+    var expandedRuns by rememberSaveable(store, stateSaver = runsSaver) { mutableStateOf(mapOf<String, Boolean>()) }
+    val findRun = remember(current, transcript, turns) { current?.let { ToolRuns.runContaining(it, transcript, turns)?.id } }
+    val rows = remember(transcript, turns, expandedRuns, findRun, groupToolCalls) {
+        ToolRuns.rows(transcript, turns, if (findRun != null) expandedRuns + (findRun to true) else expandedRuns, groupToolCalls)
+    }
+    // The run an item is folded into, while it's shut.
+    val shutRun by rememberUpdatedState { itemId: String ->
+        ToolRuns.runContaining(itemId, transcript, turns)?.takeIf { groupToolCalls && !(expandedRuns[it.id] ?: it.live) }?.id
+    }
+    // Opens it, as the user would: for a search result, and what find was on as it closes.
+    fun openRun(itemId: String) {
+        shutRun(itemId)?.let { expandedRuns = expandedRuns + (it to true) }
+    }
+
+    // What the list shows below the transcript's items, bottom first; an item's
+    // place in the list comes after them.
+    val showsError = session?.status == SessionStatus.ERROR && session.error != null
+    val background = session?.backgroundTasks.orEmpty()
+    val showsWorking = session?.status == SessionStatus.RUNNING
+    val showsEmpty = synced && transcript.isEmpty() && outbox.isEmpty() && session?.draft == null
+    val leading = listOf(showsError, background.isNotEmpty(), showsWorking, savedDraft != null, showsEmpty).count { it } + outbox.size
+    val listIndex by rememberUpdatedState { itemId: String ->
+        rows.asReversed().indexOfFirst { it is ToolRuns.Row.ItemRow && it.item.id == itemId }.takeIf { it >= 0 }?.plus(leading)
+    }
+
     fun openFind() {
         findOpen = true
         findAsked += 1
     }
     fun closeFind() {
+        // What it found stays in view.
+        current?.let { openRun(it) }
         findOpen = false
         findQuery = ""
         findCurrent = null
@@ -489,10 +491,10 @@ private fun SessionScreen(
     BackHandler(enabled = findOpen && !WindowInsets.isImeVisible) { closeFind() }
     LaunchedEffect(current, findOpen) {
         val id = current?.takeIf { findOpen } ?: return@LaunchedEffect
-        listIndex(id)?.let { i ->
-            follow = false
-            listState.centerItem(i)
-        }
+        // In a run, once it's open.
+        val i = withTimeoutOrNull(1.seconds) { snapshotFlow { listIndex(id) }.filterNotNull().first() } ?: return@LaunchedEffect
+        follow = false
+        listState.centerItem(i)
     }
 
     // Opened at an item, as from a search result: once the item is in the
@@ -503,7 +505,12 @@ private fun SessionScreen(
     LaunchedEffect(focus) {
         val request = focus ?: return@LaunchedEffect
         store.synced.first { it }
-        val index = withTimeoutOrNull(5.seconds) { snapshotFlow { listIndex(request.itemId) }.filterNotNull().first() }
+        // One in a folded run of tool calls opens it, and shows once its rows are there.
+        val index = withTimeoutOrNull(5.seconds) {
+            snapshotFlow { listIndex(request.itemId) to shutRun(request.itemId) }
+                .mapNotNull { (index, run) -> if (run != null) null.also { expandedRuns = expandedRuns + (run to true) } else index }
+                .first()
+        }
         if (index != null) {
             follow = false
             listState.centerItem(index)
@@ -619,9 +626,27 @@ private fun SessionScreen(
                     items(outbox.entries.reversed(), key = { "out-" + it.key }) { (_, out) ->
                         UserBubble(out.text, out.images, pending = true)
                     }
-                    items(rows.asReversed(), key = { it.key }, contentType = { (it as? Row.ItemRow)?.item?.kind ?: "footer" }) { row ->
+                    items(rows.asReversed(), key = { it.key }, contentType = { row ->
                         when (row) {
-                            is Row.ItemRow -> {
+                            is ToolRuns.Row.ItemRow -> row.item.kind
+                            is ToolRuns.Row.RunRow -> "run"
+                            is ToolRuns.Row.TurnEnd -> "footer"
+                        }
+                    }) { row ->
+                        when (row) {
+                            is ToolRuns.Row.RunRow -> {
+                                // Shut, it's tinted for the matches inside it.
+                                val found = findOpen && !row.expanded && row.run.items.any { it.id in matched }
+                                val tint = when {
+                                    found && current != null && current in row.run -> currentTint
+                                    found -> matchTint
+                                    else -> Color.Transparent
+                                }
+                                Box(Modifier.highlight { tint }) {
+                                    ToolRunRow(row.run, row.expanded) { expandedRuns = expandedRuns + (row.run.id to !row.expanded) }
+                                }
+                            }
+                            is ToolRuns.Row.ItemRow -> {
                                 val id = row.item.id
                                 val found = findOpen && id in matched
                                 val tint = when {
@@ -639,7 +664,7 @@ private fun SessionScreen(
                                     }
                                 }
                             }
-                            is Row.Footer -> TurnFooter(row.turn)
+                            is ToolRuns.Row.TurnEnd -> TurnFooter(row.turn)
                         }
                     }
                     if (!synced) {

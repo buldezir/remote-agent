@@ -40,6 +40,7 @@ fun SettingsView(onBack: () -> Unit) {
     val messages by settings.state(Keys.messageTextSize, TextSize.DEFAULT_MESSAGES)
     val placement by settings.state(Keys.terminalPlacement, TerminalPlacement.OVER.name)
     val layoutName by settings.state(Keys.sidebarLayout, SidebarLayout.INBOX.stored)
+    val groupToolCalls by settings.state(Keys.groupToolCalls, true)
     val sidebarLayout = SidebarLayout.parse(layoutName)
     val systemScale = LocalConfiguration.current.fontScale
     // The sidebar's layout and where the terminal opens: for a wide window. A
@@ -54,7 +55,7 @@ fun SettingsView(onBack: () -> Unit) {
     }
 
     val isDefault = appearance == Appearance.SYSTEM.name && follows && messages == TextSize.DEFAULT_MESSAGES &&
-        placement == TerminalPlacement.OVER.name && sidebarLayout == SidebarLayout.INBOX
+        placement == TerminalPlacement.OVER.name && sidebarLayout == SidebarLayout.INBOX && groupToolCalls
 
     Screen(title = { Text("Settings", style = Type.headline) }, onBack = onBack, background = palette.mantle) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).formWidth()) {
@@ -93,6 +94,12 @@ fun SettingsView(onBack: () -> Unit) {
             FormSection("Preview") {
                 SettingsPreview(Modifier.padding(12.dp))
             }
+            FormSection(
+                "Transcript",
+                footer = AnnotatedString("Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them."),
+            ) {
+                SwitchRow("Group tool calls", groupToolCalls) { settings.put(Keys.groupToolCalls, it) }
+            }
             if (wide) {
                 FormSection("Sidebar", footer = AnnotatedString(sidebarLayout.summary)) {
                     PickerRow("Layout", sidebarLayout.title, SidebarLayout.entries.map { it.stored to it.title }, tag = "sidebar-layout") {
@@ -118,6 +125,7 @@ fun SettingsView(onBack: () -> Unit) {
                         settings.put(Keys.messageTextSize, TextSize.DEFAULT_MESSAGES)
                         settings.put(Keys.terminalPlacement, TerminalPlacement.OVER.name)
                         settings.put(Keys.sidebarLayout, SidebarLayout.INBOX.stored)
+                        settings.put(Keys.groupToolCalls, true)
                     }.padding(12.dp),
                 )
             }

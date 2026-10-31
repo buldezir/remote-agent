@@ -39,6 +39,7 @@ Notes for coding agents working on this repo. What the project is and how it is 
   - The split view (`ServerSplitView`, `Split` in `web/src/ui/App.tsx`) shows the new-session, archive and remove-server confirmations for every layout; rows ask for them through `SessionActions` (`ServerActions` on the web). On iPad each confirmation sits on the column its rows are in, where the popover points.
   - On Android, Columns puts the collections and the session list side by side in the list pane, made wider through the scaffold directive (`listPaneWidth`): a scene keeps the pane width it was first given.
   - Phones have two tabs, and so do narrow windows on Android and the web: Inbox, every server's sessions in the Inbox layout without its Servers section, and Servers, the server list, which pushes a server's own list, with `SessionRow`. Each tab keeps its place, and the tab bar hides in a session. On iPhone the Inbox is a `NavigationStack` around `InboxSidebar` (`iOS/InboxView.swift`), not the split view: a `NavigationSplitView` inside a `TabView` loops in its toolbar's layout there.
+- **Runs of tool calls:** the transcripts fold each run of tool calls, with the reasoning between them, into a row that sums it up ("Ran 4 commands, edited 3 files"). Only the clients do this, from the items they have: `ToolRuns` in RAKit (`Store/ToolRuns.swift`), `web/src/store/toolRuns.ts`, `android/core`'s `store/ToolRuns.kt` and ra's `internal/client/toolruns.go` decide the runs, which are open (the user's choice, else while the agent works in one) and the wording, and their tests share vectors; the views draw `ToolRunRow` (ra's `renderRun`). A change to the rules or the wording goes to all four. Find shows the run that holds its current match open while it's on it, and keeps it open as it closes; a search result opens the run its item is in (`openRun`). Settings' "Group tool calls" turns it off.
 - **Changing a wire type:** keep these in step:
   - `server/internal/model/model.go`
   - `apple/RAKit/Sources/RAKit/Protocol/Models.swift`
@@ -163,7 +164,7 @@ The developer may have their own `rad serve` running on the default port 7421, w
 
 4. Stop it by its port: `kill $(lsof -tiTCP:7499 -sTCP:LISTEN)`. Don't use `pkill -f "rad serve"`: that matches the developer's rad too, including the one the Server app runs.
 
-Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `picture`, `markdown`, `background [duration]`, `enter worktree [name]` and `exit worktree`, and the prompt `/compact`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
+Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `tools`, `picture`, `markdown`, `background [duration]`, `enter worktree [name]` and `exit worktree`, and the prompt `/compact`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
 
 ## Terminal client
 

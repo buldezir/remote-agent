@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -21,10 +22,11 @@ type sessionView struct {
 	composer composer
 	dock     dock
 
-	expanded map[string]int // item id → shut, open or full
-	cursor   string         // the selected block's key
-	scroll   int            // the transcript's top line
-	pinned   bool           // follows the end
+	expanded map[string]int  // item id → shut, open or full
+	runs     map[string]bool // a run of tool calls' id → open, as the user left it
+	cursor   string          // the selected block's key
+	scroll   int             // the transcript's top line
+	pinned   bool            // follows the end
 	cache    map[string]cachedLines
 	blocks   []tblock // as last drawn
 	total    int
@@ -57,6 +59,8 @@ type cachedLines struct {
 type tblock struct {
 	key        string
 	item       *model.Item
+	run        *client.ToolRun // a run of tool calls, folded
+	open       bool            // the run shows its items
 	lines      []string
 	selectable bool
 	at         int // its first line
@@ -66,6 +70,7 @@ func newSessionView(m *Model, store *client.SessionStore) *sessionView {
 	v := &sessionView{
 		store:    store,
 		expanded: map[string]int{},
+		runs:     map[string]bool{},
 		cache:    map[string]cachedLines{},
 		pinned:   true,
 	}
@@ -214,6 +219,9 @@ func (v *sessionView) header(m *Model, w int) []string {
 func (v *sessionView) transcript(m *Model, w, height int) []string {
 	content := max(10, w-3)
 	v.blocks = v.build(m, content)
+	if v.focusItem != "" && v.openRun(v.focusItem) {
+		v.blocks = v.build(m, content)
+	}
 	v.applyFocus()
 	var lines []string
 	selected := (m.focus == focusTranscript || m.focus == focusFind) && len(m.overlays) == 0
@@ -269,32 +277,47 @@ func (v *sessionView) transcript(m *Model, w, height int) []string {
 }
 
 // build lays out the transcript's blocks, from the cache where nothing
-// changed.
+// changed: runs of tool calls folded (Settings › Group tool calls), the one
+// that holds the find bar's match open, and the end of each turn that was
+// interrupted or failed.
 func (v *sessionView) build(m *Model, width int) []tblock {
 	var blocks []tblock
-	turns := v.store.Turns
-	lastOfTurn := map[string]int{}
-	for i, it := range v.store.Transcript {
-		if it.TurnID != "" {
-			lastOfTurn[it.TurnID] = i
-		}
+	runs := v.runs
+	if run := v.findRun(); run != "" {
+		runs = maps.Clone(v.runs)
+		runs[run] = true
 	}
-	for i, it := range v.store.Transcript {
-		blocks = append(blocks, tblock{key: it.ID, item: it, lines: v.itemLines(m, it, width), selectable: true})
-		if t := turns[it.TurnID]; t != nil && lastOfTurn[it.TurnID] == i {
-			switch t.Status {
-			case model.TurnInterrupted:
-				blocks = append(blocks, tblock{key: "t:" + t.ID, lines: []string{m.st.Faint.Render("— Interrupted")}})
-			case model.TurnFailed:
-				msg := "— Failed"
-				if t.Error != "" {
-					msg += ": " + t.Error
-				}
-				blocks = append(blocks, tblock{key: "t:" + t.ID, lines: wrapStyled(m.st.Red, msg, width)})
+	for _, r := range client.TranscriptRows(v.store.Transcript, v.store.Turns, runs, m.settings.GroupToolCalls) {
+		switch {
+		case r.Item != nil:
+			blocks = append(blocks, tblock{key: r.Item.ID, item: r.Item, lines: v.itemLines(m, r.Item, width), selectable: true})
+		case r.Run != nil:
+			blocks = append(blocks, tblock{key: r.Run.ID, run: r.Run, open: r.Expanded, lines: m.renderRun(r.Run, r.Expanded, width), selectable: true})
+		case r.TurnEnd.Status == model.TurnInterrupted:
+			blocks = append(blocks, tblock{key: "t:" + r.TurnEnd.ID, lines: []string{m.st.Faint.Render("— Interrupted")}})
+		default:
+			msg := "— Failed"
+			if r.TurnEnd.Error != "" {
+				msg += ": " + r.TurnEnd.Error
 			}
+			blocks = append(blocks, tblock{key: "t:" + r.TurnEnd.ID, lines: wrapStyled(m.st.Red, msg, width)})
 		}
 	}
 	return append(blocks, v.foot(m, width)...)
+}
+
+// openRun opens the run of tool calls an item is folded into, as the user
+// would, for a search result. It reports whether it was shut.
+func (v *sessionView) openRun(id string) bool {
+	r := client.ToolRunContaining(id, v.store.Transcript, v.store.Turns)
+	if r == nil {
+		return false
+	}
+	if open, ok := v.runs[r.ID]; open || (!ok && r.Live) {
+		return false
+	}
+	v.runs[r.ID] = true
+	return true
 }
 
 func wrapStyled(st interface{ Render(...string) string }, text string, width int) []string {
@@ -517,6 +540,10 @@ func (v *sessionView) clickTranscript(m *Model, y int) {
 }
 
 func (v *sessionView) toggle(b tblock) {
+	if b.run != nil {
+		v.runs[b.run.ID] = !b.open
+		return
+	}
 	if b.item == nil {
 		return
 	}

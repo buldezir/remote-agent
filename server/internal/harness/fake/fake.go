@@ -8,6 +8,10 @@
 //	"fail"     end the turn with an error
 //	"slow"     stream slowly (2s), so interrupts can be tested
 //	"screenshot" run a tool that returns an image
+//	"tools"    run a long run of mixed tool calls, as an agent at work does:
+//	           commands, reads, a search, a fetch and edits, with thinking
+//	           between them and a test that fails before it passes ("slow"
+//	           makes each call take a second and a half)
 //	"picture"  write picture-<turn>.png in the cwd and show it in the reply,
 //	           as a Markdown image with its path, as agents are told to
 //	"markdown" reply with Markdown: lists, a code block, a quote and a table
@@ -278,6 +282,11 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 		r.emitItem(tool)
 	}
 
+	if strings.Contains(text, "tools") && !r.toolRun(ctx, key, delay) {
+		end(model.TurnInterrupted, "")
+		return
+	}
+
 	if _, after, ok := strings.Cut(text, "background"); ok {
 		d := 5 * time.Second
 		if f := strings.Fields(after); len(f) > 0 {
@@ -359,6 +368,70 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 		r.emit(harness.ItemEvent{Item: msg})
 	}
 	end(model.TurnCompleted, "")
+}
+
+// toolRun works through a run of tool calls, each in progress for a moment
+// before it completes, as an agent fixing a test would. It reports false
+// when the turn was interrupted.
+func (r *runtime) toolRun(ctx context.Context, key func(string) string, delay time.Duration) bool {
+	step := 250 * time.Millisecond
+	if delay > 30*time.Millisecond {
+		step = 1500 * time.Millisecond
+	}
+	code := func(n int) *int { return &n }
+	input := func(v map[string]string) json.RawMessage {
+		b, _ := json.Marshal(v)
+		return b
+	}
+	calls := []model.Item{
+		{Tool: &model.ToolCall{Name: "Bash", Kind: model.ToolExecute, Title: "git status --short", Input: input(map[string]string{"command": "git status --short"}),
+			Output: " M main.go\n", ExitCode: code(0)}},
+		{Tool: &model.ToolCall{Name: "Read", Kind: model.ToolRead, Title: "Read README.md", Paths: []string{"README.md"},
+			Input: input(map[string]string{"file_path": "README.md"}), Output: "# Example\n\nA small server.\n"}},
+		{Tool: &model.ToolCall{Name: "Grep", Kind: model.ToolSearch, Title: "Grep TODO", Input: input(map[string]string{"pattern": "TODO"}),
+			Output: "main.go:12: // TODO: handle the error\n"}},
+		{Tool: &model.ToolCall{Name: "WebFetch", Kind: model.ToolFetch, Title: "Fetch https://pkg.go.dev/errors",
+			Input: input(map[string]string{"url": "https://pkg.go.dev/errors"}), Output: "Package errors implements functions to manipulate errors.\n"}},
+		{Kind: model.ItemReasoning, Text: "The TODO is in main.go: the error from Load is dropped. Read it, then wrap the error and test it."},
+		{Tool: &model.ToolCall{Name: "Read", Kind: model.ToolRead, Title: "Read main.go", Paths: []string{"main.go"},
+			Input: input(map[string]string{"file_path": "main.go"}), Output: "package main\n\nfunc main() {\n\tLoad() // TODO: handle the error\n}\n"}},
+		{Tool: &model.ToolCall{Name: "Edit", Kind: model.ToolEdit, Title: "Edit main.go", Paths: []string{"main.go"},
+			Input: input(map[string]string{"file_path": "main.go", "old_string": "\tLoad() // TODO: handle the error", "new_string": "\tif err := Load(); err != nil {\n\t\tlog.Fatal(err)\n\t}"})}},
+		{Tool: &model.ToolCall{Name: "Write", Kind: model.ToolEdit, Title: "Write main_test.go", Paths: []string{"main_test.go"},
+			Input: input(map[string]string{"file_path": "main_test.go", "content": "package main\n\nfunc TestLoad(t *testing.T) {\n\tif err := Load(); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n"})}},
+		{Status: model.ItemFailed, Tool: &model.ToolCall{Name: "Bash", Kind: model.ToolExecute, Title: "go test ./...", Input: input(map[string]string{"command": "go test ./..."}),
+			Output: "# example\n./main_test.go:3:20: undefined: testing\nFAIL\texample [build failed]\n", ExitCode: code(1)}},
+		{Tool: &model.ToolCall{Name: "Edit", Kind: model.ToolEdit, Title: "Edit main_test.go", Paths: []string{"main_test.go"},
+			Input: input(map[string]string{"file_path": "main_test.go", "old_string": "package main\n", "new_string": "package main\n\nimport \"testing\"\n"})}},
+		{Tool: &model.ToolCall{Name: "Bash", Kind: model.ToolExecute, Title: "go test ./...", Input: input(map[string]string{"command": "go test ./..."}),
+			Output: "ok  \texample\t0.012s\n", ExitCode: code(0)}},
+	}
+	for i, it := range calls {
+		it.ID = key(fmt.Sprintf("run%d", i))
+		done := cmp.Or(it.Status, model.ItemCompleted)
+		if it.Kind == "" {
+			it.Kind = model.ItemToolCall
+		}
+		it.Status = model.ItemInProgress
+		output := ""
+		if it.Tool != nil {
+			output, it.Tool.Output = it.Tool.Output, ""
+		}
+		r.emitItem(it)
+		select {
+		case <-ctx.Done():
+			it.Status = model.ItemFailed
+			r.emitItem(it)
+			return false
+		case <-time.After(step):
+		}
+		it.Status = done
+		if it.Tool != nil {
+			it.Tool.Output = output
+		}
+		r.emitItem(it)
+	}
+	return true
 }
 
 // steered reports whether a prompt was steered into the turn.

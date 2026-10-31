@@ -7,6 +7,7 @@ struct SettingsView: View {
     @AppStorage(Appearance.key) private var appearance = Appearance.system
     @AppStorage(TerminalPlacement.key) private var terminalPlacement = TerminalPlacement.over
     @AppStorage(SidebarLayout.key) private var sidebarLayout = SidebarLayout.inbox
+    @AppStorage(ToolRunRow.groupKey) private var groupToolCalls = true
     #if os(macOS)
     @AppStorage(FontChoice.messageKey) private var messageFont = ""
     @AppStorage(FontChoice.codeKey) private var codeFont = ""
@@ -112,9 +113,18 @@ struct SettingsView: View {
         }
     }
 
-    /// The sidebar, the terminal, notifications and updates, and the way
-    /// back to the defaults.
+    /// The transcript, the sidebar, the terminal, notifications and updates,
+    /// and the way back to the defaults.
     @ViewBuilder private var otherSections: some View {
+        Section {
+            Toggle("Group tool calls", isOn: $groupToolCalls)
+        } header: {
+            Text("Transcript").formHeaderFont()
+        } footer: {
+            Text("Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them.")
+                .formFooterFont()
+        }
+
         if offersSplitView {
             Section {
                 Picker("Layout", selection: $sidebarLayout) {
@@ -244,7 +254,7 @@ struct SettingsView: View {
 
     private var isDefault: Bool {
         appearance == .system && followsSystem && messages == TextSize.defaultMessages && terminalPlacement == .over
-            && sidebarLayout == .inbox
+            && sidebarLayout == .inbox && groupToolCalls
     }
     #else
     private var interfaceFooter: String { "Lists and labels." }
@@ -252,6 +262,7 @@ struct SettingsView: View {
     private var isDefault: Bool {
         appearance == .system && interface == TextSize.defaultInterface && messages == TextSize.defaultMessages
             && messageFont.isEmpty && codeFont.isEmpty && terminalPlacement == .over && copyOnSelect && sidebarLayout == .inbox
+            && groupToolCalls
     }
     #endif
 
@@ -259,6 +270,7 @@ struct SettingsView: View {
         appearance = .system
         terminalPlacement = .over
         sidebarLayout = .inbox
+        groupToolCalls = true
         interface = TextSize.defaultInterface
         messages = TextSize.defaultMessages
         #if os(iOS)

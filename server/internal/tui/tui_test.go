@@ -1449,3 +1449,90 @@ func TestMarksOccurrencesInStyledLines(t *testing.T) {
 		t.Errorf("folded %v", got)
 	}
 }
+
+// Runs of tool calls fold into a line that sums them up, the failed call
+// between them left out; enter opens and shuts one, and find and a search
+// result open the one their item is in.
+func TestFoldsRunsOfToolCalls(t *testing.T) {
+	u := startUIWith(t, 180, 50, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		p := addProject(t, rpc, r)
+		sess := prompted(t, rpc, r, p.ID, "tools")
+		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: sess.ID}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	first := "▸ ❯ Ran 1 command, ✎ edited 2 files, ▤ read 2 files, ⌕ searched 1 time, ↓ fetched 1 page"
+	u.waitFor("Echo: tools")
+	s := u.waitFor(first)
+	if !strings.Contains(s, "❯ go test ./... ✗") || !strings.Contains(s, "▸ ❯ Ran 1 command, ✎ edited 1 file") {
+		t.Errorf("no failed call between two runs:\n%s", s)
+	}
+	if strings.Contains(s, "Grep TODO") {
+		t.Errorf("a run shows its calls:\n%s", s)
+	}
+	// From the reply up, past the second run and the failed call, to the first.
+	u.key("shift+tab")
+	u.key("end")
+	for range 3 {
+		u.key("up")
+	}
+	u.key("enter")
+	s = u.waitFor("Grep TODO")
+	if !strings.Contains(s, "▾ ❯ Ran 1 command") || !strings.Contains(s, "Thought") {
+		t.Errorf("the run didn't open to its calls and thinking:\n%s", s)
+	}
+	u.key("enter")
+	u.waitFor(first)
+	// Find opens the run its match is in, and selects the match.
+	var grep string
+	u.inspect(func(m *Model) {
+		for _, it := range m.sess.store.Transcript {
+			if it.Tool != nil && it.Tool.Title == "Grep TODO" {
+				grep = it.ID
+			}
+		}
+	})
+	// Find shows the run its match is in open, while it's on that match.
+	u.key("ctrl+f")
+	u.key("go")
+	u.waitFor("▾ ❯ Ran 1 command, ✎ edited 1 file")
+	u.key("backspace")
+	u.key("backspace")
+	u.key("Grep")
+	u.waitFor("1 of 1")
+	u.waitFor("Grep TODO")
+	s = u.waitFor("▸ ❯ Ran 1 command, ✎ edited 1 file")
+	u.inspect(func(m *Model) {
+		if m.sess.cursor != grep {
+			t.Errorf("cursor %q, want %q", m.sess.cursor, grep)
+		}
+	})
+	// Closed, what it found stays open.
+	u.key("esc")
+	u.inspect(func(m *Model) {
+		if len(m.sess.runs) != 1 || !m.sess.runs["tools:"+m.sess.store.Transcript[1].ID] {
+			t.Errorf("runs %v", m.sess.runs)
+		}
+	})
+	u.waitFor("Grep TODO")
+	// Shut again, a search result opens it.
+	u.inspect(func(m *Model) {
+		m.sess.runs = map[string]bool{}
+		m.sess.focusOn(grep)
+	})
+	u.waitFor("Grep TODO")
+	u.inspect(func(m *Model) {
+		if m.sess.cursor != grep || m.sess.flashKey != grep {
+			t.Errorf("cursor %q, flash %q, want %q", m.sess.cursor, m.sess.flashKey, grep)
+		}
+	})
+	// Not grouping, every call shows.
+	u.inspect(func(m *Model) {
+		m.sess.runs = map[string]bool{}
+		m.settings.GroupToolCalls = false
+	})
+	s = u.waitFor("Read main.go")
+	if strings.Contains(s, "Ran 1 command") {
+		t.Errorf("a run folded with Group tool calls off:\n%s", s)
+	}
+}

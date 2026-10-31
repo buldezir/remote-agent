@@ -27,10 +27,11 @@ import {
 import { lazy, Suspense, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { commandQuery, commandSuggestions } from "../protocol/commandSuggestions";
 import type { Draft, SlashCommand } from "../protocol/models";
-import { contextFraction, modelName, type BackgroundTask, type HarnessInfo, type Item, type Session, type Turn } from "../protocol/models";
+import { contextFraction, modelName, type BackgroundTask, type HarnessInfo, type Session } from "../protocol/models";
 import { Attachments } from "../store/attachments";
 import { useObserved } from "../store/observable";
 import type { SessionStore } from "../store/sessionStore";
+import { runContaining, transcriptRows } from "../store/toolRuns";
 import { findMatches } from "../store/transcriptFind";
 import { CommitSheet } from "./CommitSheet";
 import { ContextGauge, HarnessIcon } from "./components";
@@ -39,7 +40,7 @@ import { DiffView } from "./DiffView";
 import { useDictation } from "./dictation";
 import { highlightRegistry, occurrenceRanges } from "./findHighlight";
 import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./images";
-import { DraftBubble, ItemView, TurnFooter, UserBubble } from "./items/ItemView";
+import { DraftBubble, ItemView, ToolRunRow, TurnFooter, UserBubble } from "./items/ItemView";
 import { ErrorAlert, Menu, Spinner, type MenuEntry } from "./primitives";
 import { focusDone, useFocusItem, usePageInFront, useWide } from "./router";
 import { RenameSession } from "./SessionRow";
@@ -157,22 +158,6 @@ export function SessionView({
     return () => ro.disconnect();
   }, []);
 
-  const rows = useMemo(() => transcriptRows(store.transcript, store.turns), [store.transcript, store.turns, store.getVersion()]);
-
-  // Opened at an item, as from a search result: once it shows, it's
-  // scrolled to, before it's painted, and flashed. Until then the session
-  // shows its end, as usual, and it stays there if the transcript, synced,
-  // hasn't got the item.
-  useLayoutEffect(() => {
-    if (!focus) return;
-    if (reveal(focus.itemID)) {
-      flash(itemElement(focus.itemID)!);
-      focusDone(focus);
-    } else if (store.live) {
-      focusDone(focus);
-    }
-  }, [focus, rows]);
-
   // Find in the session: the items whose text has the query, the current one
   // the newest at first. Closing it, or another session, forgets the tints.
   const [findOpen, setFindOpen] = useState(false);
@@ -185,6 +170,43 @@ export function SessionView({
   const matchSet = useMemo(() => new Set(matches), [matches]);
   const matchIndex = findCurrent !== undefined && matchSet.has(findCurrent) ? matches.indexOf(findCurrent) : matches.length - 1;
   const currentMatch = matchIndex >= 0 ? matches[matchIndex] : undefined;
+
+  // Runs of tool calls fold (Settings › Transcript): those the user opened
+  // or shut, by id, else open while the agent works in them. The run that
+  // holds find's match shows open while find is on it.
+  const { groupToolCalls } = useSettings();
+  const [expandedRuns, setExpandedRuns] = useState<ReadonlyMap<string, boolean>>(new Map());
+  const findRun = currentMatch ? runContaining(currentMatch, store.transcript, store.turns)?.id : undefined;
+  const rows = useMemo(
+    () => transcriptRows(store.transcript, store.turns, findRun ? new Map(expandedRuns).set(findRun, true) : expandedRuns, groupToolCalls),
+    [store.transcript, store.turns, store.getVersion(), expandedRuns, findRun, groupToolCalls],
+  );
+  const toggleRun = (id: string, expanded: boolean) => setExpandedRuns((m) => new Map(m).set(id, !expanded));
+  // Opens the run an item is folded into, as the user would: for a search
+  // result, and what find was on as it closes. True when it was shut.
+  const openRun = (id: string): boolean => {
+    if (!groupToolCalls) return false;
+    const run = runContaining(id, store.transcript, store.turns);
+    if (!run || (expandedRuns.get(run.id) ?? run.live)) return false;
+    setExpandedRuns((m) => new Map(m).set(run.id, true));
+    return true;
+  };
+
+  // Opened at an item, as from a search result: once it shows, it's
+  // scrolled to, before it's painted, and flashed. Until then the session
+  // shows its end, as usual, and it stays there if the transcript, synced,
+  // hasn't got the item. One in a folded run of tool calls opens it, and
+  // shows once its rows are there.
+  useLayoutEffect(() => {
+    if (!focus) return;
+    if (reveal(focus.itemID)) {
+      flash(itemElement(focus.itemID)!);
+      focusDone(focus);
+    } else if (!openRun(focus.itemID) && store.live) {
+      focusDone(focus);
+    }
+  }, [focus, rows]);
+
   const setFind = (query: string) => {
     setFindQuery(query);
     setFindCurrent(findMatches(store.transcript, query).at(-1));
@@ -203,6 +225,11 @@ export function SessionView({
     }
     setFindOpen(true);
     setFind(findQuery);
+  };
+  // What it found stays in view.
+  const closeFind = () => {
+    if (currentMatch) openRun(currentMatch);
+    setFindOpen(false);
   };
   useEffect(() => {
     if (!findOpen) return;
@@ -431,7 +458,7 @@ export function SessionView({
             index={matchIndex}
             onNext={() => stepFind(1)}
             onPrevious={() => stepFind(-1)}
-            onClose={() => setFindOpen(false)}
+            onClose={closeFind}
           />
         )}
         {/* In place of the messages, they stay underneath, hidden, so they keep their place. */}
@@ -454,8 +481,19 @@ export function SessionView({
                   <Spinner size={22} />
                 </div>
               )}
-              {rows.map((r) =>
-                r.kind === "item" ? (
+              {rows.map((r) => {
+                if (r.kind === "turn") return <TurnFooter key={"turn-" + r.turn.id} turn={r.turn} />;
+                if (r.kind === "run") {
+                  // Shut, it's tinted for the matches inside it.
+                  const found = !r.expanded && r.run.items.some((it) => matchSet.has(it.id));
+                  const current = found && r.run.items.some((it) => it.id === currentMatch);
+                  return (
+                    <div key={r.run.id} className={"item-row" + (found ? (current ? " find-current" : " find-match") : "")} data-item-id={r.run.id}>
+                      <ToolRunRow run={r.run} expanded={r.expanded} onToggle={() => toggleRun(r.run.id, r.expanded)} />
+                    </div>
+                  );
+                }
+                return (
                   <div
                     key={r.item.id}
                     className={"item-row" + (matchSet.has(r.item.id) ? (r.item.id === currentMatch ? " find-current" : " find-match") : "")}
@@ -463,10 +501,8 @@ export function SessionView({
                   >
                     <ItemView item={r.item} store={store} harness={harness} />
                   </div>
-                ) : (
-                  <TurnFooter key={"turn-" + r.turn.id} turn={r.turn} />
-                ),
-              )}
+                );
+              })}
               {outbox.map(([id, out]) => (
                 <UserBubble key={id} text={out.text} images={out.images} pending />
               ))}
@@ -655,24 +691,6 @@ function DockedTerminal({ placement, panel }: { placement: "below" | "right"; pa
       {panel(below ? { height: shown } : { width: shown })}
     </>
   );
-}
-
-type Row = { kind: "item"; item: Item } | { kind: "turn"; turn: Turn };
-
-/** Items in order, with a footer after the last item of each interrupted or failed turn.
- *  A prompt queued during a turn sits among its items, so the last is looked up. */
-function transcriptRows(items: Item[], turns: Map<string, Turn>): Row[] {
-  const out: Row[] = [];
-  const last = new Map<string, number>();
-  items.forEach((item, i) => {
-    if (item.turnId) last.set(item.turnId, i);
-  });
-  items.forEach((item, i) => {
-    out.push({ kind: "item", item });
-    const t = item.turnId ? turns.get(item.turnId) : undefined;
-    if (t && last.get(t.id) === i && (t.status === "interrupted" || t.status === "failed")) out.push({ kind: "turn", turn: t });
-  });
-  return out;
 }
 
 /** "Opus 5.5 · high · Ask": the model (the harness until the agent reports

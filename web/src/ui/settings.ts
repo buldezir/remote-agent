@@ -44,6 +44,8 @@ class Settings extends Observable {
   /** Whether text selected in the terminal goes to the clipboard. */
   copyOnSelect = true;
   sidebarLayout: SidebarLayout = "inbox";
+  /** Whether runs of tool calls fold into a line that sums them up. */
+  groupToolCalls = true;
 
   constructor() {
     super();
@@ -59,9 +61,10 @@ class Settings extends Observable {
     this.copyOnSelect = storage.get("terminalCopyOnSelect") !== "false";
     const l = storage.get("sidebarLayout");
     if (l === "projects" || l === "columns") this.sidebarLayout = l;
+    this.groupToolCalls = storage.get("groupToolCalls") !== "false";
   }
 
-  update(patch: Partial<Pick<Settings, "appearance" | "interface" | "messages" | "messageFont" | "codeFont" | "diffWrap" | "terminalPlacement" | "copyOnSelect" | "sidebarLayout">>) {
+  update(patch: Partial<Pick<Settings, "appearance" | "interface" | "messages" | "messageFont" | "codeFont" | "diffWrap" | "terminalPlacement" | "copyOnSelect" | "sidebarLayout" | "groupToolCalls">>) {
     Object.assign(this, patch);
     storage.set("appearance", this.appearance);
     storage.set("interfaceTextSize", String(this.interface));
@@ -72,6 +75,7 @@ class Settings extends Observable {
     storage.set("terminalPlacement", this.terminalPlacement);
     storage.set("terminalCopyOnSelect", String(this.copyOnSelect));
     storage.set("sidebarLayout", this.sidebarLayout);
+    storage.set("groupToolCalls", String(this.groupToolCalls));
     this.changed();
     this.apply();
   }
@@ -85,12 +89,13 @@ class Settings extends Observable {
       !this.codeFont &&
       this.terminalPlacement === "over" &&
       this.copyOnSelect &&
-      this.sidebarLayout === "inbox"
+      this.sidebarLayout === "inbox" &&
+      this.groupToolCalls
     );
   }
 
   restoreDefaults() {
-    this.update({ appearance: "system", interface: defaultInterface, messages: defaultMessages, messageFont: "", codeFont: "", terminalPlacement: "over", copyOnSelect: true, sidebarLayout: "inbox" });
+    this.update({ appearance: "system", interface: defaultInterface, messages: defaultMessages, messageFont: "", codeFont: "", terminalPlacement: "over", copyOnSelect: true, sidebarLayout: "inbox", groupToolCalls: true });
   }
 
   private dark = matchMedia("(prefers-color-scheme: dark)");

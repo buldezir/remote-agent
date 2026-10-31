@@ -49,6 +49,9 @@ struct SessionView: View {
     /// The item a search result opened at, while it flashes.
     @State private var flashing: String?
     @State private var flash = 0.0
+    /// The runs of tool calls the user opened or shut, by id (`ToolRuns`).
+    @State private var expandedRuns: [String: Bool] = [:]
+    @AppStorage(ToolRunRow.groupKey) private var groupToolCalls = true
     /// Where the prompt's cursor goes, when it's set from here.
     @State private var promptSelection: TextSelection?
     #if os(macOS)
@@ -203,14 +206,20 @@ struct SessionView: View {
                 if !store.synced {
                     ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
                 }
-                ForEach(rows) { row in
+                ForEach(rows(findOn: current)) { row in
                     switch row {
                     case .item(let item):
                         ItemView(item: item, store: store, harness: harness)
                             .environment(\.findHighlight, matching.contains(item.id) ? findQuery : nil)
                             .background { itemTint(item.id, match: matching.contains(item.id), current: item.id == current) }
                             .id(item.id)
-                    case .turnFooter(let turn):
+                    case .run(let run, let expanded):
+                        // Shut, it's tinted for the matches inside it.
+                        let match = !expanded && run.items.contains { matching.contains($0.id) }
+                        ToolRunRow(run: run, expanded: expanded) { expandedRuns[run.id] = !expanded }
+                            .background { itemTint(run.id, match: match, current: match && current.map(run.contains) == true) }
+                            .id(run.id)
+                    case .turnEnd(let turn):
                         TurnFooter(turn: turn)
                     }
                 }
@@ -351,6 +360,8 @@ struct SessionView: View {
     }
 
     private func closeFind() {
+        // What it found stays in view.
+        if let id = currentMatch(findMatches) { openRun(containing: id) }
         findShown = false
         findQuery = ""
         findCurrent = nil
@@ -438,7 +449,8 @@ struct SessionView: View {
             letGo(focus)
             return
         }
-        // Once the rows are there.
+        // Once the rows are there, in its run, opened.
+        openRun(containing: target)
         await Task.yield()
         flashing = target
         flash = 1
@@ -459,33 +471,23 @@ struct SessionView: View {
 
     // MARK: Rows
 
-    enum Row: Identifiable {
-        case item(Item)
-        case turnFooter(Turn)
-        var id: String {
-            switch self {
-            case .item(let i): i.id
-            case .turnFooter(let t): "turn-" + t.id
-            }
+    /// Items in order, runs of tool calls folded (Settings › Transcript), with
+    /// a footer after the last item of each interrupted or failed turn. The
+    /// run that holds the find bar's match shows open while it's on it.
+    private func rows(findOn match: String?) -> [ToolRuns.Row] {
+        var expanded = expandedRuns
+        if let match, let run = ToolRuns.run(containing: match, in: store.transcript, turns: store.turns) {
+            expanded[run.id] = true
         }
+        return ToolRuns.rows(store.transcript, turns: store.turns, expanded: expanded, grouping: groupToolCalls)
     }
 
-    /// Items in order, with a footer after the last item of each interrupted or failed turn.
-    /// A prompt queued during a turn sits among its items, so the last is looked up.
-    private var rows: [Row] {
-        var out: [Row] = []
-        let items = store.transcript
-        var last: [String: Int] = [:]
-        for (i, item) in items.enumerated() {
-            if let tid = item.turnId { last[tid] = i }
-        }
-        for (i, item) in items.enumerated() {
-            out.append(.item(item))
-            if let tid = item.turnId, last[tid] == i, let t = store.turns[tid], t.status == .interrupted || t.status == .failed {
-                out.append(.turnFooter(t))
-            }
-        }
-        return out
+    /// Opens the run an item is folded into, as the user would: for a search
+    /// result, and what find was on as it closes.
+    private func openRun(containing id: String) {
+        guard groupToolCalls, let run = ToolRuns.run(containing: id, in: store.transcript, turns: store.turns),
+              !(expandedRuns[run.id] ?? run.live) else { return }
+        expandedRuns[run.id] = true
     }
 
     // MARK: Composer

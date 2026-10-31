@@ -8,6 +8,7 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac, an And
   - pick up a session you started with `claude`, `codex` or `pi` in a terminal, and carry on from your phone
   - save a session's first prompt as a draft, and send it later from any device
   - watch agents stream their work
+  - see each run of tool calls folded into one line, such as "Ran 4 commands, edited 3 files", which opens to show them
   - dictate prompts, in any of your keyboard languages
   - attach images to prompts, and see the ones agents return, such as screenshots
   - approve or deny tool calls
@@ -268,7 +269,7 @@ ra
   - In the prompt, Return sends; ⇧Return (where the terminal reports it), ⌥Return or `ctrl+j` starts a new line, and `ctrl+t` sends the prompt into the turn the agent is working on (see *Queued prompts*). `/` suggests commands and skills. `↑` in an empty prompt brings back the last prompt, and `pgup`/`pgdn` scroll the messages. `ctrl+s` keeps a new session's first prompt as a draft, and so does Esc, which closes the form.
   - When the agent asks, the question takes the prompt's place. No single key answers it, so that what you were typing doesn't: the arrows pick an answer, then Return sends it. Deny asks for a reason, a question's choices take the arrows and space, and `pgup`/`pgdn` or the wheel scroll a plan.
   - `ctrl+f` finds in the open session, from the messages or the prompt: Return or `↓` goes to the next match, `↑` back, and Esc closes it. In the list, `/` or `ctrl+f` searches every session (see *Search* below): `↑↓` pick a result, Return opens the session at it, `ctrl+a` leaves archived sessions out or brings them back, and Esc clears it. Search takes the place of the list's old filter by title; `ctrl+k` still jumps to a session by its title or project.
-  - In the messages, `↑↓` select an item, Return expands a tool call or the agent's thinking (twice shows long output whole), `o` opens its image, `y` copies it, `s` sends a queued prompt now, or the draft, `t` steers a queued prompt into the turn, and `x` cancels a queued prompt.
+  - In the messages, `↑↓` select an item, Return expands a tool call or the agent's thinking (twice shows long output whole), or opens a folded run of tool calls, `o` opens its image, `y` copies it, `s` sends a queued prompt now, or the draft, `t` steers a queued prompt into the turn, and `x` cancels a queued prompt.
   - `R` renames the session, in its messages or on its row in the list, where `a` archives it and `D` deletes it. The title starts selected, so typing replaces it; Return renames, and an empty title hands it back to rad.
   - Dragging the mouse over the messages selects their text, and copies it when you let go (through OSC 52, which the terminal must allow). The terminal's own selection (with Shift held in most terminals, Option in iTerm2, or with Settings › Mouse off) takes whole rows of the screen, the list's half too.
 - **Images:** ra draws them in the transcript in half blocks. `o` opens one in the computer's viewer, or full screen in the terminal over SSH. To attach an image, paste its path, or drop the file on the terminal, which pastes its path; the actions menu also has Attach Image….
@@ -332,6 +333,11 @@ ra
   - Archived sessions are included, marked *Archived*, unless you turn off *Include archived*.
   - The agents' thinking and their tools' output aren't searched: they're long, and would bury the conversation.
   - rad keeps its index as it goes. The first time a rad with search starts, it indexes the sessions it has in the background, newest first: a few thousand sessions take about half a minute, and results meanwhile say some may be missing.
+- **Tool calls:** the tool calls an agent makes between two messages, and its thinking between them, fold into one line that sums them up, with each kind's icon: *Ran 4 commands, edited 3 files, read 2 files, searched 1 time*. Files count once each, however often they were read or edited. Tap or click the line to open it to the calls, each as before, and again to fold them; a session that stays open remembers which you opened.
+  - A call on its own stays as it is, and so does one that waits for your approval, failed, or shows an image, between the folded lines.
+  - While the agent works, the calls it is making show open, with a spinner on their line, so that you can follow along; they fold once it replies or its turn ends.
+  - Find in a session shows the fold that holds the match it's on open, and leaves it open when you close it; opening a search result opens the fold that holds what it found.
+  - Settings › Transcript › *Group tool calls* turns it off, and so does *Group tool calls* in ra's Settings.
 - **Find in a session:** ⌘F (Ctrl+F in a browser or on Android with a keyboard), or *Find in Session* in the session's ⋯ menu, finds text in the open session, the same parts of it that search looks at. It counts the messages that match and highlights them, starting at the newest: Return or the ⌄ button goes to the next, ⇧Return or ⌃ back to the one before (⌘G and ⇧⌘G on the Mac and in a browser), and Esc or Done closes it.
 - **Rename:** *Rename…*, in a session's ⋯ menu or a session row's menu (right-click, or a long press on a phone), gives a session a name of your own. rad names sessions from their first prompt, and the system agent a few seconds later; once you rename one, neither touches its name again, and a fork of it keeps the name, with " (fork)". Leave the name empty to hand it back: the session takes its first prompt's first line again, which the system agent then names anew. Renaming leaves the session where it is in the lists, every device shows the new name, and search finds the session by it.
 - **Unread sessions:** a session whose turn ended, or that started waiting for you, while you weren't looking at it shows a dot in place of its empty circle, and its title in bold. So does its project's row, and a server's name while its sessions are hidden. Opening the session in a window that's in front clears the dot on all your devices, and takes back its notification. rad keeps the mark, so it waits for you until you look, on whichever device.
@@ -468,6 +474,7 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 - `slow`: streams slowly, useful for testing interrupt and steering: a prompt steered in cuts the reply short at its next word, and the turn answers it with *Steered: …*
 - `fail`: makes the turn fail
 - `screenshot`: runs a tool that returns an image
+- `tools`: works through a long run of tool calls, as an agent fixing a test does: commands, reads, a search, a fetch and edits, with its thinking between them, and a test that fails before it passes; with `slow`, each call takes a second and a half
 - `picture`: writes `picture-<turn>.png` in the working directory and shows it in the reply, as agents are told to
 - `markdown`: adds Markdown to the reply: a heading, lists, a task list, a code block, a quote and a table
 - `background [duration]`: leaves a task running in the background (5s by default, or for example `background 1m`), then starts a turn of its own to report on it
