@@ -648,6 +648,10 @@ func (s *sidebar) rowKey(m *Model, rows []sideRow, k tea.KeyPressMsg) tea.Cmd {
 		if r.session != nil {
 			m.push(deleteConfirm(m, r.session))
 		}
+	case "R":
+		if r.session != nil && canRename(m) {
+			return rename(m, r.session)
+		}
 	case ".":
 		m.push(s.rowMenu(m, r))
 	}
@@ -663,10 +667,13 @@ func (s *sidebar) rowMenu(m *Model, r sideRow) overlay {
 			h := r.hit
 			items[0].run = func(m *Model) tea.Cmd { m.openHit(h, true); return nil }
 		}
-		if !sess.Archived {
-			items = append(items, menuItem{label: "Archive…", run: func(m *Model) tea.Cmd { m.push(archiveConfirm(m, sess)); return nil }})
+		if canRename(m) {
+			items = append(items, menuItem{label: "Rename…", hint: "R", run: func(m *Model) tea.Cmd { return rename(m, sess) }})
 		}
-		items = append(items, menuItem{label: "Delete…", danger: true, run: func(m *Model) tea.Cmd { m.push(deleteConfirm(m, sess)); return nil }})
+		if !sess.Archived {
+			items = append(items, menuItem{label: "Archive…", hint: "a", run: func(m *Model) tea.Cmd { m.push(archiveConfirm(m, sess)); return nil }})
+		}
+		items = append(items, menuItem{label: "Delete…", hint: "D", danger: true, run: func(m *Model) tea.Cmd { m.push(deleteConfirm(m, sess)); return nil }})
 		return newMenu(sess.Title, items)
 	case r.project != nil:
 		p := r.project

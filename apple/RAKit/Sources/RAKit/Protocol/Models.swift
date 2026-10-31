@@ -39,6 +39,10 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
     public var status: SessionStatus
     public var nativeId: String?
     public var title: String
+    /// The title is the user's (`ServerConnection.rename`, or one given to
+    /// the session when it was created, forked or picked up), which rad's
+    /// naming leaves alone. Absent: rad's.
+    public var customTitle: Bool?
     public var error: String?
     public var archived: Bool
     /// A turn ended, or the agent asked for an answer, since a device last
@@ -491,6 +495,8 @@ public struct ServerInfo: Codable, Hashable, Sendable {
     /// The server searches sessions by what was said in them
     /// (`session.search`).
     public var search: Bool?
+    /// The server renames sessions (`session.rename`).
+    public var rename: Bool?
 }
 
 /// What `session.search` found (`ServerConnection.search`).

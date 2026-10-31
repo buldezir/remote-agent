@@ -68,12 +68,14 @@ fun ServerHomeView(
     val sessions by connection.sessions.collectAsStateWithLifecycle()
     val projects by connection.projects.collectAsStateWithLifecycle()
     val harnesses by connection.harnesses.collectAsStateWithLifecycle()
+    val info by connection.info.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var menu by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<SavedServer?>(null) }
     var showNew by rememberSaveable { mutableStateOf(false) }
     var archiving by remember { mutableStateOf<SessionRequest?>(null) }
     var deleting by remember { mutableStateOf<SessionRequest?>(null) }
+    var renaming by remember { mutableStateOf<SessionRequest?>(null) }
     var refreshing by remember { mutableStateOf(false) }
     var showArchived by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
@@ -126,6 +128,7 @@ fun ServerHomeView(
                         onClick = { onOpenSession(s.id) },
                         onArchive = { archiving = SessionRequest(s, connection) },
                         onDelete = { deleting = SessionRequest(s, connection) },
+                        onRename = if (info?.rename == true) ({ renaming = SessionRequest(s, connection) }) else null,
                     )
                 }
                 if (attention.isNotEmpty()) {
@@ -162,6 +165,7 @@ fun ServerHomeView(
 
     ArchiveSessionDialog(archiving, onDismiss = { archiving = null })
     DeleteSessionDialog(deleting, onDismiss = { deleting = null })
+    RenameSessionDialog(renaming, onDismiss = { renaming = null })
     RemoveServerDialog(removing, onDismiss = { removing = null }, onRemove = onRemoved)
     if (showSettings) ServerSettingsDialog(connection, onDismiss = { showSettings = false })
     if (showNew) {

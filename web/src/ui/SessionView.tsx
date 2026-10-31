@@ -16,6 +16,7 @@ import {
   Mic,
   OctagonX,
   OctagonAlert,
+  Pencil,
   Save,
   Search,
   Square,
@@ -41,6 +42,7 @@ import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./image
 import { DraftBubble, ItemView, TurnFooter, UserBubble } from "./items/ItemView";
 import { ErrorAlert, Menu, Spinner, type MenuEntry } from "./primitives";
 import { focusDone, useFocusItem, usePageInFront, useWide } from "./router";
+import { RenameSession } from "./SessionRow";
 import { useSettings } from "./settings";
 import { storage } from "../store/storage";
 
@@ -74,6 +76,7 @@ export function SessionView({
   const [showDiff, setShowDiff] = useState(false);
   const [showCommit, setShowCommit] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const placement = useTerminalPlacement();
   const attachments = useMemo(() => new Attachments(connection), [connection]);
   useObserved(attachments);
@@ -331,6 +334,7 @@ export function SessionView({
 
   const menu: MenuEntry[] = [
     { label: "Find in Session", icon: Search, onSelect: openFind },
+    !!connection.info?.rename && !!session && { label: "Rename…", icon: Pencil, onSelect: () => setRenaming(true) },
     harness?.modes?.length
       ? {
           section: "Permissions",
@@ -509,6 +513,7 @@ export function SessionView({
           />
         )}
         {showCommit && session && <CommitSheet session={session} onClose={() => setShowCommit(false)} />}
+        {renaming && session && <RenameSession connection={connection} session={session} onClose={() => setRenaming(false)} onError={setError} />}
         <ErrorAlert error={error ?? attachments.error} onClose={() => (error ? setError(undefined) : attachments.clearError())} />
       </div>
       {(terminal === "below" || terminal === "right") && <DockedTerminal placement={terminal} panel={panel} />}

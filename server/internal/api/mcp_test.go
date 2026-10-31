@@ -93,7 +93,7 @@ func TestMCPTransport(t *testing.T) {
 	for _, tl := range tools {
 		names = append(names, tl.(map[string]any)["name"].(string))
 	}
-	if got := strings.Join(names, " "); got != "list_projects list_agents list_sessions start_session send_prompt read_session wait_for_session stop_session fork_session" {
+	if got := strings.Join(names, " "); got != "list_projects list_agents list_sessions start_session send_prompt read_session wait_for_session stop_session rename_session fork_session" {
 		t.Errorf("tools = %s", got)
 	}
 
@@ -177,6 +177,15 @@ func TestMCPDrivesSessions(t *testing.T) {
 		t.Errorf("sessions = %+v", sessions)
 	}
 
+	var renamed mcpSession
+	if c.ok("rename_session", map[string]any{"session": started.ID[:8], "title": "  The helper\n "}, &renamed); renamed.Title != "The helper" {
+		t.Errorf("renamed = %+v", renamed)
+	}
+	if got, _ := s.st.Session(context.Background(), started.ID); got.Title != "The helper" || !got.CustomTitle {
+		t.Errorf("renamed session = %q, custom %v", got.Title, got.CustomTitle)
+	}
+	c.fails("rename_session", map[string]any{"session": "zzzzzzzz", "title": "x"}, "no session")
+
 	var fork mcpSession
 	c.ok("fork_session", map[string]any{"session": started.ID, "turn": 1, "prompt": "differently"}, &fork)
 	if fork.ForkedFrom == nil || fork.ForkedFrom.Turn != 1 || fork.Agent != "fake" || fork.Mode != "auto" {
@@ -226,6 +235,11 @@ func TestMCPAgentLimits(t *testing.T) {
 	agent.fails("start_session", map[string]any{"project": dir, "prompt": "x", "mode": "yolo"}, "choose ask or auto")
 	agent.fails("send_prompt", map[string]any{"session": parent.ID, "prompt": "loop"}, "your own session")
 	agent.fails("wait_for_session", map[string]any{"session": parent.ID}, "your own session")
+	// But it may name its own.
+	var own mcpSession
+	if agent.ok("rename_session", map[string]any{"session": parent.ID, "title": "Parent"}, &own); own.Title != "Parent" {
+		t.Errorf("rename own = %+v", own)
+	}
 
 	// The child's agent, in ask mode, can't start one in auto.
 	var asking mcpSession

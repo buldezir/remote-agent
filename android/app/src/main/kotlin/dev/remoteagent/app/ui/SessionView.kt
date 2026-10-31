@@ -245,6 +245,9 @@ private fun SessionScreen(
     var showFork by rememberSaveable { mutableStateOf(false) }
     // A fork continues after a turn that ended, archived sessions' too.
     val canFork = info?.forks == true && session != null && turns.values.any { it.status != TurnStatus.RUNNING }
+    var showRename by rememberSaveable { mutableStateOf(false) }
+    // Archived sessions are renamed too.
+    val canRename = info?.rename == true && session != null
     var showCommit by rememberSaveable { mutableStateOf(false) }
     // Commits go in the folder the agent works in, between its turns.
     val canCommit = info?.commit == true && project?.isGitRepo == true && session != null && !archived
@@ -533,6 +536,7 @@ private fun SessionScreen(
                     onFind = ::openFind,
                     onChanges = { showDiff = true },
                     onTerminal = { showTerminal = !showTerminal },
+                    onRename = if (canRename) ({ showRename = true }) else null,
                     onFork = if (canFork) ({ showFork = true }) else null,
                     onCommit = if (canCommit) ({ showCommit = true }) else null,
                     onCommand = ::send,
@@ -696,6 +700,7 @@ private fun SessionScreen(
     if (showCommit && session != null) {
         CommitDialog(connection, session.id, onDismiss = { showCommit = false })
     }
+    RenameSessionDialog(session?.takeIf { showRename }?.let { SessionRequest(it, connection) }, onDismiss = { showRename = false })
     if (showFork && session != null) {
         ForkSessionDialog(connection, store, onDismiss = { showFork = false }, onForked = { forked, empty ->
             showFork = false
@@ -877,6 +882,8 @@ private fun SessionMenu(
     onFind: () -> Unit,
     onChanges: () -> Unit,
     onTerminal: () -> Unit,
+    // Null: the server can't rename.
+    onRename: (() -> Unit)?,
     // Null: the server or the session can't fork.
     onFork: (() -> Unit)?,
     // Null: the server or the session can't commit.
@@ -897,6 +904,7 @@ private fun SessionMenu(
         MenuItem("Find in Session", Icons.search) { onDismiss(); onFind() }
         if (isGitRepo) MenuItem("Changes", Icons.changes) { onDismiss(); onChanges() }
         if (terminal) MenuItem(if (showTerminal) "Hide Terminal" else "Terminal", Icons.terminal) { onDismiss(); onTerminal() }
+        if (onRename != null) MenuItem("Rename…", Icons.rename) { onDismiss(); onRename() }
         if (onFork != null) MenuItem("Fork…", Icons.fork) { onDismiss(); onFork() }
         // Not while the agent works: it may be changing the files.
         if (onCommit != null) MenuItem("Commit…", Icons.commit, enabled = !running) { onDismiss(); onCommit() }

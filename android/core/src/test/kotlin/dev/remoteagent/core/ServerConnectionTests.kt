@@ -510,6 +510,48 @@ class ServerConnectionTests {
         withContext(dispatcher) { c.stop() }
     }
 
+    @Test
+    fun renameSendsTheTitleAsTypedAndTheEventRetitlesTheSession() = runBlocking {
+        var seq = 2L
+        rad.answer = { r, method, params ->
+            when (method) {
+                "server.info" -> FakeRad.serverInfo
+                "subscribe" -> {
+                    r.notify("events", events("index", 1L to upserted("project", project("p1")), 2L to upserted("session", session("s1"))))
+                    r.notify("synchronized", synchronized(2, reset = true))
+                    subscribed(2)
+                }
+                "session.rename" -> {
+                    // As rad: the session keeps its updatedAt, and its event brings the title.
+                    val title = params.getValue("title").jsonPrimitive.content
+                    val s = session("s1", title = title.ifEmpty { "Session s1" }, customTitle = title.isNotEmpty())
+                    seq += 1
+                    r.notify("events", events("index", seq to upserted("session", s)))
+                    s
+                }
+                else -> JsonObject(emptyMap())
+            }
+        }
+        server.upgrade(rad)
+        val c = connect()
+        withTimeout(5.seconds) { c.indexSynced.first { it } }
+
+        val s = withContext(dispatcher) { c.rename("s1", "Ship the release") }
+        assertEquals(params("sessionId" to "s1", "title" to "Ship the release"), rad.nextCall("session.rename")["params"])
+        assertEquals("Ship the release", s.title)
+        assertTrue(s.customTitle)
+        withTimeout(5.seconds) { c.sessions.first { it["s1"]?.title == "Ship the release" } }
+        assertTrue(c.sessions.value.getValue("s1").customTitle)
+
+        // Empty gives it back to rad's naming, so it goes as it is.
+        val reset = withContext(dispatcher) { c.rename("s1", "") }
+        assertEquals(params("sessionId" to "s1", "title" to ""), rad.nextCall("session.rename")["params"])
+        assertFalse(reset.customTitle)
+        withTimeout(5.seconds) { c.sessions.first { it["s1"]?.title == "Session s1" } }
+        assertFalse(c.sessions.value.getValue("s1").customTitle)
+        withContext(dispatcher) { c.stop() }
+    }
+
     private fun removed(id: String) = buildJsonObject {
         put("type", "session.removed")
         put("id", id)

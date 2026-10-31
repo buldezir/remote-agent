@@ -13,6 +13,7 @@
     "drafts": true,
     "forks": true,
     "commit": true,
-    "search": true
+    "search": true,
+    "rename": true
   }
 }

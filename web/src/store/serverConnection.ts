@@ -576,6 +576,13 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
     await this.client.call("session.archive", { sessionId, removeWorktree });
   }
 
+  /** Gives the session the user's title; an empty one gives it back to the
+   *  server's naming. Rows and the session take the new title from its
+   *  `session.upserted`. Servers that say `rename` in their info have it. */
+  renameSession(sessionId: string, title: string): Promise<Session> {
+    return this.client.call<Session>("session.rename", { sessionId, title });
+  }
+
   /** Marks the session read on the server, for every device, when the index
    *  has it unread. Its row loses the mark at once. An older server doesn't
    *  know the method; an index that still has it unread calls again. */

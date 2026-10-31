@@ -27,6 +27,8 @@ type ServerInfo struct {
 	// Search: the server finds sessions by what was said in them
 	// (session.search).
 	Search bool `json:"search,omitempty"`
+	// Rename: the server renames sessions (session.rename).
+	Rename bool `json:"rename,omitempty"`
 }
 
 // PairResult is what POST /v1/pair returns.

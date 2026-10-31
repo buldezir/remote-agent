@@ -97,7 +97,7 @@ class FakeRad : WebSocketListener() {
 
         fun session(
             id: String, updatedAt: String = "2026-10-09T12:00:00Z", archived: Boolean = false, unread: Boolean = false,
-            draft: String? = null,
+            draft: String? = null, title: String = "Session $id", customTitle: Boolean = false,
         ) = buildJsonObject {
             put("id", id)
             put("projectId", "p1")
@@ -107,9 +107,10 @@ class FakeRad : WebSocketListener() {
                 put("path", "/src/p1")
             })
             put("status", "idle")
-            put("title", "Session $id")
+            put("title", title)
             put("archived", archived)
             // As rad: left out unless set.
+            if (customTitle) put("customTitle", true)
             if (unread) put("unread", true)
             if (draft != null) put("draft", buildJsonObject { put("text", draft) })
             put("createdAt", "2026-10-09T12:00:00Z")

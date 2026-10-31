@@ -12,13 +12,13 @@ import { ConnectionDot } from "./components";
 import { ConnectionContext, ServerStoreContext, SessionSearchContext, useServerStore, useSessionSearch } from "./context";
 import { ForkSession } from "./ForkSession";
 import { NewSession } from "./NewSession";
-import { Confirm, Empty, Menu } from "./primitives";
+import { Confirm, Empty, ErrorAlert, Menu } from "./primitives";
 import { navigate, useRoute, useWide, type Route, type Tab } from "./router";
 import { ServerHome } from "./ServerHome";
 import { CollectionsSidebar, SessionListColumn } from "./ColumnsSidebar";
 import { focusSearchFieldOnMount, isSearchShortcut, reconnect, serverSettingsEntry, SessionsSidebar, type ServerActions } from "./SessionsSidebar";
 import { ServerSettingsView } from "./ServerSettings";
-import { ArchiveConfirm, DeleteConfirm } from "./SessionRow";
+import { ArchiveConfirm, DeleteConfirm, RenameSession } from "./SessionRow";
 import { useSettings } from "./settings";
 import {
   addingRecent,
@@ -45,6 +45,7 @@ type Sheet =
   | { kind: "archive"; connection: ServerConnection; session: Session }
   | { kind: "fork"; connection: ServerConnection; session: Session }
   | { kind: "delete"; connection: ServerConnection; session: Session }
+  | { kind: "renameSession"; connection: ServerConnection; session: Session }
   | { kind: "remove"; server: SavedServer }
   | { kind: "rename"; server: SavedServer };
 
@@ -66,6 +67,8 @@ function Root() {
   const route = useRoute();
   const wide = useWide();
   const [sheet, setSheet] = useState<Sheet>();
+  // A session action that failed, such as a rename.
+  const [error, setError] = useState<string>();
 
   // A link from `rad pair --web` opens the pairing sheet.
   useEffect(() => {
@@ -151,6 +154,7 @@ function Root() {
     newSession: (c, projectID) => setSheet({ kind: "new", connection: c, projectID }),
     archive: (c, s) => setSheet({ kind: "archive", connection: c, session: s }),
     delete: (c, s) => setSheet({ kind: "delete", connection: c, session: s }),
+    renameSession: (c, s) => setSheet({ kind: "renameSession", connection: c, session: s }),
     fork: (c, s) => setSheet({ kind: "fork", connection: c, session: s }),
   };
 
@@ -245,6 +249,9 @@ function Root() {
       )}
       {sheet?.kind === "archive" && <ArchiveConfirm connection={sheet.connection} session={sheet.session} onClose={() => setSheet(undefined)} />}
       {sheet?.kind === "delete" && <DeleteConfirm connection={sheet.connection} session={sheet.session} onClose={() => setSheet(undefined)} />}
+      {sheet?.kind === "renameSession" && (
+        <RenameSession connection={sheet.connection} session={sheet.session} onClose={() => setSheet(undefined)} onError={setError} />
+      )}
       {sheet?.kind === "remove" && (
         <Confirm
           title={`Remove ${sheet.server.name}?`}
@@ -267,6 +274,7 @@ function Root() {
         />
       )}
       {sheet?.kind === "rename" && <RenameServer server={sheet.server} onClose={() => setSheet(undefined)} />}
+      <ErrorAlert error={error} onClose={() => setError(undefined)} />
     </>
   );
 }

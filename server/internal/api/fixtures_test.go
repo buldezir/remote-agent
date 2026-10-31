@@ -26,7 +26,7 @@ func fixtures() map[string]any {
 	sess := &model.Session{
 		ID: "s1", ProjectID: "p1", Harness: "claude", Model: "sonnet", Effort: "high", Mode: "default",
 		Workspace: model.Workspace{Kind: model.WorkspaceWorktree, Path: "/w/s1", Branch: "ra/fix-tests", BaseRef: "main", AgentPath: "/w/s1/.claude/worktrees/fix"},
-		Status:    model.SessionAwaitingApproval, NativeID: "n1", Title: "Fix the tests", Unread: true, CreatedAt: t0, UpdatedAt: t1,
+		Status:    model.SessionAwaitingApproval, NativeID: "n1", Title: "Fix the tests", CustomTitle: true, Unread: true, CreatedAt: t0, UpdatedAt: t1,
 		Context:   &model.ContextUsage{Used: 52000, Window: 200000},
 		ModelInfo: &model.ModelInfo{ID: "claude-sonnet-5-5", Name: "Sonnet 5.5", Effort: "high"},
 		Draft: &model.Draft{Text: "Then update the changelog", Images: []model.ImageRef{
@@ -130,7 +130,7 @@ func fixtures() map[string]any {
 		"response_session.json": response{ID: json.RawMessage("6"), Result: sess},
 		"response_server_info.json": response{ID: json.RawMessage("1"), Result: serverInfoResult{
 			serverInfo: serverInfo{ServerID: "srv1", Name: "studio", ProtocolVersion: model.ProtocolVersion, Version: "0.4.0"},
-			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true, Forks: true, Commit: true, Search: true}},
+			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true, Forks: true, Commit: true, Search: true, Rename: true}},
 		"response_server_settings.json": response{ID: json.RawMessage("8"), Result: model.ServerSettings{
 			SystemAgent: &model.SystemAgent{Harness: "claude", Model: "haiku", Effort: "low"}}},
 		"response_check_update.json": response{ID: json.RawMessage("9"), Result: model.UpdateInfo{

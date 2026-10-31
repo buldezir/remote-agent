@@ -183,6 +183,7 @@ export function SessionListColumn({ collection, route, actions }: { collection: 
                   className="three-line"
                   selected={route.serverID === item.connection.server.id && route.sessionID === item.session.id}
                   onOpen={() => navigate({ serverID: item.connection.server.id, sessionID: item.session.id })}
+                  onRename={() => actions.renameSession(item.connection, item.session)}
                   onArchive={() => actions.archive(item.connection, item.session)}
                   onDelete={() => actions.delete(item.connection, item.session)}
                 >

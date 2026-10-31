@@ -1,16 +1,17 @@
 import { Archive, Clock, GitBranch, Hand, Pencil, Square, TriangleAlert } from "lucide-react";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { contextFraction, modelName, parseDate, type SearchResult, type Session, type SnippetPart } from "../protocol/models";
-import { Spinner } from "./primitives";
-import { DeleteButton } from "./SessionRow";
+import { Spinner, useContextMenu } from "./primitives";
+import { DeleteButton, sessionRowMenu } from "./SessionRow";
 import { needsYou, projectOf, shortAge, standsOut, type ServerSession } from "./sidebarLayout";
 
-/** A session's row in a sidebar list: a click opens it, and on hover
- *  buttons archive or delete it. */
+/** A session's row in a sidebar list: a click opens it, on hover buttons
+ *  archive or delete it, and its context menu renames, archives or deletes it. */
 export function SessionLink({
   item,
   selected,
   onOpen,
+  onRename,
   onArchive,
   onDelete,
   className = "",
@@ -19,23 +20,28 @@ export function SessionLink({
   item: ServerSession;
   selected: boolean;
   onOpen: () => void;
+  onRename?: () => void;
   onArchive?: () => void;
   onDelete?: () => void;
   className?: string;
   children: ReactNode;
 }) {
+  const { onContextMenu, menu } = useContextMenu(sessionRowMenu(item.session, item.connection, { onRename, onArchive, onDelete }));
   return (
-    <div className={`session-row ${className}` + (selected ? " selected" : "")}>
-      <button className="session-row-main" onClick={onOpen} aria-current={selected ? "page" : undefined}>
-        {children}
-      </button>
-      {onArchive && !item.session.archived && (
-        <button className="session-row-action icon-button" onClick={onArchive} title="Archive…" aria-label="Archive">
-          <Archive size={15} />
+    <>
+      <div className={`session-row ${className}` + (selected ? " selected" : "")} onContextMenu={onContextMenu}>
+        <button className="session-row-main" onClick={onOpen} aria-current={selected ? "page" : undefined}>
+          {children}
         </button>
-      )}
-      {onDelete && <DeleteButton onDelete={onDelete} />}
-    </div>
+        {onArchive && !item.session.archived && (
+          <button className="session-row-action icon-button" onClick={onArchive} title="Archive…" aria-label="Archive">
+            <Archive size={15} />
+          </button>
+        )}
+        {onDelete && <DeleteButton onDelete={onDelete} />}
+      </div>
+      {menu}
+    </>
   );
 }
 

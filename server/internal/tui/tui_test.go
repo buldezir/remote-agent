@@ -1248,6 +1248,101 @@ func TestSearchesInANarrowWindow(t *testing.T) {
 	}
 }
 
+// R on a row or in the messages, or Rename… in the actions, renames the
+// session: the title starts selected, so typing replaces it, and the new
+// one shows in the list and the header. The same title sends nothing, esc
+// cancels, and an empty one hands the title back to rad.
+func TestRenamesASession(t *testing.T) {
+	var sess model.Session
+	u := startUIWith(t, 120, 36, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		p := addProject(t, rpc, r)
+		sess = prompted(t, rpc, r, p.ID, "hello there")
+	})
+	title := func() (string, bool) {
+		t.Helper()
+		s, err := u.rad.Store.Session(context.Background(), sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.Title, s.CustomTitle
+	}
+	renamed := func(want string, custom bool) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			got, c := title()
+			if got == want && c == custom {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("title %q, custom %v; want %q, %v", got, c, want, custom)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	u.waitFor("enter open")
+	u.key("down")
+	u.key("R")
+	s := u.waitFor("Leave it empty to name it automatically.")
+	if !strings.Contains(s, "Rename Session") || !strings.Contains(s, "> hello there") || !strings.Contains(s, "enter rename") {
+		t.Fatalf("the form:\n%s", s)
+	}
+	// Unchanged, it sends nothing: a rename would make the title the user's.
+	u.key("enter")
+	time.Sleep(200 * time.Millisecond)
+	if _, custom := title(); custom {
+		t.Fatal("renamed to the same title")
+	}
+	u.key("R")
+	u.waitFor("Rename Session")
+	u.key("Login fix")
+	u.key("enter")
+	renamed("Login fix", true)
+	u.waitFor("Login fix")
+	// Esc keeps the title.
+	u.key("R")
+	u.waitFor("> Login fix")
+	u.key("never mind")
+	u.key("esc")
+	if s := u.screen(); strings.Contains(s, "Rename Session") || strings.Contains(s, "never mind") {
+		t.Fatalf("still open:\n%s", s)
+	}
+	// In the messages: a move drops the selection, and typing goes on from it.
+	u.key("enter")
+	u.waitFor("Echo: hello there")
+	u.key("shift+tab")
+	u.key("R")
+	u.waitFor("> Login fix")
+	u.key("end")
+	u.key(" again")
+	u.key("enter")
+	renamed("Login fix again", true)
+	if s := u.waitFor("Login fix again"); strings.Count(s, "Login fix again") < 2 {
+		t.Errorf("not in both the list and the header:\n%s", s)
+	}
+	// Empty, from the actions: rad names it from its prompt again.
+	u.key("ctrl+p")
+	u.menuTo("Rename…")
+	u.key("enter")
+	u.waitFor("> Login fix again")
+	u.key("backspace")
+	u.key("enter")
+	renamed("hello there", false)
+	deadline := time.Now().Add(10 * time.Second)
+	for strings.Contains(u.screen(), "Login fix") {
+		if time.Now().After(deadline) {
+			t.Fatalf("the old title stays:\n%s", u.screen())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// A rad that doesn't rename offers nothing.
+	u.inspect(func(m *Model) { m.conn.Info.Rename = false })
+	u.key("ctrl+p")
+	if s := u.waitFor("Delete…"); strings.Contains(s, "Rename…") {
+		t.Errorf("offered by a rad without rename:\n%s", s)
+	}
+}
+
 // ctrl+f finds in the open session: the count, the newest match first,
 // ↑ and ↓ round the ends, and the occurrences marked.
 func TestFindsInTheSession(t *testing.T) {

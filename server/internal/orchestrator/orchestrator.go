@@ -202,10 +202,11 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 		draft = &model.Draft{Text: p.Prompt, Images: refs}
 	}
 
+	p.Title = userTitle(p.Title)
 	s := &model.Session{
 		ID: store.NewID(), ProjectID: proj.ID, Harness: p.Harness, Model: p.Model, Effort: p.Effort, Mode: mode,
 		Workspace: model.Workspace{Kind: model.WorkspaceRoot, Path: proj.Path},
-		Status:    model.SessionIdle, Title: p.Title, Draft: draft, CreatedAt: time.Now().UTC(),
+		Status:    model.SessionIdle, Title: p.Title, CustomTitle: p.Title != "", Draft: draft, CreatedAt: time.Now().UTC(),
 	}
 	if s.Title == "" {
 		s.Title = titleFrom(p.Prompt)
@@ -528,6 +529,16 @@ func (o *Orchestrator) SetMode(ctx context.Context, sessionID, mode string) erro
 		return err
 	}
 	return a.setMode(ctx, mode)
+}
+
+// Rename gives the session the user's title, which rad's naming then leaves
+// alone; "" gives it back to rad's naming.
+func (o *Orchestrator) Rename(ctx context.Context, sessionID, title string) (*model.Session, error) {
+	a, err := o.actor(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return a.rename(ctx, title)
 }
 
 // MarkRead records that a client showed the session: it is no longer unread.

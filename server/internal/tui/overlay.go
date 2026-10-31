@@ -177,10 +177,16 @@ func (mn *menu) view(m *Model, width, height int) string {
 type inputPrompt struct {
 	title   string
 	message string
+	note    string // under the input
+	action  string // what enter does, in the hints: "ok" if empty
 	input   textinput.Model
 	submit  func(m *Model, value string) tea.Cmd
 	// paths: tab completes a file path.
 	paths bool
+	// selected: the whole value is selected, as a text field's is when it
+	// opens. Typing or pasting replaces it, backspace clears it, and any
+	// other key only drops the selection.
+	selected bool
 }
 
 func newInput(m *Model, title, message, value string, submit func(*Model, string) tea.Cmd) *inputPrompt {
@@ -206,7 +212,11 @@ func styleInput(in *textinput.Model, m *Model) {
 }
 
 func (p *inputPrompt) hints() [][2]string {
-	h := [][2]string{{"enter", "ok"}, {"esc", "cancel"}}
+	action := p.action
+	if action == "" {
+		action = "ok"
+	}
+	h := [][2]string{{"enter", action}, {"esc", "cancel"}}
 	if p.paths {
 		h = append([][2]string{{"tab", "complete"}}, h...)
 	}
@@ -229,12 +239,26 @@ func (p *inputPrompt) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 		}
 		return nil
 	}
+	if p.selected {
+		p.selected = false
+		switch {
+		case k.String() == "backspace" || k.String() == "delete":
+			p.input.SetValue("")
+			return nil
+		case k.Text != "":
+			p.input.SetValue("")
+		}
+	}
 	var cmd tea.Cmd
 	p.input, cmd = p.input.Update(k)
 	return cmd
 }
 
 func (p *inputPrompt) paste(m *Model, text string) tea.Cmd {
+	if p.selected {
+		p.selected = false
+		p.input.SetValue("")
+	}
 	p.input.SetValue(p.input.Value() + strings.TrimSpace(text))
 	p.input.CursorEnd()
 	return nil
@@ -248,7 +272,15 @@ func (p *inputPrompt) view(m *Model, width, height int) string {
 		lines = append(lines, wrap(m.st.Subtext.Render(p.message), w-4)...)
 		lines = append(lines, "")
 	}
-	lines = append(lines, p.input.View())
+	if p.selected && p.input.Value() != "" {
+		prompt := p.input.Prompt
+		lines = append(lines, m.st.Accent.Render(prompt)+m.st.Text.Background(m.pal.Surface2).Render(truncate(p.input.Value(), w-5-lipgloss.Width(prompt))))
+	} else {
+		lines = append(lines, p.input.View())
+	}
+	if p.note != "" {
+		lines = append(lines, wrap(m.st.Faint.Render(p.note), w-4)...)
+	}
 	return box(m, p.title, lines, w)
 }
 
@@ -331,7 +363,7 @@ var helpSections = []struct {
 	{"Anywhere", [][2]string{
 		{"ctrl+n", "new session"},
 		{"ctrl+k", "jump to a session"},
-		{"ctrl+p", "actions: modes, commands, commit, fork, archive, delete, settings"},
+		{"ctrl+p", "actions: modes, commands, commit, rename, fork, archive, delete, settings"},
 		{"ctrl+x", "stop the agent"},
 		{"esc", "back: close what's open, or leave the session for the list"},
 		{"tab · shift+tab", "move between the list, the messages and the prompt"},
@@ -346,7 +378,7 @@ var helpSections = []struct {
 		{"space", "open the session, staying in the list"},
 		{"←→ · space", "fold or unfold a project"},
 		{"n", "new session here"},
-		{"a · D", "archive · delete"},
+		{"a · D · R", "archive · delete · rename"},
 		{".", "the row's actions"},
 		{"/ · ctrl+f", "search the sessions: what was said in them, their titles and branches"},
 	}},
@@ -366,6 +398,7 @@ var helpSections = []struct {
 		{"t", "steer a queued prompt into the turn, where the agent can take it"},
 		{"x", "cancel a queued prompt"},
 		{"e", "edit the draft"},
+		{"R", "rename the session"},
 		{"ctrl+f", "find in the session, from the messages or the prompt"},
 		{"drag the mouse", "select text, which is copied when you let go"},
 	}},

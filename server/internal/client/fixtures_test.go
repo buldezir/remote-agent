@@ -45,7 +45,7 @@ func TestFixtures(t *testing.T) {
 	}
 
 	info := fixture[resultFrame[ServerInfo]](t, "response_server_info.json").Result
-	if info.Version != "0.4.0" || info.DeviceID != "dev1" || len(info.Roots) != 1 || !info.Drafts || !info.Terminal || !info.Forks || !info.Commit || !info.Search {
+	if info.Version != "0.4.0" || info.DeviceID != "dev1" || len(info.Roots) != 1 || !info.Drafts || !info.Terminal || !info.Forks || !info.Commit || !info.Search || !info.Rename {
 		t.Errorf("server.info: %+v", info)
 	}
 
@@ -114,7 +114,7 @@ func TestFixtures(t *testing.T) {
 	if s := fixture[resultFrame[model.ServerSettings]](t, "response_server_settings.json").Result; s.SystemAgent == nil || s.SystemAgent.Harness == "" {
 		t.Errorf("server.settings: %+v", s)
 	}
-	if s := fixture[resultFrame[model.Session]](t, "response_session.json").Result; s.ID == "" || s.ForkedFrom == nil || s.ForkedFrom.SessionID != "s0" || s.ForkedFrom.Turn != 3 {
+	if s := fixture[resultFrame[model.Session]](t, "response_session.json").Result; s.ID == "" || s.ForkedFrom == nil || s.ForkedFrom.SessionID != "s0" || s.ForkedFrom.Turn != 3 || !s.CustomTitle {
 		t.Errorf("session.create: %+v", s)
 	}
 

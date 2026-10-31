@@ -104,10 +104,12 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 		draft = &model.Draft{Text: p.Prompt, Images: refs}
 	}
 
+	// A fork of a session the user named keeps the user's name, with " (fork)".
+	p.Title = userTitle(p.Title)
 	s := &model.Session{
 		ID: store.NewID(), ProjectID: proj.ID, Harness: harnessID, Model: m, Effort: effort, Mode: mode,
 		Workspace: model.Workspace{Kind: model.WorkspaceRoot, Path: proj.Path},
-		Status:    model.SessionIdle, Title: p.Title, Draft: draft, CreatedAt: time.Now().UTC(),
+		Status:    model.SessionIdle, Title: p.Title, CustomTitle: p.Title != "" || src.CustomTitle, Draft: draft, CreatedAt: time.Now().UTC(),
 		ForkedFrom: &model.ForkedFrom{SessionID: src.ID, Turn: at.N},
 	}
 	if s.Title == "" {
@@ -198,7 +200,7 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 		}
 	}
 	if hasPrompt {
-		o.nameSession(s.ID, proj.Name, p.Prompt, p.Title == "", s.Workspace.Kind == model.WorkspaceWorktree && !named)
+		o.nameSession(s.ID, proj.Name, p.Prompt, !s.CustomTitle, s.Workspace.Kind == model.WorkspaceWorktree && !named)
 	}
 	return s, nil
 }

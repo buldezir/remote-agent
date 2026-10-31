@@ -116,6 +116,7 @@ function ServerProjects({
             className="tree"
             selected={route.serverID === id && route.sessionID === item.session.id}
             onOpen={() => navigate({ serverID: id, sessionID: item.session.id })}
+            onRename={() => actions.renameSession(connection, item.session)}
             onArchive={() => actions.archive(connection, item.session)}
             onDelete={() => actions.delete(connection, item.session)}
           >

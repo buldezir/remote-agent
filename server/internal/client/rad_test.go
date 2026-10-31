@@ -382,6 +382,58 @@ func TestRadDraftsAndMarkRead(t *testing.T) {
 	}
 }
 
+// A rename reaches the index and the session's store as any change does,
+// and keeps the session's place; an empty one hands the title back.
+func TestRadRenamesASession(t *testing.T) {
+	r := startRad(t)
+	c, q, _ := r.connect(t)
+	if !c.Info.Rename {
+		t.Fatalf("info %+v", c.Info)
+	}
+	p := r.project(t, c, q)
+	var s model.Session
+	if err := run(t, q, func() (err error) {
+		s, err = c.CreateSession(context.Background(), NewSession{ProjectID: p.ID, Harness: "fake", Workspace: NewWorkspace{Kind: model.WorkspaceRoot}, Prompt: "hello there"})
+		return
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := c.SessionStore(s.ID)
+	store.Activate()
+	eventually(t, q, "the turn to end", func() bool {
+		turns := store.SortedTurns()
+		is := c.Sessions[s.ID]
+		return len(turns) == 1 && turns[0].Status == model.TurnCompleted && is.Status == model.SessionIdle && store.Session.Status == model.SessionIdle
+	})
+	updated := c.Sessions[s.ID].UpdatedAt
+	rename := func(title string) model.Session {
+		t.Helper()
+		var out model.Session
+		if err := run(t, q, func() (err error) { out, err = c.RenameSession(context.Background(), s.ID, title); return }); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	// rad keeps the title on one line, without the spaces around it.
+	if got := rename("  Fix the\nlogin  "); got.Title != "Fix the login" || !got.CustomTitle {
+		t.Fatalf("renamed %+v", got)
+	}
+	eventually(t, q, "the new title", func() bool {
+		is := c.Sessions[s.ID]
+		return is.Title == "Fix the login" && is.CustomTitle && store.Session.Title == "Fix the login"
+	})
+	if !c.Sessions[s.ID].UpdatedAt.Equal(updated) {
+		t.Errorf("updatedAt %v, was %v", c.Sessions[s.ID].UpdatedAt, updated)
+	}
+	if got := rename(""); got.Title != "hello there" || got.CustomTitle {
+		t.Fatalf("handed back %+v", got)
+	}
+	eventually(t, q, "the title from the prompt", func() bool {
+		is := c.Sessions[s.ID]
+		return is.Title == "hello there" && !is.CustomTitle && store.Session.Title == "hello there"
+	})
+}
+
 func TestRadResubscribesAndDeliversAfterADrop(t *testing.T) {
 	r := startRad(t)
 	c, q, _ := r.connect(t)

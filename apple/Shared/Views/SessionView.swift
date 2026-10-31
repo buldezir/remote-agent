@@ -24,6 +24,7 @@ struct SessionView: View {
     @State private var error: String?
     @State private var showDiff = false
     @State private var showFork = false
+    @State private var renaming: SessionRequest?
     @State private var showCommit = false
     /// The commit sheet, opened from the changes over them.
     @State private var showCommitFromDiff = false
@@ -153,6 +154,7 @@ struct SessionView: View {
         } message: {
             Text(error ?? "")
         }
+        .renameSessionAlert($renaming)
         .onChange(of: dictation.error) { _, e in
             if let e { error = e; dictation.error = nil }
         }
@@ -919,6 +921,9 @@ struct SessionView: View {
                     Button(showTerminal ? "Hide Terminal" : "Terminal", systemImage: "apple.terminal") {
                         showTerminal.toggle()
                     }
+                }
+                if connection.renames, let s = session {
+                    Button("Rename…", systemImage: "pencil") { renaming = SessionRequest(session: s, connection: connection) }
                 }
                 if canFork {
                     Button("Fork…", systemImage: "arrow.triangle.branch") { showFork = true }

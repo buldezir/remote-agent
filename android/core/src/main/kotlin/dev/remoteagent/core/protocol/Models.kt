@@ -75,6 +75,11 @@ data class Session(
     val title: String,
     val error: String? = null,
     val archived: Boolean = false,
+    /**
+     * The title is the user's (`ServerConnection.rename`, or one given at
+     * create, fork or import), which rad's naming leaves alone.
+     */
+    val customTitle: Boolean = false,
     /** A turn ended, or the agent asked for an answer, since a client last showed it. */
     val unread: Boolean = false,
     /** A prompt saved to send later, from any device (`session.saveDraft`); null: none. */
@@ -533,6 +538,8 @@ data class ServerInfo(
     val commit: Boolean? = null,
     /** The server finds sessions by what was said in them (`session.search`); an older one answers `method_not_found`. */
     val search: Boolean? = null,
+    /** The server renames sessions (`session.rename`); an older one answers `method_not_found`. */
+    val rename: Boolean? = null,
 )
 
 /** `session.search`'s result (`ServerConnection.search`). */

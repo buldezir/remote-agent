@@ -546,6 +546,20 @@ public final class ServerConnection {
         let _: Empty = try await client.call("session.archive", P(sessionId: sessionID, removeWorktree: removeWorktree))
     }
 
+    /// Whether the server renames sessions (`session.rename`).
+    public var renames: Bool { info?.rename == true }
+
+    /// Gives the session the user's title, which rad puts on one line and
+    /// cuts at 120 characters, and its naming then leaves alone. "" gives the
+    /// session back to rad, which names it from its first prompt again. The
+    /// title comes to the views with the session's event. Only for a server
+    /// whose `info.rename` is true.
+    @discardableResult
+    public func rename(_ sessionID: String, title: String) async throws -> Session {
+        struct P: Encodable, Sendable { var sessionId: String; var title: String }
+        return try await client.call("session.rename", P(sessionId: sessionID, title: title))
+    }
+
     /// Marks a session read: here at once, so its row loses its mark, and on
     /// the server, which tells the other devices. A session that isn't unread
     /// is left alone.

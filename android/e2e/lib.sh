@@ -22,6 +22,13 @@ tap() {
   "$A" shell input tap $xy
 }
 
+# Presses a view for a moment, as a long press: a row's menu.
+long_press() {
+  local xy
+  xy=$(find_view "$1") || { echo "not found: $1" >&2; return 1; }
+  "$A" shell input swipe $xy $xy 800
+}
+
 # Waits up to $2 seconds (default 15) for a view to appear.
 wait_for() {
   local i

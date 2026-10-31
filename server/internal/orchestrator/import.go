@@ -142,10 +142,11 @@ func (o *Orchestrator) Import(ctx context.Context, p ImportParams) (*model.Sessi
 		mode = info.DefaultMode
 	}
 	now := time.Now().UTC()
+	p.Title = userTitle(p.Title)
 	s := &model.Session{
 		ID: store.NewID(), ProjectID: proj.ID, Harness: p.Harness, Model: p.Model, Effort: p.Effort, Mode: mode,
 		Workspace: model.Workspace{Kind: model.WorkspaceRoot, Path: proj.Path},
-		Status:    model.SessionIdle, NativeID: p.NativeID, Title: p.Title, CreatedAt: now,
+		Status:    model.SessionIdle, NativeID: p.NativeID, Title: p.Title, CustomTitle: p.Title != "", CreatedAt: now,
 	}
 	if proj.IsGitRepo {
 		s.Workspace.Branch = gitx.CurrentBranch(ctx, proj.Path)

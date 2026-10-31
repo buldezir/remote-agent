@@ -463,6 +463,32 @@ describe("ServerConnection", () => {
     }
   });
 
+  it("renames a session", async () => {
+    const server = new TestServer();
+    const at = "2026-10-09T12:00:00Z";
+    const session = { id: "s1", projectId: "p1", harness: "fake", workspace: { kind: "root", path: "/p" }, status: "idle", title: "write a.txt", archived: false, createdAt: at, updatedAt: at };
+    server.handlers["session.rename"] = (p) =>
+      p.sessionId !== "s1" ? new RPCError("not_found", "no such session") : p.title ? { ...session, title: p.title, customTitle: true } : session;
+    const c = await connect(server);
+    try {
+      c.sessions.set("s1", session);
+      expect(await c.renameSession("s1", "Fix the tests")).toMatchObject({ title: "Fix the tests", customTitle: true });
+      // The title goes as typed, an empty one too, for the server to tidy.
+      expect((await c.renameSession("s1", "")).customTitle).toBeUndefined();
+      await expect(c.renameSession("s2", "x")).rejects.toMatchObject({ code: "not_found" });
+      expect(server.calls.filter((m) => m.method === "session.rename").map((m) => m.params)).toEqual([
+        { sessionId: "s1", title: "Fix the tests" },
+        { sessionId: "s1", title: "" },
+        { sessionId: "s2", title: "x" },
+      ]);
+      // The index changes with the session's event, not the answer.
+      expect(c.sessions.get("s1")?.title).toBe("write a.txt");
+    } finally {
+      c.stop();
+      await server.stop();
+    }
+  });
+
   it("delivers a draft saved or sent on a dead socket after reconnecting", async () => {
     const server = new TestServer();
     const at = "2026-10-09T12:00:00Z";

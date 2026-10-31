@@ -20,12 +20,23 @@ let lookupMode = "normal";
 let lookupCount = 0;
 let offline = false;
 let liveSocket;
+// The titles session.rename was sent, and whether the next one fails.
+const renames = [];
+let failRename = false;
 await page.routeWebSocket("**/v1/ws", (socket) => {
   if (offline) { void socket.close({ code: 1001, reason: "offline test" }); return; }
   liveSocket = socket;
   const server = socket.connectToServer();
   socket.onMessage((message) => {
     const request = JSON.parse(String(message));
+    if (request.method === "session.rename") {
+      renames.push(request.params.title);
+      if (failRename) {
+        failRename = false;
+        socket.send(JSON.stringify({ id: request.id, error: { code: "internal", message: "the disk is full" } }));
+        return;
+      }
+    }
     if (request.method === "session.commands") {
       lookupCount++;
       if (lookupMode === "pending") return;
@@ -494,6 +505,86 @@ await searchField.press("Escape");
 await searchResult.waitFor({ state: "detached" });
 await page.locator(".list-header", { hasText: "Recent" }).waitFor();
 await page.setViewportSize({ width: 1280, height: 820 });
+
+step("rename a session from its menu and its row, then back to its own name");
+const sessionTitle = page.locator(".session-heading h1");
+const rowTitled = (title) => page.locator(".session-row", { has: page.locator(".row-title", { hasText: new RegExp(`^${title}$`) }) });
+const renameDialog = page.locator("dialog.confirm", { hasText: "Rename Session" });
+const titleField = renameDialog.getByRole("textbox", { name: "Title" });
+await rowTitled("write a\\.txt").locator(".session-row-main").click();
+await sessionTitle.filter({ hasText: "write a.txt" }).waitFor();
+await page.getByRole("button", { name: "Session", exact: true }).click();
+await page.getByRole("menuitem", { name: "Rename…" }).click();
+// The title is chosen, so that typing replaces it.
+await renameDialog.getByText("Leave it empty to name it automatically.").waitFor();
+const chosen = await titleField.evaluate((el) => el === document.activeElement && el.selectionStart === 0 && el.selectionEnd === el.value.length && el.value);
+if (chosen !== "write a.txt") throw new Error(`the rename field isn't the title, chosen: ${chosen}`);
+await shot("rename");
+await page.keyboard.type("Write the first file");
+await page.keyboard.press("Enter");
+await renameDialog.waitFor({ state: "detached" });
+await sessionTitle.filter({ hasText: "Write the first file" }).waitFor();
+await rowTitled("Write the first file").waitFor();
+await shot("renamed");
+// The same title, or Esc, sends nothing.
+await page.getByRole("button", { name: "Session", exact: true }).click();
+await page.getByRole("menuitem", { name: "Rename…" }).click();
+await titleField.fill("  Write the first file ");
+await renameDialog.getByRole("button", { name: "Rename", exact: true }).click();
+await renameDialog.waitFor({ state: "detached" });
+await page.getByRole("button", { name: "Session", exact: true }).click();
+await page.getByRole("menuitem", { name: "Rename…" }).click();
+await titleField.fill("never mind");
+await page.keyboard.press("Escape");
+await renameDialog.waitFor({ state: "detached" });
+// From the row's context menu, in each layout.
+for (const [name, title] of [["inbox", "From the Inbox"], ["projects", "From the Projects"], ["columns", "From the Columns"]]) {
+  await page.getByRole("button", { name: "Settings", exact: true }).first().click();
+  await page.getByLabel("Layout").selectOption(name);
+  await page.getByRole("button", { name: "Done" }).click();
+  await page.locator(".session-row.selected").first().click({ button: "right" });
+  if (name === "inbox") await shot("rename-row-menu");
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  await titleField.fill(title);
+  await titleField.press("Enter");
+  await rowTitled(title).waitFor();
+  await sessionTitle.filter({ hasText: title }).waitFor();
+}
+await shot("renamed-columns");
+// A rename that fails says why.
+failRename = true;
+await page.locator(".session-row.selected").first().click({ button: "right" });
+await page.getByRole("menuitem", { name: "Rename…" }).click();
+await titleField.fill("Not this one");
+await titleField.press("Enter");
+await page.locator("dialog.confirm", { hasText: "the disk is full" }).getByRole("button", { name: "OK" }).click();
+// Empty, the session gets the name its first prompt gives it again.
+await page.getByRole("button", { name: "Session", exact: true }).click();
+await page.getByRole("menuitem", { name: "Rename…" }).click();
+await titleField.fill("");
+await titleField.press("Enter");
+await sessionTitle.filter({ hasText: "write a.txt" }).waitFor();
+await rowTitled("write a\\.txt").waitFor();
+await page.getByRole("button", { name: "Settings", exact: true }).first().click();
+await page.getByLabel("Layout").selectOption("inbox");
+await page.getByRole("button", { name: "Done" }).click();
+// On a phone, from the row in its server's sessions.
+await page.setViewportSize({ width: 390, height: 844 });
+await page.getByRole("button", { name: "Back" }).click();
+const phoneRow = (title) => page.locator(".session-row", { has: page.locator(".session-title", { hasText: new RegExp(`^${title}$`) }) });
+// [the row's title, the title typed, the title it then has]
+for (const [from, typed, to] of [["write a\\.txt", "From the phone", "From the phone"], ["From the phone", "", "write a\\.txt"]]) {
+  await phoneRow(from).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  await titleField.fill(typed);
+  if (typed) await shot("phone-rename");
+  await titleField.press("Enter");
+  await phoneRow(to).waitFor();
+}
+await page.setViewportSize({ width: 1280, height: 820 });
+const sent = JSON.stringify(renames);
+const expected = ["Write the first file", "From the Inbox", "From the Projects", "From the Columns", "Not this one", "", "From the phone", ""];
+if (sent !== JSON.stringify(expected)) throw new Error(`session.rename was sent ${sent}`);
 
 step("continue a terminal session");
 const continueTerminal = async (name) => {

@@ -180,7 +180,7 @@ func (a *actor) promptLocked(ctx context.Context, text string, refs []model.Imag
 	it := a.newItem(model.ItemUserMessage, model.ItemQueued)
 	it.TurnID = "" // set when its turn starts
 	it.Text, it.Images = text, refs
-	retitle := a.sess.Title == "" || a.sess.Title == "New session"
+	retitle := a.untitled()
 	if retitle {
 		a.sess.Title = titleFrom(text)
 	}
@@ -216,6 +216,12 @@ func (a *actor) promptLocked(ctx context.Context, text string, refs []model.Imag
 		return &cp, nil
 	}
 	return it, a.startTurn(ctx, q)
+}
+
+// untitled reports whether the session has the default title still, which
+// its first prompt or draft replaces. A title the user chose stays.
+func (a *actor) untitled() bool {
+	return !a.sess.CustomTitle && (a.sess.Title == "" || a.sess.Title == "New session")
 }
 
 func (a *actor) projectName() string {
@@ -1061,12 +1067,12 @@ func (a *actor) saveDraft(ctx context.Context, text string, refs []model.ImageRe
 			return &cp, nil
 		}
 		a.sess.Draft = nil
-		if a.sess.ItemCount == 0 {
+		if a.sess.ItemCount == 0 && !a.sess.CustomTitle {
 			a.sess.Title = "New session"
 		}
 	} else {
 		a.sess.Draft = &model.Draft{Text: text, Images: refs}
-		retitle = a.sess.Title == "" || a.sess.Title == "New session"
+		retitle = a.untitled()
 		if retitle {
 			a.sess.Title = titleFrom(text)
 		}
@@ -1085,6 +1091,68 @@ func (a *actor) saveDraft(ctx context.Context, text string, refs []model.ImageRe
 	}
 	cp := *a.sess
 	return &cp, nil
+}
+
+// rename gives the session the user's title, which rad's naming leaves
+// alone from then on. An empty title gives the session back to rad: the
+// title its first prompt gives, which the system agent, if set, names again
+// (never the branch), or for a fork its source's with " (fork)". Renaming
+// keeps the session's place in the lists.
+func (a *actor) rename(ctx context.Context, title string) (*model.Session, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deleted {
+		return nil, errorf(CodeNotFound, "session %s not found", a.sess.ID)
+	}
+	title = userTitle(title)
+	custom, first := title != "", ""
+	if !custom {
+		var err error
+		if title, first, err = a.automaticTitle(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if title == a.sess.Title && custom == a.sess.CustomTitle {
+		cp := *a.sess
+		return &cp, nil
+	}
+	a.sess.Title, a.sess.CustomTitle = title, custom
+	if err := a.write(ctx, func(w *store.W) error {
+		cp := *a.sess
+		return w.PutSessionKeepingTime(&cp)
+	}); err != nil {
+		return nil, err
+	}
+	a.o.log.Info("session renamed", a.logAttrs("automatic", !custom, "device", clientOf(ctx))...)
+	if first != "" && !a.sess.Archived {
+		a.o.nameSession(a.sess.ID, a.projectName(), first, true, false)
+	}
+	cp := *a.sess
+	return &cp, nil
+}
+
+// automaticTitle is the title rad gives the session, and the prompt the
+// system agent names it from: the first prompt, else the draft.
+func (a *actor) automaticTitle(ctx context.Context) (title, prompt string, err error) {
+	if f := a.sess.ForkedFrom; f != nil {
+		if src, err := a.o.st.Session(ctx, f.SessionID); err == nil {
+			return strings.TrimSuffix(src.Title, forkSuffix) + forkSuffix, "", nil
+		}
+	}
+	items, err := a.o.st.Items(ctx, a.sess.ID)
+	if err != nil {
+		return "", "", err
+	}
+	for _, it := range items {
+		if it.Kind == model.ItemUserMessage && it.ParentItemID == "" && strings.TrimSpace(it.Text) != "" {
+			prompt = it.Text
+			break
+		}
+	}
+	if prompt == "" && a.sess.Draft != nil {
+		prompt = a.sess.Draft.Text
+	}
+	return titleFrom(prompt), prompt, nil
 }
 
 // markRead records that a client showed the session. It keeps the session's

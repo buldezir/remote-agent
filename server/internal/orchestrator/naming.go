@@ -176,6 +176,16 @@ func parseNames(reply string) (names, error) {
 	return n, nil
 }
 
+// userTitle is a title the user gave: on one line, without the spaces
+// around it, and at most 120 characters. "" asks for rad's.
+func userTitle(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if utf8.RuneCountInString(s) > 120 {
+		s = string([]rune(s)[:119]) + "…"
+	}
+	return s
+}
+
 func cleanTitle(s string) string {
 	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
 	s = strings.TrimSpace(strings.Trim(s, "\"'`“”‘’*"))
@@ -217,8 +227,8 @@ func branchSlug(s string) string {
 }
 
 // applyNames gives the session the names, where it still has the ones rad
-// made up. A branch that is taken gets the session's suffix. It reports
-// whether anything changed.
+// made up: not a title the user chose meanwhile. A branch that is taken gets
+// the session's suffix. It reports whether anything changed.
 func (a *actor) applyNames(ctx context.Context, n names) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -226,7 +236,7 @@ func (a *actor) applyNames(ctx context.Context, n names) bool {
 		return false
 	}
 	changed := false
-	if n.Title != "" && n.Title != a.sess.Title {
+	if n.Title != "" && n.Title != a.sess.Title && !a.sess.CustomTitle {
 		a.sess.Title = n.Title
 		changed = true
 	}

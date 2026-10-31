@@ -37,6 +37,9 @@ export interface Session {
   title: string;
   error?: string;
   archived: boolean;
+  /** The title is the user's (`session.rename`, or one given at create, fork
+   *  or import), which rad's naming leaves alone. Absent: false. */
+  customTitle?: boolean;
   /** A turn ended, or the agent asked for an answer, since a client last
    *  showed the session (`session.markRead`). Absent: false. */
   unread?: boolean;
@@ -473,6 +476,8 @@ export interface ServerInfo {
   commit?: boolean;
   /** The server finds sessions by what was said in them (`session.search`). */
   search?: boolean;
+  /** The server renames sessions (`session.rename`). */
+  rename?: boolean;
 }
 
 /** `session.search`'s result, best first. */

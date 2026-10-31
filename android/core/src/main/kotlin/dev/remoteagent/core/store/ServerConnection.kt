@@ -548,6 +548,15 @@ class ServerConnection(
         return s
     }
 
+    /**
+     * Gives the session the user's `title`, which rad keeps on one line and
+     * cuts at 120 characters; an empty one gives it back to rad's naming. Its
+     * place in the lists stays, and the new title comes as its event. Only for
+     * a server whose `info.rename` is true.
+     */
+    suspend fun rename(sessionID: String, title: String): Session =
+        client.call("session.rename", params("sessionId" to sessionID, "title" to title))
+
     suspend fun archive(sessionID: String, removeWorktree: Boolean) {
         client.callRaw("session.archive", params("sessionId" to sessionID, "removeWorktree" to removeWorktree))
     }

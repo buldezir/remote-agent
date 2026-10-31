@@ -344,6 +344,31 @@ struct ConnectionTests {
         #expect(c.info?.search == nil && !c.searches)
     }
 
+    @Test func renames() async throws {
+        let server = try TestServer(index: [session("s")], renames: true)
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        #expect(c.renames)
+
+        let s = try await c.rename("s", title: "Fix the docs")
+        #expect(s.title == "Fix the docs" && s.customTitle == true)
+        let call = try #require(server.calls.last { $0.method == "session.rename" })
+        #expect(call.commandID == nil)
+        #expect(call.params == .object(["sessionId": .string("s"), "title": .string("Fix the docs")]))
+
+        // No title goes as it is: rad names the session again.
+        let named = try await c.rename("s", title: "")
+        #expect(named.title == "s" && named.customTitle == nil)
+        #expect(server.calls.last { $0.method == "session.rename" }?.params?["title"] == .string(""))
+    }
+
+    @Test func olderServerDoesntRename() async throws {
+        let server = try TestServer()
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        #expect(c.info?.rename == nil && !c.renames)
+    }
+
     @Test func promptFailsOnceTheConnectionGivesUp() async throws {
         let server = try TestServer()
         let c = try await connect(to: server)

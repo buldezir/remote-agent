@@ -84,6 +84,11 @@ type setModeParams struct {
 	Mode      string `json:"mode"`
 }
 
+type renameParams struct {
+	SessionID string `json:"sessionId"`
+	Title     string `json:"title"` // "": rad names it
+}
+
 type archiveParams struct { // session.archive and session.delete
 	SessionID      string `json:"sessionId"`
 	RemoveWorktree bool   `json:"removeWorktree"`
@@ -130,7 +135,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "server.info":
 		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true, Forks: true,
-			Commit: c.s.Tasks != nil, Search: true}, nil
+			Commit: c.s.Tasks != nil, Search: true, Rename: true}, nil
 
 	case "device.unpair":
 		// The phone forgets this server: revoke its own token. The socket is
@@ -273,6 +278,9 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "session.setMode":
 		return call(raw, func(p setModeParams) (any, error) { return nil, o.SetMode(ctx, p.SessionID, p.Mode) })
+
+	case "session.rename":
+		return call(raw, func(p renameParams) (any, error) { return o.Rename(ctx, p.SessionID, p.Title) })
 
 	case "session.markRead":
 		return call(raw, func(p sessionParams) (any, error) { return nil, o.MarkRead(ctx, p.SessionID) })

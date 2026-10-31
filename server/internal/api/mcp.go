@@ -164,6 +164,12 @@ func (s *Server) mcpServer() *mcp.Server {
 		{Name: "stop_session", Title: "Stop a session", Destructive: true,
 			Description: "Interrupts what a session's agent is doing, and drops the requests waiting for it.",
 			Input:       object([]string{"session"}, map[string]any{"session": session}), Call: s.toolStopSession},
+		{Name: "rename_session", Title: "Rename a session",
+			Description: "Gives a session a title, your own session's too: the user sees it in the app's lists, and rad no longer names the session itself. " +
+				"An empty title gives the session back to rad, which names it from its first request.",
+			Input: object([]string{"session", "title"}, map[string]any{
+				"session": session, "title": str("The title, a few words on one line."),
+			}), Call: s.toolRenameSession},
 		{Name: "fork_session", Title: "Fork a session",
 			Description: "Starts a new session that goes on from one of a session's turns, with its conversation, and in a worktree with its files as they were then. " +
 				"With another agent, that agent gets the conversation as a transcript.",
@@ -606,6 +612,25 @@ func (s *Server) toolStopSession(ctx context.Context, raw json.RawMessage) (any,
 		return nil, err
 	}
 	return "Stopped.", nil
+}
+
+func (s *Server) toolRenameSession(ctx context.Context, raw json.RawMessage) (any, error) {
+	p, err := mcp.Args[struct {
+		Session string `json:"session"`
+		Title   string `json:"title"`
+	}](raw)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := s.findSession(ctx, p.Session)
+	if err != nil {
+		return nil, err
+	}
+	if sess, err = s.orch.Rename(ctx, sess.ID, p.Title); err != nil {
+		return nil, err
+	}
+	projects, err := s.projectMap(ctx)
+	return summarize(sess, projects), err
 }
 
 func (s *Server) toolForkSession(ctx context.Context, raw json.RawMessage) (any, error) {

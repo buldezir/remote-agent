@@ -152,6 +152,7 @@ class FixtureTests {
 
         val s = result<Session>("response_session.json")
         assertEquals("Fix the tests", s.title)
+        assertTrue(s.customTitle)
         assertTrue(s.unread)
         val draft = assertNotNull(s.draft)
         assertEquals("Then update the changelog", draft.text)
@@ -175,6 +176,7 @@ class FixtureTests {
         assertEquals(true, info.forks)
         assertEquals(true, info.commit)
         assertEquals(true, info.search)
+        assertEquals(true, info.rename)
         assertEquals("dev1", info.deviceId)
     }
 
@@ -209,6 +211,8 @@ class FixtureTests {
         val second = r.results[1]
         assertEquals("s2", second.session.id)
         assertTrue(second.session.archived)
+        // Left out: rad names it.
+        assertTrue(!second.session.customTitle)
         assertNull(second.itemId)
         assertNull(second.itemKind)
         assertTrue(second.snippet[1].match)

@@ -140,6 +140,7 @@ type serverInfoResult struct {
 	Forks    bool     `json:"forks,omitempty"`    // session.fork
 	Commit   bool     `json:"commit,omitempty"`   // git.commitPreview and git.commit
 	Search   bool     `json:"search,omitempty"`   // session.search
+	Rename   bool     `json:"rename,omitempty"`   // session.rename
 }
 
 func (s *Server) info() serverInfo {

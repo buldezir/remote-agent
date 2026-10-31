@@ -73,7 +73,7 @@ struct SessionRow: View {
     }
 }
 
-/// A session to archive or delete, and the server it is on.
+/// A session to rename, archive or delete, and the server it is on.
 struct SessionRequest {
     let session: Session
     let connection: ServerConnection
@@ -88,6 +88,12 @@ extension View {
     /// Confirmation before forgetting a server.
     func removeServerDialog(_ server: Binding<SavedServer?>, onRemove: @escaping () -> Void = {}) -> some View {
         modifier(RemoveServerDialog(server: server, onRemove: onRemove))
+    }
+
+    /// The prompt to rename a session (`SessionActions.rename`): its title to
+    /// type over, or to empty, which gives it back to rad's naming.
+    func renameSessionAlert(_ request: Binding<SessionRequest?>) -> some View {
+        modifier(RenameSessionAlert(request: request))
     }
 
     /// Confirmation before archiving a session, which can also delete its worktree.
@@ -136,6 +142,51 @@ extension View {
 
 private func delete(_ r: SessionRequest, removeWorktree: Bool) {
     Task { try? await r.connection.delete(r.session.id, removeWorktree: removeWorktree) }
+}
+
+private struct RenameSessionAlert: ViewModifier {
+    @Binding var request: SessionRequest?
+    @State private var title = ""
+    @State private var error: String?
+
+    func body(content: Content) -> some View {
+        content
+            .alert("Rename Session", isPresented: .init(get: { request != nil }, set: { if !$0 { request = nil } }),
+                   presenting: request) { r in
+                TextField("Title", text: $title)
+                Button("Cancel", role: .cancel) {}
+                Button("Rename") { rename(r) }
+                    // iOS renames on Return without it, and would draw the
+                    // palette's accent on the system's blue.
+                    #if os(macOS)
+                    .keyboardShortcut(.defaultAction)
+                    #endif
+            } message: { _ in
+                Text("Leave it empty to name it automatically.")
+            }
+            .alert("Couldn't rename the session", isPresented: .init(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("OK") { error = nil }
+            } message: {
+                Text(error ?? "")
+            }
+            // Each prompt starts from the session's title.
+            .onChange(of: request?.session.id, initial: true) { _, _ in
+                if let r = request { title = r.session.title }
+            }
+    }
+
+    /// The prompt closes at once, and a failure shows once the server says.
+    /// The new title comes with the session's event. The title as it was
+    /// asks nothing of the server.
+    private func rename(_ r: SessionRequest) {
+        let current = r.connection.sessions[r.session.id]?.title ?? r.session.title
+        guard title.trimmingCharacters(in: .whitespacesAndNewlines) != current else { return }
+        let title = title
+        Task {
+            do { try await r.connection.rename(r.session.id, title: title) }
+            catch { self.error = error.localizedDescription }
+        }
+    }
 }
 
 private struct RemoveServerDialog: ViewModifier {

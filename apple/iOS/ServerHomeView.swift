@@ -14,6 +14,7 @@ struct ServerHomeView: View {
     /// A session started empty, whose prompt takes the keyboard when it opens.
     @State private var startedEmpty: String?
     @State private var showArchived = false
+    @State private var renaming: SessionRequest?
     @State private var archiving: SessionRequest?
     @State private var deleting: SessionRequest?
 
@@ -70,6 +71,7 @@ struct ServerHomeView: View {
                 ServerSettingsView(connection: connection)
                     .appStyle()
             }
+            .renameSessionAlert($renaming)
             .archiveSessionDialog($archiving)
             .deleteSessionDialog($deleting)
             .refreshable {
@@ -165,6 +167,9 @@ struct ServerHomeView: View {
                 .tint(Palette.red)
         }
         .contextMenu {
+            if connection.renames {
+                Button("Rename…", systemImage: "pencil") { renaming = SessionRequest(session: s, connection: connection) }
+            }
             if !s.archived {
                 Button("Archive…", systemImage: "archivebox") { archiving = SessionRequest(session: s, connection: connection) }
             }

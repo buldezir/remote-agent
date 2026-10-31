@@ -2,7 +2,7 @@
 # Walks the Android app through the fake harness on an emulator, as
 # web/e2e/smoke.mjs does the web client: pairing by deep link, a new worktree
 # session, the fake keywords, images, changes and revert, the terminal, the
-# Inbox and Servers tabs, search and find in a session, a tablet's sidebar, the dark theme, the server's settings (updating and
+# Inbox and Servers tabs, search and find in a session, renaming a session, a tablet's sidebar, the dark theme, the server's settings (updating and
 # signing in the fake agent, naming sessions with it), and a draft saved,
 # edited, saved again and sent. Saves screenshots to
 # $SCRATCH/shots and removes the server at the end, which unpairs it. Never
@@ -209,6 +209,36 @@ wait_for 'id=search-result' 5 || fail "back didn't return to the results"
 tap 'id=search-clear'
 wait_for 'text=Recent' 5 || fail "clearing the search didn't bring back the Inbox"
 hide_keyboard
+
+step "rename"
+# A row's long press renames the session: the prompt opens with its title
+# selected, so typing replaces it.
+long_press 'text=hello from the inbox'; sleep 0.5; tap 'text=Rename…'
+wait_for 'id=rename-field' 5 || fail "no rename prompt"
+sleep 1   # for the keyboard, as fill waits
+type_text 'Inbox chores'
+wait_for 'text=Inbox chores' 5 || fail "typing didn't replace the selected title"
+shot 06i-rename
+tap 'id=rename-confirm'; sleep 0.5
+wait_for 'text=Inbox chores' 10 || fail "the row didn't take the new title"
+! find_view 'text=hello from the inbox' > /dev/null || fail "the old title stayed"
+shot 06j-renamed
+# The session's ⋯ menu too: emptied, the title goes back to rad's, its prompt.
+tap 'text=Inbox chores'
+wait_for 'contains=Echo: hello from the inbox' 10 || fail "the renamed session didn't open"
+find_view 'text=Inbox chores' > /dev/null || fail "the header doesn't show the new title"
+tap 'id=session-menu'; sleep 0.5; tap 'text=Rename…'
+wait_for 'id=rename-field' 5 || fail "no rename prompt in the session"
+sleep 1
+"$A" shell input keyevent KEYCODE_DEL
+tap 'id=rename-confirm'
+for _ in $(seq 1 10); do find_view 'text=Inbox chores' > /dev/null || break; sleep 1; done
+! find_view 'text=Inbox chores' > /dev/null || fail "an empty name didn't give the title back to rad"
+# The header and the prompt.
+[ "$(texts 'text=hello from the inbox' | grep -c .)" -ge 2 ] || fail "the header doesn't show rad's title"
+shot 06k-rename-reset
+hide_keyboard; tap 'desc=Back'; sleep 1
+wait_for 'text=hello from the inbox' 5 || fail "the Inbox didn't take the title back"
 
 step "servers tab keeps its place"
 tap 'id=tab-servers'

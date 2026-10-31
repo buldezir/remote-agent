@@ -7,6 +7,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.Project
+import dev.remoteagent.core.protocol.ServerInfo
 import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.store.ConnectionState
@@ -45,6 +46,7 @@ class SessionActions(
     val startSession: (ServerConnection, projectId: String?) -> Unit = { _, _ -> },
     val archive: (SessionRequest) -> Unit = {},
     val delete: (SessionRequest) -> Unit = {},
+    val rename: (SessionRequest) -> Unit = {},
     val remove: (SavedServer) -> Unit = {},
     /** Opens the server's settings: its updates, agents and system agent. */
     val serverSettings: (ServerConnection) -> Unit = {},
@@ -64,6 +66,7 @@ class ServerState(
     val sessions: Map<String, Session>,
     val projects: Map<String, Project>,
     val harnesses: List<HarnessInfo>?,
+    val info: ServerInfo? = null,
 ) {
     val id get() = server.id
     val name get() = server.name
@@ -71,6 +74,8 @@ class ServerState(
     val archived: List<Session> by lazy { sessions.archivedSessions }
     /** The connection gave up: it waits for a tap to try again. */
     val offline get() = state is ConnectionState.Failed
+    /** The server renames sessions: rows offer Rename…. */
+    val renames get() = info?.rename == true
 
     fun harness(id: String): HarnessInfo? = harnesses?.firstOrNull { it.id == id }
 }
@@ -91,7 +96,8 @@ private fun serverState(connection: ServerConnection): ServerState {
     val sessions by connection.sessions.collectAsStateWithLifecycle()
     val projects by connection.projects.collectAsStateWithLifecycle()
     val harnesses by connection.harnesses.collectAsStateWithLifecycle()
-    return ServerState(connection, server, state, indexSynced, sessions, projects, harnesses)
+    val info by connection.info.collectAsStateWithLifecycle()
+    return ServerState(connection, server, state, indexSynced, sessions, projects, harnesses, info)
 }
 
 /** A session and the server it is on, for the lists that mix servers. */

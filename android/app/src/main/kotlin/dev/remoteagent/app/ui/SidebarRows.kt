@@ -64,7 +64,7 @@ import kotlin.math.roundToInt
 
 /**
  * A session's row in a sidebar list: a tap opens it, a long press offers to
- * archive or delete it, and a swipe archives it at once, or deletes one
+ * rename, archive or delete it, and a swipe archives it at once, or deletes one
  * already archived. The selection is drawn as a surface inset from the edges, on
  * the list's [background], which also covers the swipe's colour behind the row.
  */
@@ -86,6 +86,7 @@ fun SessionLink(
     val request = SessionRequest(item.session, item.server.connection)
     val archive = { actions.archive(request) }
     val delete = { actions.delete(request) }
+    val rename = if (item.server.renames) ({ actions.rename(request) }) else null
     Box(modifier) {
         SessionSwipe(request, delete) {
             Box(Modifier.background(background)) {
@@ -98,7 +99,7 @@ fun SessionLink(
                 ) {
                     content()
                 }
-                SessionRowMenu(menu, { menu = false }, item.session.archived, archive, delete)
+                SessionRowMenu(menu, { menu = false }, item.session.archived, archive, delete, rename)
             }
         }
     }

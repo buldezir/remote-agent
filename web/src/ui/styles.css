@@ -950,7 +950,7 @@ dialog::backdrop {
 }
 .confirm h3 { font-size: 1.05em; margin-bottom: 6px; }
 .confirm p { margin: 0 0 10px; color: var(--subtext); overflow-wrap: anywhere; }
-.confirm .text-field { width: 100%; margin-bottom: 10px; }
+.confirm .text-field { width: 100%; max-width: none; margin-bottom: 10px; }
 .confirm-actions {
   display: flex;
   flex-wrap: wrap;

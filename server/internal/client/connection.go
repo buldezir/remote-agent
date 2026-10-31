@@ -803,6 +803,16 @@ func (c *ServerConnection) SaveDraft(ctx context.Context, sessionID, text string
 	return s, nil
 }
 
+// RenameSession gives a session the user's title, which rad then keeps; ""
+// hands it back to rad's names. The session keeps its place in the lists,
+// and the index brings the new title, as for any change. Only when the
+// server renames (ServerInfo.Rename).
+func (c *ServerConnection) RenameSession(ctx context.Context, sessionID, title string) (model.Session, error) {
+	var s model.Session
+	err := c.rpc.Call(ctx, "session.rename", map[string]any{"sessionId": sessionID, "title": title}, &s)
+	return s, err
+}
+
 func (c *ServerConnection) Archive(ctx context.Context, sessionID string, removeWorktree bool) error {
 	return c.rpc.Call(ctx, "session.archive", map[string]any{"sessionId": sessionID, "removeWorktree": removeWorktree}, nil)
 }

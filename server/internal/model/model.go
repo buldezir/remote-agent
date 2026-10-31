@@ -89,8 +89,12 @@ type Session struct {
 	Status    SessionStatus `json:"status"`
 	NativeID  string        `json:"nativeId,omitempty"`
 	Title     string        `json:"title"`
-	Error     string        `json:"error,omitempty"`
-	Archived  bool          `json:"archived"`
+	// CustomTitle: the title is one the user chose (session.rename, or a
+	// title given to session.create, session.fork or session.import), and
+	// rad's naming leaves it alone.
+	CustomTitle bool   `json:"customTitle,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Archived    bool   `json:"archived"`
 	// Unread: a turn ended, or the agent asked for an answer, since a client
 	// last showed the session (session.markRead).
 	Unread    bool          `json:"unread,omitempty"`

@@ -100,69 +100,6 @@ export function Menu({
 }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
-  const popup = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<React.CSSProperties>({ visibility: "hidden" });
-
-  useLayoutEffect(() => {
-    if (!open || !button.current || !popup.current) return;
-    const b = button.current.getBoundingClientRect();
-    const p = popup.current.getBoundingClientRect();
-    const margin = 8;
-    let left = align === "end" ? b.right - p.width : b.left;
-    left = Math.max(margin, Math.min(left, innerWidth - p.width - margin));
-    let top = b.bottom + 4;
-    if (top + p.height > innerHeight - margin && b.top - p.height - 4 > margin) top = b.top - p.height - 4;
-    top = Math.max(margin, Math.min(top, innerHeight - p.height - margin));
-    setPos({ left, top });
-  }, [open, align]);
-
-  useEffect(() => {
-    if (!open) return;
-    const down = (e: MouseEvent) => {
-      if (!popup.current?.contains(e.target as Node) && !button.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setOpen(false);
-        button.current?.focus();
-      }
-    };
-    const away = () => setOpen(false);
-    document.addEventListener("mousedown", down);
-    document.addEventListener("keydown", key, true);
-    window.addEventListener("resize", away);
-    return () => {
-      document.removeEventListener("mousedown", down);
-      document.removeEventListener("keydown", key, true);
-      window.removeEventListener("resize", away);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (open) popup.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
-    else setPos({ visibility: "hidden" });
-  }, [open]);
-
-  const item = (it: MenuItem, i: number) => (
-    <button
-      key={i}
-      role="menuitem"
-      className={"menu-item" + (it.destructive ? " destructive" : "")}
-      disabled={it.disabled || !it.onSelect}
-      onClick={() => {
-        setOpen(false);
-        it.onSelect?.();
-      }}
-    >
-      <span className="menu-icon">{it.checked ? "✓" : it.icon ? <it.icon size={15} /> : null}</span>
-      <span className="menu-label">
-        {it.label}
-        {it.detail && <span className="menu-detail">{it.detail}</span>}
-      </span>
-    </button>
-  );
-
   return (
     <>
       <button
@@ -178,24 +115,141 @@ export function Menu({
         {label}
       </button>
       {open && (
-        <div ref={popup} className="menu" role="menu" style={pos}>
-          {entries.map((e, i) => {
-            if (!e) return null;
-            if (e === "divider") return <hr key={i} />;
-            if ("section" in e) {
-              if (e.items.length === 0) return null;
-              return (
-                <div key={i} className="menu-section">
-                  {e.section && <div className="menu-section-title">{e.section}</div>}
-                  {e.items.map(item)}
-                </div>
-              );
-            }
-            return item(e, i);
-          })}
-        </div>
+        <MenuPopup
+          anchor={() => button.current!.getBoundingClientRect()}
+          align={align}
+          entries={entries}
+          owner={button}
+          onClose={(refocus) => {
+            setOpen(false);
+            if (refocus) button.current?.focus();
+          }}
+        />
       )}
     </>
+  );
+}
+
+/** A context menu: right-click on the element given `onContextMenu` (or a
+ *  long press, where the browser makes one of it) opens the entries at the
+ *  pointer, or under the element for an event without a point, as from the
+ *  keyboard. Without entries the browser's own stays. */
+export function useContextMenu(entries: MenuEntry[]): { onContextMenu?: (e: React.MouseEvent<HTMLElement>) => void; menu: ReactNode } {
+  const [at, setAt] = useState<{ rect: DOMRect; owner: HTMLElement }>();
+  if (!entries.some(Boolean)) return { menu: null };
+  return {
+    onContextMenu: (e) => {
+      e.preventDefault();
+      const owner = e.currentTarget;
+      const rect = e.clientX || e.clientY ? new DOMRect(e.clientX, e.clientY, 0, 0) : owner.getBoundingClientRect();
+      setAt({ rect, owner });
+    },
+    menu: at && (
+      <MenuPopup
+        anchor={() => at.rect}
+        align="start"
+        entries={entries}
+        onClose={(refocus) => {
+          setAt(undefined);
+          if (refocus) at.owner.querySelector<HTMLElement>("button, [tabindex]")?.focus();
+        }}
+      />
+    ),
+  };
+}
+
+/** A menu's list, open beside `anchor`: under its button, or at a point,
+ *  moved to stay in the window. A click outside it, other than on `owner`,
+ *  closes it, as Escape does (`refocus`) and a resize. */
+function MenuPopup({
+  anchor,
+  align,
+  entries,
+  owner,
+  onClose,
+}: {
+  anchor: () => DOMRect;
+  align: "start" | "end";
+  entries: MenuEntry[];
+  owner?: React.RefObject<HTMLElement | null>;
+  onClose: (refocus: boolean) => void;
+}) {
+  const popup = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<React.CSSProperties>({ visibility: "hidden" });
+  const close = useRef(onClose);
+  close.current = onClose;
+
+  useLayoutEffect(() => {
+    if (!popup.current) return;
+    const b = anchor();
+    const p = popup.current.getBoundingClientRect();
+    const margin = 8;
+    let left = align === "end" ? b.right - p.width : b.left;
+    left = Math.max(margin, Math.min(left, innerWidth - p.width - margin));
+    let top = b.bottom + 4;
+    if (top + p.height > innerHeight - margin && b.top - p.height - 4 > margin) top = b.top - p.height - 4;
+    top = Math.max(margin, Math.min(top, innerHeight - p.height - margin));
+    setPos({ left, top });
+  }, []);
+
+  useEffect(() => {
+    popup.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    const down = (e: MouseEvent) => {
+      if (!popup.current?.contains(e.target as Node) && !owner?.current?.contains(e.target as Node)) close.current(false);
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        close.current(true);
+      }
+    };
+    const away = () => close.current(false);
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key, true);
+    window.addEventListener("resize", away);
+    return () => {
+      document.removeEventListener("mousedown", down);
+      document.removeEventListener("keydown", key, true);
+      window.removeEventListener("resize", away);
+    };
+  }, []);
+
+  const item = (it: MenuItem, i: number) => (
+    <button
+      key={i}
+      role="menuitem"
+      className={"menu-item" + (it.destructive ? " destructive" : "")}
+      disabled={it.disabled || !it.onSelect}
+      onClick={() => {
+        close.current(false);
+        it.onSelect?.();
+      }}
+    >
+      <span className="menu-icon">{it.checked ? "✓" : it.icon ? <it.icon size={15} /> : null}</span>
+      <span className="menu-label">
+        {it.label}
+        {it.detail && <span className="menu-detail">{it.detail}</span>}
+      </span>
+    </button>
+  );
+
+  return (
+    <div ref={popup} className="menu" role="menu" style={pos}>
+      {entries.map((e, i) => {
+        if (!e) return null;
+        if (e === "divider") return <hr key={i} />;
+        if ("section" in e) {
+          if (e.items.length === 0) return null;
+          return (
+            <div key={i} className="menu-section">
+              {e.section && <div className="menu-section-title">{e.section}</div>}
+              {e.items.map(item)}
+            </div>
+          );
+        }
+        return item(e, i);
+      })}
+    </div>
   );
 }
 

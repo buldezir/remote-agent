@@ -50,6 +50,7 @@ describe("fixtures", () => {
     expect(session.workspace.kind).toBe("worktree");
     expect(session.workspace.agentPath).toBe("/w/s1/.claude/worktrees/fix");
     expect(session.forkedFrom).toEqual({ sessionId: "s0", turn: 3 });
+    expect(session.customTitle).toBe(true);
     expect(events[1].turn?.usage?.costUsd).toBe(0.0123);
     const items = events.flatMap((e) => (e.item ? [e.item] : []));
     expect(items).toHaveLength(11);
@@ -130,6 +131,7 @@ describe("fixtures", () => {
 
     const s: Session = load("response_session.json").result;
     expect(s.title).toBe("Fix the tests");
+    expect(s.customTitle).toBe(true);
     expect(s.unread).toBe(true);
     expect(s.draft?.text).toBe("Then update the changelog");
     expect(s.draft?.images?.map((i) => [i.mimeType, i.width, i.height, i.size])).toEqual([["image/jpeg", 800, 600, 65536]]);
@@ -151,6 +153,7 @@ describe("fixtures", () => {
     expect(info.forks).toBe(true);
     expect(info.commit).toBe(true);
     expect(info.search).toBe(true);
+    expect(info.rename).toBe(true);
     expect(info.deviceId).toBe("dev1");
   });
 

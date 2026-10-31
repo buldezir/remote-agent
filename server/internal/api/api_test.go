@@ -1121,3 +1121,68 @@ func TestSearchOverWebSocket(t *testing.T) {
 		t.Fatalf("empty query: %+v", res)
 	}
 }
+
+func TestRenameOverWebSocket(t *testing.T) {
+	s := startServer(t)
+	c := connect(t, s)
+	var info struct{ Rename bool }
+	if c.mustCall("server.info", nil, &info); !info.Rename {
+		t.Fatal("server.info doesn't offer rename")
+	}
+	dir := filepath.Join(s.root, "rename-project")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var project model.Project
+	c.mustCall("project.add", map[string]any{"path": dir}, &project)
+	var sess model.Session
+	c.mustCall("session.create", map[string]any{"commandId": "create-1", "projectId": project.ID, "harness": "fake",
+		"workspace": map[string]any{"kind": "root"}, "prompt": "plan the offsite"}, &sess)
+	cursor := c.subscribe(model.IndexStream, 0).sync.Seq
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		got, _ := s.st.Session(context.Background(), sess.ID)
+		if got.Status == model.SessionIdle {
+			sess = *got
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the session is %s", got.Status)
+		}
+	}
+	cursor = c.subscribe(model.IndexStream, cursor).sync.Seq
+
+	// Every client hears of the new title, and the session keeps its place.
+	var renamed model.Session
+	c.mustCall("session.rename", map[string]any{"sessionId": sess.ID, "title": "Quarterly\nplanning "}, &renamed)
+	if renamed.Title != "Quarterly planning" || !renamed.CustomTitle || !renamed.UpdatedAt.Equal(sess.UpdatedAt) {
+		t.Fatalf("renamed = %q, custom %v, updated %v (was %v)", renamed.Title, renamed.CustomTitle, renamed.UpdatedAt, sess.UpdatedAt)
+	}
+	var ev eventsParams
+	for {
+		f := c.note()
+		if f.Method == "events" && streamOf(f) == model.IndexStream {
+			json.Unmarshal(f.Params, &ev)
+			break
+		}
+	}
+	if e := ev.Events[0]; e.Seq != cursor+1 || e.Type != model.EvSessionUpserted || e.Session.Title != "Quarterly planning" || !e.Session.CustomTitle {
+		t.Fatalf("event = %+v", e)
+	}
+	// Search finds it by its new title, and not by the old one.
+	var res model.SearchResults
+	if c.mustCall("session.search", map[string]any{"query": "quarterly"}, &res); len(res.Results) != 1 || res.Results[0].Session.ID != sess.ID || res.Results[0].ItemID != "" {
+		t.Fatalf("search by the new title = %+v", res)
+	}
+	if c.mustCall("session.search", map[string]any{"query": "offsite"}, &res); len(res.Results) != 1 || res.Results[0].ItemID == "" {
+		t.Fatalf("search by the old title finds only the prompt: %+v", res)
+	}
+	// An empty title gives it back to rad.
+	var automatic model.Session // customTitle is left out once false
+	c.mustCall("session.rename", map[string]any{"sessionId": sess.ID, "title": " "}, &automatic)
+	if automatic.Title != "plan the offsite" || automatic.CustomTitle {
+		t.Fatalf("automatic = %q, custom %v", automatic.Title, automatic.CustomTitle)
+	}
+	if _, e := c.call("session.rename", map[string]any{"sessionId": "missing", "title": "x"}); e == nil || e.Code != "not_found" {
+		t.Errorf("rename an unknown session: %+v", e)
+	}
+}

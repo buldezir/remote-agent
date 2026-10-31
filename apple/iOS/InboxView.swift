@@ -12,6 +12,7 @@ struct InboxView: View {
     @State private var newSession: NewSessionRequest?
     /// A session started empty, whose prompt takes the keyboard when it opens.
     @State private var startedEmpty: SessionRoute?
+    @State private var renaming: SessionRequest?
     @State private var archiving: SessionRequest?
     @State private var archivingOld: [ServerSession]?
     @State private var deleting: SessionRequest?
@@ -49,6 +50,7 @@ struct InboxView: View {
                     .toolbar(.hidden, for: .tabBar)
                 }
             }
+            .renameSessionAlert($renaming)
             .archiveSessionDialog($archiving)
             .archiveOldSessionsDialog($archivingOld)
             .deleteSessionDialog($deleting)
@@ -56,6 +58,7 @@ struct InboxView: View {
         }
         .environment(\.sessionActions, SessionActions(
             startSession: { newSession = $0 },
+            rename: { renaming = $0 },
             archive: { archiving = $0 },
             archiveOld: { archivingOld = $0 },
             delete: { deleting = $0 },

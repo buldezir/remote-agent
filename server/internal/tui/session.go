@@ -590,6 +590,10 @@ func (v *sessionView) transcriptKey(m *Model, k tea.KeyPressMsg) tea.Cmd {
 		if b, ok := v.current(); ok && b.key == "d:draft" {
 			return v.editDraft(m)
 		}
+	case "R":
+		if s := v.store.Session; s != nil && canRename(m) {
+			return rename(m, s)
+		}
 	default:
 		// Typing goes to the prompt.
 		if k.Text != "" && !v.dock.active() && !v.archived() {
@@ -716,6 +720,9 @@ func (v *sessionView) actions(m *Model) overlay {
 		return tea.SetClipboard(path)
 	}})
 	items = append(items, menuItem{label: "Session", header: true})
+	if canRename(m) {
+		items = append(items, menuItem{label: "Rename…", run: func(m *Model) tea.Cmd { return rename(m, s) }})
+	}
 	if !s.Archived {
 		items = append(items, menuItem{label: "Attach Image…", run: func(m *Model) tea.Cmd {
 			p := newInput(m, "Attach Image", "The path to a PNG, JPEG, GIF or WebP file.", "", func(m *Model, path string) tea.Cmd {

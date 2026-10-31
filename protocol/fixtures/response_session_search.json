@@ -20,6 +20,7 @@
           "status": "awaiting_approval",
           "nativeId": "n1",
           "title": "Fix the tests",
+          "customTitle": true,
           "archived": false,
           "unread": true,
           "draft": {

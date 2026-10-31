@@ -3,8 +3,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { Session } from "../protocol/models";
 import { useObserved } from "../store/observable";
 import { useConnection } from "./context";
-import { Empty, Spinner } from "./primitives";
-import { ArchiveConfirm, DeleteConfirm, SessionRow } from "./SessionRow";
+import { Empty, ErrorAlert, Spinner } from "./primitives";
+import { ArchiveConfirm, DeleteConfirm, RenameSession, SessionRow } from "./SessionRow";
 
 /** A server's sessions on a phone, as on iPhone. A wide window has every
  *  server's in its sidebar instead (SessionsSidebar). */
@@ -25,6 +25,8 @@ export function ServerHome({
   const [showArchived, setShowArchived] = useState(false);
   const [archiveTarget, setArchiveTarget] = useState<Session>();
   const [deleteTarget, setDeleteTarget] = useState<Session>();
+  const [renameTarget, setRenameTarget] = useState<Session>();
+  const [error, setError] = useState<string>();
 
   // Opening a server it gave up on tries again.
   useEffect(() => {
@@ -43,6 +45,7 @@ export function ServerHome({
         session={s}
         selected={false}
         onOpen={() => onOpen(s.id)}
+        onRename={() => setRenameTarget(s)}
         onArchive={s.archived ? undefined : () => setArchiveTarget(s)}
         onDelete={() => setDeleteTarget(s)}
       />
@@ -114,6 +117,8 @@ export function ServerHome({
       </div>
       {archiveTarget && <ArchiveConfirm connection={connection} session={archiveTarget} onClose={() => setArchiveTarget(undefined)} />}
       {deleteTarget && <DeleteConfirm connection={connection} session={deleteTarget} onClose={() => setDeleteTarget(undefined)} />}
+      {renameTarget && <RenameSession connection={connection} session={renameTarget} onClose={() => setRenameTarget(undefined)} onError={setError} />}
+      <ErrorAlert error={error} onClose={() => setError(undefined)} />
     </div>
   );
 }
