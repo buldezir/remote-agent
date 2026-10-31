@@ -1065,3 +1065,59 @@ func TestCommitOverWebSocket(t *testing.T) {
 		t.Fatalf("unknown session: %+v", err)
 	}
 }
+
+func TestSearchOverWebSocket(t *testing.T) {
+	s := startServer(t)
+	c := connect(t, s)
+	var info struct{ Search bool }
+	c.mustCall("server.info", nil, &info)
+	if !info.Search {
+		t.Fatal("server.info doesn't offer search")
+	}
+	dir := filepath.Join(s.root, "search-project")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var project model.Project
+	c.mustCall("project.add", map[string]any{"path": dir}, &project)
+	var list struct {
+		Sessions []model.ImportableSession `json:"sessions"`
+	}
+	c.mustCall("session.importable", map[string]any{"projectId": project.ID, "harness": "fake"}, &list)
+	var sess model.Session
+	c.mustCall("session.import", map[string]any{"commandId": "import-1", "projectId": project.ID, "harness": "fake",
+		"nativeId": list.Sessions[1].ID}, &sess)
+
+	var res model.SearchResults
+	c.mustCall("session.search", map[string]any{"query": "terminal test"}, &res)
+	if len(res.Results) != 1 || res.More || res.Indexing {
+		t.Fatalf("results = %+v", res)
+	}
+	r := res.Results[0]
+	if r.Session.ID != sess.ID || r.ItemKind != model.ItemAssistantMessage || r.ItemID == "" || r.Matches != 1 {
+		t.Fatalf("result = %+v", r)
+	}
+	var marked []string
+	for _, p := range r.Snippet {
+		if p.Match {
+			marked = append(marked, p.Text)
+		}
+	}
+	if strings.Join(marked, ",") != "terminal,test" {
+		t.Fatalf("snippet = %+v", r.Snippet)
+	}
+	// Archived sessions come only when asked for.
+	c.mustCall("session.archive", map[string]any{"sessionId": sess.ID}, nil)
+	c.mustCall("session.search", map[string]any{"query": "terminal test"}, &res)
+	if len(res.Results) != 0 {
+		t.Fatalf("archived without asking: %+v", res)
+	}
+	c.mustCall("session.search", map[string]any{"query": "terminal test", "archived": true}, &res)
+	if len(res.Results) != 1 || !res.Results[0].Session.Archived {
+		t.Fatalf("archived: %+v", res)
+	}
+	c.mustCall("session.search", map[string]any{"query": "  "}, &res)
+	if res.Results == nil || len(res.Results) != 0 {
+		t.Fatalf("empty query: %+v", res)
+	}
+}

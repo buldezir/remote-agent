@@ -9,6 +9,7 @@ import dev.remoteagent.app.platform.KeystoreTokenStore
 import dev.remoteagent.app.platform.PrefsStorage
 import dev.remoteagent.core.store.ImageCache
 import dev.remoteagent.core.store.ServerStore
+import dev.remoteagent.core.store.SessionSearch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,6 +23,11 @@ class RemoteAgentApp : Application() {
         private set
     lateinit var settings: AppSettings
         private set
+    /**
+     * Search across every server, for the sidebar and the Inbox tab: one for
+     * the app, so that its query and Include archived last while it runs.
+     */
+    val search: SessionSearch by lazy { SessionSearch(scope) { store.servers.value.map(store::connection) } }
 
     override fun onCreate() {
         super.onCreate()

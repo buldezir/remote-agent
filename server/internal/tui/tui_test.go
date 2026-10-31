@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -1065,4 +1066,291 @@ func TestContinuesATerminalSession(t *testing.T) {
 			t.Errorf("listed after the import: %#v", m.topOverlay())
 		}
 	})
+}
+
+// prompted makes a session on the fake agent in a project of the rad's
+// root, sends it the prompts one turn at a time, and waits for each reply.
+func prompted(t *testing.T, rpc *client.RPCClient, r *radtest.Rad, projectID string, prompts ...string) model.Session {
+	t.Helper()
+	ctx := context.Background()
+	var s model.Session
+	if err := rpc.Call(ctx, "session.create", map[string]any{"commandId": "c-" + prompts[0], "projectId": projectID, "harness": "fake",
+		"workspace": map[string]any{"kind": "root"}, "prompt": prompts[0]}, &s); err != nil {
+		t.Fatal(err)
+	}
+	for i := range prompts {
+		if i > 0 {
+			if err := rpc.Call(ctx, "session.prompt", map[string]any{"commandId": "p-" + prompts[i], "sessionId": s.ID, "text": prompts[i]}, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			turns, err := r.Store.Turns(ctx, s.ID)
+			done := err == nil && len(turns) == i+1
+			for _, tn := range turns {
+				done = done && tn.Status == model.TurnCompleted
+			}
+			if done {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("turns %+v %v", turns, err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	return s
+}
+
+func addProject(t *testing.T, rpc *client.RPCClient, r *radtest.Rad) model.Project {
+	t.Helper()
+	var p model.Project
+	if err := rpc.Call(context.Background(), "project.add", map[string]any{"path": r.Root}, &p); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// The search field atop the list searches what was said in the sessions,
+// archived ones too unless ctrl+a leaves them out; a result opens its
+// session at the item that matched, and the results stay.
+func TestSearchesSessionsAndOpensAResult(t *testing.T) {
+	var login, build model.Session
+	u := startUIWith(t, 140, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		p := addProject(t, rpc, r)
+		login = prompted(t, rpc, r, p.ID, "fix the flaky login test")
+		prompted(t, rpc, r, p.ID, "add a dark theme")
+		build = prompted(t, rpc, r, p.ID, "why is the build flaky")
+		if err := rpc.Call(context.Background(), "session.archive", map[string]any{"sessionId": build.ID}, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	s := u.waitFor("Search sessions")
+	if strings.Contains(s, "Include archived") {
+		t.Errorf("the toggle shows before searching:\n%s", s)
+	}
+	u.key("/")
+	u.waitFor("☑ Include archived")
+	u.key("f")
+	// One letter searches nothing.
+	time.Sleep(400 * time.Millisecond)
+	if s := u.screen(); !strings.Contains(s, "NEEDS YOU") || strings.Contains(s, "Searching") {
+		t.Errorf("one letter searched:\n%s", s)
+	}
+	u.key("laky")
+	s = u.waitFor("Archived ")
+	for _, want := range []string{login.Title, build.Title, "2 matches", "Fake (scripted)", "esc clear"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "add a dark theme") || strings.Contains(s, "NEEDS YOU") {
+		t.Errorf("the list shows beside the results:\n%s", s)
+	}
+	// ctrl+a leaves the archive out, and takes it back.
+	u.key("ctrl+a")
+	u.waitFor("☐ Include archived")
+	deadline := time.Now().Add(5 * time.Second)
+	for strings.Contains(u.screen(), build.Title) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the archived session stayed:\n%s", u.screen())
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	u.key("ctrl+a")
+	u.waitFor(build.Title)
+
+	// ↓ to the login session's result, then Return opens it at its item.
+	var hit client.Hit
+	for range 4 {
+		u.key("down")
+		u.inspect(func(m *Model) {
+			if r, ok := m.side.currentHit(m.side.rows(m)); ok {
+				hit = r.hit
+			}
+		})
+		if hit.Result.Session != nil && hit.Result.Session.ID == login.ID {
+			break
+		}
+	}
+	if hit.Result.Session == nil || hit.Result.Session.ID != login.ID || hit.Result.ItemID == "" {
+		t.Fatalf("no result for the login session: %+v", hit)
+	}
+	u.key("enter")
+	u.waitFor("Echo: fix the flaky login test")
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		var ok bool
+		u.inspect(func(m *Model) {
+			ok = m.sess != nil && m.sess.store.ID == login.ID && m.sess.cursor == hit.Result.ItemID &&
+				m.sess.flashKey == hit.Result.ItemID && m.focus == focusTranscript && m.side.cursor == "r:"+hit.ID()
+		})
+		if ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			var state string
+			u.inspect(func(m *Model) {
+				state = fmt.Sprintf("cursor %q, flash %q, focus %v, list %q", m.sess.cursor, m.sess.flashKey, m.focus, m.side.cursor)
+			})
+			t.Fatal(state)
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	if s := u.screen(); !strings.Contains(s, build.Title) || !strings.Contains(s, "Include archived") {
+		t.Errorf("the results went:\n%s", s)
+	}
+	// The flash fades.
+	time.Sleep(flashFor + 200*time.Millisecond)
+	u.screen()
+	u.inspect(func(m *Model) {
+		if m.sess.flashing() {
+			t.Error("still flashing")
+		}
+	})
+	// Back in the list, the result is chosen; Esc clears the search.
+	u.key("esc")
+	u.waitFor("enter open")
+	u.inspect(func(m *Model) {
+		if m.focus != focusSidebar || m.side.cursor != "r:"+hit.ID() {
+			t.Errorf("focus %v on %q", m.focus, m.side.cursor)
+		}
+	})
+	u.key("esc")
+	s = u.waitFor("NEEDS YOU")
+	if strings.Contains(s, "Include archived") || strings.Contains(s, "flaky") && strings.Contains(s, "2 matches") {
+		t.Errorf("the search stayed:\n%s", s)
+	}
+}
+
+// A narrow window searches atop the list, and Esc from the session opened
+// comes back to the results.
+func TestSearchesInANarrowWindow(t *testing.T) {
+	u := startUIWith(t, 80, 30, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		p := addProject(t, rpc, r)
+		prompted(t, rpc, r, p.ID, "deploy the docs site")
+		prompted(t, rpc, r, p.ID, "rename a variable")
+	})
+	u.waitFor("Search sessions")
+	u.key("ctrl+f")
+	u.key("deploy")
+	u.waitFor("2 matches")
+	u.key("enter")
+	s := u.waitFor("Echo: deploy the docs site")
+	if strings.Contains(s, "Search sessions") {
+		t.Errorf("the list shows beside the session:\n%s", s)
+	}
+	u.key("esc")
+	s = u.waitFor("Include archived")
+	if !strings.Contains(s, "2 matches") || strings.Contains(s, "rename a variable") {
+		t.Errorf("not back at the results:\n%s", s)
+	}
+}
+
+// ctrl+f finds in the open session: the count, the newest match first,
+// ↑ and ↓ round the ends, and the occurrences marked.
+func TestFindsInTheSession(t *testing.T) {
+	var sess model.Session
+	u := startUIWith(t, 120, 40, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		p := addProject(t, rpc, r)
+		sess = prompted(t, rpc, r, p.ID, "apple one", "banana", "apple two")
+		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: sess.ID}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	u.waitFor("Echo: apple two")
+	var matches []string // the prompts and replies with "apple", in order
+	u.inspect(func(m *Model) {
+		for _, it := range m.sess.store.Transcript {
+			if (it.Kind == model.ItemUserMessage || it.Kind == model.ItemAssistantMessage) && strings.Contains(it.Text, "apple") {
+				matches = append(matches, it.ID)
+			}
+		}
+	})
+	if len(matches) != 4 {
+		t.Fatalf("matches %v", matches)
+	}
+	at := func(want string, cursor string) {
+		t.Helper()
+		u.waitFor(want)
+		u.inspect(func(m *Model) {
+			if m.sess.cursor != cursor || m.focus != focusFind {
+				t.Errorf("%s: cursor %q, want %q; focus %v", want, m.sess.cursor, cursor, m.focus)
+			}
+		})
+	}
+	u.key("ctrl+f")
+	s := u.waitFor("Find in session")
+	if !strings.Contains(s, "enter ↓ next") {
+		t.Errorf("no find hints:\n%s", s)
+	}
+	u.key("APPLE")
+	at("4 of 4", matches[3])
+	u.key("up")
+	at("3 of 4", matches[2])
+	u.key("enter")
+	at("4 of 4", matches[3])
+	u.key("down")
+	at("1 of 4", matches[0])
+	u.p.Send(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
+	at("4 of 4", matches[3])
+	// The current match's word is marked.
+	word := blend(NewPalette(true).Base, NewPalette(true).Yellow, 0.55)
+	r, g, b, _ := word.RGBA()
+	seq := fmt.Sprintf("48;2;%d;%d;%d", r>>8, g>>8, b>>8)
+	u.inspect(func(m *Model) {
+		if out := m.render(); !strings.Contains(out, seq) {
+			t.Error("no word marked")
+		}
+	})
+	u.key(" pie")
+	u.waitFor("No matches")
+	// Esc closes it, back to the prompt, its marks gone.
+	u.key("esc")
+	s = u.screen()
+	if strings.Contains(s, "No matches") || strings.Contains(s, "Find in session") {
+		t.Errorf("the find bar stayed:\n%s", s)
+	}
+	u.inspect(func(m *Model) {
+		if m.focus != focusComposer || m.sess.find != nil || strings.Contains(m.render(), seq) {
+			t.Errorf("focus %v, find %v", m.focus, m.sess.find)
+		}
+	})
+}
+
+func TestSnippetLinesWrapAndMark(t *testing.T) {
+	p := NewPalette(true)
+	st := NewStyles(p)
+	parts := []model.SnippetPart{{Text: "All the "}, {Text: "tests", Match: true}, {Text: " pass now,\nand then some more words follow here"}}
+	lines := snippetLines(parts, 20, 2, st.Subtext, st.Match)
+	plain := make([]string, len(lines))
+	for i, l := range lines {
+		plain[i] = ansi.Strip(l)
+	}
+	if !slices.Equal(plain, []string{"All the tests pass", "now, and then some…"}) {
+		t.Errorf("lines %q", plain)
+	}
+	if !strings.Contains(lines[0], st.Match.Render("tests")) {
+		t.Errorf("match not marked: %q", lines[0])
+	}
+	if got := snippetLines([]model.SnippetPart{{Text: "short"}}, 20, 2, st.Subtext, st.Match); len(got) != 1 || ansi.Strip(got[0]) != "short" {
+		t.Errorf("short %q", got)
+	}
+}
+
+func TestMarksOccurrencesInStyledLines(t *testing.T) {
+	st := NewStyles(NewPalette(true))
+	line := st.Text.Render("Run the ") + st.Bold.Render("Tests") + st.Text.Render(" and the tests again")
+	bg := color.RGBA{R: 200, G: 150, B: 50, A: 255}
+	out := markOccurrences(line, "tests", bg)
+	if ansi.Strip(out) != ansi.Strip(line) {
+		t.Errorf("text changed: %q", ansi.Strip(out))
+	}
+	if n := strings.Count(out, "48;2;200;150;50"); n != 2 || strings.Count(out, "\x1b[49m") != 2 {
+		t.Errorf("%d marks in %q", n, out)
+	}
+	if got := foldIndexAll("Ünïcode ÜNÏ", "ünï"); len(got) != 2 || got[1][0] != len("Ünïcode ") {
+		t.Errorf("folded %v", got)
+	}
 }

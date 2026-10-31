@@ -488,6 +488,76 @@ public struct ServerInfo: Codable, Hashable, Sendable {
     /// The server commits a session's changes, pushes them and opens pull
     /// requests (`git.commitPreview`, `git.commit`).
     public var commit: Bool?
+    /// The server searches sessions by what was said in them
+    /// (`session.search`).
+    public var search: Bool?
+}
+
+/// What `session.search` found (`ServerConnection.search`).
+public struct SearchResults: Codable, Hashable, Sendable {
+    /// The sessions, the best match first.
+    public var results: [SearchResult]
+    /// More sessions match than the limit.
+    public var more: Bool?
+    /// rad is still indexing sessions an older rad wrote, which may be missing.
+    public var indexing: Bool?
+
+    public init(results: [SearchResult], more: Bool? = nil, indexing: Bool? = nil) {
+        self.results = results
+        self.more = more
+        self.indexing = indexing
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        results = try c.decodeIfPresent([SearchResult].self, forKey: .results) ?? []
+        more = try c.decodeIfPresent(Bool.self, forKey: .more)
+        indexing = try c.decodeIfPresent(Bool.self, forKey: .indexing)
+    }
+}
+
+/// A session that `session.search` found, with the item in it that matches
+/// best; without one, only its title or branch matched.
+public struct SearchResult: Codable, Hashable, Sendable {
+    public var session: Session
+    /// The item that matches best; nil: only the title or the branch matched.
+    public var itemId: String?
+    /// The kind of that item.
+    public var itemKind: ItemKind?
+    /// The match in its context, its words marked.
+    public var snippet: [SnippetPart]
+    /// The session's items that match.
+    public var matches: Int
+
+    public init(session: Session, itemId: String? = nil, itemKind: ItemKind? = nil, snippet: [SnippetPart] = [], matches: Int = 0) {
+        self.session = session
+        self.itemId = itemId
+        self.itemKind = itemKind
+        self.snippet = snippet
+        self.matches = matches
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        session = try c.decode(Session.self, forKey: .session)
+        itemId = try c.decodeIfPresent(String.self, forKey: .itemId)
+        itemKind = try c.decodeIfPresent(ItemKind.self, forKey: .itemKind)
+        snippet = try c.decodeIfPresent([SnippetPart].self, forKey: .snippet) ?? []
+        matches = try c.decodeIfPresent(Int.self, forKey: .matches) ?? 0
+    }
+}
+
+/// A run of a search result's snippet: `match` marks the words the query found.
+public struct SnippetPart: Codable, Hashable, Sendable {
+    public var text: String
+    public var match: Bool?
+
+    public var isMatch: Bool { match == true }
+
+    public init(text: String, match: Bool? = nil) {
+        self.text = text
+        self.match = match
+    }
 }
 
 /// What `git.commit` would commit in a session, and a message for it

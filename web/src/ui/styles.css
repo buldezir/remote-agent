@@ -74,6 +74,12 @@
   --r-selection: 10px;
   --readable: 1000px;
 
+  /* Find in a session: the items that match, the current one, and an item
+     a search result opened, for a moment. */
+  --find-match: color-mix(in srgb, var(--yellow) 12%, transparent);
+  --find-current: color-mix(in srgb, var(--yellow) 28%, transparent);
+  --flash: color-mix(in srgb, var(--accent) 22%, transparent);
+
   accent-color: var(--accent);
 }
 
@@ -501,6 +507,93 @@ svg { flex: none; }
 }
 .server-header-main:hover,
 button.sidebar-status:hover { background: color-mix(in srgb, var(--surface0) 50%, transparent); }
+
+/* The search of every server's sessions, atop the sidebar (or the Columns
+   layout's list), and its results in place of the rows. */
+.sidebar-search {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px 4px;
+}
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 6px 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-card);
+  background: color-mix(in srgb, var(--surface0) 60%, transparent);
+}
+.search-field:focus-within { border-color: var(--accent); }
+.search-field input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 0;
+  border: 0;
+  background: none;
+  outline: none;
+  appearance: none;
+}
+.search-field input::placeholder { color: var(--overlay); }
+.search-field input::-webkit-search-cancel-button,
+.search-field input::-webkit-search-decoration { display: none; }
+.search-clear {
+  display: inline-flex;
+  color: var(--overlay);
+}
+.search-clear:hover { color: var(--subtext); }
+.search-option {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  font-size: 0.85em;
+  color: var(--subtext);
+  cursor: pointer;
+}
+.sidebar-search.has-query .search-option,
+.sidebar-search:focus-within .search-option { display: flex; }
+.search-option input { margin: 0; }
+.session-row.search-result .session-row-main { gap: 8px; padding: 7px 8px; }
+.archived-badge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--surface0);
+  color: var(--subtext);
+  font-size: 0.75em;
+  font-weight: 500;
+}
+.search-place .short-age { font-size: inherit; color: inherit; }
+.search-snippet {
+  font-size: 0.9em;
+  color: var(--subtext);
+  overflow-wrap: anywhere;
+}
+.snippet-match {
+  font-weight: 600;
+  color: var(--text);
+  background: color-mix(in srgb, var(--yellow) 35%, transparent);
+  border-radius: 2px;
+}
+.search-matches {
+  align-self: flex-end;
+  font-size: 0.78em;
+  color: var(--overlay);
+}
+.search-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 0.86em;
+  color: var(--subtext);
+}
+.search-status p { margin: 0; overflow-wrap: anywhere; }
+.search-progress { display: flex; justify-content: center; }
 
 /* The sidebar's layouts (Inbox, Projects, Columns), as on iPad and the Mac. */
 .split.columns { grid-template-columns: clamp(190px, 17vw, 260px) clamp(280px, 27vw, 400px) minmax(0, 1fr); }
@@ -1128,6 +1221,44 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   min-height: 0;
   overflow-anchor: none;
 }
+/* Find in the session, under its bar. */
+.find-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px 6px 12px;
+  border-bottom: 1px solid var(--surface0);
+}
+.find-bar .search-field { flex: 1; max-width: 420px; }
+.find-count {
+  min-width: 5.5em;
+  padding: 0 4px;
+  font-size: 0.85em;
+  color: var(--subtext);
+  text-align: end;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.find-done { padding: 0 6px; font-weight: 500; }
+/* Each item of the transcript, with an overlay that tints it, cards
+   included: for find's matches, and a moment's flash (SessionView). */
+.item-row {
+  position: relative;
+  min-width: 0;
+}
+.item-row:empty { display: none; }
+.item-row::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: var(--r-card);
+  pointer-events: none;
+}
+.item-row.find-match::after { background: var(--find-match); }
+.item-row.find-current::after { background: var(--find-current); }
+::highlight(find-match) { background-color: color-mix(in srgb, var(--yellow) 35%, transparent); }
+::highlight(find-current) { background-color: color-mix(in srgb, var(--yellow) 70%, transparent); }
 .transcript {
   max-width: var(--readable);
   margin: 0 auto;

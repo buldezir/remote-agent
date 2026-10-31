@@ -82,11 +82,16 @@ func fill(lines []string, width, height int) string {
 // highlight pads a styled line to width on bg, keeping bg across the
 // resets its styles end with, which a style around it would lose.
 func highlight(line string, width int, bg color.Color) string {
-	r, g, b, _ := bg.RGBA()
-	seq := fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
+	seq := bgSeq(bg)
 	l := pad(line, width)
 	for _, reset := range []string{"\x1b[0m", "\x1b[m", "\x1b[49m"} {
 		l = strings.ReplaceAll(l, reset, reset+seq)
 	}
 	return seq + l + "\x1b[0m"
+}
+
+// bgSeq is the sequence that sets the background to c.
+func bgSeq(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", r>>8, g>>8, b>>8)
 }

@@ -45,7 +45,7 @@ func TestFixtures(t *testing.T) {
 	}
 
 	info := fixture[resultFrame[ServerInfo]](t, "response_server_info.json").Result
-	if info.Version != "0.4.0" || info.DeviceID != "dev1" || len(info.Roots) != 1 || !info.Drafts || !info.Terminal || !info.Forks || !info.Commit {
+	if info.Version != "0.4.0" || info.DeviceID != "dev1" || len(info.Roots) != 1 || !info.Drafts || !info.Terminal || !info.Forks || !info.Commit || !info.Search {
 		t.Errorf("server.info: %+v", info)
 	}
 
@@ -75,6 +75,20 @@ func TestFixtures(t *testing.T) {
 	if len(importable) != 2 || importable[0].Title != "Fix the flaky login test" || importable[0].Messages != 12 || !importable[0].Active ||
 		importable[1].Active || importable[1].UpdatedAt.IsZero() {
 		t.Errorf("session.importable: %+v", importable)
+	}
+
+	search := fixture[resultFrame[model.SearchResults]](t, "response_session_search.json").Result
+	if len(search.Results) != 2 || !search.More || !search.Indexing {
+		t.Errorf("session.search: %+v", search)
+	} else {
+		r0, r1 := search.Results[0], search.Results[1]
+		if r0.Session == nil || r0.Session.ID != "s1" || r0.ItemID != "i4" || r0.ItemKind != model.ItemAssistantMessage || r0.Matches != 2 ||
+			len(r0.Snippet) != 3 || r0.Snippet[0].Match || r0.Snippet[1] != (model.SnippetPart{Text: "tests", Match: true}) {
+			t.Errorf("session.search's first result: %+v", r0)
+		}
+		if r1.Session == nil || r1.Session.ID != "s2" || !r1.Session.Archived || r1.ItemID != "" || len(r1.Snippet) < 2 || !r1.Snippet[1].Match {
+			t.Errorf("session.search's second result: %+v", r1)
+		}
 	}
 
 	tasks := fixture[resultFrame[taskList]](t, "response_task_list.json").Result.Tasks

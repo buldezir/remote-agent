@@ -117,6 +117,100 @@ struct SessionListRow: View {
     }
 }
 
+/// A session that search found (`SessionSearch`): its title, its project,
+/// agent and age, and the words that matched in their context.
+struct SearchResultRow: View {
+    let hit: SessionSearch.Hit
+    let connection: ServerConnection
+    /// The server's name ends the second line, when there is more than one.
+    let showsServer: Bool
+
+    private var result: SearchResult { hit.result }
+    /// As the index has it now, else as search found it.
+    private var session: Session { connection.sessions[result.session.id] ?? result.session }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            StatusGlyph(session: session)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(session.title)
+                        .scaledFont(.body, weight: session.standsOut ? .semibold : nil)
+                        .lineLimit(1)
+                    if session.archived {
+                        ArchivedBadge()
+                    }
+                    Spacer(minLength: 0)
+                }
+                details
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if !result.snippet.isEmpty || result.matches > 1 {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        snippet
+                            .scaledFont(.callout)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if result.matches > 1 {
+                            Text("\(result.matches) matches")
+                                .scaledFont(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .monospacedDigit()
+                                .fixedSize()
+                        }
+                    }
+                }
+            }
+        }
+        .paletteText()
+        .accessibilityElement(children: .combine)
+    }
+
+    /// "weather-api · Claude Code · 3h", and the server.
+    private var details: some View {
+        HStack(spacing: 4) {
+            let place = [connection.projects[session.projectId]?.name,
+                         connection.harness(session.harness)?.name ?? session.harness].compactMap { $0 }
+            Text(place.joined(separator: " · "))
+            Text("·")
+            SessionAge(date: session.updatedAt)
+            if showsServer {
+                Text("·")
+                Text(connection.server.name)
+            }
+        }
+    }
+
+    /// The snippet on its lines, the words that matched in the text colour,
+    /// semibold, on yellow.
+    private var snippet: Text {
+        result.snippet.reduce(Text(verbatim: "")) { text, part in
+            var run = AttributedString(part.text.replacing("\n", with: " "))
+            if part.isMatch {
+                run.swiftUI.foregroundColor = Palette.text
+                run.swiftUI.backgroundColor = Palette.yellow.opacity(0.35)
+                return Text("\(text)\(Text(run).fontWeight(.semibold))")
+            }
+            run.swiftUI.foregroundColor = Palette.subtext
+            return Text("\(text)\(Text(run))")
+        }
+    }
+}
+
+/// Marks a session that is archived, in search's results.
+struct ArchivedBadge: View {
+    var body: some View {
+        Text("Archived")
+            .scaledFont(.caption2, weight: .medium)
+            .foregroundStyle(Palette.subtext)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Palette.surface0, in: Capsule())
+            .fixedSize()
+    }
+}
+
 /// "Mac Studio › weather-api ⑂ ra/fix-cache": the server (when there is more
 /// than one), the project, and a worktree's branch.
 struct SessionPlace: View {

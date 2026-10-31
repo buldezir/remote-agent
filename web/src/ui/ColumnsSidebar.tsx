@@ -3,10 +3,21 @@ import { Fragment, type ReactNode } from "react";
 import type { Session } from "../protocol/models";
 import { useObserved, useObservedAll } from "../store/observable";
 import type { ServerConnection } from "../store/serverConnection";
-import { useServerStore } from "./context";
+import { useServerStore, useSessionSearch } from "./context";
 import { Empty } from "./primitives";
 import { navigate, type Route } from "./router";
-import { ConnectionStatus, NewSessionButton, ProjectActions, ServerHeader, SidebarBar, SidebarFoot, useCollapsed, type ServerActions } from "./SessionsSidebar";
+import {
+  ConnectionStatus,
+  NewSessionButton,
+  ProjectActions,
+  SearchResultsList,
+  ServerHeader,
+  SidebarBar,
+  SidebarFoot,
+  SidebarSearchField,
+  useCollapsed,
+  type ServerActions,
+} from "./SessionsSidebar";
 import {
   allSessions,
   collectionSessions,
@@ -137,24 +148,31 @@ function ServerCollections({
 }
 
 /** The Columns layout's middle column: the sessions in the collection
- *  chosen in the sidebar, three lines each. */
+ *  chosen in the sidebar, three lines each. As in Mail, the search field is
+ *  atop it, and the search's results take its place while there are any. */
 export function SessionListColumn({ collection, route, actions }: { collection: SessionCollection; route: Route; actions: ServerActions }) {
   const store = useServerStore();
   const connections = store.servers.map((s) => store.connection(s));
   useObservedAll(connections);
+  const search = useSessionSearch();
+  useObserved(search);
   const items = collectionSessions(collection, store);
   const showsServer = store.servers.length > 1;
+  const searching = search.isActive && store.servers.length > 0;
   return (
     <div className="server-home">
       <header className="bar">
         <h1 className="bar-title">
           {collectionTitle(collection, store)}
-          <span className="bar-count">{items.length === 1 ? "1 session" : `${items.length} sessions`}</span>
+          {!searching && <span className="bar-count">{items.length === 1 ? "1 session" : `${items.length} sessions`}</span>}
         </h1>
         <NewSessionButton onNew={actions.newSession} collection={collection} />
       </header>
+      {store.servers.length > 0 && <SidebarSearchField />}
       <div className="list-scroll">
-        {items.length === 0 ? (
+        {searching ? (
+          <SearchResultsList route={route} />
+        ) : items.length === 0 ? (
           <EmptyCollection collection={collection} />
         ) : (
           <ul className="session-list">

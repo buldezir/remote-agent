@@ -2,6 +2,28 @@ package dev.remoteagent.app.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import dev.remoteagent.core.store.TranscriptFind
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.seconds
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -27,6 +49,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
@@ -108,21 +132,30 @@ val LocalConnection = staticCompositionLocalOf<ServerConnection> { error("no Ser
 
 /**
  * A session's transcript and composer. With `focusPrompt`, a session just
- * started empty, the prompt takes the keyboard. `onForked` opens a fork made
- * from its menu, as a new session opens. Mirrors apple/Shared/Views/SessionView.swift.
+ * started empty, the prompt takes the keyboard. With `focus`, as from a
+ * search result, it opens at that item, which it flashes, then calls
+ * `onFocused`; at the foot if the item never comes. `onForked` opens a fork
+ * made from its menu, as a new session opens. Its find bar (Find in Session
+ * in its menu, or Ctrl+F) marks the items that match and steps through
+ * them. Mirrors apple/Shared/Views/SessionView.swift.
  */
 @Composable
 fun SessionView(
     connection: ServerConnection,
     store: SessionStore,
     focusPrompt: Boolean = false,
+    focus: FocusRequest? = null,
+    onFocused: (FocusRequest) -> Unit = {},
     onBack: () -> Unit,
     onForked: (Session, empty: Boolean) -> Unit,
 ) {
     CompositionLocalProvider(LocalConnection provides connection) {
-        SessionScreen(connection, store, focusPrompt, onBack, onForked)
+        SessionScreen(connection, store, focusPrompt, focus, onFocused, onBack, onForked)
     }
 }
+
+/** An item that flashes as it opens: one each time, so that the same item can flash again. */
+private class Flash(val itemId: String)
 
 private sealed interface Row {
     val key: String
@@ -152,11 +185,14 @@ private fun rememberDraft(store: SessionStore): MutableState<String> = remember(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SessionScreen(
     connection: ServerConnection,
     store: SessionStore,
     focusPrompt: Boolean,
+    focus: FocusRequest?,
+    onFocused: (FocusRequest) -> Unit,
     onBack: () -> Unit,
     onForked: (Session, empty: Boolean) -> Unit,
 ) {
@@ -397,6 +433,92 @@ private fun SessionScreen(
         }
     }
 
+    // What the list shows below the transcript's items, bottom first; an item's
+    // place in the list comes after them.
+    val showsError = session?.status == SessionStatus.ERROR && session.error != null
+    val background = session?.backgroundTasks.orEmpty()
+    val showsWorking = session?.status == SessionStatus.RUNNING
+    val showsEmpty = synced && transcript.isEmpty() && outbox.isEmpty() && session?.draft == null
+    val leading = listOf(showsError, background.isNotEmpty(), showsWorking, savedDraft != null, showsEmpty).count { it } + outbox.size
+    val listIndex by rememberUpdatedState { itemId: String ->
+        rows.asReversed().indexOfFirst { it is Row.ItemRow && it.item.id == itemId }.takeIf { it >= 0 }?.plus(leading)
+    }
+
+    // Find in the session: the items whose text has the query, in the
+    // transcript's order, and the current one, the newest until stepped from.
+    var findOpen by remember(store) { mutableStateOf(false) }
+    var findQuery by remember(store) { mutableStateOf("") }
+    var findCurrent by remember(store) { mutableStateOf<String?>(null) }
+    // Asks the field for the keyboard, each time find is asked for.
+    var findAsked by remember(store) { mutableIntStateOf(0) }
+    val findField = remember { FocusRequester() }
+    val findMatches = remember(transcript, findQuery, findOpen) {
+        if (findOpen) TranscriptFind.findMatches(transcript, findQuery) else emptyList()
+    }
+    val matched = remember(findMatches) { findMatches.toHashSet() }
+    val current = findCurrent?.takeIf { it in matched } ?: findMatches.lastOrNull()
+    fun openFind() {
+        findOpen = true
+        findAsked += 1
+    }
+    fun closeFind() {
+        findOpen = false
+        findQuery = ""
+        findCurrent = null
+    }
+    // Next goes down, to newer items; Previous up. Both wrap around.
+    fun step(by: Int) {
+        if (findMatches.isEmpty()) return
+        val i = findMatches.indexOf(current).takeIf { it >= 0 } ?: findMatches.lastIndex
+        findCurrent = findMatches[(i + by).mod(findMatches.size)]
+    }
+    LaunchedEffect(findAsked) {
+        if (!findOpen) return@LaunchedEffect
+        // Once the bar is laid out, and the menu that asked for it has gone.
+        withFrameNanos {}
+        runCatching { findField.requestFocus() }
+    }
+    val shortcuts = LocalShortcuts.current
+    LaunchedEffect(shortcuts) {
+        shortcuts.collect { if (it == Shortcut.FIND_IN_SESSION) openFind() }
+    }
+    // With the keyboard up, Back hides it first.
+    BackHandler(enabled = findOpen && !WindowInsets.isImeVisible) { closeFind() }
+    LaunchedEffect(current, findOpen) {
+        val id = current?.takeIf { findOpen } ?: return@LaunchedEffect
+        listIndex(id)?.let { i ->
+            follow = false
+            listState.centerItem(i)
+        }
+    }
+
+    // Opened at an item, as from a search result: once the item is in the
+    // list, it shows in the middle and flashes. One that doesn't come with
+    // the session's replay was deleted: the session opens at its foot.
+    var flash by remember(store) { mutableStateOf<Flash?>(null) }
+    val flashAlpha = remember { Animatable(0f) }
+    LaunchedEffect(focus) {
+        val request = focus ?: return@LaunchedEffect
+        store.synced.first { it }
+        val index = withTimeoutOrNull(5.seconds) { snapshotFlow { listIndex(request.itemId) }.filterNotNull().first() }
+        if (index != null) {
+            follow = false
+            listState.centerItem(index)
+            follow = false
+            flash = Flash(request.itemId)
+        }
+        onFocused(request)
+    }
+    LaunchedEffect(flash) {
+        val f = flash ?: return@LaunchedEffect
+        flashAlpha.snapTo(1f)
+        flashAlpha.animateTo(0f, tween(2000))
+        if (flash === f) flash = null
+    }
+    val currentTint = palette.yellow.copy(alpha = 0.28f)
+    val matchTint = palette.yellow.copy(alpha = 0.12f)
+    val flashColor = palette.accent
+
     Screen(
         title = { SessionTitle(session, harness) },
         onBack = onBack,
@@ -408,6 +530,7 @@ private fun SessionScreen(
                     projectName = project?.name, isGitRepo = project?.isGitRepo == true,
                     terminal = info?.terminal == true && !archived, showTerminal = showTerminal, running = running,
                     onMode = { m -> run { store.setMode(m) } },
+                    onFind = ::openFind,
                     onChanges = { showDiff = true },
                     onTerminal = { showTerminal = !showTerminal },
                     onFork = if (canFork) ({ showFork = true }) else null,
@@ -427,6 +550,26 @@ private fun SessionScreen(
         val maxTerminal = (maxHeight.value - 200f).coerceAtLeast(120f)
         // Below the session, the column keeps clear of the keyboard as a whole.
         Column(Modifier.fillMaxSize().then(if (below) Modifier.windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)) else Modifier)) {
+            if (findOpen && !covered) {
+                FindBar(
+                    query = findQuery,
+                    onQuery = {
+                        findQuery = it
+                        // A new query starts at its newest match.
+                        findCurrent = null
+                    },
+                    count = when {
+                        findQuery.isBlank() -> null
+                        findMatches.isEmpty() -> "No matches"
+                        else -> "${findMatches.indexOf(current) + 1} of ${findMatches.size}"
+                    },
+                    canStep = findMatches.isNotEmpty(),
+                    onPrevious = { step(-1) },
+                    onNext = { step(1) },
+                    onDone = ::closeFind,
+                    focusRequester = findField,
+                )
+            }
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                 LazyColumn(
                     Modifier.fillMaxSize().widthIn(max = Metrics.readableWidth).alpha(if (covered) 0f else 1f).testTag("transcript"),
@@ -436,7 +579,8 @@ private fun SessionScreen(
                     verticalArrangement = Arrangement.spacedBy(Metrics.gap, Alignment.Bottom),
                 ) {
                     // Bottom first: the list grows upwards from the composer.
-                    if (session?.status == SessionStatus.ERROR && session.error != null) {
+                    // The items before the transcript's are counted in `leading`.
+                    if (showsError) {
                         item(key = "error") {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(painterResource(Icons.forceStop), null, Modifier.size(16.dp), tint = palette.red)
@@ -444,11 +588,10 @@ private fun SessionScreen(
                             }
                         }
                     }
-                    val background = session?.backgroundTasks.orEmpty()
                     if (background.isNotEmpty()) {
                         item(key = "background") { BackgroundTasks(background) }
                     }
-                    if (session?.status == SessionStatus.RUNNING) {
+                    if (showsWorking) {
                         item(key = "working") {
                             Row(Modifier.padding(start = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(Modifier.size(14.dp), color = palette.subtext, strokeWidth = 2.dp)
@@ -461,7 +604,7 @@ private fun SessionScreen(
                             DraftBubble(d, enabled = !draftBusy && !archived, onEdit = ::editDraft, onSend = ::sendDraft)
                         }
                     }
-                    if (synced && transcript.isEmpty() && outbox.isEmpty() && session?.draft == null) {
+                    if (showsEmpty) {
                         item(key = "empty") {
                             Text(
                                 "No prompts yet. Write the first one below.", style = Type.footnote, color = palette.subtext,
@@ -474,7 +617,24 @@ private fun SessionScreen(
                     }
                     items(rows.asReversed(), key = { it.key }, contentType = { (it as? Row.ItemRow)?.item?.kind ?: "footer" }) { row ->
                         when (row) {
-                            is Row.ItemRow -> ItemView(row.item, store, children, harness)
+                            is Row.ItemRow -> {
+                                val id = row.item.id
+                                val found = findOpen && id in matched
+                                val tint = when {
+                                    found && id == current -> currentTint
+                                    found -> matchTint
+                                    else -> Color.Transparent
+                                }
+                                val flashing = flash?.itemId == id
+                                Box(
+                                    Modifier.highlight { tint }
+                                        .then(if (flashing) Modifier.highlight { flashColor.copy(alpha = 0.22f * flashAlpha.value) } else Modifier),
+                                ) {
+                                    CompositionLocalProvider(LocalFindQuery provides findQuery.takeIf { found }) {
+                                        ItemView(row.item, store, children, harness)
+                                    }
+                                }
+                            }
                             is Row.Footer -> TurnFooter(row.turn)
                         }
                     }
@@ -544,6 +704,115 @@ private fun SessionScreen(
     }
 }
 
+/**
+ * Find in the session, atop the transcript: the query, which match is shown
+ * of how many, Previous and Next, and Done. In the field Return goes to the
+ * next match, Shift+Return to the previous one, and Esc closes it.
+ */
+@Composable
+private fun FindBar(
+    query: String,
+    onQuery: (String) -> Unit,
+    count: String?,
+    canStep: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onDone: () -> Unit,
+    focusRequester: FocusRequester,
+) {
+    Column(Modifier.fillMaxWidth().background(palette.mantle).testTag("find-bar")) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = Metrics.margin, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                Modifier.weight(1f).background(palette.surface0, RoundedCornerShape(Metrics.Corner.field)).padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(painterResource(Icons.search), null, Modifier.size(16.dp), tint = palette.overlay)
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQuery,
+                    singleLine = true,
+                    textStyle = Type.body.copy(color = palette.text),
+                    cursorBrush = SolidColor(palette.accent),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onNext() }),
+                    modifier = Modifier.weight(1f).padding(vertical = 8.dp).focusRequester(focusRequester)
+                        .onPreviewKeyEvent {
+                            if (it.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (it.key) {
+                                Key.Enter, Key.NumPadEnter -> {
+                                    if (it.isShiftPressed) onPrevious() else onNext()
+                                    true
+                                }
+                                Key.Escape -> {
+                                    onDone()
+                                    true
+                                }
+                                else -> false
+                            }
+                        }
+                        .testTag("find-field"),
+                    decorationBox = { inner ->
+                        Box {
+                            if (query.isEmpty()) Text("Find in session", style = Type.body, color = palette.overlay, maxLines = 1)
+                            inner()
+                        }
+                    },
+                )
+                if (count != null) {
+                    Text(
+                        count, style = Type.caption.copy(fontFeatureSettings = "tnum"), color = palette.subtext, maxLines = 1,
+                        modifier = Modifier.testTag("find-count"),
+                    )
+                }
+            }
+            IconButton(onPrevious, enabled = canStep, modifier = Modifier.testTag("find-previous")) {
+                Icon(painterResource(Icons.findPrevious), "Previous", tint = if (canStep) palette.accent else palette.overlay)
+            }
+            IconButton(onNext, enabled = canStep, modifier = Modifier.testTag("find-next")) {
+                Icon(painterResource(Icons.findNext), "Next", tint = if (canStep) palette.accent else palette.overlay)
+            }
+            TextButton(onDone, Modifier.testTag("find-done")) {
+                Text("Done", style = Type.body.copy(fontWeight = FontWeight.SemiBold), color = palette.accent)
+            }
+        }
+        HorizontalDivider(color = palette.surface0)
+    }
+}
+
+/**
+ * A colour behind an item, a little past its edges, with rounded corners:
+ * find's tints and the flash of an item opened from search. Read as it
+ * draws, so that a flash that fades redraws only.
+ */
+private fun Modifier.highlight(color: () -> Color): Modifier = drawBehind {
+    val c = color()
+    if (c.alpha == 0f) return@drawBehind
+    val dx = 4.dp.toPx()
+    val dy = 3.dp.toPx()
+    drawRoundRect(
+        c, topLeft = Offset(-dx, -dy), size = Size(size.width + 2 * dx, size.height + 2 * dy),
+        cornerRadius = CornerRadius(Metrics.Corner.card.toPx()),
+    )
+}
+
+/**
+ * Scrolls the transcript to show the item at [index] in the middle, or its
+ * top where it is taller than the list. The list is reversed: its offsets
+ * run from the foot up.
+ */
+private suspend fun LazyListState.centerItem(index: Int) {
+    scrollToItem(index)
+    val info = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
+    val start = layoutInfo.viewportStartOffset
+    val end = layoutInfo.viewportEndOffset
+    val wanted = if (info.size > end - start) end - info.size else start + (end - start - info.size) / 2
+    scrollBy((info.offset - wanted).toFloat())
+}
+
 /** What the agent left running after its turn: it reports back in a turn of its own. */
 @Composable
 private fun BackgroundTasks(tasks: List<BackgroundTask>) {
@@ -605,6 +874,7 @@ private fun SessionMenu(
     showTerminal: Boolean,
     running: Boolean,
     onMode: (String) -> Unit,
+    onFind: () -> Unit,
     onChanges: () -> Unit,
     onTerminal: () -> Unit,
     // Null: the server or the session can't fork.
@@ -624,6 +894,7 @@ private fun SessionMenu(
             }
             HorizontalDivider(color = palette.surface0)
         }
+        MenuItem("Find in Session", Icons.search) { onDismiss(); onFind() }
         if (isGitRepo) MenuItem("Changes", Icons.changes) { onDismiss(); onChanges() }
         if (terminal) MenuItem(if (showTerminal) "Hide Terminal" else "Terminal", Icons.terminal) { onDismiss(); onTerminal() }
         if (onFork != null) MenuItem("Fork…", Icons.fork) { onDismiss(); onFork() }

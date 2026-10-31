@@ -19,6 +19,7 @@ import {
   type HarnessInfo,
   type ImportableSession,
   type PairResult,
+  type SearchResults,
   type ServerInfo,
   type SlashCommand,
   type ServerSettings,
@@ -149,7 +150,28 @@ describe("fixtures", () => {
     expect(info.drafts).toBe(true);
     expect(info.forks).toBe(true);
     expect(info.commit).toBe(true);
+    expect(info.search).toBe(true);
     expect(info.deviceId).toBe("dev1");
+  });
+
+  it("search results", () => {
+    const r: SearchResults = load("response_session_search.json").result;
+    expect(r.results).toHaveLength(2);
+    const [first, second] = r.results;
+    expect(first.session.id).toBe("s1");
+    expect(first.itemId).toBe("i4");
+    expect(first.itemKind).toBe("assistant_message");
+    expect(first.matches).toBe(2);
+    expect(first.snippet).toHaveLength(3);
+    expect(first.snippet[1]).toEqual({ text: "tests", match: true });
+    expect(first.snippet[0].match).toBeFalsy();
+    expect(second.session.id).toBe("s2");
+    expect(second.session.archived).toBe(true);
+    expect(second.itemId).toBeUndefined();
+    expect(second.itemKind).toBeUndefined();
+    expect(second.snippet[1].match).toBe(true);
+    expect(r.more).toBe(true);
+    expect(r.indexing).toBe(true);
   });
 
   it("server management", () => {

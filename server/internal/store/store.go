@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,9 +33,10 @@ var schema string
 var ErrNotFound = errors.New("not found")
 
 type Store struct {
-	db      *sql.DB
-	mu      sync.Mutex // serializes writes so events are published in seq order
-	publish func([]model.Event)
+	db       *sql.DB
+	mu       sync.Mutex // serializes writes so events are published in seq order
+	publish  func([]model.Event)
+	indexing atomic.Bool // IndexForSearch has sessions to add
 }
 
 func Open(path string) (*Store, error) {
@@ -51,7 +53,12 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &Store{db: db, publish: func([]model.Event) {}}, nil
+	st := &Store{db: db, publish: func([]model.Event) {}}
+	if err := st.prepareSearch(context.Background()); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("search index: %w", err)
+	}
+	return st, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -211,6 +218,9 @@ func (w *W) PutSessionKeepingTime(s *model.Session) error {
 	if err != nil {
 		return err
 	}
+	if err := w.indexSession(s); err != nil {
+		return err
+	}
 	a, b := *s, *s
 	if err := w.Emit(model.Event{Stream: model.SessionStream(s.ID), Type: model.EvSessionUpserted, Session: &a}); err != nil {
 		return err
@@ -225,6 +235,7 @@ func (w *W) DeleteSession(id string) error {
 	for _, q := range []string{
 		`DELETE FROM sessions WHERE id=?`,
 		`DELETE FROM turns WHERE session_id=?`,
+		`DELETE FROM search_docs WHERE session_id=?`,
 	} {
 		if _, err := w.tx.ExecContext(w.ctx, q, id); err != nil {
 			return err
@@ -264,6 +275,9 @@ func (w *W) PutItem(it *model.Item) error {
 		it.CreatedAt = w.now
 	}
 	it.UpdatedAt = w.now
+	if err := w.indexItem(it); err != nil {
+		return err
+	}
 	cp := *it
 	return w.Emit(model.Event{Stream: model.SessionStream(it.SessionID), Type: model.EvItemUpserted, Item: &cp})
 }
@@ -357,7 +371,9 @@ func (s *Store) Turn(ctx context.Context, id string) (*model.Turn, error) {
 // Items returns the latest state of every item in a session, in transcript order.
 func (s *Store) Items(ctx context.Context, sessionID string) ([]*model.Item, error) {
 	evs, err := queryJSON[model.Event](ctx, s.db,
-		`SELECT data FROM changes WHERE stream=? AND type=? ORDER BY json_extract(data, '$.item.order')`,
+		// +type: by the stream's key, not changes_type, which lists every
+		// session's items.
+		`SELECT data FROM changes WHERE stream=? AND +type=? ORDER BY json_extract(data, '$.item.order')`,
 		model.SessionStream(sessionID), model.EvItemUpserted)
 	if err != nil {
 		return nil, err

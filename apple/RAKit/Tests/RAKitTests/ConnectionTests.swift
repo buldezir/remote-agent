@@ -52,6 +52,9 @@ struct ConnectionTests {
         c.pingTimeout = 0.3
         c.start()
         try await wait { c.state == .connected }
+        // The agents are asked for once connected, on the side: after this,
+        // a test's own call is the last one the server saw.
+        try await wait { server.calls.contains { $0.method == "harness.list" } }
         return c
     }
 
@@ -313,6 +316,32 @@ struct ConnectionTests {
         #expect(call.params?["mode"] == .string("plan"))
         // What's unset is left out: the agent's defaults, and its own title.
         #expect(call.params?["effort"] == nil && call.params?["title"] == nil)
+    }
+
+    @Test func searches() async throws {
+        let server = try TestServer(index: [session("Fix the tests"), session("Flaky tests"), session("Docs")], search: .init(more: true))
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        #expect(c.searches)
+
+        let r = try await c.search(query: "tests", archived: true, limit: 30)
+        #expect(r.results.map(\.session.id) == ["Fix the tests", "Flaky tests"])
+        #expect(r.results.first?.snippet.first?.isMatch == true)
+        #expect(r.more == true && r.indexing != true)
+        let call = try #require(server.calls.last { $0.method == "session.search" })
+        #expect(call.commandID == nil)
+        #expect(call.params == .object(["query": .string("tests"), "archived": .bool(true), "limit": .number(30)]))
+
+        // What isn't asked for is left out: rad's defaults.
+        _ = try await c.search(query: "docs")
+        #expect(server.calls.last { $0.method == "session.search" }?.params == .object(["query": .string("docs")]))
+    }
+
+    @Test func olderServerDoesntSearch() async throws {
+        let server = try TestServer()
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        #expect(c.info?.search == nil && !c.searches)
     }
 
     @Test func promptFailsOnceTheConnectionGivesUp() async throws {

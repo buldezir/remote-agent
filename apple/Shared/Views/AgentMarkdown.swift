@@ -7,7 +7,8 @@ import Textual
 /// paragraphs, lists, tables and code blocks, which wrap rather than scroll
 /// to stay part of it. The images rad keeps for a reply (`rad-image:<id>`)
 /// stand between the texts, where a tap opens them; one in a line of text is
-/// drawn small and can't be tapped.
+/// drawn small and can't be tapped. The find bar's query is marked in the
+/// text, though not in code blocks, which Textual highlights afresh.
 struct AgentMarkdown: View {
     let text: String
     var images: [ImageRef] = []
@@ -17,6 +18,7 @@ struct AgentMarkdown: View {
     @Environment(\.messageFont) private var font
     @Environment(\.codeFont) private var codeFont
     @Environment(\.displayScale) private var scale
+    @Environment(\.findHighlight) private var highlight
 
     var body: some View {
         let parts = MarkdownParts.of(text)
@@ -25,8 +27,12 @@ struct AgentMarkdown: View {
                 switch parts[i] {
                 case .text(let content):
                     // Textual parses when the markup changes, so the key
-                    // changes with the reply.
-                    StructuredText("\(i):\(text)", parser: Parsed(content: content))
+                    // changes with the reply, and with the query it marks.
+                    if let highlight {
+                        StructuredText("\(i):\(highlight):\(text)", parser: Parsed(content: Self.marked(content, highlight)))
+                    } else {
+                        StructuredText("\(i):\(text)", parser: Parsed(content: content))
+                    }
                 case .image(let id):
                     if let store {
                         ReplyImage(ref: images.first { $0.id == id } ?? ImageRef(id: id, mimeType: "", size: 0),
@@ -43,6 +49,12 @@ struct AgentMarkdown: View {
         .textual.imageAttachmentLoader(InlineImageLoader(store: store, scale: scale))
         .textual.textSelection(.enabled)
         .textual.textSelectionColor(Palette.selection)
+    }
+
+    private static func marked(_ content: AttributedString, _ query: String) -> AttributedString {
+        var a = content
+        FindHighlight.mark(&a, query)
+        return a
     }
 }
 

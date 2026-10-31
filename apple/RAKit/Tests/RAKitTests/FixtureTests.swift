@@ -121,6 +121,7 @@ struct FixtureTests {
         #expect(info.result?.drafts == true)
         #expect(info.result?.forks == true)
         #expect(info.result?.commit == true)
+        #expect(info.result?.search == true)
         #expect(info.result?.deviceId == "dev1")
     }
 
@@ -202,5 +203,24 @@ struct FixtureTests {
         #expect(list.sessions[1].active == nil && !list.sessions[1].isActive)
         #expect(list.sessions[0].updatedAt == ISO8601DateFormatter().date(from: "2026-10-09T12:00:05Z"))
         #expect(list.sessions[0].updatedAt.timeIntervalSince(list.sessions[1].updatedAt) == 5)
+    }
+
+    @Test func search() throws {
+        let r = try #require(try WireCoding.decoder().decode(Response<SearchResults>.self, from: load("response_session_search.json")).result)
+        #expect(r.results.count == 2)
+        let first = r.results[0]
+        #expect(first.session.id == "s1")
+        #expect(first.itemId == "i4" && first.itemKind == .assistantMessage)
+        #expect(first.matches == 2)
+        #expect(first.snippet.count == 3)
+        #expect(first.snippet[1] == SnippetPart(text: "tests", match: true))
+        #expect(first.snippet[0].match != true && !first.snippet[0].isMatch)
+        // Only the title matched: no item.
+        let second = r.results[1]
+        #expect(second.session.id == "s2" && second.session.archived)
+        #expect(second.itemId == nil && second.itemKind == nil)
+        #expect(second.snippet[1].isMatch)
+        #expect(r.more == true)
+        #expect(r.indexing == true)
     }
 }

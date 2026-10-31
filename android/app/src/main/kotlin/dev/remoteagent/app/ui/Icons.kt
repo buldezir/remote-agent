@@ -55,6 +55,8 @@ object Icons {
     @DrawableRes val keyLeft = R.drawable.sym_keyboard_arrow_left
     @DrawableRes val keyRight = R.drawable.sym_keyboard_arrow_right
     @DrawableRes val keyUp = R.drawable.sym_keyboard_arrow_up
+    @DrawableRes val findPrevious = R.drawable.sym_keyboard_arrow_up // chevron.up
+    @DrawableRes val findNext = R.drawable.sym_keyboard_arrow_down // chevron.down
     @DrawableRes val keyTab = R.drawable.sym_keyboard_tab
     @DrawableRes val hideKeyboard = R.drawable.sym_keyboard_hide // keyboard.chevron.compact.down
     @DrawableRes val toolFetch = R.drawable.sym_language // globe
@@ -76,6 +78,7 @@ object Icons {
     @DrawableRes val expired = R.drawable.sym_schedule // clock
     @DrawableRes val background = R.drawable.sym_schedule // clock
     @DrawableRes val toolSearch = R.drawable.sym_search // magnifyingglass
+    @DrawableRes val search = R.drawable.sym_search // magnifyingglass
     @DrawableRes val settings = R.drawable.sym_settings // gear
     @DrawableRes val share = R.drawable.sym_share // square.and.arrow.up
     @DrawableRes val stop = R.drawable.sym_stop_fill // stop.fill

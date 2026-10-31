@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
@@ -45,8 +46,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.remoteagent.core.protocol.HarnessInfo
+import dev.remoteagent.core.protocol.SearchResult
 import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.SessionStatus
+import dev.remoteagent.core.protocol.SnippetPart
 import dev.remoteagent.core.protocol.Workspace
 import kotlinx.coroutines.delay
 import java.time.Duration
@@ -56,7 +59,8 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
-// The tablet sidebars' session rows. Mirrors apple/Shared/Views/SidebarRows.swift.
+// The tablet sidebars' session rows, and the search's results, which every
+// layout and a phone's Inbox show alike. Mirrors apple/Shared/Views/SidebarRows.swift.
 
 /**
  * A session's row in a sidebar list: a tap opens it, a long press offers to
@@ -73,6 +77,8 @@ fun SessionLink(
     modifier: Modifier = Modifier,
     background: Color = palette.mantle,
     padding: PaddingValues = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+    /** For android/e2e, which finds rows by it. */
+    tag: String = "session-row",
     content: @Composable () -> Unit,
 ) {
     val actions = LocalSessionActions.current
@@ -88,7 +94,7 @@ fun SessionLink(
                         .background(if (selected) palette.surface0 else Color.Transparent)
                         .combinedClickable(onClick = { onOpen(item.key) }, onLongClick = { menu = true })
                         .padding(padding)
-                        .testTag("session-row"),
+                        .testTag(tag),
                 ) {
                     content()
                 }
@@ -145,6 +151,73 @@ fun SessionListRow(item: ServerSession, showsServer: Boolean) {
                 color = if (session.status == SessionStatus.ERROR) palette.red else palette.subtext,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
+        }
+    }
+}
+
+/**
+ * A session a search found: its title, marked when archived; where it is,
+ * its agent and its age; and the snippet that matched, its words marked,
+ * with how many of its items match when that is more than one.
+ */
+@Composable
+fun SearchResultRow(item: ServerSession, result: SearchResult, showsServer: Boolean) {
+    val session = item.session
+    val (age, _) = sessionAge(session.updatedAt)
+    val agent = item.server.harness(session.harness)?.name ?: session.harness
+    val snippet = snippetText(result.snippet)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LeadingGlyph(session)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    session.title, style = Type.body.copy(fontWeight = if (session.standsOut) FontWeight.SemiBold else null), color = palette.text,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                )
+                if (session.archived) {
+                    Text(
+                        "Archived", style = Type.caption2.copy(fontWeight = FontWeight.SemiBold), color = palette.subtext, maxLines = 1,
+                        modifier = Modifier.background(palette.surface0, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
+                }
+            }
+            Text(
+                searchResultDetail(item.project?.name, agent, age, item.server.name.takeIf { showsServer }),
+                style = Type.caption, color = palette.subtext, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            if (snippet.isNotEmpty() || result.matches > 1) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        snippet, style = Type.subheadline, color = palette.subtext, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).alignByBaseline(),
+                    )
+                    if (result.matches > 1) {
+                        Text(
+                            "${result.matches} matches", style = Type.caption2.copy(fontFeatureSettings = "tnum"), color = palette.overlay,
+                            maxLines = 1, modifier = Modifier.alignByBaseline(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A result's second line: "app · Claude Code · 4m", and its server when there are several. */
+fun searchResultDetail(project: String?, agent: String, age: String, server: String?): String =
+    listOfNotNull(project, agent, age, server).filter { it.isNotEmpty() }.joinToString(" · ")
+
+/** A snippet on one run of text, its matches semibold on the palette's yellow, in the palette's text colour. */
+@Composable
+private fun snippetText(parts: List<SnippetPart>): AnnotatedString {
+    val match = SpanStyle(color = palette.text, fontWeight = FontWeight.SemiBold, background = palette.yellow.copy(alpha = 0.35f))
+    return remember(parts, match) {
+        buildAnnotatedString {
+            for (p in parts) {
+                // The lines of a match's context, run together, as the snippet has two at most.
+                val text = p.text.replace('\n', ' ')
+                if (p.match) withStyle(match) { append(text) } else append(text)
+            }
         }
     }
 }
@@ -216,6 +289,16 @@ fun SessionPlace(item: ServerSession, server: Boolean, style: TextStyle, color: 
 /** A session's age where a row has little room ("4m"). It keeps itself current. */
 @Composable
 fun SessionAge(at: Instant, modifier: Modifier = Modifier) {
+    val (short, spoken) = sessionAge(at)
+    Text(
+        short, style = Type.caption2.copy(fontFeatureSettings = "tnum"),
+        color = palette.overlay, maxLines = 1, modifier = modifier.semantics { contentDescription = spoken },
+    )
+}
+
+/** A session's short age ("4m"), and as TalkBack says it ("4 minutes ago"), kept current. */
+@Composable
+fun sessionAge(at: Instant): Pair<String, String> {
     var now by remember { mutableStateOf(Instant.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -226,10 +309,7 @@ fun SessionAge(at: Instant, modifier: Modifier = Modifier) {
     val locale = LocalConfiguration.current.locales[0]
     val pattern = remember(locale) { DateFormat.getBestDateTimePattern(locale, "MMMd") }
     val spoken = DateUtils.getRelativeTimeSpanString(at.toEpochMilli(), now.toEpochMilli(), DateUtils.MINUTE_IN_MILLIS).toString()
-    Text(
-        shortAge(at, now, pattern = pattern, locale = locale), style = Type.caption2.copy(fontFeatureSettings = "tnum"),
-        color = palette.overlay, maxLines = 1, modifier = modifier.semantics { contentDescription = spoken },
-    )
+    return shortAge(at, now, pattern = pattern, locale = locale) to spoken
 }
 
 /** "now", "4m", "3h", "2d", then the date ("Oct 3"). [pattern]: the date's, for the locale. */

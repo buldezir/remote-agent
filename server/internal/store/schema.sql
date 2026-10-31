@@ -60,3 +60,29 @@ CREATE TABLE IF NOT EXISTS pairing_codes (
   code_hash  TEXT PRIMARY KEY,
   expires_at INTEGER NOT NULL
 );
+
+-- Search (session.search): a row per item with searchable text (model.SearchText),
+-- and one per session for its title and branch, indexed by FTS5. The triggers
+-- keep the index in step with the rows.
+CREATE TABLE IF NOT EXISTS search_docs (
+  id         INTEGER PRIMARY KEY,
+  key        TEXT NOT NULL UNIQUE,  -- the item's id, or "session:<id>"
+  session_id TEXT NOT NULL,
+  item_id    TEXT,                  -- NULL: the session's title and branch
+  kind       TEXT NOT NULL,
+  title      TEXT NOT NULL DEFAULT '',
+  body       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS search_docs_session ON search_docs (session_id);
+CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
+  title, body, content='search_docs', content_rowid='id', tokenize='unicode61 remove_diacritics 2');
+CREATE TRIGGER IF NOT EXISTS search_docs_ai AFTER INSERT ON search_docs BEGIN
+  INSERT INTO search_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+END;
+CREATE TRIGGER IF NOT EXISTS search_docs_ad AFTER DELETE ON search_docs BEGIN
+  INSERT INTO search_fts(search_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+END;
+CREATE TRIGGER IF NOT EXISTS search_docs_au AFTER UPDATE OF title, body ON search_docs BEGIN
+  INSERT INTO search_fts(search_fts, rowid, title, body) VALUES ('delete', old.id, old.title, old.body);
+  INSERT INTO search_fts(rowid, title, body) VALUES (new.id, new.title, new.body);
+END;

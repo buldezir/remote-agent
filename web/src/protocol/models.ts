@@ -471,6 +471,37 @@ export interface ServerInfo {
   forks?: boolean;
   /** The server commits, pushes and opens pull requests (`git.commitPreview`, `git.commit`). */
   commit?: boolean;
+  /** The server finds sessions by what was said in them (`session.search`). */
+  search?: boolean;
+}
+
+/** `session.search`'s result, best first. */
+export interface SearchResults {
+  results: SearchResult[];
+  /** More sessions match than the limit. */
+  more?: boolean;
+  /** rad is still indexing sessions an older rad wrote, which may be missing. */
+  indexing?: boolean;
+}
+
+/** A session that `session.search` found, with the item in it that matches
+ *  best: else its title or branch matched. */
+export interface SearchResult {
+  session: Session;
+  /** Absent: only the title or the branch matched. */
+  itemId?: string;
+  /** The item's kind. */
+  itemKind?: ItemKind;
+  /** The match in its context, on one line, its words marked. */
+  snippet: SnippetPart[];
+  /** How many of the session's items match. */
+  matches: number;
+}
+
+/** A run of a snippet's text: `match` marks the words the query found. */
+export interface SnippetPart {
+  text: string;
+  match?: boolean;
 }
 
 /** A text frame on a terminal socket. The shell's output and the user's

@@ -24,6 +24,9 @@ type ServerInfo struct {
 	// Commit: the server commits, pushes and opens pull requests
 	// (git.commitPreview, git.commit).
 	Commit bool `json:"commit,omitempty"`
+	// Search: the server finds sessions by what was said in them
+	// (session.search).
+	Search bool `json:"search,omitempty"`
 }
 
 // PairResult is what POST /v1/pair returns.

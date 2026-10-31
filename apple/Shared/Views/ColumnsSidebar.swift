@@ -92,26 +92,43 @@ struct CollectionsSidebar: View {
 }
 
 /// The Columns layout's middle column: the sessions in the collection chosen
-/// in the sidebar, three lines each.
+/// in the sidebar, three lines each, under the search field, as Mail's
+/// messages. While it searches, what search found takes the list's place.
 struct SessionListColumn: View {
     @Environment(ServerStore.self) private var store
     let collection: SessionCollection
     @Binding var selection: SessionRoute?
+    var searchFocused: FocusState<Bool>.Binding
+
+    /// Over the list, as Mail's: in the column's toolbar on the Mac, and in
+    /// its navigation bar on iPad, which would otherwise put it over the session.
+    private var searchPlacement: SearchFieldPlacement {
+        #if os(macOS)
+        .automatic
+        #else
+        .navigationBarDrawer(displayMode: .always)
+        #endif
+    }
 
     var body: some View {
         let items = collection.sessions(in: store)
-        List(selection: $selection) {
-            // On the Mac, a row added to a list without sections keeps the
-            // table's default height, one line, and the next row covers the
-            // rest: a new session, or one that starts running. In a section
-            // it is measured.
-            Section {
-                ForEach(items) { item in
-                    SessionLink(item: item, selected: selection == item.id, background: Palette.base) {
-                        SessionListRow(item: item, showsServer: store.servers.count > 1)
+        SearchableSessions(placement: searchPlacement, selection: selection, focused: searchFocused, background: Palette.base) {
+            List(selection: $selection) {
+                // On the Mac, a row added to a list without sections keeps the
+                // table's default height, one line, and the next row covers the
+                // rest: a new session, or one that starts running. In a section
+                // it is measured.
+                Section {
+                    ForEach(items) { item in
+                        SessionLink(item: item, selected: selection == item.id, background: Palette.base) {
+                            SessionListRow(item: item, showsServer: store.servers.count > 1)
+                        }
+                        .listRowSeparator(.hidden)
                     }
-                    .listRowSeparator(.hidden)
                 }
+            }
+            .overlay {
+                if items.isEmpty { empty }
             }
         }
         #if os(macOS)
@@ -121,9 +138,6 @@ struct SessionListColumn: View {
         #endif
         .listBackground(Palette.base)
         .refreshable { await store.refreshConnections() }
-        .overlay {
-            if items.isEmpty { empty }
-        }
         .navigationTitle(collection.title(in: store))
         #if os(macOS)
         .navigationSubtitle(items.count == 1 ? "1 session" : "\(items.count) sessions")

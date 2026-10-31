@@ -42,6 +42,9 @@ struct SessionActions {
     var delete: (SessionRequest) -> Void = { _ in }
     var remove: (SavedServer) -> Void = { _ in }
     var manage: (ServerConnection) -> Void = { _ in }
+    /// Opens a session that search found, at the item that matched when
+    /// there is one (`ItemFocus`), else as a row opens it.
+    var open: (SessionRoute, _ itemID: String?) -> Void = { _, _ in }
 
     /// A new session on the server, in one of its projects when given.
     func newSession(_ connection: ServerConnection, projectID: String = "") {

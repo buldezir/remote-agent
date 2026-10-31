@@ -14,6 +14,7 @@ import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.ImportableSession
 import dev.remoteagent.core.protocol.Project
+import dev.remoteagent.core.protocol.SearchResults
 import dev.remoteagent.core.protocol.ServerInfo
 import dev.remoteagent.core.protocol.ServerSettings
 import dev.remoteagent.core.protocol.ServerTask
@@ -514,6 +515,21 @@ class ServerConnection(
         _sessions.value += s.id to s
         return s
     }
+
+    // Search (protocol/PROTOCOL.md, "Search"); only for a server whose `info.search` is true.
+
+    /**
+     * The sessions that mention `query` in what was said in them, or in their
+     * title or branch, the best first, with the item that matches best. With
+     * `archived`, archived sessions too; `limit`: at most so many (rad's
+     * default: 30). SessionSearch asks every server at once.
+     */
+    suspend fun search(query: String, archived: Boolean = false, limit: Int? = null): SearchResults =
+        client.call(
+            "session.search",
+            params("query" to query, "archived" to archived.takeIf { it }, "limit" to limit),
+            15.seconds,
+        )
 
     /**
      * Keeps a prompt in the session, unsent, for any device to send later

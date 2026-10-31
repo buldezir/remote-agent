@@ -2,15 +2,17 @@ import RAKit
 import SwiftUI
 
 /// The iPad and Mac sidebar beside a session: the Inbox or the Projects
-/// layout. The Columns layout has its own (`CollectionsSidebar`). The split
-/// view around it shows the sheets and confirmations its rows ask for.
+/// layout, under the search field. The Columns layout has its own
+/// (`CollectionsSidebar`), and its search field over the session list. The
+/// split view around it shows the sheets and confirmations its rows ask for.
 struct SessionsSidebar: View {
     let layout: SidebarLayout
     @Binding var selection: SessionRoute?
     @Binding var showAdd: Bool
+    var searchFocused: FocusState<Bool>.Binding
 
     var body: some View {
-        Group {
+        SearchableSessions(placement: .sidebar, selection: selection, focused: searchFocused) {
             switch layout {
             case .inbox, .columns: InboxSidebar(selection: $selection)
             case .projects: ProjectsSidebar(selection: $selection)
@@ -65,6 +67,138 @@ private struct SidebarList: ViewModifier {
             #endif
             .listBackground(Palette.mantle)
             .refreshable { await store.refreshConnections() }
+    }
+}
+
+/// A list of sessions under the search field, which while it holds a query
+/// (`SessionSearch`) shows what the servers found in its place. The
+/// sidebars have it, the Columns layout's session list, and the iPhone's Inbox.
+struct SearchableSessions<Content: View>: View {
+    @Environment(ServerStore.self) private var store
+    @Environment(SessionSearch.self) private var search
+    let placement: SearchFieldPlacement
+    /// The session open beside the list. The iPhone's Inbox has none.
+    let selection: SessionRoute?
+    let focused: FocusState<Bool>.Binding
+    /// The list's colour.
+    let background: Color
+    let content: Content
+
+    init(placement: SearchFieldPlacement, selection: SessionRoute?, focused: FocusState<Bool>.Binding,
+         background: Color = Palette.mantle, @ViewBuilder content: () -> Content) {
+        self.placement = placement
+        self.selection = selection
+        self.focused = focused
+        self.background = background
+        self.content = content()
+    }
+
+    var body: some View {
+        @Bindable var search = search
+        Group {
+            if search.isActive {
+                SessionSearchResults(selection: selection, background: background)
+            } else {
+                content
+            }
+        }
+        .searchable(text: $search.query, placement: placement, prompt: Text("Search sessions"))
+        .searchFocused(focused)
+        // A server that connects, or comes back, is searched too.
+        .onChange(of: searchingServers) { _, _ in search.refresh() }
+    }
+
+    private var searchingServers: [String] {
+        store.connections.filter { $0.state == .connected && $0.searches }.map(\.server.id)
+    }
+}
+
+/// What search found on every server, the opened one selected, with how the
+/// search went under them: still going, nothing found, more to find, and the
+/// servers that are indexing, failed or can't search.
+struct SessionSearchResults: View {
+    @Environment(ServerStore.self) private var store
+    @Environment(SessionSearch.self) private var search
+    @Environment(\.sessionActions) private var actions
+    let selection: SessionRoute?
+    var background = Palette.mantle
+
+    var body: some View {
+        @Bindable var search = search
+        let showsServer = store.servers.count > 1
+        List {
+            Section {
+                Toggle("Include archived", isOn: $search.includeArchived)
+                    .scaledFont(.callout)
+                    .foregroundStyle(Palette.subtext)
+                    #if os(iOS)
+                    .listRowInsets(Metrics.rowInsets)
+                    #endif
+                    .paletteRows(background)
+                ForEach(search.hits) { hit in
+                    if let c = connection(hit.serverId) {
+                        row(hit, c, showsServer: showsServer)
+                    }
+                }
+                if search.isSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity)
+                        .paletteRows(background)
+                        .listRowSeparator(.hidden)
+                }
+                if search.nothingFound {
+                    note("No sessions match “\(search.trimmedQuery)”.")
+                }
+                if search.noServers {
+                    note("No server is connected.")
+                }
+                if search.more {
+                    note("More sessions match. Add words to narrow it down.")
+                }
+                ForEach(search.indexing, id: \.self) { name in
+                    note("\(name) is still indexing older sessions, so some may be missing.")
+                }
+                ForEach(search.failures, id: \.self) { f in
+                    note("Couldn't search \(f.server): \(f.message)")
+                }
+                ForEach(search.unsupported, id: \.self) { name in
+                    note("Update rad on \(name) to search its sessions.")
+                }
+            }
+        }
+    }
+
+    private func connection(_ serverID: String) -> ServerConnection? {
+        store.servers.first { $0.id == serverID }.map { store.connection(for: $0) }
+    }
+
+    /// Opens the session at the item that matched, keeping the results.
+    private func row(_ hit: SessionSearch.Hit, _ c: ServerConnection, showsServer: Bool) -> some View {
+        let route = SessionRoute(serverID: c.server.id, sessionID: hit.result.session.id)
+        return Button { actions.open(route, hit.result.itemId) } label: {
+            SearchResultRow(hit: hit, connection: c, showsServer: showsServer)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                // The selection drawn below is a surface, as a session row's.
+                .environment(\.backgroundProminence, .standard)
+        }
+        .buttonStyle(.plain)
+        #if os(iOS)
+        .listRowInsets(Metrics.rowInsets)
+        #endif
+        .listRowBackground(SidebarSelection(selected: selection == route, background: background))
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .scaledFont(.footnote)
+            .foregroundStyle(Palette.subtext)
+            #if os(iOS)
+            .listRowInsets(Metrics.rowInsets)
+            #endif
+            .listRowSeparator(.hidden)
+            .paletteRows(background)
     }
 }
 

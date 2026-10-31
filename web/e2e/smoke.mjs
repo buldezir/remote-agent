@@ -398,6 +398,103 @@ if (await composerSave.count()) throw new Error("the composer offers a draft in 
 await prompt.fill("");
 await shot("draft-sent");
 
+step("search sessions, and open a result at the item that matched");
+// A session whose match is far above its end.
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
+await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
+await page.locator(".harness-row", { hasText: "Fake" }).click();
+await page.getByPlaceholder("What should the agent do?").fill("zebrafish swim upstream");
+await page.getByRole("button", { name: "Start", exact: true }).click();
+await page.getByText("Echo: zebrafish swim upstream").waitFor();
+for (let k = 1; k <= 10; k++) {
+  await prompt.fill(`filler ${k}`);
+  await prompt.press("Enter");
+  await page.getByText(`Echo: filler ${k}`, { exact: true }).waitFor();
+}
+await page.locator(".session-row .row-title", { hasText: "write a.txt" }).first().click();
+await page.getByText("Echo: write a.txt").waitFor();
+// Ctrl+Shift+F focuses the sidebar's search.
+const searchField = page.getByPlaceholder("Search sessions");
+await page.keyboard.press("Control+Shift+F");
+await page.locator(".sidebar-search input:focus").waitFor();
+await page.keyboard.type("zebrafish");
+const searchResult = page.locator(".search-result", { hasText: "zebrafish swim upstream" });
+await searchResult.locator(".snippet-match", { hasText: /zebrafish/i }).first().waitFor();
+await page.getByText("Include archived").waitFor();
+await shot("search-results");
+await searchResult.locator(".session-row-main").click();
+await page.locator(".session-heading h1", { hasText: "zebrafish swim upstream" }).waitFor();
+// It flashes the item, scrolled into view rather than to the end.
+const flashed = await page.waitForFunction(() => {
+  const a = document.getAnimations().find((x) => x.effect?.pseudoElement === "::after" && x.effect.target?.dataset?.itemId);
+  return a ? a.effect.target.dataset.itemId : false;
+});
+const flashedID = await flashed.jsonValue();
+const shownAtItem = await page.evaluate((id) => {
+  const el = document.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+  const sc = document.querySelector(".transcript-scroll");
+  const item = el.getBoundingClientRect(), view = sc.getBoundingClientRect();
+  return { text: el.textContent, inView: item.top >= view.top - 1 && item.bottom <= view.bottom + 1, atEnd: sc.scrollHeight - sc.scrollTop - sc.clientHeight < 40 };
+}, flashedID);
+if (!/zebrafish/i.test(shownAtItem.text)) throw new Error(`the result opened at an item without the match: ${shownAtItem.text}`);
+if (!shownAtItem.inView || shownAtItem.atEnd) throw new Error("the result's item isn't in view, or the session opened at its end");
+// The results stay, with the session selected.
+await searchResult.locator(".session-row-main[aria-current=page]").waitFor();
+await shot("search-opened");
+
+step("find in the session");
+await page.getByRole("button", { name: "Session", exact: true }).click();
+await page.getByRole("menuitem", { name: "Find in Session" }).click();
+const findField = page.getByPlaceholder("Find in session");
+await page.locator(".find-bar input:focus").waitFor();
+await findField.fill("filler");
+const findCount = page.locator(".find-count");
+// The current match is the newest.
+await page.waitForFunction(() => /^(\d+) of \1$/.test(document.querySelector(".find-count")?.textContent ?? ""));
+const findTotal = Number((await findCount.textContent()).split(" of ")[1]);
+if (findTotal < 10) throw new Error(`find found ${findTotal} items with "filler"`);
+if ((await page.locator(".item-row.find-match").count()) !== findTotal - 1 || (await page.locator(".item-row.find-current").count()) !== 1) {
+  throw new Error("find's tints don't match its count");
+}
+// The words themselves are marked too, in Chromium, which has the Custom Highlight API.
+await page.waitForFunction(() => CSS.highlights.get("find-current")?.size > 0, undefined, { timeout: 5000 });
+await shot("find");
+// Return goes on, round to the first; Shift+Return back.
+await findField.press("Enter");
+await findCount.filter({ hasText: new RegExp(`^1 of ${findTotal}$`) }).waitFor();
+await findField.press("Shift+Enter");
+await findCount.filter({ hasText: new RegExp(`^${findTotal} of ${findTotal}$`) }).waitFor();
+await findField.fill("no such words here");
+await findCount.filter({ hasText: "No matches" }).waitFor();
+await findField.press("Escape");
+await page.locator(".find-bar").waitFor({ state: "detached" });
+if (await page.locator(".item-row.find-match, .item-row.find-current").count()) throw new Error("closing find left its tints");
+// Ctrl+F opens it again, in place of the browser's.
+await prompt.focus();
+await page.keyboard.press("Control+f");
+await page.locator(".find-bar input:focus").waitFor();
+await page.locator(".find-bar").getByRole("button", { name: "Done" }).click();
+await page.locator(".find-bar").waitFor({ state: "detached" });
+
+step("phone: search in the Inbox tab, and back to the results");
+await page.setViewportSize({ width: 390, height: 844 });
+await page.evaluate(() => {
+  location.hash = "#/";
+});
+await page.locator(".bar-title", { hasText: "Inbox" }).waitFor();
+if ((await searchField.inputValue()) !== "zebrafish") throw new Error("the Inbox tab lost the search");
+await searchResult.locator(".session-row-main").click();
+await page.locator(".session-heading h1", { hasText: "zebrafish swim upstream" }).waitFor();
+await shot("phone-search-opened");
+await page.getByRole("button", { name: "Back" }).click();
+await searchResult.waitFor();
+await shot("phone-search");
+// Esc clears it, back to the Inbox's rows.
+await searchField.press("Escape");
+await searchResult.waitFor({ state: "detached" });
+await page.locator(".list-header", { hasText: "Recent" }).waitFor();
+await page.setViewportSize({ width: 1280, height: 820 });
+
 step("continue a terminal session");
 const continueTerminal = async (name) => {
   await page.getByRole("button", { name: "New session", exact: true }).first().click();

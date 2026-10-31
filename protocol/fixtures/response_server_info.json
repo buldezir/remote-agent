@@ -12,6 +12,7 @@
     "terminal": true,
     "drafts": true,
     "forks": true,
-    "commit": true
+    "commit": true,
+    "search": true
   }
 }

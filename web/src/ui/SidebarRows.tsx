@@ -1,9 +1,9 @@
 import { Archive, Clock, GitBranch, Hand, Pencil, Square, TriangleAlert } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import { contextFraction, modelName, parseDate, type Session } from "../protocol/models";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { contextFraction, modelName, parseDate, type SearchResult, type Session, type SnippetPart } from "../protocol/models";
 import { Spinner } from "./primitives";
 import { DeleteButton } from "./SessionRow";
-import { needsYou, projectOf, shortAge, type ServerSession } from "./sidebarLayout";
+import { needsYou, projectOf, shortAge, standsOut, type ServerSession } from "./sidebarLayout";
 
 /** A session's row in a sidebar list: a click opens it, and on hover
  *  buttons archive or delete it. */
@@ -88,6 +88,67 @@ export function SessionListRow({ item, showsServer }: { item: ServerSession; sho
         <SessionPlace item={item} server={showsServer} />
         <span className={"row-activity clamp2" + (s.status === "error" ? " c-red" : "")}>{activity(item)}</span>
       </span>
+    </>
+  );
+}
+
+/** A session a search found, in any layout: its title, marked when it is
+ *  archived; its project, agent and age (and server, when there is more
+ *  than one); and the text that matched, its words marked, with how many of
+ *  its items match. */
+export function SearchResultRow({ item, result, showsServer }: { item: ServerSession; result: SearchResult; showsServer: boolean }) {
+  const s = item.session;
+  const project = projectOf(item);
+  const agent = item.connection.harness(s.harness)?.name ?? s.harness;
+  return (
+    <>
+      <StatusGlyph session={s} />
+      <span className="session-row-text">
+        <span className="row-line">
+          <span className={"row-title" + (standsOut(s) ? " strong" : "")}>{s.title}</span>
+          {s.archived && <span className="archived-badge">Archived</span>}
+        </span>
+        <span className="row-place search-place">
+          {project && (
+            <>
+              <span className="nowrap">{project.name}</span>
+              <span aria-hidden>·</span>
+            </>
+          )}
+          <span className="nowrap">{agent}</span>
+          <span aria-hidden>·</span>
+          <ShortAge date={s.updatedAt} />
+          {showsServer && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="nowrap">{item.connection.server.name}</span>
+            </>
+          )}
+        </span>
+        {result.snippet.length > 0 && (
+          <span className="search-snippet clamp2">
+            <Snippet parts={result.snippet} />
+          </span>
+        )}
+        {result.matches > 1 && <span className="search-matches">{result.matches} matches</span>}
+      </span>
+    </>
+  );
+}
+
+/** A search result's snippet, the words the query found marked. */
+export function Snippet({ parts }: { parts: SnippetPart[] }) {
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.match ? (
+          <mark key={i} className="snippet-match">
+            {p.text}
+          </mark>
+        ) : (
+          <Fragment key={i}>{p.text}</Fragment>
+        ),
+      )}
     </>
   );
 }

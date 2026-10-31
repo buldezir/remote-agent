@@ -1,0 +1,111 @@
+{
+  "id": 15,
+  "result": {
+    "results": [
+      {
+        "session": {
+          "id": "s1",
+          "projectId": "p1",
+          "harness": "claude",
+          "model": "sonnet",
+          "effort": "high",
+          "mode": "default",
+          "workspace": {
+            "kind": "worktree",
+            "path": "/w/s1",
+            "branch": "ra/fix-tests",
+            "baseRef": "main",
+            "agentPath": "/w/s1/.claude/worktrees/fix"
+          },
+          "status": "awaiting_approval",
+          "nativeId": "n1",
+          "title": "Fix the tests",
+          "archived": false,
+          "unread": true,
+          "draft": {
+            "text": "Then update the changelog",
+            "images": [
+              {
+                "id": "3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b.jpg",
+                "mimeType": "image/jpeg",
+                "width": 800,
+                "height": 600,
+                "size": 65536
+              }
+            ]
+          },
+          "context": {
+            "used": 52000,
+            "window": 200000
+          },
+          "modelInfo": {
+            "id": "claude-sonnet-5-5",
+            "name": "Sonnet 5.5",
+            "effort": "high"
+          },
+          "backgroundTasks": [
+            {
+              "id": "b1",
+              "kind": "command",
+              "description": "Watch the release run"
+            },
+            {
+              "id": "a1",
+              "kind": "agent",
+              "description": "Explore the protocol"
+            }
+          ],
+          "forkedFrom": {
+            "sessionId": "s0",
+            "turn": 3
+          },
+          "createdAt": "2026-10-09T12:00:00Z",
+          "updatedAt": "2026-10-09T12:00:05Z"
+        },
+        "itemId": "i4",
+        "itemKind": "assistant_message",
+        "snippet": [
+          {
+            "text": "All "
+          },
+          {
+            "text": "tests",
+            "match": true
+          },
+          {
+            "text": " pass now. func x() {}"
+          }
+        ],
+        "matches": 2
+      },
+      {
+        "session": {
+          "id": "s2",
+          "projectId": "p1",
+          "harness": "codex",
+          "workspace": {
+            "kind": "root",
+            "path": "/Users/me/projects/app"
+          },
+          "status": "idle",
+          "title": "Flaky tests",
+          "archived": true,
+          "createdAt": "2026-10-09T12:00:00Z",
+          "updatedAt": "2026-10-09T12:00:00Z"
+        },
+        "snippet": [
+          {
+            "text": "Flaky "
+          },
+          {
+            "text": "tests",
+            "match": true
+          }
+        ],
+        "matches": 0
+      }
+    ],
+    "more": true,
+    "indexing": true
+  }
+}

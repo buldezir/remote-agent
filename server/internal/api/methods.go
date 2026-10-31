@@ -10,6 +10,7 @@ import (
 	"remote-agent/internal/harness"
 	"remote-agent/internal/model"
 	"remote-agent/internal/orchestrator"
+	"remote-agent/internal/store"
 	"remote-agent/internal/tasks"
 )
 
@@ -129,7 +130,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "server.info":
 		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true, Forks: true,
-			Commit: c.s.Tasks != nil}, nil
+			Commit: c.s.Tasks != nil, Search: true}, nil
 
 	case "device.unpair":
 		// The phone forgets this server: revoke its own token. The socket is
@@ -234,6 +235,12 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "session.import":
 		return call(raw, func(p orchestrator.ImportParams) (any, error) { return o.Import(ctx, p) })
+
+	case "session.search":
+		return call(raw, func(p store.SearchParams) (any, error) {
+			results, more, err := c.s.st.Search(ctx, p)
+			return model.SearchResults{Results: results, More: more, Indexing: c.s.st.Indexing()}, err
+		})
 
 	case "session.commands":
 		return call(raw, func(p sessionParams) (any, error) {

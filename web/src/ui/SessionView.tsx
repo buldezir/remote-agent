@@ -1,7 +1,9 @@
 import {
   ArrowUp,
   AudioLines,
+  ChevronDown,
   ChevronLeft,
+  ChevronUp,
   CircleDashed,
   Copy,
   Ellipsis,
@@ -15,6 +17,7 @@ import {
   OctagonX,
   OctagonAlert,
   Save,
+  Search,
   Square,
   SquareSlash,
   SquareTerminal,
@@ -27,15 +30,17 @@ import { contextFraction, modelName, type BackgroundTask, type HarnessInfo, type
 import { Attachments } from "../store/attachments";
 import { useObserved } from "../store/observable";
 import type { SessionStore } from "../store/sessionStore";
+import { findMatches } from "../store/transcriptFind";
 import { CommitSheet } from "./CommitSheet";
 import { ContextGauge, HarnessIcon } from "./components";
 import { useConnection } from "./context";
 import { DiffView } from "./DiffView";
 import { useDictation } from "./dictation";
+import { highlightRegistry, occurrenceRanges } from "./findHighlight";
 import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./images";
 import { DraftBubble, ItemView, TurnFooter, UserBubble } from "./items/ItemView";
 import { ErrorAlert, Menu, Spinner, type MenuEntry } from "./primitives";
-import { usePageInFront, useWide } from "./router";
+import { focusDone, useFocusItem, usePageInFront, useWide } from "./router";
 import { useSettings } from "./settings";
 import { storage } from "../store/storage";
 
@@ -63,6 +68,8 @@ export function SessionView({
   useObserved(connection);
   const store = useMemo(() => connection.sessionStore(sessionID), [connection, sessionID]);
   useObserved(store);
+  // An item to show, as a search result asks.
+  const focus = useFocusItem(connection.server.id, sessionID);
   const [error, setError] = useState<string>();
   const [showDiff, setShowDiff] = useState(false);
   const [showCommit, setShowCommit] = useState(false);
@@ -112,19 +119,153 @@ export function SessionView({
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const pinned = useRef(true);
+  // An item kept in view for a moment after it was scrolled to, while what
+  // is above it settles, such as images loading; scrolling lets it go.
+  const anchor = useRef<{ id: string; until: number }>(undefined);
   const scrollToEnd = () => {
     const el = scroller.current;
     if (el) el.scrollTop = el.scrollHeight;
   };
+  const itemElement = (id: string) => content.current?.querySelector<HTMLElement>(`[data-item-id="${CSS.escape(id)}"]`) ?? null;
+  // The item in the middle of the transcript, or its top at the top when
+  // it's taller; false when it isn't shown.
+  const centre = (id: string): boolean => {
+    const el = itemElement(id);
+    const sc = scroller.current;
+    if (!el || !sc) return false;
+    pinned.current = false;
+    const item = el.getBoundingClientRect();
+    const view = sc.getBoundingClientRect();
+    sc.scrollTop += item.height > view.height - 16 ? item.top - view.top - 8 : item.top - view.top - (view.height - item.height) / 2;
+    return true;
+  };
+  const reveal = (id: string): boolean => {
+    if (!centre(id)) return false;
+    anchor.current = { id, until: performance.now() + 1000 };
+    return true;
+  };
   useLayoutEffect(() => {
     const ro = new ResizeObserver(() => {
-      if (pinned.current) scrollToEnd();
+      const a = anchor.current;
+      if (a && performance.now() < a.until) centre(a.id);
+      else if (pinned.current) scrollToEnd();
     });
     if (content.current) ro.observe(content.current);
     return () => ro.disconnect();
   }, []);
 
   const rows = useMemo(() => transcriptRows(store.transcript, store.turns), [store.transcript, store.turns, store.getVersion()]);
+
+  // Opened at an item, as from a search result: once it shows, it's
+  // scrolled to, before it's painted, and flashed. Until then the session
+  // shows its end, as usual, and it stays there if the transcript, synced,
+  // hasn't got the item.
+  useLayoutEffect(() => {
+    if (!focus) return;
+    if (reveal(focus.itemID)) {
+      flash(itemElement(focus.itemID)!);
+      focusDone(focus);
+    } else if (store.live) {
+      focusDone(focus);
+    }
+  }, [focus, rows]);
+
+  // Find in the session: the items whose text has the query, the current one
+  // the newest at first. Closing it, or another session, forgets the tints.
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findCurrent, setFindCurrent] = useState<string>();
+  // Bumped to scroll to the current match again, though it's the same.
+  const [findTick, setFindTick] = useState(0);
+  const findField = useRef<HTMLInputElement>(null);
+  const matches = useMemo(() => (findOpen ? findMatches(store.transcript, findQuery) : []), [findOpen, findQuery, store.transcript]);
+  const matchSet = useMemo(() => new Set(matches), [matches]);
+  const matchIndex = findCurrent !== undefined && matchSet.has(findCurrent) ? matches.indexOf(findCurrent) : matches.length - 1;
+  const currentMatch = matchIndex >= 0 ? matches[matchIndex] : undefined;
+  const setFind = (query: string) => {
+    setFindQuery(query);
+    setFindCurrent(findMatches(store.transcript, query).at(-1));
+    setFindTick((n) => n + 1);
+  };
+  const stepFind = (by: number) => {
+    if (matches.length === 0) return;
+    setFindCurrent(matches[(matchIndex + by + matches.length) % matches.length]);
+    setFindTick((n) => n + 1);
+  };
+  const openFind = () => {
+    if (findOpen) {
+      findField.current?.focus();
+      findField.current?.select();
+      return;
+    }
+    setFindOpen(true);
+    setFind(findQuery);
+  };
+  useEffect(() => {
+    if (!findOpen) return;
+    findField.current?.focus();
+    findField.current?.select();
+  }, [findOpen]);
+  useLayoutEffect(() => {
+    if (findOpen && currentMatch) reveal(currentMatch);
+  }, [findOpen, currentMatch, findTick]);
+
+  // ⌘F or Ctrl+F finds in the session, rather than the browser in the page;
+  // ⌘G and ⇧⌘G go to the next and previous match while it's open. In the
+  // terminal, Ctrl+F and Ctrl+G are the shell's; a sheet keeps them.
+  const findKeys = useRef<(e: KeyboardEvent) => void>(undefined);
+  findKeys.current = (e) => {
+    const k = e.key.toLowerCase();
+    if ((k !== "f" && k !== "g") || e.altKey) return;
+    const target = e.target as Element | null;
+    if (target?.closest?.("dialog")) return;
+    const inTerminal = !!target?.closest?.(".terminal");
+    if (!e.metaKey && !(e.ctrlKey && !inTerminal)) return;
+    if (k === "f") {
+      if (e.shiftKey) return; // the sessions' search
+      e.preventDefault();
+      openFind();
+    } else if (findOpen) {
+      e.preventDefault();
+      stepFind(e.shiftKey ? -1 : 1);
+    }
+  };
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => findKeys.current?.(e);
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+
+  // The query's occurrences in the matching items' text, where the browser
+  // can mark them, kept as the transcript changes.
+  useEffect(() => {
+    const registry = highlightRegistry();
+    const root = content.current;
+    if (!findOpen || !registry || !root) return;
+    const paint = () => {
+      const others: Range[] = [];
+      const current: Range[] = [];
+      for (const id of matches) {
+        const el = root.querySelector(`[data-item-id="${CSS.escape(id)}"]`);
+        if (el) (id === currentMatch ? current : others).push(...occurrenceRanges(el, findQuery));
+      }
+      registry.set("find-match", new Highlight(...others));
+      registry.set("find-current", new Highlight(...current));
+    };
+    paint();
+    let frame = 0;
+    const mo = new MutationObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(paint);
+    });
+    mo.observe(root, { subtree: true, childList: true, characterData: true });
+    return () => {
+      mo.disconnect();
+      cancelAnimationFrame(frame);
+      registry.delete("find-match");
+      registry.delete("find-current");
+    };
+  }, [findOpen, findQuery, matches, currentMatch]);
   const outbox = [...store.outbox.entries()].sort(([a], [b]) => a.localeCompare(b));
   const drop = useImageDrop(session?.archived ? undefined : attachments);
   const composer = useRef<ComposerHandle>(null);
@@ -189,6 +330,7 @@ export function SessionView({
   }, []);
 
   const menu: MenuEntry[] = [
+    { label: "Find in Session", icon: Search, onSelect: openFind },
     harness?.modes?.length
       ? {
           section: "Permissions",
@@ -276,12 +418,32 @@ export function SessionView({
           </div>
           <Menu label={<Ellipsis />} title="Session" entries={menu} />
         </header>
+        {findOpen && (
+          <FindBar
+            field={findField}
+            query={findQuery}
+            onQuery={setFind}
+            count={matches.length}
+            index={matchIndex}
+            onNext={() => stepFind(1)}
+            onPrevious={() => stepFind(-1)}
+            onClose={() => setFindOpen(false)}
+          />
+        )}
         {/* In place of the messages, they stay underneath, hidden, so they keep their place. */}
         <div className={"session-main" + (terminal === "over" ? " covered" : "")}>
-          <div className="transcript-scroll" ref={scroller} onScroll={(e) => {
-            const el = e.currentTarget;
-            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-          }}>
+          <div
+            className="transcript-scroll"
+            ref={scroller}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            }}
+            onWheel={() => (anchor.current = undefined)}
+            onTouchStart={() => (anchor.current = undefined)}
+            onPointerDown={() => (anchor.current = undefined)}
+            onKeyDown={() => (anchor.current = undefined)}
+          >
             <div className="transcript" ref={content}>
               {!store.synced && (
                 <div className="center pad">
@@ -290,7 +452,13 @@ export function SessionView({
               )}
               {rows.map((r) =>
                 r.kind === "item" ? (
-                  <ItemView key={r.item.id} item={r.item} store={store} harness={harness} />
+                  <div
+                    key={r.item.id}
+                    className={"item-row" + (matchSet.has(r.item.id) ? (r.item.id === currentMatch ? " find-current" : " find-match") : "")}
+                    data-item-id={r.item.id}
+                  >
+                    <ItemView item={r.item} store={store} harness={harness} />
+                  </div>
                 ) : (
                   <TurnFooter key={"turn-" + r.turn.id} turn={r.turn} />
                 ),
@@ -346,6 +514,75 @@ export function SessionView({
       {(terminal === "below" || terminal === "right") && <DockedTerminal placement={terminal} panel={panel} />}
     </div>
   );
+}
+
+/** Find in the session, atop the transcript: Return goes to the next match
+ *  and Shift+Return to the previous one, and Esc closes it. */
+function FindBar({
+  field,
+  query,
+  onQuery,
+  count,
+  index,
+  onNext,
+  onPrevious,
+  onClose,
+}: {
+  field: React.RefObject<HTMLInputElement | null>;
+  query: string;
+  onQuery: (q: string) => void;
+  count: number;
+  index: number;
+  onNext: () => void;
+  onPrevious: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="find-bar" role="search">
+      <div className="search-field">
+        <Search size={14} className="c-overlay" aria-hidden />
+        <input
+          ref={field}
+          type="search"
+          placeholder="Find in session"
+          aria-label="Find in session"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing) return;
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (e.shiftKey) onPrevious();
+              else onNext();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              onClose();
+            }
+          }}
+        />
+      </div>
+      <span className="find-count" aria-live="polite">
+        {query.trim() === "" ? "" : count === 0 ? "No matches" : `${index + 1} of ${count}`}
+      </span>
+      <button className="icon-button" onClick={onPrevious} disabled={count === 0} title="Previous (⇧⌘G)" aria-label="Previous match">
+        <ChevronUp size={18} />
+      </button>
+      <button className="icon-button" onClick={onNext} disabled={count === 0} title="Next (⌘G)" aria-label="Next match">
+        <ChevronDown size={18} />
+      </button>
+      <button className="link find-done" onClick={onClose}>
+        Done
+      </button>
+    </div>
+  );
+}
+
+/** A moment's tint behind an item, fading out, as when a search result
+ *  opens it: on its overlay (`.item-row::after`), which also tints cards. */
+function flash(el: HTMLElement) {
+  const color = getComputedStyle(el).getPropertyValue("--flash").trim();
+  if (!color || typeof el.animate !== "function") return;
+  el.animate([{ backgroundColor: color }, { backgroundColor: "transparent" }], { duration: 2000, easing: "ease-out", pseudoElement: "::after" });
 }
 
 /** What the agent left running after its turn; it reports back in a turn of

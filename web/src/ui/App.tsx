@@ -6,16 +6,17 @@ import { useObserved, useObservedAll } from "../store/observable";
 import { storage } from "../store/storage";
 import type { ServerConnection } from "../store/serverConnection";
 import type { SavedServer, ServerStore } from "../store/serverStore";
+import { SessionSearch } from "../store/sessionSearch";
 import { AddServer } from "./AddServer";
 import { ConnectionDot } from "./components";
-import { ConnectionContext, ServerStoreContext, useServerStore } from "./context";
+import { ConnectionContext, ServerStoreContext, SessionSearchContext, useServerStore, useSessionSearch } from "./context";
 import { ForkSession } from "./ForkSession";
 import { NewSession } from "./NewSession";
 import { Confirm, Empty, Menu } from "./primitives";
 import { navigate, useRoute, useWide, type Route, type Tab } from "./router";
 import { ServerHome } from "./ServerHome";
 import { CollectionsSidebar, SessionListColumn } from "./ColumnsSidebar";
-import { reconnect, serverSettingsEntry, SessionsSidebar, type ServerActions } from "./SessionsSidebar";
+import { focusSearchFieldOnMount, isSearchShortcut, reconnect, serverSettingsEntry, SessionsSidebar, type ServerActions } from "./SessionsSidebar";
 import { ServerSettingsView } from "./ServerSettings";
 import { ArchiveConfirm, DeleteConfirm } from "./SessionRow";
 import { useSettings } from "./settings";
@@ -48,9 +49,13 @@ type Sheet =
   | { kind: "rename"; server: SavedServer };
 
 export function App({ store }: { store: ServerStore }) {
+  // One search for the app run, across every server paired.
+  const [search] = useState(() => new SessionSearch(() => store.servers.map((s) => store.connection(s))));
   return (
     <ServerStoreContext.Provider value={store}>
-      <Root />
+      <SessionSearchContext.Provider value={search}>
+        <Root />
+      </SessionSearchContext.Provider>
     </ServerStoreContext.Provider>
   );
 }
@@ -112,6 +117,21 @@ function Root() {
   useEffect(() => {
     places.current[route.tab] = route;
   }, [route.tab, route.serverID, route.sessionID]);
+
+  // In a narrow window, the search shortcut brings up the Inbox tab's field
+  // from anywhere else; where the field shows, it takes the shortcut itself.
+  const searchShown = wide || (route.tab === "inbox" && !route.sessionID);
+  useEffect(() => {
+    if (searchShown) return;
+    const key = (e: KeyboardEvent) => {
+      if (!isSearchShortcut(e) || store.servers.length === 0) return;
+      e.preventDefault();
+      focusSearchFieldOnMount();
+      navigate({ tab: "inbox" });
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [searchShown, store]);
 
   // A phone with one server opens it the first time the Servers tab shows,
   // as the iPhone app does, rather than taking the user out of the Inbox.
@@ -266,6 +286,7 @@ function Split({
   focusPrompt: boolean;
 }) {
   const store = useServerStore();
+  const search = useSessionSearch();
   const { sidebarLayout: layout } = useSettings();
   const connections = store.servers.map((s) => store.connection(s));
   useObservedAll(connections);
@@ -289,8 +310,10 @@ function Split({
   }, [route.serverID, route.sessionID]);
 
   // Chosen in the sidebar: the session beside it is one of the collection's,
-  // the one opened last, else its first.
+  // the one opened last, else its first. As in Mail, it ends a search,
+  // whose results had the place of the collection's sessions.
   const choose = (c: SessionCollection) => {
+    search.setQuery("");
     if (sameCollection(c, collection)) return;
     setCollection(c);
     const open = sessionToOpen(collectionSessions(c, store), recentSessions(storage.get(recentKey)));

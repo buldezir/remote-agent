@@ -1,5 +1,6 @@
 package dev.remoteagent.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -7,16 +8,26 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,15 +37,28 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -43,8 +67,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.remoteagent.app.platform.AppSettings
 import dev.remoteagent.app.platform.AppSettings.Keys
 import dev.remoteagent.app.platform.state
@@ -59,16 +85,26 @@ import kotlinx.coroutines.launch
  * The split view around it shows the dialogs its rows ask for. Mirrors
  * apple/Shared/Views/SessionsSidebar.swift.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SessionsSidebar(
     layout: SidebarLayout,
     servers: List<ServerState>,
     selection: SessionKey?,
     onOpenSession: (SessionKey) -> Unit,
+    onOpenResult: (SessionKey, itemId: String?) -> Unit,
     onAdd: () -> Unit,
     onSettings: () -> Unit,
     narrow: Boolean = false,
 ) {
+    // On a phone, Back leaves the search before it leaves the app; with the
+    // keyboard up, it first only hides the keyboard. (A handler enabled once
+    // the query has text would come before the keyboard's otherwise.)
+    if (narrow) {
+        val search = LocalSearch.current
+        val query by search.query.collectAsStateWithLifecycle()
+        BackHandler(enabled = query.isNotEmpty() && !WindowInsets.isImeVisible) { search.clear() }
+    }
     Screen(
         title = { Text(if (narrow) "Inbox" else "Sessions", style = Type.title) },
         background = palette.mantle,
@@ -81,12 +117,191 @@ fun SessionsSidebar(
                 action = "Pair a server" to onAdd, modifier = Modifier.padding(padding),
             )
         } else {
-            SidebarRefresh(servers, Modifier.padding(padding)) {
-                when (layout) {
-                    SidebarLayout.PROJECTS -> ProjectsSidebar(servers, selection, onOpenSession)
-                    else -> InboxSidebar(servers, selection, onOpenSession, showsServers = !narrow)
+            Column(Modifier.padding(padding)) {
+                SidebarSearchField(palette.mantle)
+                SearchableRows(servers, selection, onOpenResult, palette.mantle) {
+                    SidebarRefresh(servers) {
+                        when (layout) {
+                            SidebarLayout.PROJECTS -> ProjectsSidebar(servers, selection, onOpenSession)
+                            else -> InboxSidebar(servers, selection, onOpenSession, showsServers = !narrow)
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The search across servers, atop a list of sessions: every layout's, and
+ * the Inbox tab's. A query of two characters or more shows the sessions it
+ * finds in place of the list (SearchableRows). While there is a query, a
+ * toggle leaves archived sessions out. Ctrl+Shift+F on a keyboard comes
+ * here; Esc empties it and leaves it.
+ */
+@Composable
+fun SidebarSearchField(background: Color, modifier: Modifier = Modifier) {
+    val search = LocalSearch.current
+    val query by search.query.collectAsStateWithLifecycle()
+    val archived by search.includeArchived.collectAsStateWithLifecycle()
+    // The field's own copy, changed as it is typed: the search's comes back a
+    // frame later. A change from elsewhere, such as Back emptying it, comes in.
+    var text by remember { mutableStateOf(search.query.value) }
+    LaunchedEffect(query) { search.query.value.let { if (it != text) text = it } }
+    val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val shortcuts = LocalShortcuts.current
+    LaunchedEffect(shortcuts) {
+        shortcuts.collect { if (it == Shortcut.SEARCH_SESSIONS) runCatching { focus.requestFocus() } }
+    }
+    fun change(value: String) {
+        text = value
+        search.setQuery(value)
+    }
+    Column(modifier.fillMaxWidth().background(background).padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 6.dp)) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(Metrics.Corner.field)).background(palette.surface0)
+                .padding(start = 10.dp, end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(painterResource(Icons.search), null, Modifier.size(18.dp), tint = palette.overlay)
+            BasicTextField(
+                value = text,
+                onValueChange = ::change,
+                singleLine = true,
+                textStyle = Type.body.copy(color = palette.text),
+                cursorBrush = SolidColor(palette.accent),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
+                modifier = Modifier.weight(1f).padding(vertical = 9.dp).focusRequester(focus)
+                    .onPreviewKeyEvent {
+                        if (it.key == Key.Escape && it.type == KeyEventType.KeyDown) {
+                            change("")
+                            focusManager.clearFocus()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    .testTag("search-field"),
+                decorationBox = { inner ->
+                    Box {
+                        if (text.isEmpty()) Text("Search sessions", style = Type.body, color = palette.overlay, maxLines = 1)
+                        inner()
+                    }
+                },
+            )
+            if (text.isNotEmpty()) {
+                IconButton({ change("") }, Modifier.size(32.dp).testTag("search-clear")) {
+                    Icon(painterResource(Icons.close), "Clear", Modifier.size(16.dp), tint = palette.overlay)
+                }
+            }
+        }
+        if (text.isNotEmpty()) {
+            Row(
+                Modifier.padding(top = 4.dp).clip(RoundedCornerShape(Metrics.Corner.card))
+                    .toggleable(archived, role = Role.Checkbox) { search.setIncludeArchived(it) }
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
+                    .testTag("search-archived"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    painterResource(if (archived) Icons.checkboxOn else Icons.checkboxOff), null, Modifier.size(18.dp),
+                    tint = if (archived) palette.accent else palette.overlay,
+                )
+                Text("Include archived", style = Type.subheadline, color = palette.subtext)
+            }
+        }
+    }
+}
+
+/**
+ * A sidebar's rows, or while a search is active, the sessions it found in
+ * their place. The rows keep their state, such as where they were
+ * scrolled to and what was open, while the results show.
+ */
+@Composable
+fun ColumnScope.SearchableRows(
+    servers: List<ServerState>,
+    selection: SessionKey?,
+    onOpenResult: (SessionKey, itemId: String?) -> Unit,
+    background: Color,
+    rows: @Composable () -> Unit,
+) {
+    val active by LocalSearch.current.active.collectAsStateWithLifecycle()
+    val saved = rememberSaveableStateHolder()
+    Box(Modifier.weight(1f).fillMaxWidth()) {
+        if (active) SearchResultsList(servers, selection, onOpenResult, background) else saved.SaveableStateProvider("rows") { rows() }
+    }
+}
+
+/**
+ * The sessions a search found on every server, merged, with how it went
+ * below them: still searching, nothing found, more than it lists, and the
+ * servers that are indexing, failed or need a newer rad. A result opens its
+ * session at the item that matched; the results stay, with it selected.
+ */
+@Composable
+private fun SearchResultsList(
+    servers: List<ServerState>,
+    selection: SessionKey?,
+    onOpenResult: (SessionKey, itemId: String?) -> Unit,
+    background: Color,
+) {
+    val search = LocalSearch.current
+    val query by search.query.collectAsStateWithLifecycle()
+    val hits by search.hits.collectAsStateWithLifecycle()
+    val searching by search.isSearching.collectAsStateWithLifecycle()
+    val failures by search.failures.collectAsStateWithLifecycle()
+    val more by search.more.collectAsStateWithLifecycle()
+    val indexing by search.indexing.collectAsStateWithLifecycle()
+    val unsupported by search.unsupported.collectAsStateWithLifecycle()
+    val answered by search.answered.collectAsStateWithLifecycle()
+    val noServers by search.noServers.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
+    val showsServer = servers.size > 1
+    // The session as the index has it now, such as read since; as found, if the index lacks it.
+    val rows = hits.mapNotNull { hit ->
+        servers.firstOrNull { it.id == hit.serverId }?.let { s ->
+            Triple(hit, ServerSession(s, s.sessions[hit.result.session.id] ?: hit.result.session), hit.result)
+        }
+    }
+    val notes = buildList {
+        // Only once a server answered: failures say why instead.
+        if (!searching && hits.isEmpty() && answered > 0) add("No sessions match “${query.trim()}”.")
+        if (!searching && noServers) add("No server is connected.")
+        if (more) add("More sessions match. Add words to narrow it down.")
+        for (name in indexing) add("$name is still indexing older sessions, so some may be missing.")
+        for (f in failures) add("Couldn't search ${f.server}: ${f.message}")
+        for (name in unsupported) add("Update rad on $name to search its sessions.")
+    }
+    LazyColumn(Modifier.fillMaxSize().background(background).testTag("search-results")) {
+        items(rows, key = { it.first.id }) { (hit, item, result) ->
+            SessionLink(
+                item, selected = item.key == selection, modifier = Modifier.animateItem(), background = background, tag = "search-result",
+                onOpen = { key ->
+                    focusManager.clearFocus()
+                    onOpenResult(key, hit.result.itemId)
+                },
+            ) {
+                SearchResultRow(item, result, showsServer)
+            }
+        }
+        if (searching) {
+            item(key = "searching") {
+                Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(Modifier.size(16.dp), color = palette.subtext, strokeWidth = 2.dp)
+                }
+            }
+        }
+        items(notes, key = { "note/$it" }) { note ->
+            Text(
+                note, style = Type.subheadline, color = palette.subtext,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).testTag("search-note"),
+            )
         }
     }
 }

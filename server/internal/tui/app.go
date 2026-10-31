@@ -42,6 +42,7 @@ const (
 	focusSidebar focusArea = iota
 	focusTranscript
 	focusComposer // or the approval dock in its place
+	focusFind     // the session's find bar
 )
 
 // Messages.
@@ -74,6 +75,7 @@ type Model struct {
 	sess          *sessionView
 	opened        client.OpenedSession
 	overlays      []overlay
+	search        *client.SessionSearch
 
 	termFocused bool
 	frame       int
@@ -121,6 +123,7 @@ func New(opts Options) *Model {
 	}
 	m.images = newImageStore()
 	m.notifier = newNotifier()
+	m.search = m.newSessionSearch()
 	m.applyTheme()
 	m.conn.OnSessionChange = m.sessionChanged
 	return m
@@ -271,6 +274,8 @@ func (m *Model) afterUpdate() []tea.Cmd {
 		m.setFocus(focusComposer)
 	} else if m.focus != focusSidebar && (m.sess == nil || !l.showPane) {
 		m.focus = focusSidebar
+	} else if m.focus == focusFind && !m.sess.showsFind() {
+		m.setFocus(focusTranscript)
 	}
 	if m.sess != nil {
 		id := m.sess.store.ID
@@ -311,7 +316,10 @@ func (m *Model) animating() bool {
 	if m.conn.State.Kind == client.Connecting {
 		return true
 	}
-	if m.sess != nil && (!m.sess.store.Synced || m.sess.uploading()) {
+	if m.sess != nil && (!m.sess.store.Synced || m.sess.uploading() || m.sess.flashing()) {
+		return true
+	}
+	if m.search.IsSearching {
 		return true
 	}
 	for _, o := range m.overlays {
@@ -358,6 +366,9 @@ func (m *Model) openSession(id string) {
 	m.state.LastSession = id
 	m.state.Recent = client.AddingRecent(m.state.Recent, id)
 	m.side.cursor = "s:" + id
+	if h, ok := m.side.hitFor(m, id); ok {
+		m.side.cursor = "r:" + h.ID()
+	}
 	m.saveState()
 }
 
@@ -601,9 +612,19 @@ func (m *Model) hints() [][2]string {
 	}
 	switch m.focus {
 	case focusSidebar:
-		return [][2]string{{"enter", "open"}, {"ctrl+n", "new"}, {"ctrl+k", "jump"}, {"ctrl+h", "help"}}
+		if m.side.searching {
+			return m.side.searchHints(m)
+		}
+		if m.search.Active() {
+			return [][2]string{{"enter", "open"}, {"/", "search"}, {"esc", "clear"}, {"ctrl+h", "help"}}
+		}
+		return [][2]string{{"enter", "open"}, {"ctrl+n", "new"}, {"ctrl+k", "jump"}, {"/", "search"}, {"ctrl+h", "help"}}
 	case focusTranscript:
-		return [][2]string{{"enter", "expand"}, {"esc", "list"}, {"ctrl+p", "actions"}, {"ctrl+h", "help"}}
+		return [][2]string{{"enter", "expand"}, {"ctrl+f", "find"}, {"esc", "list"}, {"ctrl+p", "actions"}, {"ctrl+h", "help"}}
+	case focusFind:
+		if m.sess != nil {
+			return m.sess.findHints()
+		}
 	}
 	if m.sess != nil {
 		return m.sess.hints(m)
@@ -643,6 +664,15 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 			m.sess.composer.reset(m)
 			return nil
 		}
+		if m.focus == focusFind && m.sess != nil && m.sess.showsFind() && m.sess.find.input.Value() != "" {
+			m.sess.find.input.SetValue("")
+			m.sess.refreshFind()
+			return nil
+		}
+		if m.focus == focusSidebar && m.side.searching && m.side.search.Value() != "" {
+			m.side.setQuery(m, "")
+			return nil
+		}
 		if time.Since(m.quitAt) < 2*time.Second {
 			return tea.Quit
 		}
@@ -658,6 +688,15 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "ctrl+k":
 		m.push(newSwitcher(m))
+		return nil
+	case "ctrl+f":
+		// Search the sessions from the list; find in the session from it.
+		if m.focus == focusSidebar {
+			m.side.inColls = false
+			m.side.focusSearch(m)
+		} else if m.sess != nil {
+			m.sess.openFind(m)
+		}
 		return nil
 	case "ctrl+p":
 		if m.sess != nil {
@@ -686,24 +725,35 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		m.cycleFocus(key == "shift+tab")
 		return nil
 	}
-	if key == "r" && m.conn.State.Kind == client.Failed && m.focus != focusComposer {
+	if key == "r" && m.conn.State.Kind == client.Failed && !m.typing() {
 		m.conn.Retry()
 		return nil
 	}
-	if key == "?" && m.focus != focusComposer {
+	if key == "?" && !m.typing() {
 		m.push(newHelp())
 		return nil
 	}
 	switch m.focus {
 	case focusSidebar:
 		return m.side.key(m, k)
-	case focusTranscript, focusComposer:
+	case focusTranscript, focusComposer, focusFind:
 		if m.sess != nil {
 			return m.sess.key(m, k)
 		}
 		m.focus = focusSidebar
 	}
 	return nil
+}
+
+// typing: what has the keys takes text, so letters aren't keys.
+func (m *Model) typing() bool {
+	switch m.focus {
+	case focusComposer, focusFind:
+		return true
+	case focusSidebar:
+		return m.side.searching
+	}
+	return false
 }
 
 func (m *Model) cycleFocus(back bool) {
@@ -713,6 +763,9 @@ func (m *Model) cycleFocus(back bool) {
 		order = append(order, focusSidebar)
 	}
 	if m.sess != nil && l.showPane {
+		if m.sess.showsFind() {
+			order = append(order, focusFind)
+		}
 		order = append(order, focusTranscript, focusComposer)
 	}
 	if len(order) == 0 {
@@ -745,6 +798,9 @@ func (m *Model) toList() {
 	}
 	if m.sess != nil {
 		m.side.cursor = "s:" + m.sess.store.ID
+		if h, ok := m.side.hitFor(m, m.sess.store.ID); ok {
+			m.side.cursor = "r:" + h.ID()
+		}
 		m.side.inColls = false
 		// An archived session folded away: its fold.
 		if _, ok := m.side.current(m.side.rows(m)); !ok && m.sess.store.Session != nil && m.sess.store.Session.Archived {
@@ -755,6 +811,9 @@ func (m *Model) toList() {
 }
 
 func (m *Model) setFocus(f focusArea) {
+	if f != focusSidebar {
+		m.side.blurSearch()
+	}
 	m.focus = f
 	if m.sess != nil {
 		m.sess.focusChanged(m)
@@ -766,6 +825,14 @@ func (m *Model) paste(text string) tea.Cmd {
 		if p, ok := o.(interface{ paste(*Model, string) tea.Cmd }); ok {
 			return p.paste(m, text)
 		}
+		return nil
+	}
+	if m.focus == focusSidebar && m.side.searching {
+		m.side.setQuery(m, m.side.search.Value()+strings.TrimSpace(strings.ReplaceAll(text, "\n", " ")))
+		return nil
+	}
+	if m.focus == focusFind && m.sess != nil && m.sess.showsFind() {
+		m.sess.findPaste(text)
 		return nil
 	}
 	if m.sess != nil {
@@ -816,6 +883,8 @@ func (m *Model) click(c tea.MouseClickMsg) tea.Cmd {
 	if m.sess != nil && mouse.Y < l.bodyH {
 		if mouse.Y >= l.bodyH-m.sess.bottomHeight {
 			m.setFocus(focusComposer)
+		} else if m.sess.findY >= 0 && mouse.Y == m.sess.findY {
+			m.setFocus(focusFind)
 		} else {
 			m.setFocus(focusTranscript)
 			m.sess.press(mouse.X-l.paneX(), mouse.Y)

@@ -36,6 +36,10 @@ public final class SessionStore {
 
     var lastSeq: Int64 = 0
     var live = false
+    /// Synchronized since this device last subscribed, and applying events
+    /// as they come: the transcript is as the server has it. A store kept
+    /// from an earlier visit is `synced`, but not live until its replay is in.
+    public var isLive: Bool { synced && live }
     // Views showing the session. On iPad, two windows can show the same one.
     private var viewers = 0
     var isActive: Bool { viewers > 0 }

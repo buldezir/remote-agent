@@ -6,6 +6,8 @@ struct ItemView: View {
     let store: SessionStore
     /// The session's agent, which says whether a queued prompt can steer.
     var harness: HarnessInfo?
+    /// The find bar's query, which the item's text marks.
+    @Environment(\.findHighlight) private var highlight
 
     var body: some View {
         switch item.kind {
@@ -28,13 +30,15 @@ struct ItemView: View {
         case .plan:
             PlanView(plan: item.plan)
         case .notice:
-            Text(item.text ?? "")
+            Text(FindHighlight.text(item.text ?? "", highlight))
                 .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
         case .error:
-            Label(item.text ?? "Error", systemImage: "exclamationmark.triangle.fill")
+            Label { Text(FindHighlight.text(item.text ?? "Error", highlight)) } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
                 .scaledFont(.footnote)
                 .foregroundStyle(Palette.red)
         case .unknown:
@@ -59,6 +63,7 @@ struct UserBubble: View {
     var cancelQueued: (() async throws -> Void)?
     @State private var sending = false
     @State private var error: String?
+    @Environment(\.findHighlight) private var highlight
 
     var body: some View {
         HStack {
@@ -70,7 +75,7 @@ struct UserBubble: View {
                         .padding(.bottom, 2)
                 }
                 if !text.isEmpty {
-                    Text(text)
+                    Text(FindHighlight.text(text, highlight))
                         .messageFont()
                         .textSelection(.enabled)
                         .padding(.horizontal, 10)
@@ -202,6 +207,7 @@ struct ToolCallView: View {
     let children: [Item]
     let store: SessionStore
     @State private var expanded = false
+    @Environment(\.findHighlight) private var highlight
 
     private var tool: ToolCall? { item.tool }
 
@@ -214,7 +220,7 @@ struct ToolCallView: View {
                     Image(systemName: icon)
                         .foregroundStyle(.secondary)
                         .frame(width: 18)
-                    Text(tool?.title ?? tool?.name ?? "Tool")
+                    Text(FindHighlight.text(tool?.title ?? tool?.name ?? "Tool", highlight))
                         .messageRelativeFont(Metrics.toolText, design: .monospaced)
                         .lineLimit(expanded ? nil : 2)
                         .multilineTextAlignment(.leading)
@@ -245,6 +251,8 @@ struct ToolCallView: View {
                     }
                     .padding(.leading, 10)
                     .overlay(alignment: .leading) { Rectangle().fill(.quaternary).frame(width: 2) }
+                    // Sub-agents' items aren't searched.
+                    .environment(\.findHighlight, nil)
                 }
             } else if !children.isEmpty {
                 Text("\(children.count) sub-agent step\(children.count == 1 ? "" : "s")")
@@ -364,6 +372,7 @@ struct CodeBlock: View {
 
 struct PlanView: View {
     let plan: Plan?
+    @Environment(\.findHighlight) private var highlight
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -375,7 +384,7 @@ struct PlanView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: e.status == "completed" ? "checkmark.circle.fill" : e.status == "in_progress" ? "circle.dotted.circle" : "circle")
                         .foregroundStyle(e.status == "completed" ? Palette.green : e.status == "in_progress" ? Palette.peach : Palette.subtext)
-                    Text(e.content)
+                    Text(FindHighlight.text(e.content, highlight))
                         .scaledFont(.footnote)
                         .strikethrough(e.status == "completed", color: Palette.subtext)
                         .foregroundStyle(e.status == "completed" ? .secondary : .primary)
@@ -397,6 +406,7 @@ struct ApprovalView: View {
     @State private var askingReason: ApprovalOption?
     @State private var busy = false
     @State private var error: String?
+    @Environment(\.findHighlight) private var highlight
 
     private var approval: Approval? { item.approval }
 
@@ -449,7 +459,7 @@ struct ApprovalView: View {
 
     private func questionView(_ q: Question) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(q.question).scaledFont(.footnote, weight: .medium)
+            Text(FindHighlight.text(q.question, highlight)).scaledFont(.footnote, weight: .medium)
             FlowChips(options: q.options.map(\.label), selected: answers[q.question] ?? []) { label in
                 var set = answers[q.question] ?? []
                 if q.multiSelect == true {
@@ -557,7 +567,7 @@ struct ApprovalView: View {
                 .lineLimit(2)
             if let answers = a?.decision?.answers, !answers.isEmpty {
                 ForEach(answers.sorted(by: { $0.key < $1.key }), id: \.key) { q, ans in
-                    Text("\(q) → \(ans)").scaledFont(.caption2).foregroundStyle(.secondary)
+                    Text(FindHighlight.text("\(q) → \(ans)", highlight)).scaledFont(.caption2).foregroundStyle(.secondary)
                 }
             }
             if let m = a?.decision?.message, !m.isEmpty {

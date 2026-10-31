@@ -763,6 +763,23 @@ func (c *ServerConnection) Import(ctx context.Context, p ImportSession) (model.S
 	return s, nil
 }
 
+// Search finds sessions by what was said in them, and by their title and
+// branch, best first (session.search): archived ones too with archived, at
+// most limit of them (0: rad's default). Only when the server searches
+// (ServerInfo.Search).
+func (c *ServerConnection) Search(ctx context.Context, query string, archived bool, limit int) (model.SearchResults, error) {
+	params := map[string]any{"query": query}
+	if archived {
+		params["archived"] = true
+	}
+	if limit > 0 {
+		params["limit"] = limit
+	}
+	var r model.SearchResults
+	err := c.rpc.CallTimeout(ctx, "session.search", params, &r, 15*time.Second)
+	return r, err
+}
+
 // SaveDraft keeps a prompt in the session, unsent, for any device to send
 // later, in place of the draft it had; no text and no images remove it.
 // Saving it twice does no harm, so it is sent again after a drop, as

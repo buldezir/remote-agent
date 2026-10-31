@@ -80,6 +80,7 @@ type Styles struct {
 	Button, ButtonDeny, ButtonOn    lipgloss.Style
 	Code                            lipgloss.Style
 	Add, Del                        lipgloss.Style
+	Match                           lipgloss.Style // a search's match in a snippet
 	Panel                           lipgloss.Style // a docked panel's border
 	Dialog                          lipgloss.Style
 }
@@ -110,12 +111,24 @@ func NewStyles(p Palette) Styles {
 		Code:       s().Foreground(p.Text).Background(p.Surface0),
 		Add:        s().Foreground(p.Green),
 		Del:        s().Foreground(p.Red),
+		Match:      s().Foreground(p.Text).Background(blend(p.Base, p.Yellow, 0.35)).Bold(true),
 		Panel:      s().Border(lipgloss.RoundedBorder()).BorderForeground(p.Accent).Padding(0, 1),
 		Dialog:     s().Border(lipgloss.RoundedBorder()).BorderForeground(p.Accent).Padding(0, 1),
 	}
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// blend is fg over bg at opacity t: a colour the apps draw translucent,
+// which a terminal can't, on the background.
+func blend(bg, fg color.Color, t float64) color.Color {
+	br, bgr, bb, _ := bg.RGBA()
+	fr, fgr, fb, _ := fg.RGBA()
+	mix := func(x, y uint32) uint8 {
+		return uint8(float64(x>>8)*(1-t) + float64(y>>8)*t + 0.5)
+	}
+	return color.RGBA{R: mix(br, fr), G: mix(bgr, fgr), B: mix(bb, fb), A: 255}
+}
 
 var chromaMu sync.Mutex
 

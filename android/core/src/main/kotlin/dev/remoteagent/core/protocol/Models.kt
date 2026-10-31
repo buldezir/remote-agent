@@ -531,7 +531,41 @@ data class ServerInfo(
     val forks: Boolean? = null,
     /** The server commits, pushes and opens pull requests (`git.commitPreview`, `git.commit`). */
     val commit: Boolean? = null,
+    /** The server finds sessions by what was said in them (`session.search`); an older one answers `method_not_found`. */
+    val search: Boolean? = null,
 )
+
+/** `session.search`'s result (`ServerConnection.search`). */
+@Serializable
+data class SearchResults(
+    /** The sessions found, the best first. */
+    val results: List<SearchResult> = emptyList(),
+    /** More sessions match than the limit. */
+    val more: Boolean = false,
+    /** rad is still indexing sessions an older rad wrote, which may be missing. */
+    val indexing: Boolean = false,
+)
+
+/**
+ * A session that `session.search` found, with the item in it that matches
+ * best: else its title or branch matched.
+ */
+@Serializable
+data class SearchResult(
+    val session: Session,
+    /** Null: only the title or the branch matched. */
+    val itemId: String? = null,
+    /** The item's kind. */
+    val itemKind: ItemKind? = null,
+    /** The match in its context, its words marked. */
+    val snippet: List<SnippetPart> = emptyList(),
+    /** The session's items that match. */
+    val matches: Int = 0,
+)
+
+/** A run of a snippet's text: [match] marks the words the query found. */
+@Serializable
+data class SnippetPart(val text: String, val match: Boolean = false)
 
 /**
  * The agent, and its model, that does rad's own small jobs: naming new

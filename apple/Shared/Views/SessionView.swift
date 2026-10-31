@@ -6,6 +6,10 @@ struct SessionView: View {
     @Bindable var store: SessionStore
     /// The prompt takes the keyboard: the session was just started empty.
     var focusesPrompt = false
+    /// An item to open the session at, from a search result: this view
+    /// scrolls to it and flashes it once it's there, then lets it go. Only a
+    /// request for this session counts.
+    var focusItem: Binding<ItemFocus?> = .constant(nil)
     /// Opens a fork of the session, as a new session opens: with whether it
     /// opened without a prompt.
     var onForked: (Session, _ empty: Bool) -> Void
@@ -36,6 +40,14 @@ struct SessionView: View {
     @State private var attachments = Attachments()
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
     @FocusState private var composerFocused: Bool
+    /// The find bar over the transcript, its query and the match it's on.
+    @State private var findShown = false
+    @State private var findQuery = ""
+    @State private var findCurrent: String?
+    @FocusState private var findFocused: Bool
+    /// The item a search result opened at, while it flashes.
+    @State private var flashing: String?
+    @State private var flash = 0.0
     /// Where the prompt's cursor goes, when it's set from here.
     @State private var promptSelection: TextSelection?
     #if os(macOS)
@@ -65,11 +77,12 @@ struct SessionView: View {
     private var unreadInView: Bool { inFront && connection.sessions[store.sessionID]?.isUnread == true }
 
     var body: some View {
+        let matches = findMatches
         // The transcript keeps its place: in place of the messages it stays
         // underneath, hidden, and the terminal below them is the stack's
         // second child.
         VStack(spacing: 0) {
-            transcript
+            transcript(matches)
                 .imagePreviews()
                 .opacity(covered ? 0 : 1)
                 .allowsHitTesting(!covered)
@@ -85,7 +98,10 @@ struct SessionView: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         .background { terminalShortcuts }
+        .background { findShortcuts(canStep: !matches.isEmpty) }
         #if os(macOS)
+        .focusedSceneValue(\.sessionFind, SessionFindCommands(
+            open: openFind, next: { stepFind(1) }, previous: { stepFind(-1) }, canStep: findShown && !matches.isEmpty))
         .safeAreaInset(edge: .top, spacing: 0) {
             if inlineTitle, let s = session { titleHeader(s) }
         }
@@ -158,6 +174,12 @@ struct SessionView: View {
             if !Task.isCancelled { loadingCommands = false }
         }
         .onChange(of: store.draft) { _, _ in commandIndex = 0; commandsDismissed = false }
+        .onChange(of: findQuery) { _, _ in
+            // The newest match first: the transcript opens at its foot.
+            findCurrent = findMatches.last
+            if let id = findCurrent { scrollTo(id) }
+        }
+        .task(id: focusItem.wrappedValue?.id) { await showFocusItem() }
         .onChange(of: unreadInView, initial: true) { _, unread in
             if unread { connection.markRead(store.sessionID) }
         }
@@ -171,8 +193,10 @@ struct SessionView: View {
         }
     }
 
-    private var transcript: some View {
-        ScrollView {
+    private func transcript(_ matches: [String]) -> some View {
+        let matching = Set(matches)
+        let current = currentMatch(matches)
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: Metrics.gap) {
                 if !store.synced {
                     ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
@@ -181,6 +205,8 @@ struct SessionView: View {
                     switch row {
                     case .item(let item):
                         ItemView(item: item, store: store, harness: harness)
+                            .environment(\.findHighlight, matching.contains(item.id) ? findQuery : nil)
+                            .background { itemTint(item.id, match: matching.contains(item.id), current: item.id == current) }
                             .id(item.id)
                     case .turnFooter(let turn):
                         TurnFooter(turn: turn)
@@ -226,6 +252,12 @@ struct SessionView: View {
         .scrollPosition($scrollPosition)
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if findShown {
+                FindBar(query: $findQuery, count: findCount(matches, current: current), canStep: !matches.isEmpty,
+                        focused: $findFocused, next: { stepFind(1) }, previous: { stepFind(-1) }, close: closeFind)
+            }
+        }
         .safeAreaInset(edge: .bottom) { composer }
         .acceptsImages(attachments, via: connection, pasting: composerFocused)
     }
@@ -291,6 +323,136 @@ struct SessionView: View {
     private func toggleTerminal() {
         showTerminal.toggle()
         if !showTerminal { composerFocused = true }
+    }
+
+    // MARK: Find
+
+    /// The items that hold the find bar's query, in the transcript's order.
+    private var findMatches: [String] {
+        findShown ? TranscriptFind.matches(store.transcript, query: findQuery) : []
+    }
+
+    /// The match the find bar is on: the one chosen, else the newest.
+    private func currentMatch(_ matches: [String]) -> String? {
+        if let id = findCurrent, matches.contains(id) { return id }
+        return matches.last
+    }
+
+    private func findCount(_ matches: [String], current: String?) -> String? {
+        if findQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+        guard let current, let i = matches.firstIndex(of: current) else { return "No matches" }
+        return "\(i + 1) of \(matches.count)"
+    }
+
+    private func openFind() {
+        if findShown { findFocused = true } else { findShown = true }
+    }
+
+    private func closeFind() {
+        findShown = false
+        findQuery = ""
+        findCurrent = nil
+        findFocused = false
+        #if os(macOS)
+        // The keyboard goes back to the prompt, as it was before.
+        composerFocused = true
+        #endif
+    }
+
+    /// The next match down the transcript, or with -1 the one before, round
+    /// from the end to the start.
+    private func stepFind(_ delta: Int) {
+        let matches = findMatches
+        guard let current = currentMatch(matches), let i = matches.firstIndex(of: current) else { return }
+        let next = matches[(i + delta + matches.count) % matches.count]
+        findCurrent = next
+        scrollTo(next)
+    }
+
+    /// An item's background: a tint while it holds the find bar's query, a
+    /// stronger one on the match the bar is on, and a flash of the accent
+    /// once a search result opened it.
+    @ViewBuilder private func itemTint(_ id: String, match: Bool, current: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Metrics.Corner.card)
+        if match || id == flashing {
+            ZStack {
+                if match { shape.fill(current ? FindHighlight.current : FindHighlight.match) }
+                if id == flashing { shape.fill(FindHighlight.flash).opacity(flash) }
+            }
+            .padding(.horizontal, -6)
+            .padding(.vertical, -3)
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// Scrolls an item to the middle, and again a moment later: a lazy stack
+    /// places the rows it hasn't laid out yet by estimate, and the first
+    /// jump can stop short.
+    private func scrollTo(_ id: String) {
+        scrollPosition.scrollTo(id: id, anchor: .center)
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            if id == currentMatch(findMatches) || id == flashing {
+                scrollPosition.scrollTo(id: id, anchor: .center)
+            }
+        }
+    }
+
+    /// ⌘F opens the find bar, and ⌘G and ⇧⌘G go to the next and previous
+    /// match, from a keyboard on iPad. The Mac's Edit menu has them.
+    @ViewBuilder private func findShortcuts(canStep: Bool) -> some View {
+        #if os(iOS)
+        Group {
+            Button("Find in Session", action: openFind).keyboardShortcut("f")
+            if findShown && canStep {
+                Button("Find Next") { stepFind(1) }.keyboardShortcut("g")
+                Button("Find Previous") { stepFind(-1) }.keyboardShortcut("g", modifiers: [.command, .shift])
+            }
+        }
+        // hidden() would turn the shortcuts off.
+        .opacity(0)
+        .accessibilityHidden(true)
+        #endif
+    }
+
+    /// The session as the split view or the Inbox opens it.
+    private var route: SessionRoute { SessionRoute(serverID: connection.server.id, sessionID: store.sessionID) }
+
+    /// Opens the session at the item a search result asked for: once the
+    /// transcript is in, the item scrolls to the middle and flashes. An item
+    /// that isn't there any more leaves the transcript at its foot.
+    private func showFocusItem() async {
+        guard let focus = focusItem.wrappedValue, focus.route == route else { return }
+        // Once the transcript is as the server has it: a store kept from an
+        // earlier visit may not have the item yet.
+        while !store.isLive {
+            try? await Task.sleep(for: .milliseconds(50))
+            if Task.isCancelled { return }
+        }
+        // A sub-agent's item shows inside its tool call.
+        let ids = Set(store.transcript.map(\.id))
+        let target = ids.contains(focus.itemID) ? focus.itemID : store.items[focus.itemID]?.parentItemId.flatMap { ids.contains($0) ? $0 : nil }
+        guard let target else {
+            letGo(focus)
+            return
+        }
+        // Once the rows are there.
+        await Task.yield()
+        flashing = target
+        flash = 1
+        scrollTo(target)
+        try? await Task.sleep(for: .milliseconds(400))
+        if Task.isCancelled { return }
+        withAnimation(.easeOut(duration: 2)) { flash = 0 }
+        try? await Task.sleep(for: .seconds(2))
+        if Task.isCancelled { return }
+        if flashing == target { flashing = nil }
+        letGo(focus)
+    }
+
+    /// Done with the request, unless another came meanwhile.
+    private func letGo(_ focus: ItemFocus) {
+        if focusItem.wrappedValue?.id == focus.id { focusItem.wrappedValue = nil }
     }
 
     // MARK: Rows
@@ -745,6 +907,7 @@ struct SessionView: View {
                     }
                     .pickerStyle(.menu)
                 }
+                Button("Find in Session", systemImage: "text.magnifyingglass", action: openFind)
                 if project?.isGitRepo == true {
                     Button("Changes", systemImage: "plusminus") { showDiff = true }
                 }

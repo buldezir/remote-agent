@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ const (
 	rowFold // Archived
 	rowCollection
 	rowNote
+	rowHit // a search result
 )
 
 type sideRow struct {
@@ -39,6 +41,8 @@ type sideRow struct {
 	count      int
 	open       bool // a fold's
 	height     int
+	hit        client.Hit // a search result's
+	lines      []string   // drawn already: a search result's, a long note's
 }
 
 func (r sideRow) selectable() bool { return r.kind != rowHeader && r.kind != rowNote }
@@ -48,44 +52,15 @@ type sidebar struct {
 	offset    int    // lines scrolled
 	collCur   string // Columns: the collections' cursor
 	inColls   bool   // Columns: the collections column has the keys
-	filtering bool
-	filter    textinput.Model
+	searching bool   // the search field has the keys
+	search    textinput.Model
+	width     int       // the list's, as last drawn, for the rows that wrap
+	lastTop   int       // the lines above the list's rows, as last drawn
 	lastRows  []sideRow // as last drawn, for clicks
 	lastColls []sideRow
 	// revealed is the archived session the Archived fold opened for, so
 	// that it opens once and folds again when asked.
 	revealed string
-}
-
-func (s *sidebar) filterText() string {
-	return strings.ToLower(strings.TrimSpace(s.filter.Value()))
-}
-
-func (s *sidebar) matches(sess *model.Session, m *Model) bool {
-	f := s.filterText()
-	if f == "" {
-		return true
-	}
-	if strings.Contains(strings.ToLower(sess.Title), f) {
-		return true
-	}
-	if p := m.conn.Projects[sess.ProjectID]; p != nil && strings.Contains(strings.ToLower(p.Name), f) {
-		return true
-	}
-	return false
-}
-
-func (s *sidebar) filtered(m *Model, list []*model.Session) []*model.Session {
-	if s.filterText() == "" {
-		return list
-	}
-	var out []*model.Session
-	for _, sess := range list {
-		if s.matches(sess, m) {
-			out = append(out, sess)
-		}
-	}
-	return out
 }
 
 // collection is the Columns layout's chosen collection.
@@ -98,8 +73,12 @@ func (s *sidebar) collection(m *Model) client.Collection {
 	return client.Collection{Kind: client.CollectionAll}
 }
 
-// rows lays out the list for the layout in use.
+// rows lays out the list for the layout in use, or a search's results in
+// its place.
 func (s *sidebar) rows(m *Model) []sideRow {
+	if m.search.Active() {
+		return s.searchRows(m)
+	}
 	switch m.settings.Layout {
 	case client.LayoutProjects:
 		return s.projectRows(m)
@@ -118,11 +97,11 @@ func (s *sidebar) sessionRows(list []*model.Session, height int) []sideRow {
 }
 
 func (s *sidebar) archivedRows(m *Model, height int) []sideRow {
-	archived := s.filtered(m, m.conn.ArchivedSessions())
+	archived := m.conn.ArchivedSessions()
 	if len(archived) == 0 {
 		return nil
 	}
-	open := m.state.Folded["archived"] || s.filterText() != ""
+	open := m.state.Folded["archived"]
 	rows := []sideRow{{kind: rowFold, key: "f:archived", title: "Archived", count: len(archived), open: open, height: 1}}
 	if open {
 		rows = append(rows, s.sessionRows(archived, height)...)
@@ -131,7 +110,7 @@ func (s *sidebar) archivedRows(m *Model, height int) []sideRow {
 }
 
 func (s *sidebar) inboxRows(m *Model) []sideRow {
-	active := s.filtered(m, m.conn.ActiveSessions())
+	active := m.conn.ActiveSessions()
 	needs, recent := client.InboxGroups(active, m.opened)
 	var rows []sideRow
 	if len(needs) > 0 {
@@ -143,17 +122,13 @@ func (s *sidebar) inboxRows(m *Model) []sideRow {
 		rows = append(rows, s.sessionRows(recent, 2)...)
 	}
 	if len(active) == 0 && m.conn.IndexSynced {
-		note := "No sessions yet. ctrl+n starts one."
-		if s.filterText() != "" {
-			note = "No sessions match."
-		}
-		rows = append(rows, sideRow{kind: rowNote, key: "n:empty", title: note, height: 1})
+		rows = append(rows, sideRow{kind: rowNote, key: "n:empty", title: "No sessions yet. ctrl+n starts one.", height: 1})
 	}
 	return append(rows, s.archivedRows(m, 2)...)
 }
 
 func (s *sidebar) projectRows(m *Model) []sideRow {
-	active := s.filtered(m, m.conn.ActiveSessions())
+	active := m.conn.ActiveSessions()
 	byProject := map[string][]*model.Session{}
 	for _, sess := range active {
 		byProject[sess.ProjectID] = append(byProject[sess.ProjectID], sess)
@@ -161,10 +136,7 @@ func (s *sidebar) projectRows(m *Model) []sideRow {
 	var rows []sideRow
 	for _, p := range client.ProjectsInOrder(m.conn.SortedProjects(), active) {
 		sessions := byProject[p.ID]
-		if s.filterText() != "" && len(sessions) == 0 && !strings.Contains(strings.ToLower(p.Name), s.filterText()) {
-			continue
-		}
-		open := !m.state.Folded["p:"+p.ID] || s.filterText() != ""
+		open := !m.state.Folded["p:"+p.ID]
 		if m.sess != nil && m.sess.store.Session != nil && m.sess.store.Session.ProjectID == p.ID && s.cursor == "s:"+m.sess.store.ID {
 			open = true
 		}
@@ -202,7 +174,7 @@ func (s *sidebar) collections(m *Model) []sideRow {
 }
 
 func (s *sidebar) collectionSessionRows(m *Model) []sideRow {
-	list := s.filtered(m, client.CollectionSessions(s.collection(m), m.conn))
+	list := client.CollectionSessions(s.collection(m), m.conn)
 	rows := s.sessionRows(list, 3)
 	if len(rows) == 0 && m.conn.IndexSynced {
 		rows = append(rows, sideRow{kind: rowNote, key: "n:empty", title: collectionEmpty(s.collection(m)), height: 1})
@@ -335,7 +307,12 @@ func (s *sidebar) renderRow(m *Model, r sideRow, width int, selected, focused bo
 		}
 		return []string{pad(" "+label, width)}
 	case rowNote:
+		if r.lines != nil {
+			return slices.Clone(r.lines)
+		}
 		return []string{pad(" "+m.st.Faint.Render(truncate(r.title, width-2)), width)}
+	case rowHit:
+		return append(sel(slices.Clone(r.lines)), "")
 	case rowFold:
 		arrow := "▸"
 		if r.open {
@@ -435,8 +412,9 @@ func (s *sidebar) collKey(m *Model) string {
 }
 
 func (s *sidebar) drawList(m *Model, width, height int, focused bool) string {
-	var top []string
-	if m.settings.Layout == client.LayoutColumns {
+	s.width = width
+	top := s.searchField(m, width, focused)
+	if m.settings.Layout == client.LayoutColumns && !m.search.Active() {
 		c := s.collection(m)
 		title := m.st.AccentBold.Render(client.CollectionTitle(c, m.conn))
 		n := len(client.CollectionSessions(c, m.conn))
@@ -445,10 +423,7 @@ func (s *sidebar) drawList(m *Model, width, height int, focused bool) string {
 		}
 		top = append(top, spread(" "+title, m.st.Faint.Render(plural(n, "session", "sessions")+" "), width), "")
 	}
-	if s.filtering || s.filterText() != "" {
-		s.filter.SetWidth(width - 4)
-		top = append(top, " "+s.filter.View())
-	}
+	s.lastTop = len(top)
 	return s.drawColumn(m, s.rows(m), s.cursor, width, height, focused, top, &s.lastRows)
 }
 
@@ -465,6 +440,8 @@ func (s *sidebar) drawColumn(m *Model, rows []sideRow, cursor string, width, hei
 		selected := r.key == cursor
 		if !focused && r.kind == rowSession {
 			selected = r.key == openKey
+		} else if !focused && r.kind == rowHit {
+			selected = "s:"+r.session.ID == openKey
 		} else if !focused && r.kind == rowCollection {
 			selected = r.key == cursor
 		}
@@ -554,20 +531,8 @@ func (s *sidebar) scrollBy(d int) {
 }
 
 func (s *sidebar) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
-	if s.filtering {
-		switch k.String() {
-		case "esc":
-			s.filtering = false
-			s.filter.SetValue("")
-		case "enter", "down":
-			s.filtering = false
-			s.filter.Blur()
-		default:
-			var cmd tea.Cmd
-			s.filter, cmd = s.filter.Update(k)
-			return cmd
-		}
-		return nil
+	if s.searching {
+		return s.searchKey(m, k)
 	}
 	l := m.layout()
 	if m.settings.Layout == client.LayoutColumns && (s.inColls && l.collW > 0) {
@@ -595,11 +560,15 @@ func (s *sidebar) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 			s.cursor = s.moveCursor(rows, s.cursor, -1)
 		}
 	case "/":
-		s.startFilter(m)
+		s.focusSearch(m)
+	case "ctrl+a":
+		if m.search.Active() {
+			s.toggleArchived(m)
+		}
 	case "esc":
-		// Up a level: out of the filter, or to the collections.
-		if s.filterText() != "" {
-			s.filter.SetValue("")
+		// Up a level: out of the search, or to the collections.
+		if s.search.Value() != "" {
+			s.clearSearch(m)
 		} else if m.settings.Layout == client.LayoutColumns && l.collW > 0 {
 			s.inColls = true
 		}
@@ -620,17 +589,6 @@ func (s *sidebar) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 		return s.rowKey(m, rows, k)
 	}
 	return nil
-}
-
-func (s *sidebar) startFilter(m *Model) {
-	s.filtering = true
-	if s.filter.Placeholder == "" {
-		s.filter = textinput.New()
-		s.filter.Prompt = "/ "
-		s.filter.Placeholder = "filter"
-	}
-	styleInput(&s.filter, m)
-	s.filter.Focus()
 }
 
 func (s *sidebar) setFold(m *Model, r sideRow, open bool) {
@@ -660,6 +618,8 @@ func (s *sidebar) rowKey(m *Model, rows []sideRow, k tea.KeyPressMsg) tea.Cmd {
 		case rowSession:
 			m.openSession(r.session.ID)
 			m.setFocus(focusComposer)
+		case rowHit:
+			m.openHit(r.hit, true)
 		case rowProject, rowFold:
 			s.setFold(m, r, !r.open)
 		}
@@ -669,6 +629,8 @@ func (s *sidebar) rowKey(m *Model, rows []sideRow, k tea.KeyPressMsg) tea.Cmd {
 			s.setFold(m, r, !r.open)
 		case rowSession:
 			m.openSession(r.session.ID)
+		case rowHit:
+			m.openHit(r.hit, false)
 		}
 	case "n":
 		switch {
@@ -697,6 +659,10 @@ func (s *sidebar) rowMenu(m *Model, r sideRow) overlay {
 	case r.session != nil:
 		sess := r.session
 		items := []menuItem{{label: "Open", run: func(m *Model) tea.Cmd { m.openSession(sess.ID); m.setFocus(focusComposer); return nil }}}
+		if r.kind == rowHit {
+			h := r.hit
+			items[0].run = func(m *Model) tea.Cmd { m.openHit(h, true); return nil }
+		}
 		if !sess.Archived {
 			items = append(items, menuItem{label: "Archive…", run: func(m *Model) tea.Cmd { m.push(archiveConfirm(m, sess)); return nil }})
 		}
@@ -744,7 +710,7 @@ func (s *sidebar) collectionKey(m *Model, k tea.KeyPressMsg) tea.Cmd {
 		return m.newSession(c.ProjectID)
 	case "/":
 		s.inColls = false
-		s.startFilter(m)
+		s.focusSearch(m)
 	case ".":
 		for _, r := range colls {
 			if r.key == cur && r.project != nil {
@@ -780,11 +746,14 @@ func (s *sidebar) click(m *Model, l layout, x, y int) tea.Cmd {
 		s.inColls = true
 	} else {
 		s.inColls = false
-		if m.settings.Layout == client.LayoutColumns {
-			top = 2
-		}
-		if s.filtering || s.filterText() != "" {
-			top++
+		top = s.lastTop
+		switch {
+		case y == 0:
+			s.focusSearch(m)
+			return nil
+		case y == 1 && (s.searching || m.search.Active()):
+			s.toggleArchived(m)
+			return nil
 		}
 	}
 	line := y - top + offset
@@ -798,6 +767,8 @@ func (s *sidebar) click(m *Model, l layout, x, y int) tea.Cmd {
 			switch r.kind {
 			case rowSession:
 				m.openSession(r.session.ID)
+			case rowHit:
+				m.openHit(r.hit, false)
 			case rowProject, rowFold:
 				s.setFold(m, r, !r.open)
 			case rowCollection:

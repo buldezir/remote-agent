@@ -239,7 +239,7 @@ Approval {
 
 | method | params | result |
 |---|---|---|
-| `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId, terminal?, drafts?, forks?, commit?}` (`terminal`: `GET /v1/terminal` is there; `drafts`: it keeps drafts; `forks`: it has `session.fork`; `commit`: it has `git.commitPreview` and `git.commit`; see below) |
+| `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId, terminal?, drafts?, forks?, commit?, search?}` (`terminal`: `GET /v1/terminal` is there; `drafts`: it keeps drafts; `forks`: it has `session.fork`; `commit`: it has `git.commitPreview` and `git.commit`; `search`: it has `session.search`; see below) |
 | `device.unpair` | — | `{}` (revokes the calling device's token) |
 | `harness.list` | `{refresh?}` | `{harnesses: [HarnessInfo]}`, only the ones installed on the server |
 | `harness.update` | `{harness}` | `Task` (runs the agent's own updater; `caps.update`) |
@@ -257,6 +257,7 @@ Approval {
 | `project.add` | `{path}` (must be under a root) | `Project` |
 | `project.remove` | `{id}` | `{}` (`conflict` if it has unarchived sessions) |
 | `session.list` | — | `{sessions}` |
+| `session.search` | `{query, archived?, limit?}` | `SearchResults` (`archived`: archived sessions too; `limit`: sessions at most, default 30, at most 100; see below) |
 | `session.create` | `{commandId, projectId, harness, model?, effort?, mode?, workspace: {kind, branch?, baseRef?}, prompt?, images?, title?, draft?}` | `Session` (`draft`: keep the prompt as the session's draft, see below) |
 | `session.fork` | `{commandId, sessionId, turn?, harness?, model?, effort?, mode?, workspace?: {kind, branch?}, prompt?, images?, title?, draft?}` | `Session` (see below) |
 | `session.importable` | `{projectId, harness}` | `{sessions: [ImportableSession]}`, newest first (`caps.import`; see below) |
@@ -326,6 +327,18 @@ Task {
   startedAt, endedAt?
 }
 
+SearchResults {
+  results: [SearchResult],                     // best first
+  more?,                                       // more sessions match than the limit
+  indexing?                                    // rad is still indexing sessions an older rad wrote: some may be missing
+}
+SearchResult {
+  session: Session,
+  itemId?, itemKind?,                          // the item that matches best; absent: only the title or the branch matched
+  snippet: [{ text, match? }],                 // the match in its context, on one line; match: the words the query found
+  matches                                      // how many of the session's items match
+}
+
 Diff { from, to, files: [FileStat], patch, truncated }   // patch: unified diff, ≤ 512 KiB
 CommitPreview {
   branch?,                                     // checked out where the agent works; absent: detached
@@ -356,6 +369,11 @@ FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", addit
   3. `pull_request`, with `pullRequest`: opens one with GitHub's `gh` (`gh pr create`), into `base`, its title and description written by the system agent from the branch's commits (else the lone commit's, or the session's title and the commits' subjects). If one is open for the branch already, the step says so and takes that one. It fails when `gh` isn't installed or signed in (`gh auth login` on the computer), or for the repository's default branch. The task's `url` is the pull request.
 
   Each step's `detail` says what it did (`a1b2c3d Fix the redirect`, `ra/fix → origin`, `#12 Fix the redirect`, `Already open: #3 …`) or why it failed, which is the task's `error` too; the steps after a failed one stay `pending`. `output` shows the commands and what they printed. Neither git nor gh can ask for anything (a password, a passphrase): they run without a terminal, and fail instead. Once the task ends, the transcript has a `notice` with what it did, and the agent hears of it with the next prompt. `git.commit` is `conflict` while a turn runs (and the task fails if one started before the commit), or for an archived session, and `invalid` outside git; starting it while the session's commit runs returns that task. `task.list` lists a session's tasks only with its `sessionId`, so that a client following the server's tasks doesn't take a commit for an update. Servers that commit say `commit: true` in `server.info`; older ones answer `method_not_found`.
+- **Search.** `session.search` finds sessions by what was said in them, and by their title and branch. It searches the text of prompts, the agent's replies, notices and errors, tool calls' titles and commands (an input's `command`), plans, and a proposed plan's or a question's text: what an item's `SearchText` is in `server/internal/model/search.go`. Reasoning, tool output, approvals of tool calls and sub-agents' items aren't searched: they're long, folded away in the clients, and would bury the conversation.
+  - **Query.** Every word must be there, as the start of a word (`redir` finds “redirect”), or as a whole word when it's shorter than three letters. A `"quoted phrase"` must be there as it is. Case and accents don't matter, and punctuation separates words (`src/ui` is the phrase “src ui”). The query's own characters are never search syntax.
+  - **Results.** A session comes once, with its best-matching item, else its title or branch, and how many of its items match. Sessions rank by how well they match (BM25; a title or branch that matches doubles a session's score), damped by age, so that among good matches the recent ones come first: a session last updated 30 days ago counts half as much as one updated today. Clients open a result's session at `itemId`, which they scroll to and highlight for a moment, and show `archived` ones marked as such.
+  - **Find in a session.** Clients find in the open session's transcript on their own, over the same text as `SearchText`, as they have the whole transcript: case-insensitively, matching what the user typed as it is, and moving from match to match by item.
+  - rad indexes as it writes. The first start of a rad with search indexes the sessions an older rad wrote, newest first, in the background (some 25 s for 300,000 items); until it's done, results say `indexing`. Servers that search say `search: true` in `server.info`; older ones answer `method_not_found`, and the clients search only the servers that say it.
 - **Deleting a session.** `session.delete` works on archived and unarchived sessions. It stops the agent and the session's shell, and deletes the session, its turns, its transcript and its checkpoints; `removeWorktree` deletes its worktree too, and the branch is kept either way. Images stay, since other sessions may show them. The session's stream then holds only a `session.removed` event, the next in its seq, which reaches its subscribers; later commands on the session are `not_found`.
 - **Queued prompts.** A prompt sent while a turn runs waits as a `queued` user message, and the next turn starts with it once the turn ends. Interrupting the turn cancels every queued prompt. `session.sendNow` sends one of them at once instead: rad interrupts the turn and starts the next turn with that prompt, ahead of the others, which stay queued behind it. `session.cancelQueued` takes one of them out of the queue, `cancelled`, and leaves the turn and the other prompts as they are. A prompt no longer queued (it started, or was cancelled) is left as it is. Older servers answer `method_not_found`, which clients show as a reason to update rad.
 - **Steering.** `session.steer` adds one of the queued prompts to the running turn, without interrupting it, for agents with `caps.steer`: the agent reads it at its next step, such as after the tool call it runs, and goes on in the same turn, which ends once. Its user message becomes `completed`, with the turn's `turnId`, and moves below what the turn has shown so far (a new `order`), where the agent got it. `session.prompt` with `steer` does the same for a new prompt: while a turn runs, it joins that turn where the agent can take it, and is queued as usual where it can't (any other agent, a slash command); with no turn running, it starts one. Clients offer "Steer" beside "Send now" while the agent works and its harness has `caps.steer`, and not for a prompt starting with `/`: slash commands run only as prompts of their own (`invalid`). A prompt no longer queued is left as it is; one whose turn ends before the agent takes it stays queued and starts the next turn. Older servers answer `session.steer` with `method_not_found`, and ignore `steer` in `session.prompt`, which then queues the prompt.

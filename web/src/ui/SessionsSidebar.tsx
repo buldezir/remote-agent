@@ -1,17 +1,18 @@
-import { Ellipsis, FolderMinus, Hand, Pencil, Plus, RefreshCw, ServerCog, Settings, SquarePen, Trash2, WifiOff } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { CircleX, Ellipsis, FolderMinus, Hand, Pencil, Plus, RefreshCw, Search, ServerCog, Settings, SquarePen, Trash2, WifiOff } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Session } from "../protocol/models";
 import { useObserved, useObservedAll } from "../store/observable";
 import type { ServerConnection } from "../store/serverConnection";
 import type { SavedServer } from "../store/serverStore";
 import { storage } from "../store/storage";
 import { ConnectionDot, connectionLabel } from "./components";
-import { useServerStore } from "./context";
+import { useServerStore, useSessionSearch } from "./context";
 import { InboxSidebar } from "./InboxSidebar";
 import { Menu, Spinner, type MenuEntry } from "./primitives";
 import { ProjectsSidebar } from "./ProjectsSidebar";
-import type { Route } from "./router";
+import { openSession, type Route } from "./router";
 import { needsYou, type SessionCollection, type SidebarLayout } from "./sidebarLayout";
+import { SearchResultRow, SessionLink } from "./SidebarRows";
 
 export interface ServerActions {
   pair: () => void;
@@ -52,14 +53,20 @@ export function SessionsSidebar({
   /** In place of the list, as a phone's with no servers. */
   placeholder?: ReactNode;
 }) {
+  const store = useServerStore();
+  const search = useSessionSearch();
+  useObserved(search);
   return (
     <div className="server-home">
       <SidebarBar title={tab ? "Inbox" : "Sessions"} actions={actions}>
         <NewSessionButton onNew={actions.newSession} />
       </SidebarBar>
+      {!placeholder && store.servers.length > 0 && <SidebarSearchField />}
       <div className="list-scroll">
         {placeholder ||
-          (layout === "projects" && !tab ? (
+          (search.isActive && store.servers.length > 0 ? (
+            <SearchResultsList route={route} tab={tab} />
+          ) : layout === "projects" && !tab ? (
             <ProjectsSidebar route={route} actions={actions} />
           ) : (
             <InboxSidebar route={route} actions={actions} tab={tab} />
@@ -67,6 +74,153 @@ export function SessionsSidebar({
       </div>
       <SidebarFoot actions={actions} />
     </div>
+  );
+}
+
+/** Whether a key is the one that focuses the search of sessions: ⇧⌘F, or
+ *  Ctrl+Shift+F outside the terminal, where it's the shell's. */
+export function isSearchShortcut(e: KeyboardEvent): boolean {
+  if (e.key.toLowerCase() !== "f" || !e.shiftKey || e.altKey) return false;
+  const target = e.target as Element | null;
+  if (target?.closest?.("dialog")) return false;
+  return e.metaKey || (e.ctrlKey && !target?.closest?.(".terminal"));
+}
+
+let focusFieldOnMount = false;
+
+/** The search field that shows next takes the keyboard, as the Inbox tab's
+ *  does when the shortcut brings it up. */
+export function focusSearchFieldOnMount() {
+  focusFieldOnMount = true;
+}
+
+/** The search of every server's sessions, atop a sidebar (in the Columns
+ *  layout, atop the list of sessions): ⇧⌘F or Ctrl+Shift+F focuses it, and
+ *  Esc in it clears it. While it has a query, or the keyboard, Include
+ *  archived shows under it. */
+export function SidebarSearchField() {
+  const search = useSessionSearch();
+  useObserved(search);
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focusFieldOnMount) {
+      focusFieldOnMount = false;
+      field.current?.focus();
+    }
+    const key = (e: KeyboardEvent) => {
+      if (!isSearchShortcut(e)) return;
+      e.preventDefault();
+      field.current?.focus();
+      field.current?.select();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+  return (
+    <div className={"sidebar-search" + (search.query ? " has-query" : "")} role="search">
+      <div className="search-field">
+        <Search size={14} className="c-overlay" aria-hidden />
+        <input
+          ref={field}
+          type="search"
+          placeholder="Search sessions"
+          aria-label="Search sessions"
+          value={search.query}
+          onChange={(e) => search.setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Escape") return;
+            e.preventDefault();
+            search.setQuery("");
+            e.currentTarget.blur();
+          }}
+        />
+        {search.query && (
+          <button
+            type="button"
+            className="search-clear"
+            onClick={() => {
+              search.setQuery("");
+              field.current?.focus();
+            }}
+            title="Clear"
+            aria-label="Clear search"
+          >
+            <CircleX size={14} />
+          </button>
+        )}
+      </div>
+      {/* It keeps the field's keyboard, so that it stays to be clicked. */}
+      <label className="search-option" onMouseDown={(e) => e.preventDefault()}>
+        <input type="checkbox" checked={search.includeArchived} onChange={(e) => search.setIncludeArchived(e.target.checked)} />
+        Include archived
+      </label>
+    </div>
+  );
+}
+
+/** The sessions the search found, in place of a sidebar's rows, then how
+ *  the search went. A result opens its session at the item that matched,
+ *  in a narrow window in the Inbox tab (`tab`), and the results stay. */
+export function SearchResultsList({ route, tab = false }: { route: Route; tab?: boolean }) {
+  const store = useServerStore();
+  const search = useSessionSearch();
+  useObserved(search);
+  const connections = store.servers.map((s) => store.connection(s));
+  useObservedAll(connections);
+  // A server that connects, or goes, is searched or left out.
+  const serversKey = search.serversKey();
+  useEffect(() => search.serversChanged(), [search, serversKey]);
+  const byID = new Map(connections.map((c) => [c.server.id, c]));
+  const showsServer = store.servers.length > 1;
+  const rows = search.hits.flatMap((hit) => {
+    const connection = byID.get(hit.serverId);
+    if (!connection) return [];
+    // The index's copy is the newer one, read or renamed since; one the
+    // synced index no longer has was deleted.
+    const session = connection.sessions.get(hit.result.session.id) ?? (connection.indexSynced ? undefined : hit.result.session);
+    return session ? [{ hit, item: { connection, session } }] : [];
+  });
+  return (
+    <>
+      {rows.length > 0 && (
+        <ul className="session-list" aria-label="Search results">
+          {rows.map(({ hit, item }) => (
+            <li key={hit.id}>
+              <SessionLink
+                item={item}
+                className="search-result"
+                selected={route.serverID === hit.serverId && route.sessionID === item.session.id}
+                onOpen={() => openSession({ serverID: hit.serverId, sessionID: item.session.id, tab: tab ? "inbox" : undefined }, hit.result.itemId)}
+              >
+                <SearchResultRow item={item} result={hit.result} showsServer={showsServer} />
+              </SessionLink>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="search-status" aria-live="polite">
+        {search.isSearching && (
+          <span className="search-progress">
+            <Spinner size={13} />
+          </span>
+        )}
+        {/* Only once a server answered: failures say why instead. */}
+        {!search.isSearching && rows.length === 0 && search.answered > 0 && <p>No sessions match “{search.query.trim()}”.</p>}
+        {search.noServers && <p>No server is connected.</p>}
+        {search.more && <p>More sessions match. Add words to narrow it down.</p>}
+        {search.indexing.map((name) => (
+          <p key={"indexing " + name}>{name} is still indexing older sessions, so some may be missing.</p>
+        ))}
+        {search.failures.map((f) => (
+          <p key={"failed " + f.server}>
+            Couldn't search {f.server}: {f.message}
+          </p>
+        ))}
+        {search.unsupported.map((name) => (
+          <p key={"old " + name}>Update rad on {name} to search its sessions.</p>
+        ))}
+      </div>
+    </>
   );
 }
 

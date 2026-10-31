@@ -27,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -73,6 +77,46 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /**
+ * What the session's find bar looks for, for an item it matches: its plain
+ * text marks where it occurs (findHighlighted). Null elsewhere. Replies,
+ * which are Markdown, show the match by the item's tint alone.
+ */
+val LocalFindQuery = compositionLocalOf<String?> { null }
+
+/** [text] with the find bar's query marked in it, in an item it matches; else as it is. */
+@Composable
+fun findHighlighted(text: String): AnnotatedString {
+    val query = LocalFindQuery.current
+    val mark = palette.yellow.copy(alpha = 0.5f)
+    return remember(text, query, mark) {
+        val ranges = query?.let { occurrences(text, it) }.orEmpty()
+        if (ranges.isEmpty()) {
+            AnnotatedString(text)
+        } else {
+            buildAnnotatedString {
+                append(text)
+                for (r in ranges) addStyle(SpanStyle(background = mark), r.first, r.last + 1)
+            }
+        }
+    }
+}
+
+/** Where [query] occurs in [text], in any case, one after another. */
+fun occurrences(text: String, query: String): List<IntRange> {
+    val q = query.trim()
+    if (q.isEmpty()) return emptyList()
+    return buildList {
+        var from = 0
+        while (true) {
+            val i = text.indexOf(q, from, ignoreCase = true)
+            if (i < 0) break
+            add(i until i + q.length)
+            from = i + q.length
+        }
+    }
+}
+
+/**
  * One transcript item. Mirrors apple/Shared/Views/ItemViews.swift. `harness`
  * is the session's agent, which says whether a queued prompt can steer.
  */
@@ -94,12 +138,12 @@ fun ItemView(item: Item, store: SessionStore, children: Map<String, List<Item>>,
         ItemKind.APPROVAL -> ApprovalView(item, store)
         ItemKind.PLAN -> PlanView(item.plan)
         ItemKind.NOTICE -> Text(
-            item.text ?: "", style = Type.footnote, color = palette.subtext, textAlign = TextAlign.Center,
+            findHighlighted(item.text ?: ""), style = Type.footnote, color = palette.subtext, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().testTag("notice"),
         )
         ItemKind.ERROR -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(painterResource(Icons.warning), null, Modifier.size(16.dp), tint = palette.red)
-            Text(item.text ?: "Error", style = Type.footnote, color = palette.red)
+            Text(findHighlighted(item.text ?: "Error"), style = Type.footnote, color = palette.red)
         }
         ItemKind.UNKNOWN -> {}
     }
@@ -129,7 +173,7 @@ fun UserBubble(
             if (text.isNotEmpty()) {
                 SelectionContainer {
                     Text(
-                        text, style = messageStyle(), color = if (draft) palette.text else palette.onAccent,
+                        findHighlighted(text), style = messageStyle(), color = if (draft) palette.text else palette.onAccent,
                         modifier = Modifier
                             .then(
                                 if (draft) Modifier.background(palette.accent.copy(alpha = 0.12f), shape).dashedOutline(palette.accent, Metrics.Corner.bubble)
@@ -275,7 +319,7 @@ private fun ToolCallView(item: Item, children: List<Item>, store: SessionStore, 
         ) {
             Icon(painterResource(toolIcon(tool?.kind)), null, Modifier.size(18.dp).padding(top = 1.dp), tint = palette.subtext)
             Text(
-                tool?.title ?: tool?.name ?: "Tool", style = codeStyle(), color = palette.text,
+                findHighlighted(tool?.title ?: tool?.name ?: "Tool"), style = codeStyle(), color = palette.text,
                 maxLines = if (expanded) Int.MAX_VALUE else 2, modifier = Modifier.weight(1f),
             )
             ToolStatus(item.status)
@@ -405,7 +449,7 @@ private fun PlanView(plan: Plan?) {
                     Modifier.size(16.dp).padding(top = 1.dp), tint = if (done) palette.green else if (working) palette.peach else palette.subtext,
                 )
                 Text(
-                    e.content, style = Type.footnote.copy(textDecoration = if (done) TextDecoration.LineThrough else null),
+                    findHighlighted(e.content), style = Type.footnote.copy(textDecoration = if (done) TextDecoration.LineThrough else null),
                     color = if (done) palette.subtext else palette.text,
                 )
             }

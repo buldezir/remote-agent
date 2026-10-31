@@ -54,6 +54,21 @@ struct SessionStoreTests {
         #expect(s.transcript.map(\.id) == ["a", "b"])
     }
 
+    @Test func liveOnlyOnceTheReplayIsIn() throws {
+        let s = SessionStore._testMake("s")
+        #expect(!s.isLive)
+        s.beginReplay()
+        s._testSynchronized(seq: 1, reset: true)
+        #expect(s.isLive)
+        // Opened again later: synced from before, but not live until the new replay.
+        s.deactivate()
+        s.closed()
+        s.beginReplay()
+        #expect(s.synced && !s.isLive)
+        s._testSynchronized(seq: 1, reset: false)
+        #expect(s.isLive)
+    }
+
     @Test func gapStopsLiveApply() throws {
         let s = SessionStore._testMake("s")
         s._testSynchronized(seq: 1, reset: true)

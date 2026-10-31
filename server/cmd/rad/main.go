@@ -205,6 +205,20 @@ func serve(args []string) error {
 		return fmt.Errorf("recover: %w", err)
 	}
 	go orch.Run(ctx)
+	if st.Indexing() {
+		// Sessions an older rad wrote, for search; rad serves meanwhile.
+		go func() {
+			start := time.Now()
+			log.Info("indexing sessions for search")
+			if err := st.IndexForSearch(ctx); err != nil {
+				if ctx.Err() == nil {
+					log.Error("search index", "err", err)
+				}
+				return
+			}
+			log.Info("indexed sessions for search", "took", time.Since(start).Round(time.Millisecond))
+		}()
+	}
 
 	serverID, err := st.ServerID(ctx)
 	if err != nil {

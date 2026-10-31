@@ -6,6 +6,8 @@ struct AppCommands: Commands {
     let updater: AppUpdater
     @FocusedValue(\.newSession) private var newSession
     @FocusedValue(\.pairServer) private var pairServer
+    @FocusedValue(\.searchSessions) private var searchSessions
+    @FocusedValue(\.sessionFind) private var sessionFind
     @AppStorage(SidebarLayout.key) private var layout = SidebarLayout.inbox
 
     var body: some Commands {
@@ -22,6 +24,26 @@ struct AppCommands: Commands {
             Divider()
             Button("Pair a Server…") { pairServer?.wrappedValue = true }
                 .disabled(pairServer == nil)
+        }
+        // Edit › Find, as Safari's: searching every session, and finding in
+        // the open one.
+        CommandGroup(after: .pasteboard) {
+            Divider()
+            Menu("Find") {
+                Button("Search Sessions") { searchSessions?.wrappedValue = true }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+                    .disabled(searchSessions == nil)
+                Divider()
+                Button("Find in Session") { sessionFind?.open() }
+                    .keyboardShortcut("f")
+                    .disabled(sessionFind == nil)
+                Button("Find Next") { sessionFind?.next() }
+                    .keyboardShortcut("g")
+                    .disabled(sessionFind?.canStep != true)
+                Button("Find Previous") { sessionFind?.previous() }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                    .disabled(sessionFind?.canStep != true)
+            }
         }
         SidebarCommands()
         // The sidebar's layouts, as Finder's View menu has "as Icons" and "as List".

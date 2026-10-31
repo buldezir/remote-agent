@@ -7,6 +7,8 @@ import AppKit
 @main
 struct RemoteAgentApp: App {
     @State private var store: ServerStore
+    /// Search across the servers' sessions, kept while the app runs.
+    @State private var search: SessionSearch
     @Environment(\.scenePhase) private var phase
     #if os(macOS)
     @State private var notifier: Notifier
@@ -18,11 +20,14 @@ struct RemoteAgentApp: App {
         NSWindow.allowsAutomaticWindowTabbing = false
         let store = ServerStore()
         _store = State(initialValue: store)
+        _search = State(initialValue: SessionSearch(store: store))
         _notifier = State(initialValue: Notifier(store: store))
     }
     #else
     init() {
-        _store = State(initialValue: ServerStore())
+        let store = ServerStore()
+        _store = State(initialValue: store)
+        _search = State(initialValue: SessionSearch(store: store))
     }
     #endif
 
@@ -58,6 +63,7 @@ struct RemoteAgentApp: App {
         Window("Remote Agent", id: "main") {
             WindowRoot()
                 .environment(store)
+                .environment(search)
                 .environment(notifier)
         }
         .defaultSize(width: 1100, height: 760)
@@ -68,6 +74,7 @@ struct RemoteAgentApp: App {
         WindowGroup(id: "main") {
             WindowRoot()
                 .environment(store)
+                .environment(search)
         }
     }
     #endif
@@ -117,4 +124,8 @@ extension FocusedValues {
     @Entry var newSession: Binding<Bool>?
     /// Shows the pairing sheet.
     @Entry var pairServer: Binding<Bool>?
+    /// The keyboard is in the sidebar's search field; setting it puts it there.
+    @Entry var searchSessions: Binding<Bool>?
+    /// The open session's find bar.
+    @Entry var sessionFind: SessionFindCommands?
 }

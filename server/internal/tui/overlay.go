@@ -200,6 +200,7 @@ func styleInput(in *textinput.Model, m *Model) {
 	s.Focused.Prompt = m.st.Accent
 	s.Blurred.Text = m.st.Subtext
 	s.Blurred.Placeholder = m.st.Faint
+	s.Blurred.Prompt = m.st.Faint
 	s.Cursor.Color = m.pal.Accent
 	in.SetStyles(s)
 }
@@ -347,7 +348,13 @@ var helpSections = []struct {
 		{"n", "new session here"},
 		{"a · D", "archive · delete"},
 		{".", "the row's actions"},
-		{"/", "filter"},
+		{"/ · ctrl+f", "search the sessions: what was said in them, their titles and branches"},
+	}},
+	{"Search", [][2]string{
+		{"type", "search, from two letters on; the results replace the list"},
+		{"↑↓ · enter", "choose a result · open its session at what matched"},
+		{"ctrl+a", "include archived sessions, or leave them out"},
+		{"esc", "clear the search, back to the list"},
 	}},
 	{"Messages", [][2]string{
 		{"↑↓", "move between items"},
@@ -359,7 +366,14 @@ var helpSections = []struct {
 		{"t", "steer a queued prompt into the turn, where the agent can take it"},
 		{"x", "cancel a queued prompt"},
 		{"e", "edit the draft"},
+		{"ctrl+f", "find in the session, from the messages or the prompt"},
 		{"drag the mouse", "select text, which is copied when you let go"},
+	}},
+	{"Find in the session", [][2]string{
+		{"enter · ↓ · ctrl+g", "the next match"},
+		{"↑ · shift+enter", "the previous match"},
+		{"tab", "to the messages, the matches still marked"},
+		{"esc", "close it"},
 	}},
 	{"Prompt", [][2]string{
 		{"enter", "send"},

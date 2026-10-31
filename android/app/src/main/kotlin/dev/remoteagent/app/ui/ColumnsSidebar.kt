@@ -7,6 +7,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -54,6 +55,7 @@ fun ColumnsSidebar(
     onChoose: (SessionCollection) -> Unit,
     selection: SessionKey?,
     onOpenSession: (SessionKey) -> Unit,
+    onOpenResult: (SessionKey, itemId: String?) -> Unit,
     onAdd: () -> Unit,
     onSettings: () -> Unit,
 ) {
@@ -61,7 +63,7 @@ fun ColumnsSidebar(
         val sidebar = maxWidth * 0.42f
         Row(Modifier.fillMaxSize()) {
             CollectionsSidebar(servers, collection, onChoose, onAdd, onSettings, compact = sidebar < 240.dp, modifier = Modifier.width(sidebar).fillMaxHeight())
-            SessionListColumn(servers, collection, selection, onOpenSession, Modifier.weight(1f).fillMaxHeight())
+            SessionListColumn(servers, collection, selection, onOpenSession, onOpenResult, Modifier.weight(1f).fillMaxHeight())
             // The list and the session share a colour; a line keeps them apart.
             Box(Modifier.width(1.dp).fillMaxHeight().background(palette.surface0))
         }
@@ -192,7 +194,8 @@ private fun collectionProjects(s: ServerState): List<Pair<Project, List<Session>
 
 /**
  * The Columns layout's middle column: the sessions in the collection chosen
- * in the sidebar, three lines each.
+ * in the sidebar, three lines each. As in Mail, the search across servers
+ * sits atop it, and its results replace the list while it searches.
  */
 @Composable
 private fun SessionListColumn(
@@ -200,6 +203,7 @@ private fun SessionListColumn(
     collection: SessionCollection,
     selection: SessionKey?,
     onOpenSession: (SessionKey) -> Unit,
+    onOpenResult: (SessionKey, itemId: String?) -> Unit,
     modifier: Modifier,
 ) {
     val items = collection.sessions(servers)
@@ -210,20 +214,25 @@ private fun SessionListColumn(
             background = palette.base,
             actions = { NewSessionButton(servers, collection) },
         ) { padding ->
-            SidebarRefresh(servers, Modifier.padding(padding)) {
-                // Each collection's list starts at its top.
-                val state = key(collection) { rememberLazyListState() }
-                LazyColumn(Modifier.fillMaxSize().testTag("session-list"), state) {
-                    items(items, key = { it.id }) { item ->
-                        SessionLink(
-                            item, selected = item.key == selection, onOpen = onOpenSession, modifier = Modifier.animateItem(),
-                            background = palette.base, padding = PaddingValues(8.dp),
-                        ) {
-                            SessionListRow(item, showsServer)
+            Column(Modifier.padding(padding)) {
+                SidebarSearchField(palette.base)
+                SearchableRows(servers, selection, onOpenResult, palette.base) {
+                    SidebarRefresh(servers) {
+                        // Each collection's list starts at its top.
+                        val state = key(collection) { rememberLazyListState() }
+                        LazyColumn(Modifier.fillMaxSize().testTag("session-list"), state) {
+                            items(items, key = { it.id }) { item ->
+                                SessionLink(
+                                    item, selected = item.key == selection, onOpen = onOpenSession, modifier = Modifier.animateItem(),
+                                    background = palette.base, padding = PaddingValues(8.dp),
+                                ) {
+                                    SessionListRow(item, showsServer)
+                                }
+                            }
                         }
+                        if (items.isEmpty()) EmptyCollection(collection)
                     }
                 }
-                if (items.isEmpty()) EmptyCollection(collection)
             }
         }
     }

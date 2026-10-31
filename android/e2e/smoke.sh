@@ -2,7 +2,7 @@
 # Walks the Android app through the fake harness on an emulator, as
 # web/e2e/smoke.mjs does the web client: pairing by deep link, a new worktree
 # session, the fake keywords, images, changes and revert, the terminal, the
-# Inbox and Servers tabs, a tablet's sidebar, the dark theme, the server's settings (updating and
+# Inbox and Servers tabs, search and find in a session, a tablet's sidebar, the dark theme, the server's settings (updating and
 # signing in the fake agent, naming sessions with it), and a draft saved,
 # edited, saved again and sent. Saves screenshots to
 # $SCRATCH/shots and removes the server at the end, which unpairs it. Never
@@ -180,6 +180,35 @@ tap 'desc=Back'; sleep 1
 wait_for 'text=Recent' 5 || fail "no Recent after reading"
 ! find_view 'text=Needs You' > /dev/null || fail "the session read is still under Needs You"
 shot 06e-inbox-read
+
+step "search and find"
+# The Inbox's search finds the session by what was said in it, in place of
+# its rows, and opens it at the item that matched.
+fill 'id=search-field' 'hello from the'
+wait_for 'id=search-result' 10 || fail "no search results"
+! find_view 'text=Recent' > /dev/null || fail "the Inbox's rows show with the results"
+hide_keyboard; shot 06g-search
+tap 'id=search-result'
+wait_for 'contains=Echo: hello from the inbox' 10 || fail "the result didn't open its session"
+# Find in it: the prompt and the reply, starting at the newest; Previous goes
+# up, Next down, wrapping around.
+tap 'id=session-menu'; sleep 0.5; tap 'text=Find in Session'
+wait_for 'id=find-field' 5 || fail "no find bar"
+fill 'id=find-field' 'hello'
+wait_for 'text=2 of 2' 5 || fail "find didn't count the prompt and the reply"
+tap 'id=find-previous'
+wait_for 'text=1 of 2' 5 || fail "Previous didn't go to the prompt"
+tap 'id=find-previous'
+wait_for 'text=2 of 2' 5 || fail "Previous didn't wrap around"
+hide_keyboard; shot 06h-find
+tap 'id=find-done'; sleep 0.5
+! find_view 'id=find-bar' > /dev/null || fail "Done didn't close the find bar"
+# Back goes to the results, and clearing the field to the Inbox's rows.
+hide_keyboard; tap 'desc=Back'; sleep 1
+wait_for 'id=search-result' 5 || fail "back didn't return to the results"
+tap 'id=search-clear'
+wait_for 'text=Recent' 5 || fail "clearing the search didn't bring back the Inbox"
+hide_keyboard
 
 step "servers tab keeps its place"
 tap 'id=tab-servers'

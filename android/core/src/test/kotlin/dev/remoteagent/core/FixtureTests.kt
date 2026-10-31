@@ -15,6 +15,8 @@ import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.ImportableSession
 import dev.remoteagent.core.protocol.ItemKind
 import dev.remoteagent.core.protocol.OptionKind
+import dev.remoteagent.core.protocol.SearchResults
+import dev.remoteagent.core.protocol.SnippetPart
 import dev.remoteagent.core.protocol.ServerInfo
 import dev.remoteagent.core.protocol.ServerSettings
 import dev.remoteagent.core.protocol.ServerTask
@@ -172,6 +174,7 @@ class FixtureTests {
         assertEquals(true, info.drafts)
         assertEquals(true, info.forks)
         assertEquals(true, info.commit)
+        assertEquals(true, info.search)
         assertEquals("dev1", info.deviceId)
     }
 
@@ -187,6 +190,33 @@ class FixtureTests {
         assertEquals(listOf(Instant.parse("2026-10-09T12:00:05Z"), Instant.parse("2026-10-09T12:00:00Z")), list.map { it.updatedAt })
         // Only one written in the last minute says so.
         assertEquals(listOf(true, false), list.map { it.active })
+    }
+
+    @Test
+    fun sessionSearch() {
+        val r = result<SearchResults>("response_session_search.json")
+        assertEquals(2, r.results.size)
+        // An item matched: its id and kind, the snippet's words marked.
+        val first = r.results[0]
+        assertEquals("s1", first.session.id)
+        assertEquals("i4", first.itemId)
+        assertEquals(ItemKind.ASSISTANT_MESSAGE, first.itemKind)
+        assertEquals(2, first.matches)
+        assertEquals(3, first.snippet.size)
+        assertEquals(SnippetPart("tests", match = true), first.snippet[1])
+        assertTrue(!first.snippet[0].match)
+        // Only the title matched: no item.
+        val second = r.results[1]
+        assertEquals("s2", second.session.id)
+        assertTrue(second.session.archived)
+        assertNull(second.itemId)
+        assertNull(second.itemKind)
+        assertTrue(second.snippet[1].match)
+        assertTrue(r.more)
+        assertTrue(r.indexing)
+        // Both flags are left out when false.
+        val bare = WireCoding.json.decodeFromString(SearchResults.serializer(), """{"results":[]}""")
+        assertTrue(!bare.more && !bare.indexing && bare.results.isEmpty())
     }
 
     @Serializable

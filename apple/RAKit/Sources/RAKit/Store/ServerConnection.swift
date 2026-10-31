@@ -604,6 +604,20 @@ public final class ServerConnection {
         return r.tasks
     }
 
+    // MARK: Searching
+
+    /// Whether the server searches sessions (`session.search`).
+    public var searches: Bool { info?.search == true }
+
+    /// The sessions that match `query`, by what was said in them, their title
+    /// or their branch, the best first: archived ones too with `archived`,
+    /// and at most `limit` (rad's default without). Only for a server whose
+    /// `info.search` is true.
+    public func search(query: String, archived: Bool = false, limit: Int? = nil) async throws -> SearchResults {
+        struct P: Encodable, Sendable { var query: String; var archived: Bool?; var limit: Int? }
+        return try await client.call("session.search", P(query: query, archived: archived ? true : nil, limit: limit), timeout: 15)
+    }
+
     // MARK: Committing
 
     /// Whether the server commits, pushes and opens pull requests.

@@ -4,7 +4,7 @@ import RAKit
 
 /// A WebSocket server on loopback that stands in for rad: it answers
 /// `server.info`, `session.prompt`, the drafts' calls, the index's
-/// `subscribe`, the commits' and imports' calls and pings, and records the calls. `quiet()`
+/// `subscribe`, the commits', imports' and searches' calls and pings, and records the calls. `quiet()`
 /// makes the sockets open so far ignore everything, as a socket that died
 /// while the Mac slept does: nothing comes back, and nothing says it closed.
 final class TestServer: @unchecked Sendable {
@@ -19,13 +19,28 @@ final class TestServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "TestServer")
     /// The sessions the index replays, as JSON objects.
     private let index: [String]
+    private let name: String
+    private let search: Search?
+
+    /// How the server answers `session.search`, which `server.info` then
+    /// offers: with the sessions in the index whose title holds the query.
+    struct Search: Sendable {
+        /// Seconds to wait before answering a query.
+        var delays: [String: Double] = [:]
+        /// The error it answers with instead.
+        var error: String?
+        var more = false
+        var indexing = false
+    }
     // Guarded by `queue`.
     private var connections: [NWConnection] = []
     private var quietCount = 0
     private var recorded: [Call] = []
 
-    init(index: [String] = []) throws {
+    init(index: [String] = [], name: String = "Test", search: Search? = nil) throws {
         self.index = index
+        self.name = name
+        self.search = search
         let ws = NWProtocolWebSocket.Options()
         ws.autoReplyPing = false
         let params = NWParameters.tcp
@@ -97,7 +112,8 @@ final class TestServer: @unchecked Sendable {
         let result: String
         switch method {
         case "server.info":
-            result = #"{"serverId":"srv","name":"Test","protocolVersion":1,"version":"0.1"}"#
+            result = #"{"serverId":"srv","name":"\#(name)","protocolVersion":1,"version":"0.1""#
+                + (search == nil ? "" : #","search":true"#) + "}"
         case "session.commands":
             send(c, Data(#"{"id":\#(id),"error":{"code":"method_not_found","message":"old server"}}"#.utf8), opcode: .text)
             return
@@ -139,10 +155,31 @@ final class TestServer: @unchecked Sendable {
             let native = params?["nativeId"] as? String ?? ""
             result = #"{"id":"imported-\#(native)","projectId":"\#(pid)","harness":"\#(harness)","nativeId":"\#(native)","status":"idle","title":"Fix the login redirect","archived":false,"#
                 + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
+        case "session.search" where search != nil:
+            answerSearch(c, id, query: params?["query"] as? String ?? "", search!)
+            return
         default:
             result = "{}"
         }
         send(c, Data(#"{"id":\#(id),"result":\#(result)}"#.utf8), opcode: .text)
+    }
+
+    /// The sessions in the index whose title holds the query, each its title
+    /// as the snippet, after the query's delay.
+    private func answerSearch(_ c: NWConnection, _ id: Int, query: String, _ search: Search) {
+        if let error = search.error {
+            send(c, Data(#"{"id":\#(id),"error":{"code":"internal","message":"\#(error)"}}"#.utf8), opcode: .text)
+            return
+        }
+        let results: [String] = index.compactMap { s in
+            let session = (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? [String: Any]
+            guard let title = session?["title"] as? String, title.range(of: query, options: .caseInsensitive) != nil else { return nil }
+            return #"{"session":\#(s),"snippet":[{"text":"\#(title)","match":true}],"matches":0}"#
+        }
+        let answer = #"{"id":\#(id),"result":{"results":[\#(results.joined(separator: ","))],"more":\#(search.more),"indexing":\#(search.indexing)}}"#
+        queue.asyncAfter(deadline: .now() + (search.delays[query] ?? 0)) { [weak self] in
+            self?.send(c, Data(answer.utf8), opcode: .text)
+        }
     }
 
     private func send(_ c: NWConnection, _ data: Data, opcode: NWProtocolWebSocket.Opcode) {

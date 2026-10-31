@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -33,7 +34,14 @@ type sessionView struct {
 	sel      textSelection
 
 	bottomHeight int // the dock's or composer's lines, as last drawn
-	headerHeight int
+	headerHeight int // the lines above the transcript: the header's and the find bar's
+	findY        int // the find bar's line, as last drawn; -1 closed
+
+	find      *findBar // nil: closed
+	focusItem string   // an item to show once the transcript has it
+	center    string   // a block to scroll to the middle at the next draw
+	flashKey  string   // the block flashing, since flashAt
+	flashAt   time.Time
 
 	commands      []model.Command
 	commandsState int // 0 not asked, 1 asking, 2 known, 3 failed
@@ -100,6 +108,7 @@ func (v *sessionView) sync(m *Model) tea.Cmd {
 		pending = nil
 	}
 	v.dock.sync(m, pending)
+	v.refreshFind()
 	// The text area takes keys only while focused; it follows ra's focus,
 	// however that changed.
 	if m.focus == focusComposer && !v.dock.active() && len(m.overlays) == 0 {
@@ -109,6 +118,9 @@ func (v *sessionView) sync(m *Model) tea.Cmd {
 	}
 	return v.composer.sync(m, v)
 }
+
+// showsFind: the find bar is open, so focus can go there.
+func (v *sessionView) showsFind() bool { return v.find != nil }
 
 func (v *sessionView) message(m *Model, msg tea.Msg) tea.Cmd {
 	if r, ok := msg.(respondedMsg); ok {
@@ -133,6 +145,11 @@ func (v *sessionView) focusChanged(m *Model) {
 
 func (v *sessionView) view(m *Model, w, h int) string {
 	header := v.header(m, w)
+	v.findY = -1
+	if v.find != nil {
+		v.findY = len(header)
+		header = append(header, v.findLines(m, w)...)
+	}
 	v.headerHeight = len(header)
 	var bottom []string
 	if v.dock.active() {
@@ -197,8 +214,9 @@ func (v *sessionView) header(m *Model, w int) []string {
 func (v *sessionView) transcript(m *Model, w, height int) []string {
 	content := max(10, w-3)
 	v.blocks = v.build(m, content)
+	v.applyFocus()
 	var lines []string
-	selected := m.focus == focusTranscript && len(m.overlays) == 0
+	selected := (m.focus == focusTranscript || m.focus == focusFind) && len(m.overlays) == 0
 	for i := range v.blocks {
 		b := &v.blocks[i]
 		if len(lines) > 0 {
@@ -219,6 +237,16 @@ func (v *sessionView) transcript(m *Model, w, height int) []string {
 		v.sel = textSelection{}
 	}
 	maxScroll := max(0, len(lines)-height)
+	if v.center != "" {
+		// A block to show in the middle, or from its top if it's taller.
+		for _, b := range v.blocks {
+			if b.key == v.center {
+				v.scroll = b.at - max(0, (height-len(b.lines))/2)
+				v.pinned = false
+			}
+		}
+		v.center = ""
+	}
 	if v.pinned {
 		v.scroll = maxScroll
 	}
@@ -228,6 +256,7 @@ func (v *sessionView) transcript(m *Model, w, height int) []string {
 	}
 	end := min(len(lines), v.scroll+height)
 	out := slices.Clone(lines[v.scroll:end])
+	v.paintMarks(m, out, v.scroll, w)
 	v.showSelection(m, out, v.scroll)
 	if v.scroll > 0 && len(out) > 0 {
 		out[0] = spread(out[0], m.st.Faint.Render("↑ more "), w)
@@ -386,6 +415,14 @@ func (v *sessionView) hints(m *Model) [][2]string {
 }
 
 func (v *sessionView) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
+	if m.focus == focusFind && v.find != nil {
+		return v.findKey(m, k)
+	}
+	// Esc closes the find bar first, from the messages or the prompt.
+	if k.String() == "esc" && v.find != nil && !(m.focus == focusComposer && (v.composer.suggesting() || v.dock.active())) {
+		v.closeFind(m, false)
+		return nil
+	}
 	if m.focus == focusComposer {
 		if v.dock.active() {
 			return v.dock.key(m, v, k)

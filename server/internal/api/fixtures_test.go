@@ -37,6 +37,8 @@ func fixtures() map[string]any {
 		},
 		ForkedFrom: &model.ForkedFrom{SessionID: "s0", Turn: 3},
 	}
+	archived := &model.Session{ID: "s2", ProjectID: "p1", Harness: "codex", Workspace: model.Workspace{Kind: model.WorkspaceRoot, Path: "/Users/me/projects/app"},
+		Status: model.SessionIdle, Title: "Flaky tests", Archived: true, CreatedAt: t0, UpdatedAt: t0}
 	turn := &model.Turn{ID: "t1", SessionID: "s1", N: 1, Status: model.TurnCompleted, CheckpointBefore: "aaa", CheckpointAfter: "bbb",
 		Usage: &model.Usage{InputTokens: 10, OutputTokens: 20, CacheReadTokens: 5, CostUSD: 0.0123}, ForkPoint: "msg-1", StartedAt: t0, EndedAt: &t1}
 	item := func(id string, order int64, kind model.ItemKind, st model.ItemStatus) *model.Item {
@@ -128,7 +130,7 @@ func fixtures() map[string]any {
 		"response_session.json": response{ID: json.RawMessage("6"), Result: sess},
 		"response_server_info.json": response{ID: json.RawMessage("1"), Result: serverInfoResult{
 			serverInfo: serverInfo{ServerID: "srv1", Name: "studio", ProtocolVersion: model.ProtocolVersion, Version: "0.4.0"},
-			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true, Forks: true, Commit: true}},
+			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true, Forks: true, Commit: true, Search: true}},
 		"response_server_settings.json": response{ID: json.RawMessage("8"), Result: model.ServerSettings{
 			SystemAgent: &model.SystemAgent{Harness: "claude", Model: "haiku", Effort: "low"}}},
 		"response_check_update.json": response{ID: json.RawMessage("9"), Result: model.UpdateInfo{
@@ -161,6 +163,11 @@ func fixtures() map[string]any {
 			{ID: "5b0e7c1a-2f4d-4c8e-9a61-3d7f2b8e4c90", Title: "Fix the flaky login test", Messages: 12, UpdatedAt: t1, Active: true},
 			{ID: "9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4", Title: "Add a changelog", Messages: 2, UpdatedAt: t0},
 		}}},
+		"response_session_search.json": response{ID: json.RawMessage("15"), Result: model.SearchResults{Results: []model.SearchResult{
+			{Session: sess, ItemID: "i4", ItemKind: model.ItemAssistantMessage, Matches: 2, Snippet: []model.SnippetPart{
+				{Text: "All "}, {Text: "tests", Match: true}, {Text: " pass now. func x() {}"}}},
+			{Session: archived, Snippet: []model.SnippetPart{{Text: "Flaky "}, {Text: "tests", Match: true}}},
+		}, More: true, Indexing: true}},
 		"terminal_attached.json": model.TerminalMessage{Type: "attached", ID: "5f0c2a9e1b7d3c48", Offset: 262130, Reset: true, Cols: 80, Rows: 24},
 		"terminal_resize.json":   model.TerminalMessage{Type: "resize", Cols: 120, Rows: 40},
 		"terminal_exit.json":     model.TerminalMessage{Type: "exit", ExitCode: &signalled},

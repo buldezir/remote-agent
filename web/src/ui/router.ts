@@ -50,6 +50,50 @@ export function navigate(r: Partial<Route>, replace = false) {
   }
 }
 
+/** A session to show at one of its items, as a search result opens it: its
+ *  view scrolls to the item and flashes it, once. It is kept beside the
+ *  route rather than in it, so that the sidebars' selection, history and a
+ *  reload don't carry it. `n` tells a repeat apart, which flashes again. */
+export interface FocusItem {
+  serverID: string;
+  sessionID: string;
+  itemID: string;
+  n: number;
+}
+
+let focusItem: FocusItem | undefined;
+let focusCount = 0;
+const focusListeners = new Set<() => void>();
+
+function setFocusItem(f: FocusItem | undefined) {
+  focusItem = f;
+  for (const l of [...focusListeners]) l();
+}
+
+/** Opens a session, at `itemID` when given, which its view then shows. */
+export function openSession(r: Partial<Route> & { serverID: string; sessionID: string }, itemID?: string) {
+  setFocusItem(itemID ? { serverID: r.serverID, sessionID: r.sessionID, itemID, n: ++focusCount } : undefined);
+  navigate(r);
+}
+
+/** The item the session's view is asked to show, until it calls `focusDone`. */
+export function useFocusItem(serverID: string, sessionID: string): FocusItem | undefined {
+  const f = useSyncExternalStore(subscribeFocus, getFocus);
+  return f && f.serverID === serverID && f.sessionID === sessionID ? f : undefined;
+}
+
+/** The view showed the item, or found that it isn't there. */
+export function focusDone(f: FocusItem) {
+  if (focusItem === f) setFocusItem(undefined);
+}
+
+function subscribeFocus(l: () => void) {
+  focusListeners.add(l);
+  return () => focusListeners.delete(l);
+}
+
+const getFocus = () => focusItem;
+
 function subscribe(l: () => void) {
   window.addEventListener("hashchange", l);
   return () => window.removeEventListener("hashchange", l);

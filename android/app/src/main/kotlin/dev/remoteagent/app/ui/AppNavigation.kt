@@ -3,6 +3,7 @@ package dev.remoteagent.app.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.KeyEvent
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -42,12 +43,43 @@ import dev.remoteagent.core.net.PairingLink
 import dev.remoteagent.core.store.SavedServer
 import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.ServerStore
+import dev.remoteagent.core.store.SessionSearch
 import dev.remoteagent.core.store.SessionStore
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.serialization.Serializable
 
 val LocalStore = staticCompositionLocalOf<ServerStore> { error("no ServerStore") }
 val LocalSettings = staticCompositionLocalOf<AppSettings> { error("no AppSettings") }
+/** Search across every server: the app's one (RemoteAgentApp.search). */
+val LocalSearch = staticCompositionLocalOf<SessionSearch> { error("no SessionSearch") }
+/** A hardware keyboard's shortcuts, as MainActivity catches them. */
+val LocalShortcuts = staticCompositionLocalOf<SharedFlow<Shortcut>> { MutableSharedFlow() }
+
+/** The keyboard shortcuts MainActivity catches (onKeyShortcut), wherever the focus is. */
+enum class Shortcut(val title: String, val keyCode: Int, val modifiers: Int) {
+    /** Ctrl+Shift+F: the sidebar's, or the Inbox tab's, search field. */
+    SEARCH_SESSIONS("Search sessions", KeyEvent.KEYCODE_F, KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON),
+    /** Ctrl+F: find in the open session. */
+    FIND_IN_SESSION("Find in session", KeyEvent.KEYCODE_F, KeyEvent.META_CTRL_ON);
+
+    companion object {
+        fun of(e: KeyEvent): Shortcut? {
+            if (e.keyCode != KeyEvent.KEYCODE_F || !e.isCtrlPressed || e.isAltPressed || e.isMetaPressed) return null
+            return if (e.isShiftPressed) SEARCH_SESSIONS else FIND_IN_SESSION
+        }
+    }
+}
+
+/**
+ * A session to open at one of its items, as from a search result: its view
+ * scrolls to the item and flashes it, then lets the request go. A new one
+ * each time, so that opening the same result again flashes it again. Kept
+ * beside the back stack, so that keys and selections still compare by the
+ * session alone.
+ */
+class FocusRequest(val key: SessionKey, val itemId: String)
 
 // Destinations, registered once at the root with values that carry the
 // server's id (AGENTS.md), so a screen never opens on the wrong server.
@@ -69,7 +101,7 @@ data object SettingsKey : NavKey
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun App(app: RemoteAgentApp, pendingLink: MutableStateFlow<PairingLink?>) {
+fun App(app: RemoteAgentApp, pendingLink: MutableStateFlow<PairingLink?>, shortcuts: SharedFlow<Shortcut>) {
     val context = LocalContext.current
     var networkReady by rememberSaveable {
         mutableStateOf(
@@ -85,7 +117,9 @@ fun App(app: RemoteAgentApp, pendingLink: MutableStateFlow<PairingLink?>) {
     LaunchedEffect(Unit) {
         if (!networkReady) networkPermission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
     }
-    CompositionLocalProvider(LocalStore provides app.store, LocalSettings provides app.settings) {
+    CompositionLocalProvider(
+        LocalStore provides app.store, LocalSettings provides app.settings, LocalSearch provides app.search, LocalShortcuts provides shortcuts,
+    ) {
         val settings = app.settings
         val follows by settings.state(AppSettings.Keys.interfaceFollowsSystem, true)
         val step by settings.state(AppSettings.Keys.interfaceTextSize, TextSize.DEFAULT_INTERFACE)
@@ -126,6 +160,12 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
     LaunchedEffect(top) { if (top != startedEmpty) startedEmpty = null }
     fun startedSession(key: SessionKey, empty: Boolean) {
         startedEmpty = key.takeIf { empty }
+        backStack.openSession(key)
+    }
+    // A search result opens its session at the item that matched; one without, at the foot.
+    var focusRequest by remember { mutableStateOf<FocusRequest?>(null) }
+    fun openSessionAt(key: SessionKey, itemId: String?) {
+        focusRequest = itemId?.let { FocusRequest(key, it) }
         backStack.openSession(key)
     }
 
@@ -190,6 +230,7 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
         narrow = narrow,
         selection = backStack.lastOrNull() as? SessionKey,
         onOpenSession = { backStack.openSession(it) },
+        onOpenSessionAt = ::openSessionAt,
         onStartedSession = ::startedSession,
         onCloseSession = { if (backStack.lastOrNull() is SessionKey) backStack.removeAt(backStack.lastIndex) },
         onAdd = { showAdd = true },
@@ -254,6 +295,8 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
                             if (isDeleted(connection, session)) LaunchedEffect(key) { backStack.remove(key) }
                             SessionView(
                                 connection, session, focusPrompt = key == startedEmpty,
+                                focus = focusRequest?.takeIf { it.key == key },
+                                onFocused = { if (focusRequest === it) focusRequest = null },
                                 onBack = { if (backStack.size > 1) backStack.removeLastOrNull() },
                                 onForked = { forked, empty -> startedSession(SessionKey(key.serverId, forked.id), empty) },
                             )

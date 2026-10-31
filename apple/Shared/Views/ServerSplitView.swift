@@ -24,6 +24,11 @@ struct ServerSplitView: View {
     @State private var deleting: SessionRequest?
     @State private var removing: SavedServer?
     @State private var managing: ServerRequest?
+    /// The item a search result opens the session at.
+    @State private var itemFocus: ItemFocus?
+    /// The search field over the sidebar, or the Columns layout's session list.
+    @FocusState private var searchFocused: Bool
+    @State private var columns = NavigationSplitViewVisibility.automatic
     #if os(macOS)
     @Environment(Notifier.self) private var notifier
     #else
@@ -108,7 +113,11 @@ struct ServerSplitView: View {
                 archiveOld: { archivingOld = $0 },
                 delete: { deleting = $0 },
                 remove: { removing = $0 },
-                manage: { managing = ServerRequest(connection: $0) }))
+                manage: { managing = ServerRequest(connection: $0) },
+                open: { route, itemID in
+                    itemFocus = itemID.map { ItemFocus(route: route, itemID: $0) }
+                    selection.wrappedValue = route
+                }))
             .sheet(item: $newSession) { request in
                 NewSessionView(connection: request.connection, projectID: request.projectID) { session, empty in
                     let route = SessionRoute(serverID: request.connection.server.id, sessionID: session.id)
@@ -133,6 +142,8 @@ struct ServerSplitView: View {
                 Binding { newSession != nil } set: { newSession = $0 ? target : nil }
             })
             .focusedSceneValue(\.pairServer, $showAdd)
+            .focusedSceneValue(\.searchSessions, Binding { searchFocused } set: { if $0 { focusSearch() } else { searchFocused = false } })
+            .background { searchShortcut }
             .onChange(of: pendingLink) { _, link in
                 if link != nil { showAdd = true }
             }
@@ -151,6 +162,7 @@ struct ServerSplitView: View {
                 if let route { recentSessions = RecentSessions.adding(route, to: recentSessions) }
                 // Only when it first opens.
                 if route != startedEmpty { startedEmpty = nil }
+                if itemFocus?.route != route { itemFocus = nil }
             }
             #if os(macOS)
             .onChange(of: route, initial: true) { _, route in notifier.shown = route }
@@ -168,7 +180,7 @@ struct ServerSplitView: View {
     @ViewBuilder private var split: some View {
         switch layout {
         case .columns:
-            NavigationSplitView {
+            NavigationSplitView(columnVisibility: $columns) {
                 CollectionsSidebar(collection: collection, showAdd: $showAdd)
                     .removeServerDialog($removing)
                     .archiveOldSessionsDialog($archivingOld)
@@ -178,7 +190,7 @@ struct ServerSplitView: View {
                     .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
                     #endif
             } content: {
-                SessionListColumn(collection: current, selection: selection)
+                SessionListColumn(collection: current, selection: selection, searchFocused: $searchFocused)
                     .archiveSessionDialog($archiving)
                     .deleteSessionDialog($deleting)
                     #if os(macOS)
@@ -190,8 +202,8 @@ struct ServerSplitView: View {
                 detail
             }
         case .inbox, .projects:
-            NavigationSplitView {
-                SessionsSidebar(layout: layout, selection: selection, showAdd: $showAdd)
+            NavigationSplitView(columnVisibility: $columns) {
+                SessionsSidebar(layout: layout, selection: selection, showAdd: $showAdd, searchFocused: $searchFocused)
                     .archiveSessionDialog($archiving)
                     .archiveOldSessionsDialog($archivingOld)
                     .deleteSessionDialog($deleting)
@@ -213,7 +225,7 @@ struct ServerSplitView: View {
             if let route, let connection = connection(route), !openSessionGone {
                 // A new identity per session, so the attachments and the subscription don't carry over.
                 SessionView(connection: connection, store: connection.sessionStore(route.sessionID),
-                            focusesPrompt: route == startedEmpty) { fork, empty in
+                            focusesPrompt: route == startedEmpty, focusItem: $itemFocus) { fork, empty in
                     let next = SessionRoute(serverID: route.serverID, sessionID: fork.id)
                     startedEmpty = empty ? next : nil
                     selection.wrappedValue = next
@@ -254,6 +266,31 @@ struct ServerSplitView: View {
             ContentUnavailableView("No session selected", systemImage: "bubble.left.and.text.bubble.right",
                                    description: Text("Choose a session in the sidebar, or start a new one."))
         }
+    }
+
+    /// Puts the keyboard in the search field, showing the column it's in.
+    private func focusSearch() {
+        guard columns == .detailOnly else {
+            searchFocused = true
+            return
+        }
+        columns = .all
+        // Once the column is there.
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            searchFocused = true
+        }
+    }
+
+    /// ⇧⌘F searches the sessions, from a keyboard on iPad. The Mac's Edit menu has it.
+    @ViewBuilder private var searchShortcut: some View {
+        #if os(iOS)
+        Button("Search Sessions", action: focusSearch)
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+            // hidden() would turn the shortcut off.
+            .opacity(0)
+            .accessibilityHidden(true)
+        #endif
     }
 
     /// The open session and whether it is archived, once the index has it.

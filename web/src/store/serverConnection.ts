@@ -6,6 +6,7 @@ import type {
   ImageRef,
   ImportableSession,
   Project,
+  SearchResults,
   ServerInfo,
   ServerSettings,
   ServerTask,
@@ -535,6 +536,15 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
   async importable(projectId: string, harness: string): Promise<ImportableSession[]> {
     const r = await this.client.call<{ sessions?: ImportableSession[] }>("session.importable", { projectId, harness }, 60);
     return r.sessions ?? [];
+  }
+
+  /** Finds sessions by what was said in them, and by their title and
+   *  branch, best first: archived ones too with `archived`, and at most
+   *  `limit` (the server's default without). Servers that say `search` in
+   *  their info have it. */
+  async search(query: string, archived = false, limit?: number): Promise<SearchResults> {
+    const r = await this.client.call<SearchResults>("session.search", { query, archived: archived || undefined, limit }, 15);
+    return { ...r, results: (r.results ?? []).map((x) => ({ ...x, snippet: x.snippet ?? [], matches: x.matches ?? 0 })) };
   }
 
   /** A session made of one the agent ran outside rad, whose next prompt

@@ -433,6 +433,36 @@ describe("ServerConnection", () => {
     }
   });
 
+  it("searches the server's sessions", async () => {
+    const server = new TestServer();
+    const at = "2026-10-09T12:00:00Z";
+    const session = { id: "s1", projectId: "p1", harness: "fake", workspace: { kind: "root", path: "/p" }, status: "idle", title: "Fix the tests", archived: false, createdAt: at, updatedAt: at };
+    server.handlers["session.search"] = (p) =>
+      p.query === "old" ? {} : { results: [{ session, itemId: "i4", itemKind: "assistant_message", snippet: [{ text: "tests", match: true }], matches: 2 }, { session: { ...session, id: "s2" } }], more: true };
+    const c = await connect(server);
+    try {
+      const r = await c.search("tests");
+      expect(r.more).toBe(true);
+      expect(r.results.map((x) => [x.session.id, x.itemId, x.matches])).toEqual([
+        ["s1", "i4", 2],
+        ["s2", undefined, 0],
+      ]);
+      // Fields left out come in as their defaults.
+      expect(r.results[1].snippet).toEqual([]);
+      await c.search("tests", true, 30);
+      expect(await c.search("old")).toEqual({ results: [] });
+      // Without the archive and a limit, it leaves them out.
+      expect(server.calls.filter((m) => m.method === "session.search").map((m) => m.params)).toEqual([
+        { query: "tests" },
+        { query: "tests", archived: true, limit: 30 },
+        { query: "old" },
+      ]);
+    } finally {
+      c.stop();
+      await server.stop();
+    }
+  });
+
   it("delivers a draft saved or sent on a dead socket after reconnecting", async () => {
     const server = new TestServer();
     const at = "2026-10-09T12:00:00Z";
