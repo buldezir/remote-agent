@@ -67,6 +67,9 @@ func TestFixtures(t *testing.T) {
 	if len(hs) == 0 || hs[0].ID != "claude" || len(hs[0].Models) == 0 || len(hs[0].Models[0].Efforts) != 2 {
 		t.Errorf("harness.list: %+v", hs)
 	}
+	if len(hs) < 2 || !hs[0].Caps.Steer || hs[1].Caps.Steer {
+		t.Errorf("harness.list caps: %+v", hs)
+	}
 
 	tasks := fixture[resultFrame[taskList]](t, "response_task_list.json").Result.Tasks
 	if len(tasks) == 0 || tasks[0].ID == "" {

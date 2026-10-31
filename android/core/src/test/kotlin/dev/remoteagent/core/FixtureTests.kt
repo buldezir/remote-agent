@@ -179,8 +179,8 @@ class FixtureTests {
     fun serverManagement() {
         // The caps older servers leave out are false.
         val h = result<Harnesses>("response_harness_list.json").harnesses
-        assertTrue(h[0].caps.update && h[0].caps.login && h[0].caps.oneShot)
-        assertTrue(!h[1].caps.update && !h[1].caps.login && !h[1].caps.oneShot)
+        assertTrue(h[0].caps.update && h[0].caps.login && h[0].caps.oneShot && h[0].caps.steer)
+        assertTrue(!h[1].caps.update && !h[1].caps.login && !h[1].caps.oneShot && !h[1].caps.steer)
 
         val settings = result<ServerSettings>("response_server_settings.json")
         assertEquals(SystemAgent("claude", "haiku", "low"), settings.systemAgent)

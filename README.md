@@ -261,9 +261,9 @@ ra
 - **Layout:** a terminal 100 columns wide or more shows the sessions beside the open one, in the sidebar layout from Settings: Inbox, Projects or Columns (Columns needs 150 columns for all three). A narrower one shows the list, then the session full screen. `ra --layout columns --theme light` tries a layout or theme without saving it.
 - **Keys:** `ctrl+h` lists them all, from anywhere, the prompt included; so do F1, and `?` outside the prompt.
   - `tab` moves between the list, the messages and the prompt. `ctrl+n` starts a session, `ctrl+k` jumps to one, `ctrl+p` opens its actions (permission modes, `/compact`, archive, delete, Server Settings, Settings), and `ctrl+b` hides the list or goes back to it. `ctrl+x` stops the agent. Esc only goes back a level: it closes what's open, or leaves the session for the list. ra takes arrows, not vim's keys.
-  - In the prompt, Return sends; ⇧Return (where the terminal reports it), ⌥Return or `ctrl+j` starts a new line. `/` suggests commands and skills. `↑` in an empty prompt brings back the last prompt, and `pgup`/`pgdn` scroll the messages. `ctrl+s` keeps a new session's first prompt as a draft, and so does Esc, which closes the form.
+  - In the prompt, Return sends; ⇧Return (where the terminal reports it), ⌥Return or `ctrl+j` starts a new line, and `ctrl+t` sends the prompt into the turn the agent is working on (see *Queued prompts*). `/` suggests commands and skills. `↑` in an empty prompt brings back the last prompt, and `pgup`/`pgdn` scroll the messages. `ctrl+s` keeps a new session's first prompt as a draft, and so does Esc, which closes the form.
   - When the agent asks, the question takes the prompt's place. No single key answers it, so that what you were typing doesn't: the arrows pick an answer, then Return sends it. Deny asks for a reason, a question's choices take the arrows and space, and `pgup`/`pgdn` or the wheel scroll a plan.
-  - In the messages, `↑↓` select an item, Return expands a tool call or the agent's thinking (twice shows long output whole), `o` opens its image, `y` copies it, `s` sends a queued prompt now, or the draft, and `x` cancels a queued prompt.
+  - In the messages, `↑↓` select an item, Return expands a tool call or the agent's thinking (twice shows long output whole), `o` opens its image, `y` copies it, `s` sends a queued prompt now, or the draft, `t` steers a queued prompt into the turn, and `x` cancels a queued prompt.
   - Dragging the mouse over the messages selects their text, and copies it when you let go (through OSC 52, which the terminal must allow). The terminal's own selection (with Shift held in most terminals, Option in iTerm2, or with Settings › Mouse off) takes whole rows of the screen, the list's half too.
 - **Images:** ra draws them in the transcript in half blocks. `o` opens one in the computer's viewer, or full screen in the terminal over SSH. To attach an image, paste its path, or drop the file on the terminal, which pastes its path; the actions menu also has Attach Image….
 - **Notifications:** when a session you aren't looking at needs you, finishes or fails, ra asks the terminal to post a notification (OSC 9 for iTerm2, WezTerm and Ghostty, OSC 99 for kitty, OSC 777 for foot), also through tmux. Settings › Notifications switches to the bell, or off.
@@ -314,6 +314,7 @@ ra
 - **Connection:** when a server can't be reached, the apps try five times, over about 15 seconds, then stop and show why. Retrying, opening the server, or a click on its name in the sidebar (on iPad, the Mac, an Android tablet or a wide browser window) tries again, and so does coming back to the app.
 - **Stop:** this interrupts the current turn. *Force stop* kills the agent process. Idle agents are stopped after `idle_timeout` and resume transparently on the next prompt.
 - **Queued prompts:** a prompt sent while the agent works waits, marked *Queued*, and goes out when the turn ends. *Send now* under it stops the turn and sends that prompt at once, ahead of any others waiting, and *Cancel* takes it out of the queue, unsent. Stop cancels them all.
+  - *Steer*, with Claude Code, Codex, Pi and the fake agent, adds the prompt to what the agent is doing, without stopping it: the agent reads it at its next step, such as after the command it runs, and goes on in the same turn, where the prompt now shows. ACP agents can't take one, so they offer only *Send now*, and neither do slash commands, which run as prompts of their own. On a keyboard, ⇧⌘Return (Ctrl+Shift+Enter in a browser or on Android) sends what you typed straight into the turn, and so does `ctrl+t` in ra.
 - **Text size:** Settings has two sizes: one for the interface, such as lists and labels, and one for messages: your prompts, the agent's replies and its tool calls. On the Mac it is under Remote Agent › Settings… (⌘,). On iPhone, open the ⋯ menu in the Inbox, tap the gear on the server list, or open a server's ⋯ menu; on iPad, open the ⋯ menu above the sidebar. On iOS the interface follows the system's text size until you turn off **Match System**.
   - On the Mac, Settings also picks the messages' font, from the system font's designs or any installed family, and a code font from the installed fixed-width ones. The code font is used for code in messages, tool calls and diffs.
 - **Server Settings:** see [Managing a server from the apps](#managing-a-server-from-the-apps).
@@ -345,7 +346,7 @@ rad update [--check] [--now]      install the latest release over this rad and r
 rad uninstall [--yes]             remove the service, config, data, worktrees and checkpoints
 rad mcp                           rad's MCP tools on stdio, for an agent you run yourself (claude mcp add rad -- rad mcp)
 rad debug run --harness claude --cwd DIR [--mode M] [--model M] [--effort E] [--worktree] [--approve] [--diff] "prompt"
-rad debug prompt <sessionId> "…"  follow-up turn, streamed to the terminal
+rad debug prompt [--steer] <sessionId> "…"  follow-up turn, streamed to the terminal; --steer adds it to the running turn
 rad debug call <method> '{json}'  raw RPC (see protocol/PROTOCOL.md)
 ```
 
@@ -440,7 +441,7 @@ cd apple && xcodebuild -scheme RemoteAgentServer -destination 'platform=macOS' b
 To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fake (scripted)**. Its prompt keywords are:
 - `write <file>`: asks for approval, then writes the file
 - `question`: asks a multiple-choice question
-- `slow`: streams slowly, useful for testing interrupt
+- `slow`: streams slowly, useful for testing interrupt and steering: a prompt steered in cuts the reply short at its next word, and the turn answers it with *Steered: …*
 - `fail`: makes the turn fail
 - `screenshot`: runs a tool that returns an image
 - `picture`: writes `picture-<turn>.png` in the working directory and shows it in the reply, as agents are told to

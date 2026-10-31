@@ -54,6 +54,7 @@ type promptParams struct {
 	SessionID string   `json:"sessionId"`
 	Text      string   `json:"text"`
 	Images    []string `json:"images,omitempty"` // ids from POST /v1/images
+	Steer     bool     `json:"steer,omitempty"`  // join the running turn (session.steer)
 }
 
 type saveDraftParams struct {
@@ -224,7 +225,9 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 		})
 
 	case "session.prompt":
-		return call(raw, func(p promptParams) (any, error) { return o.Prompt(ctx, p.SessionID, p.Text, p.Images, p.CommandID) })
+		return call(raw, func(p promptParams) (any, error) {
+			return o.Prompt(ctx, p.SessionID, p.Text, p.Images, p.CommandID, p.Steer)
+		})
 
 	case "session.saveDraft":
 		return call(raw, func(p saveDraftParams) (any, error) { return o.SaveDraft(ctx, p.SessionID, p.Text, p.Images) })
@@ -237,6 +240,9 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "session.sendNow":
 		return call(raw, func(p queuedPromptParams) (any, error) { return nil, o.SendNow(ctx, p.SessionID, p.ItemID) })
+
+	case "session.steer":
+		return call(raw, func(p queuedPromptParams) (any, error) { return nil, o.Steer(ctx, p.SessionID, p.ItemID) })
 
 	case "session.cancelQueued":
 		return call(raw, func(p queuedPromptParams) (any, error) { return nil, o.CancelQueued(ctx, p.SessionID, p.ItemID) })

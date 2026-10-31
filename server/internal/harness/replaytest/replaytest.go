@@ -422,7 +422,7 @@ func RunTurn(t testing.TB, rt harness.Runtime, prompt string, choose func(harnes
 	if err := rt.Prompt(ctx, harness.Input{Text: prompt}); err != nil {
 		t.Fatalf("prompt: %v", err)
 	}
-	return awaitTurn(ctx, t, rt, choose)
+	return awaitTurn(ctx, t, rt, choose, nil)
 }
 
 // AwaitTurn collects events until a turn ends without prompting, such as a
@@ -431,10 +431,41 @@ func AwaitTurn(t testing.TB, rt harness.Runtime, choose func(harness.ApprovalEve
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	return awaitTurn(ctx, t, rt, choose)
+	return awaitTurn(ctx, t, rt, choose, nil)
 }
 
-func awaitTurn(ctx context.Context, t testing.TB, rt harness.Runtime, choose func(harness.ApprovalEvent) string) *Turn {
+// SteerTurn prompts rt and steers steer into the turn at the first event
+// that at reports, then collects its events until the turn ends; with stop,
+// it interrupts the turn once it steered.
+func SteerTurn(t testing.TB, rt harness.Runtime, prompt string, at func(harness.Event) bool, steer string, stop bool) *Turn {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := rt.Prompt(ctx, harness.Input{Text: prompt}); err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	steered := false
+	res := awaitTurn(ctx, t, rt, nil, func(ev harness.Event) {
+		if steered || !at(ev) {
+			return
+		}
+		steered = true
+		if err := rt.(harness.Steerer).Steer(ctx, harness.Input{Text: steer}); err != nil {
+			t.Fatalf("steer: %v", err)
+		}
+		if stop {
+			if err := rt.Interrupt(ctx); err != nil {
+				t.Fatalf("interrupt: %v", err)
+			}
+		}
+	})
+	if !steered {
+		t.Fatal("the turn ended before it was steered")
+	}
+	return res
+}
+
+func awaitTurn(ctx context.Context, t testing.TB, rt harness.Runtime, choose func(harness.ApprovalEvent) string, on func(harness.Event)) *Turn {
 	t.Helper()
 	res := &Turn{Items: map[string]model.Item{}}
 	for {
@@ -444,6 +475,9 @@ func awaitTurn(ctx context.Context, t testing.TB, rt harness.Runtime, choose fun
 				t.Fatalf("events closed before the turn ended; got %d events", len(res.Events))
 			}
 			res.Events = append(res.Events, ev)
+			if on != nil {
+				on(ev)
+			}
 			switch ev := ev.(type) {
 			case harness.ItemEvent:
 				if _, seen := res.Items[ev.Item.ID]; !seen {

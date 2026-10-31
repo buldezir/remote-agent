@@ -208,6 +208,19 @@ type Runtime interface {
 	Close() error
 }
 
+// Steerer is implemented by runtimes whose agent takes a prompt into the
+// turn it is running, without interrupting it (HarnessCaps.Steer): it reads
+// it at its next step, such as after the tool call it is running, and goes
+// on with it in the same turn, which ends with one TurnEnded.
+type Steerer interface {
+	// Steer returns once the agent took the prompt, or ErrNoTurn when no turn
+	// of its runs to take it, such as one that ended meanwhile.
+	Steer(ctx context.Context, in Input) error
+}
+
+// ErrNoTurn is Steer's answer when the agent has no turn running.
+var ErrNoTurn = errors.New("the agent has no turn running")
+
 // CommandDiscovery advertises listing support before an agent is opened.
 type CommandDiscovery interface {
 	SupportsCommands() bool

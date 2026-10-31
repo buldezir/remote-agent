@@ -188,6 +188,9 @@ func TestMCPDrivesSessions(t *testing.T) {
 	}
 
 	c.ok("send_prompt", map[string]any{"session": started.ID, "prompt": "slow and long"}, nil)
+	if text := c.ok("send_prompt", map[string]any{"session": started.ID, "prompt": "and this too", "steer": true}, nil); !strings.HasPrefix(text, "Steered") {
+		t.Errorf("steer = %q", text)
+	}
 	if text := c.ok("stop_session", map[string]any{"session": started.ID}, nil); text != "Stopped." {
 		t.Errorf("stop = %q", text)
 	}

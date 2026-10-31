@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -110,11 +111,29 @@ func (a *actor) putSession(w *store.W) error {
 	return err
 }
 
-// prompt records the user message and starts a turn, or queues it.
-func (a *actor) prompt(ctx context.Context, text string, refs []model.ImageRef, files []harness.Image, commandID string) (*model.Item, error) {
+// prompt records the user message and starts a turn, or queues it. With
+// steer, a prompt sent while a turn runs joins that turn where the agent
+// can take it (steerLocked), and is queued where it can't.
+func (a *actor) prompt(ctx context.Context, text string, refs []model.ImageRef, files []harness.Image, commandID string, steer bool) (*model.Item, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.promptLocked(ctx, text, refs, files, commandID, false)
+	it, err := a.promptLocked(ctx, text, refs, files, commandID, false)
+	if err != nil || !steer || it.Status != model.ItemQueued {
+		return it, err
+	}
+	i := slices.IndexFunc(a.queue, func(q queuedPrompt) bool { return q.item.ID == it.ID })
+	if _, can := a.rt.(harness.Steerer); i < 0 || !can || isCommand(a.queue[i].input) {
+		return it, nil // it waits, as where the agent can't take it
+	}
+	q := a.queue[i]
+	if ok, err := a.steerLocked(ctx, i); err != nil {
+		// It waits in the queue, as any prompt sent during a turn does.
+		a.o.log.Warn("steer failed; the prompt is queued", "session", a.sess.ID, "err", err)
+	} else if ok {
+		cp := *q.item
+		return &cp, nil
+	}
+	return it, nil
 }
 
 // sendDraft sends the session's draft as prompt does, and removes it.
@@ -920,6 +939,60 @@ func (a *actor) sendNow(ctx context.Context, itemID string) error {
 	// the agent again, as it would have in an idle session.
 	a.startNext(ctx)
 	return err
+}
+
+// steer adds the queued prompt itemID to the running turn, without
+// interrupting it, for agents that take one (harness.Steerer). Once the
+// prompt has left the queue it does nothing, and when the turn has ended,
+// or is ending, the prompt stays in the queue, where it starts the next
+// turn.
+func (a *actor) steer(ctx context.Context, itemID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	i := slices.IndexFunc(a.queue, func(q queuedPrompt) bool { return q.item.ID == itemID })
+	if i < 0 {
+		return nil
+	}
+	_, err := a.steerLocked(ctx, i)
+	return err
+}
+
+// steerLocked gives the agent queue[i] in the turn that runs, and moves its
+// user message there, below what the turn has shown so far: the agent
+// reads it from there on. ok is false when no turn takes it, and it stays
+// queued. The caller holds a.mu.
+func (a *actor) steerLocked(ctx context.Context, i int) (ok bool, err error) {
+	if a.turn == nil || a.rt == nil || a.holds > 0 {
+		return false, nil // a sendNow interrupts the turn
+	}
+	s, can := a.rt.(harness.Steerer)
+	if !can {
+		return false, errorf(CodeInvalid, "this agent can't take a prompt into a running turn")
+	}
+	q := a.queue[i]
+	if isCommand(q.input) {
+		return false, errorf(CodeInvalid, "a slash command can't join a running turn; it waits for the turn to end")
+	}
+	if err := s.Steer(ctx, q.input); errors.Is(err, harness.ErrNoTurn) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	a.queue = slices.Delete(a.queue, i, i+1)
+	a.o.log.Info("steered", "session", a.sess.ID, "turn", a.turn.N, "waited", time.Since(q.queuedAt).Round(time.Millisecond), "device", clientOf(ctx))
+	q.item.TurnID, q.item.Status = a.turn.ID, model.ItemCompleted
+	if q.item.Order < a.sess.ItemCount {
+		a.sess.ItemCount++
+		q.item.Order = a.sess.ItemCount
+	}
+	a.write(ctx, func(w *store.W) error { return a.putItem(w, q.item) })
+	return true, nil
+}
+
+// isCommand reports whether a prompt is a slash command, which agents run
+// only as a prompt of its own, never within a turn.
+func isCommand(in harness.Input) bool {
+	return strings.HasPrefix(strings.TrimSpace(in.Text), "/")
 }
 
 // cancelQueued takes the queued prompt itemID out of the queue, as not sent.

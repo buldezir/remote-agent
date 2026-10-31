@@ -378,6 +378,7 @@ type HarnessCaps struct {
 	Update      bool `json:"update,omitempty"`  // harness.update runs the CLI's own update
 	Login       bool `json:"login,omitempty"`   // harness.login signs the CLI in again
 	OneShot     bool `json:"oneShot,omitempty"` // can be the system agent (ServerSettings)
+	Steer       bool `json:"steer,omitempty"`   // takes a prompt into the running turn (session.steer)
 }
 
 type HarnessInfo struct {

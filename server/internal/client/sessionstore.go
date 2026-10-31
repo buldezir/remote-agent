@@ -281,17 +281,27 @@ func (s *SessionStore) IsRunning() bool {
 
 // Commands
 
+// CanSteer reports whether a prompt can join the running turn (steer):
+// its agent takes one, and it isn't a slash command, which agents run only
+// as a prompt of its own.
+func (s *SessionStore) CanSteer(text string, h *model.HarnessInfo) bool {
+	return s.IsRunning() && h != nil && h.Caps.Steer && !strings.HasPrefix(strings.TrimSpace(text), "/")
+}
+
 // Send puts a prompt in the outbox, where it shows until the transcript
 // has it, and returns the job that sends it. The job waits out a dropped
 // connection, and fails once the connection gives up, taking the prompt
-// out of the outbox again.
-func (s *SessionStore) Send(text string, images []model.ImageRef) Job {
+// out of the outbox again. With steer, a prompt sent while the agent works
+// joins its turn where the agent can take it, and is queued where it can't.
+func (s *SessionStore) Send(text string, images []model.ImageRef, steer bool) Job {
 	commandID := uuid.NewString()
 	s.Outbox = append(s.Outbox, Outgoing{CommandID: commandID, Text: text, Images: images})
 	s.Version++
-	return s.deliverOutgoing(commandID, "session.prompt", map[string]any{
-		"commandId": commandID, "sessionId": s.ID, "text": text, "images": imageIDs(images),
-	})
+	params := map[string]any{"commandId": commandID, "sessionId": s.ID, "text": text, "images": imageIDs(images)}
+	if steer {
+		params["steer"] = true
+	}
+	return s.deliverOutgoing(commandID, "session.prompt", params)
 }
 
 // SendDraft sends the session's draft as Send sends a prompt: it shows in
@@ -366,6 +376,16 @@ func (s *SessionStore) SendNow(ctx context.Context, itemID string) error {
 	err := s.call(ctx, "session.sendNow", map[string]any{"sessionId": s.ID, "itemId": itemID}, nil, 30*time.Second)
 	if ErrorCode(err) == "method_not_found" {
 		return &RPCError{"method_not_found", "This rad is too old to send a queued prompt now. Update rad."}
+	}
+	return err
+}
+
+// Steer adds this queued prompt to the running turn, without interrupting
+// it, for agents that take one (CanSteer).
+func (s *SessionStore) Steer(ctx context.Context, itemID string) error {
+	err := s.call(ctx, "session.steer", map[string]any{"sessionId": s.ID, "itemId": itemID}, nil, 30*time.Second)
+	if ErrorCode(err) == "method_not_found" {
+		return &RPCError{"method_not_found", "This rad is too old to steer a prompt into a turn. Update rad."}
 	}
 	return err
 }

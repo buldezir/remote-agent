@@ -6,6 +6,7 @@ import dev.remoteagent.core.protocol.ApprovalOption
 import dev.remoteagent.core.protocol.Diff
 import dev.remoteagent.core.protocol.Event
 import dev.remoteagent.core.protocol.FileStat
+import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.Item
 import dev.remoteagent.core.protocol.ItemKind
@@ -245,17 +246,30 @@ class SessionStore(val sessionID: String, private val host: SessionHost?) {
     private val c: SessionHost get() = host ?: throw RpcError.disconnected()
 
     /**
+     * Whether a prompt can join the running turn (steer): its agent takes
+     * one, and it isn't a slash command, which agents run only as a prompt of
+     * its own.
+     */
+    fun canSteer(text: String, harness: HarnessInfo?): Boolean =
+        isRunning && harness?.caps?.steer == true && !text.trim().startsWith("/")
+
+    /**
      * Sends a prompt. It shows in `outbox` until the transcript has it, and
      * waits out a dropped connection; it throws once the connection gives up.
+     * With [steer], a prompt sent while the agent works joins its turn where
+     * the agent can take it, and is queued where it can't.
      */
-    suspend fun send(text: String, images: List<ImageRef> = emptyList()) {
+    suspend fun send(text: String, images: List<ImageRef> = emptyList(), steer: Boolean = false) {
         val c = c
         val commandId = UUID.randomUUID().toString()
         _outbox.value += commandId to Outgoing(text, images)
         try {
             c.deliver(
                 "session.prompt",
-                params("commandId" to commandId, "sessionId" to sessionID, "text" to text, "images" to imageIds(images)),
+                params(
+                    "commandId" to commandId, "sessionId" to sessionID, "text" to text, "images" to imageIds(images),
+                    "steer" to (if (steer) true else null),
+                ),
             )
         } catch (e: Throwable) {
             _outbox.value -= commandId
@@ -309,6 +323,16 @@ class SessionStore(val sessionID: String, private val host: SessionHost?) {
         } catch (e: RpcError) {
             if (e.code != "method_not_found") throw e
             throw RpcError(e.code, "This server's rad is too old to send a queued prompt now. Update rad on it.")
+        }
+    }
+
+    /** Adds a queued prompt to the running turn, without interrupting it, for agents that take one ([canSteer]). */
+    suspend fun steer(itemId: String) {
+        try {
+            c.callRaw("session.steer", params("sessionId" to sessionID, "itemId" to itemId))
+        } catch (e: RpcError) {
+            if (e.code != "method_not_found") throw e
+            throw RpcError(e.code, "This server's rad is too old to steer a prompt into a turn. Update rad on it.")
         }
     }
 

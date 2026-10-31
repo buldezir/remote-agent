@@ -144,9 +144,10 @@ func (s *Server) mcpServer() *mcp.Server {
 				"title":   str("The session's title. Default: one made from the request."),
 			})), Call: s.toolStartSession},
 		{Name: "send_prompt", Title: "Send a prompt",
-			Description: "Sends a request to a session's agent. While the agent works, it waits its turn. It returns at once.",
+			Description: "Sends a request to a session's agent. While the agent works, it waits its turn, unless it steers. It returns at once.",
 			Input: object([]string{"session", "prompt"}, map[string]any{
 				"session": session, "prompt": str("The request."),
+				"steer": map[string]any{"type": "boolean", "description": "While the agent works, add the request to what it's doing, for it to read at its next step, rather than wait for it to finish. Agents that can't (steers in list_agents) get it once they finish."},
 			}), Call: s.toolSendPrompt},
 		{Name: "read_session", Title: "Read a session", ReadOnly: true,
 			Description: "Reads a session: its status, and its transcript (requests, replies, tool calls and questions), of its last turns or all of them.",
@@ -197,13 +198,14 @@ type agentSummary struct {
 	Efforts     []model.Choice `json:"efforts,omitempty"`
 	Modes       []model.Choice `json:"modes,omitempty"`
 	DefaultMode string         `json:"defaultMode,omitempty"`
+	Steers      bool           `json:"steers,omitempty"` // takes send_prompt's steer
 }
 
 func (s *Server) toolListAgents(ctx context.Context, _ json.RawMessage) (any, error) {
 	out := []agentSummary{}
 	for _, h := range s.orch.Registry().Installed(ctx, false) {
 		if h.AuthOK {
-			out = append(out, agentSummary{h.ID, h.Name, h.Models, h.Efforts, h.Modes, h.DefaultMode})
+			out = append(out, agentSummary{h.ID, h.Name, h.Models, h.Efforts, h.Modes, h.DefaultMode, h.Caps.Steer})
 		}
 	}
 	return map[string]any{"agents": out}, nil
@@ -451,6 +453,7 @@ func (s *Server) toolSendPrompt(ctx context.Context, raw json.RawMessage) (any, 
 	p, err := mcp.Args[struct {
 		Session string `json:"session"`
 		Prompt  string `json:"prompt"`
+		Steer   bool   `json:"steer"`
 	}](raw)
 	if err != nil {
 		return nil, err
@@ -459,12 +462,16 @@ func (s *Server) toolSendPrompt(ctx context.Context, raw json.RawMessage) (any, 
 	if err != nil {
 		return nil, err
 	}
-	it, err := s.orch.Prompt(ctx, sess.ID, p.Prompt, nil, store.NewID())
+	busy := sess.Status == model.SessionRunning || sess.Status == model.SessionAwaitingApproval
+	it, err := s.orch.Prompt(ctx, sess.ID, p.Prompt, nil, store.NewID(), p.Steer)
 	if err != nil {
 		return nil, err
 	}
-	if it.Status == model.ItemQueued {
+	switch {
+	case it.Status == model.ItemQueued:
 		return "Queued: the agent gets it once its turn ends.", nil
+	case p.Steer && busy:
+		return "Steered: the agent reads it at its next step, in the turn it's working on.", nil
 	}
 	return "Sent: the agent is working on it.", nil
 }

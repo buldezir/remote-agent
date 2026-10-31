@@ -117,7 +117,7 @@ func fixtures() map[string]any {
 				Modes:       []model.Choice{{ID: "default", Name: "Ask"}},
 				DefaultMode: "default", Commands: []model.Command{{Name: "compact", Description: "Free up context by summarizing the conversation so far"}},
 				Caps: model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, FreeModel: true, ModelSelect: true,
-					Update: true, Login: true, OneShot: true}},
+					Update: true, Login: true, OneShot: true, Steer: true}},
 			{ID: "codex", Name: "Codex", Protocol: "codex", Installed: true, Version: "0.161.0", Hint: "Not logged in: run `codex login` on this machine"},
 		}}},
 		"response_fs_list.json": response{ID: json.RawMessage("5"), Result: fsbrowse.Listing{Path: "/Users/me/projects", Parent: "/Users/me",

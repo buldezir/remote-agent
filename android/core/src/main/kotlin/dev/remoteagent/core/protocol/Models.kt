@@ -409,6 +409,8 @@ data class HarnessCaps(
     val login: Boolean = false,
     /** It can be the system agent (`ServerSettings`). */
     val oneShot: Boolean = false,
+    /** It takes a prompt into the running turn (`session.steer`). */
+    val steer: Boolean = false,
 )
 
 @Serializable

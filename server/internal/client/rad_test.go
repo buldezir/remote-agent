@@ -138,7 +138,7 @@ func TestRadPairsConnectsAndRunsAPrompt(t *testing.T) {
 	store := c.SessionStore(s.ID)
 	store.Activate()
 	eventually(t, q, "the session to sync", func() bool { return store.Synced && store.Live })
-	job := store.Send("hello there", nil)
+	job := store.Send("hello there", nil, false)
 	if len(store.Outbox) != 1 {
 		t.Fatal("not in the outbox")
 	}
@@ -156,6 +156,66 @@ func TestRadPairsConnectsAndRunsAPrompt(t *testing.T) {
 	}
 	// The index has it too.
 	eventually(t, q, "the index's session", func() bool { return c.Sessions[s.ID] != nil && c.Sessions[s.ID].Status == model.SessionIdle })
+}
+
+func TestRadSteersPromptsIntoATurn(t *testing.T) {
+	r := startRad(t)
+	c, q, _ := r.connect(t)
+	p := r.project(t, c, q)
+	var s model.Session
+	if err := run(t, q, func() (err error) {
+		s, err = c.CreateSession(context.Background(), NewSession{ProjectID: p.ID, Harness: "fake", Workspace: NewWorkspace{Kind: model.WorkspaceRoot},
+			Prompt: "slow reply with a good many words in it, so that it streams for a while yet"})
+		return
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := c.SessionStore(s.ID)
+	store.Activate()
+	eventually(t, q, "the reply to stream", func() bool { return store.IsRunning() && lastText(store, model.ItemAssistantMessage) != "" })
+	if !store.CanSteer("more", c.Harness("fake")) {
+		t.Fatal("can't steer the fake agent's turn")
+	}
+	// A prompt sent to steer joins the turn; a queued one joins it on Steer.
+	send := func(text string, steer bool) error {
+		job := store.Send(text, nil, steer)
+		return run(t, q, func() error { return job(context.Background()) })
+	}
+	if err := send("queued first", false); err != nil {
+		t.Fatal(err)
+	}
+	var queued string
+	eventually(t, q, "the queued prompt", func() bool {
+		for _, it := range store.Transcript {
+			if it.Status == model.ItemQueued {
+				queued = it.ID
+			}
+		}
+		return queued != ""
+	})
+	if err := run(t, q, func() error { return store.Steer(context.Background(), queued) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := send("and this", true); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, q, "the turn to end", func() bool { return store.Session != nil && store.Session.Status == model.SessionIdle })
+	turns := store.SortedTurns()
+	if len(turns) != 1 {
+		t.Fatalf("turns %+v", turns)
+	}
+	var prompts []string
+	for _, it := range store.Transcript {
+		if it.Kind == model.ItemUserMessage && it.TurnID == turns[0].ID {
+			prompts = append(prompts, it.Text)
+		}
+	}
+	if len(prompts) != 3 || prompts[1] != "queued first" || prompts[2] != "and this" {
+		t.Errorf("turn's prompts %q", prompts)
+	}
+	if got := lastText(store, model.ItemAssistantMessage); !strings.HasPrefix(got, "Steered: ") {
+		t.Errorf("last reply %q", got)
+	}
 }
 
 func TestRadForksASession(t *testing.T) {
@@ -298,7 +358,7 @@ func TestRadResubscribesAndDeliversAfterADrop(t *testing.T) {
 	eventually(t, q, "the session to sync", func() bool { return store.Live })
 	// The socket drops, as when the network goes, and a prompt goes out meanwhile.
 	r.srv.CloseClientConnections()
-	job := store.Send("after the drop", nil)
+	job := store.Send("after the drop", nil, false)
 	if err := run(t, q, func() error { return job(context.Background()) }); err != nil {
 		t.Fatal(err)
 	}

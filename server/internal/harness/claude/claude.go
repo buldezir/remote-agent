@@ -58,6 +58,9 @@ func (h *Harness) baseArgs() []string {
 	return append(append([]string{}, h.cmd.Args...),
 		"--output-format", "stream-json", "--input-format", "stream-json", "--verbose",
 		"--include-partial-messages", "--permission-prompt-tool", "stdio",
+		// Claude echoes each prompt once it reads it, which tells when it
+		// took one steered into a turn (Steer).
+		"--replay-user-messages",
 		// Lets a session switch to bypassPermissions later (Yolo on a plan,
 		// or the mode picker); without it Claude falls back to default.
 		"--allow-dangerously-skip-permissions")
@@ -78,7 +81,7 @@ func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 	info := model.HarnessInfo{
 		ID: "claude", Name: "Claude Code", Protocol: "claude", Modes: modes, DefaultMode: "default",
 		Commands: []model.Command{harness.Compact},
-		Caps:     model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, ModelSelect: true, FreeModel: true},
+		Caps:     model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, ModelSelect: true, FreeModel: true, Steer: true},
 	}
 	v, err := proc.Version(ctx, h.cmd.Command, "--version")
 	if err != nil {
@@ -369,6 +372,8 @@ type frame struct {
 
 	// user: what the tool returned, besides its text for the model
 	ToolUseResult json.RawMessage `json:"tool_use_result"`
+	// user: the echo of a prompt Claude read (--replay-user-messages)
+	IsReplay bool `json:"isReplay"`
 
 	// system/init
 	Model          string `json:"model"`

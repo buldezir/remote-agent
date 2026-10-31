@@ -109,10 +109,11 @@ describe("fixtures", () => {
     expect(claude.commands?.[0].description).toBeTruthy();
     expect(harnesses[1].commands).toBeUndefined();
     // What the server settings offer for each agent; older servers leave them out.
-    expect(claude.caps).toMatchObject({ update: true, login: true, oneShot: true });
+    expect(claude.caps).toMatchObject({ update: true, login: true, oneShot: true, steer: true });
     expect(harnesses[1].caps.update).toBeUndefined();
     expect(harnesses[1].caps.login).toBeUndefined();
     expect(harnesses[1].caps.oneShot).toBeUndefined();
+    expect(harnesses[1].caps.steer).toBeUndefined();
 
     const diff: Diff = load("response_diff.json").result;
     expect(diff.files.map((f) => f.status)).toEqual(["modified", "renamed", "added"]);

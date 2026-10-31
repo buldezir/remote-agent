@@ -83,7 +83,9 @@ struct FixtureTests {
         #expect(claude?.commands?.first?.description?.isEmpty == false)
         #expect(h.result?.harnesses[1].commands == nil)
         #expect(claude?.caps.update == true && claude?.caps.login == true && claude?.caps.oneShot == true)
+        #expect(claude?.caps.steer == true)
         #expect(h.result?.harnesses[1].caps.update == nil)
+        #expect(h.result?.harnesses[1].caps.steer == nil)
 
         let d = try dec.decode(Response<Diff>.self, from: load("response_diff.json"))
         #expect(d.result?.files.map(\.status) == [.modified, .renamed, .added])

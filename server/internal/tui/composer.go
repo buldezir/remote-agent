@@ -156,6 +156,8 @@ func (c *composer) sync(m *Model, v *sessionView) tea.Cmd {
 	switch {
 	case v.archived():
 		c.ta.Placeholder = "This session is archived."
+	case v.store.Session != nil && v.store.CanSteer("", m.conn.Harness(v.store.Session.Harness)):
+		c.ta.Placeholder = "Queue a follow-up · ctrl+t steers it into the turn"
 	case v.store.IsRunning():
 		c.ta.Placeholder = "Queue a follow-up…"
 	default:
@@ -274,7 +276,10 @@ func (c *composer) key(m *Model, v *sessionView, k tea.KeyPressMsg) tea.Cmd {
 	}
 	switch k.String() {
 	case "enter":
-		return c.submit(m, v)
+		return c.submit(m, v, false)
+	case "ctrl+t":
+		// Into the running turn, where the agent takes it; else as enter.
+		return c.submit(m, v, true)
 	case "shift+enter", "alt+enter", "ctrl+j":
 		c.ta.InsertString("\n")
 		return nil
@@ -355,7 +360,9 @@ func (c *composer) images(m *Model) ([]model.ImageRef, bool) {
 	return refs, true
 }
 
-func (c *composer) submit(m *Model, v *sessionView) tea.Cmd {
+// submit sends the prompt; with steer, it joins the running turn where the
+// agent can take it.
+func (c *composer) submit(m *Model, v *sessionView, steer bool) tea.Cmd {
 	text := strings.TrimSpace(c.value())
 	refs, ok := c.images(m)
 	if !ok || (text == "" && len(refs) == 0) {
@@ -363,12 +370,12 @@ func (c *composer) submit(m *Model, v *sessionView) tea.Cmd {
 	}
 	c.reset(m)
 	v.store.SetDraft("")
-	return c.send(m, v, text, refs)
+	return c.send(m, v, text, refs, steer)
 }
 
 // send sends a prompt; if it fails, it comes back to the composer.
-func (c *composer) send(m *Model, v *sessionView, text string, refs []model.ImageRef) tea.Cmd {
-	job := v.store.Send(text, refs)
+func (c *composer) send(m *Model, v *sessionView, text string, refs []model.ImageRef, steer bool) tea.Cmd {
+	job := v.store.Send(text, refs, steer)
 	v.pinned = true
 	return func() tea.Msg {
 		return sendMsg{c: c, text: text, images: refs, err: job(context.Background())}

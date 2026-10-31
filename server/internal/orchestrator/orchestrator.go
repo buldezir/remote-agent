@@ -264,7 +264,7 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 		if p.CommandID != "" {
 			cmd = p.CommandID + "/prompt"
 		}
-		if _, err := o.Prompt(ctx, s.ID, p.Prompt, p.Images, cmd); err != nil {
+		if _, err := o.Prompt(ctx, s.ID, p.Prompt, p.Images, cmd, false); err != nil {
 			o.log.Warn("initial prompt failed", "session", s.ID, "err", err)
 		}
 	}
@@ -346,8 +346,10 @@ func (o *Orchestrator) actor(ctx context.Context, sessionID string) (*actor, err
 }
 
 // Prompt sends text and the images with the given ids (from POST
-// /v1/images) to a session.
-func (o *Orchestrator) Prompt(ctx context.Context, sessionID, text string, imageIDs []string, commandID string) (*model.Item, error) {
+// /v1/images) to a session: it starts a turn, or waits in the queue while
+// one runs. With steer, it joins the running turn instead, where the agent
+// can take it (Steer).
+func (o *Orchestrator) Prompt(ctx context.Context, sessionID, text string, imageIDs []string, commandID string, steer bool) (*model.Item, error) {
 	if strings.TrimSpace(text) == "" && len(imageIDs) == 0 {
 		return nil, errorf(CodeInvalid, "empty prompt")
 	}
@@ -359,7 +361,7 @@ func (o *Orchestrator) Prompt(ctx context.Context, sessionID, text string, image
 	if err != nil {
 		return nil, err
 	}
-	return a.prompt(ctx, text, refs, files, commandID)
+	return a.prompt(ctx, text, refs, files, commandID, steer)
 }
 
 // images looks up the images with the given ids (from POST /v1/images).
@@ -490,6 +492,17 @@ func (o *Orchestrator) SendNow(ctx context.Context, sessionID, itemID string) er
 		return err
 	}
 	return a.sendNow(ctx, itemID)
+}
+
+// Steer adds the queued prompt itemID to the running turn, without
+// interrupting it, for agents that take one (harness.Steerer); when the turn
+// ends first, the prompt starts the next one, as queued prompts do.
+func (o *Orchestrator) Steer(ctx context.Context, sessionID, itemID string) error {
+	a, err := o.actor(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	return a.steer(ctx, itemID)
 }
 
 // CancelQueued takes the queued prompt itemID out of the queue, unsent.

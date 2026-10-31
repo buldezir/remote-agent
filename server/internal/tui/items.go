@@ -55,7 +55,7 @@ func (m *Model) itemStatus(it *model.Item) string {
 func (m *Model) renderItem(v *sessionView, it *model.Item, width int) []string {
 	switch it.Kind {
 	case model.ItemUserMessage:
-		return m.renderPrompt(it.Text, it.Images, width, it.Status)
+		return m.renderPrompt(it.Text, it.Images, width, it.Status, v.canSteer(m, it))
 	case model.ItemAssistantMessage:
 		return m.renderMarkdownWithImages(it.Text, it.Images, width)
 	case model.ItemReasoning:
@@ -100,8 +100,9 @@ func (m *Model) renderItem(v *sessionView, it *model.Item, width int) []string {
 }
 
 // renderPrompt draws what the user sent: the text beside a bar, then its
-// images.
-func (m *Model) renderPrompt(text string, images []model.ImageRef, width int, status model.ItemStatus) []string {
+// images. A queued one says how to send it now, steer it into the turn
+// where the agent can take it, or cancel it.
+func (m *Model) renderPrompt(text string, images []model.ImageRef, width int, status model.ItemStatus, steer bool) []string {
 	bar, style := m.st.Accent, m.st.Text
 	if status == model.ItemQueued || status == model.ItemCancelled {
 		bar, style = m.st.Faint, m.st.Faint
@@ -117,8 +118,11 @@ func (m *Model) renderPrompt(text string, images []model.ImageRef, width int, st
 	}
 	switch status {
 	case model.ItemQueued:
-		lines = append(lines, m.st.Faint.Render("  Queued · ")+m.st.Key.Render("s")+m.st.Faint.Render(" sends it now · ")+
-			m.st.Key.Render("x")+m.st.Faint.Render(" cancels it"))
+		line := m.st.Faint.Render("  Queued · ") + m.st.Key.Render("s") + m.st.Faint.Render(" sends it now · ")
+		if steer {
+			line += m.st.Key.Render("t") + m.st.Faint.Render(" steers it in · ")
+		}
+		lines = append(lines, line+m.st.Key.Render("x")+m.st.Faint.Render(" cancels it"))
 	case model.ItemCancelled:
 		lines = append(lines, m.st.Faint.Render("  Not sent"))
 	}

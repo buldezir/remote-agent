@@ -273,7 +273,7 @@ export function SessionView({
               )}
               {rows.map((r) =>
                 r.kind === "item" ? (
-                  <ItemView key={r.item.id} item={r.item} store={store} />
+                  <ItemView key={r.item.id} item={r.item} store={store} harness={harness} />
                 ) : (
                   <TurnFooter key={"turn-" + r.turn.id} turn={r.turn} />
                 ),
@@ -302,6 +302,7 @@ export function SessionView({
             store={store}
             session={session}
             attachments={attachments}
+            harness={harness}
             commands={harness?.commands ?? []}
             field={composerField}
             handle={composer}
@@ -428,6 +429,7 @@ function Composer({
   store,
   session,
   attachments,
+  harness,
   field,
   handle,
   draftable,
@@ -438,6 +440,7 @@ function Composer({
   store: SessionStore;
   session: Session | undefined;
   attachments: Attachments;
+  harness: HarnessInfo | undefined;
   field: React.RefObject<HTMLTextAreaElement | null>;
   handle: React.Ref<ComposerHandle>;
   draftable: boolean;
@@ -559,7 +562,10 @@ function Composer({
     return () => window.removeEventListener("keydown", key);
   }, [offersDraft]);
 
-  const send = () => {
+  // ⇧⌘Return or Ctrl+Shift+Enter sends a prompt into the running turn, where
+  // the agent takes one; Return queues it.
+  const steers = store.canSteer(draft, harness);
+  const send = (steer = false) => {
     if (!canSend || archived) return;
     const text = draft;
     const sent = attachments.entries;
@@ -567,7 +573,7 @@ function Composer({
     setDraft("");
     attachments.clear();
     onSend();
-    store.send(text, images).catch((e) => {
+    store.send(text, images, steer && steers).catch((e) => {
       // It didn't go: back into the composer, ahead of anything written since.
       setDraft([text, store.draft].filter((t) => t !== "").join("\n"));
       attachments.restore(sent);
@@ -645,7 +651,10 @@ function Composer({
                   }
                 }
               }
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              if (e.key === "Enter" && e.shiftKey && (e.metaKey || e.ctrlKey) && steers) {
+                e.preventDefault();
+                send(true);
+              } else if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 send();
               }
@@ -678,7 +687,15 @@ function Composer({
             className={"round-button main " + (action === "stopDictation" ? "c-red" : "c-accent")}
             onClick={main}
             disabled={archived || (action === "send" && !canSend)}
-            title={action === "send" ? "Send (Return)" : action === "dictate" ? "Dictate" : "Stop dictation"}
+            title={
+              action === "send"
+                ? steers
+                  ? "Queue (Return) · Steer into the turn (⇧⌘Return)"
+                  : "Send (Return)"
+                : action === "dictate"
+                  ? "Dictate"
+                  : "Stop dictation"
+            }
             aria-label={action === "send" ? "Send" : action === "dictate" ? "Dictate" : "Stop dictation"}
           >
             {action === "send" ? <ArrowUp size={18} strokeWidth={2.5} /> : action === "dictate" ? <Mic size={17} /> : <AudioLines size={17} className="pulse" />}

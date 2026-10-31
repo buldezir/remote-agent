@@ -382,6 +382,8 @@ public struct HarnessCaps: Codable, Hashable, Sendable {
     public var login: Bool?
     /// The agent can be the system agent (`ServerSettings`).
     public var oneShot: Bool?
+    /// The agent takes a prompt into the running turn (`session.steer`).
+    public var steer: Bool?
 }
 
 public struct HarnessInfo: Codable, Hashable, Identifiable, Sendable {

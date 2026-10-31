@@ -61,7 +61,8 @@
           "modelSelect": true,
           "update": true,
           "login": true,
-          "oneShot": true
+          "oneShot": true,
+          "steer": true
         }
       },
       {

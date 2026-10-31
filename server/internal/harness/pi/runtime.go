@@ -130,6 +130,8 @@ type runtime struct {
 	turn         int // counts prompts
 	inTurn       bool
 	interrupting bool
+	running      bool               // pi runs the agent for the turn, which takes steered prompts
+	steered      bool               // a prompt was steered into the turn
 	started      chan struct{}      // closed once pi starts on the current prompt
 	dialogs      map[string]*dialog // approval id (the dialog's) -> dialog
 
@@ -219,17 +221,9 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	if args, ok := in.Command(harness.Compact.Name); ok {
 		return r.compact(args)
 	}
-	params := map[string]any{"message": in.Text}
-	if len(in.Images) > 0 {
-		var images []map[string]any
-		for _, img := range in.Images {
-			data, err := img.Base64()
-			if err != nil {
-				return err
-			}
-			images = append(images, map[string]any{"type": "image", "data": data, "mimeType": img.MimeType})
-		}
-		params["images"] = images
+	params, err := promptParams(in)
+	if err != nil {
+		return err
 	}
 	r.mu.Lock()
 	if r.inTurn {
@@ -264,6 +258,54 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	case <-r.c.done:
 		r.abandon(turn)
 		return errExited
+	}
+	return nil
+}
+
+// promptParams is the prompt as pi's prompt and steer commands take it.
+func promptParams(in harness.Input) (map[string]any, error) {
+	params := map[string]any{"message": in.Text}
+	if len(in.Images) > 0 {
+		var images []map[string]any
+		for _, img := range in.Images {
+			data, err := img.Base64()
+			if err != nil {
+				return nil, err
+			}
+			images = append(images, map[string]any{"type": "image", "data": data, "mimeType": img.MimeType})
+		}
+		params["images"] = images
+	}
+	return params, nil
+}
+
+// Steer queues the prompt for the agent pi runs for the turn, with its
+// steer command: pi gives it to the model after the tool calls it runs, as
+// many at a time as its steering mode says (the user's), and settles only
+// once it has none left.
+func (r *runtime) Steer(ctx context.Context, in harness.Input) error {
+	params, err := promptParams(in)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if !r.inTurn || r.interrupting || !r.running {
+		r.mu.Unlock()
+		return harness.ErrNoTurn
+	}
+	turn := r.turn
+	r.steered = true
+	r.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := r.c.call(ctx, "steer", params, nil); err != nil {
+		r.mu.Lock()
+		ended := !r.inTurn || r.turn != turn
+		r.mu.Unlock()
+		if ended {
+			return harness.ErrNoTurn
+		}
+		return err
 	}
 	return nil
 }
@@ -348,6 +390,7 @@ func (r *runtime) abandon(turn int) {
 
 func (r *runtime) markStarted() {
 	r.mu.Lock()
+	r.running = r.inTurn
 	if r.started != nil {
 		close(r.started)
 		r.started = nil
@@ -357,7 +400,7 @@ func (r *runtime) markStarted() {
 
 func (r *runtime) Interrupt(ctx context.Context) error {
 	r.mu.Lock()
-	inTurn, turn := r.inTurn, r.turn
+	inTurn, turn, steered := r.inTurn, r.turn, r.steered
 	r.interrupting = inTurn
 	r.mu.Unlock()
 	if !inTurn {
@@ -365,6 +408,13 @@ func (r *runtime) Interrupt(ctx context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	// pi goes on with steered prompts it hasn't read after an abort, unless
+	// they leave its queue first.
+	if steered {
+		if err := r.c.call(ctx, "clear_queue", nil, nil); err != nil {
+			return err
+		}
+	}
 	if err := r.c.call(ctx, "abort", nil, nil); err != nil {
 		return err
 	}
@@ -406,7 +456,7 @@ func (r *runtime) endTurn(turn int) {
 		return
 	}
 	interrupted := r.interrupting
-	r.inTurn, r.interrupting, r.started = false, false, nil
+	r.inTurn, r.interrupting, r.running, r.steered, r.started = false, false, false, false, nil
 	dialogs := r.dialogs
 	r.dialogs = map[string]*dialog{}
 	r.mu.Unlock()

@@ -184,16 +184,28 @@ public final class SessionStore {
 
     // MARK: Commands
 
+    /// Whether a prompt can join the running turn (steer): its agent takes
+    /// one, and it isn't a slash command, which agents run only as a prompt
+    /// of its own.
+    public func canSteer(_ text: String, harness: HarnessInfo?) -> Bool {
+        isRunning && harness?.caps.steer == true && !text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/")
+    }
+
     /// Sends a prompt. It shows in `outbox` until the transcript has it, and
     /// waits out a dropped connection; it throws once the connection gives up.
-    public func send(_ text: String, images: [ImageRef] = []) async throws {
+    /// With `steer`, a prompt sent while the agent works joins its turn where
+    /// the agent can take it, and is queued where it can't.
+    public func send(_ text: String, images: [ImageRef] = [], steer: Bool = false) async throws {
         guard let c = connection else { throw RPCError.disconnected }
         let commandID = UUID().uuidString
         outbox[commandID] = Outgoing(text: text, images: images)
-        struct P: Encodable, Sendable { var commandId: String; var sessionId: String; var text: String; var images: [String]? }
+        struct P: Encodable, Sendable {
+            var commandId: String; var sessionId: String; var text: String; var images: [String]?; var steer: Bool?
+        }
         do {
             let _: Item = try await c.deliver("session.prompt", P(commandId: commandID, sessionId: sessionID, text: text,
-                                                                  images: images.isEmpty ? nil : images.map(\.id)))
+                                                                  images: images.isEmpty ? nil : images.map(\.id),
+                                                                  steer: steer ? true : nil))
         } catch {
             outbox[commandID] = nil
             throw error
@@ -244,6 +256,18 @@ public final class SessionStore {
             let _: Empty = try await c.call("session.sendNow", P(sessionId: sessionID, itemId: item.id))
         } catch let e as RPCError where e.code == "method_not_found" {
             throw RPCError(code: e.code, message: "This server's rad is too old to send a queued prompt now. Update rad on it.")
+        }
+    }
+
+    /// Adds this queued prompt to the running turn, without interrupting it,
+    /// for agents that take one (`canSteer`).
+    public func steer(_ item: Item) async throws {
+        guard let c = connection else { throw RPCError.disconnected }
+        struct P: Encodable, Sendable { var sessionId: String; var itemId: String }
+        do {
+            let _: Empty = try await c.call("session.steer", P(sessionId: sessionID, itemId: item.id))
+        } catch let e as RPCError where e.code == "method_not_found" {
+            throw RPCError(code: e.code, message: "This server's rad is too old to steer a prompt into a turn. Update rad on it.")
         }
     }
 

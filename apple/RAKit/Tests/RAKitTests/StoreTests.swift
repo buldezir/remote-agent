@@ -96,6 +96,30 @@ struct SessionStoreTests {
     }
 }
 
+extension SessionStoreTests {
+    func harness(steers: Bool) throws -> HarnessInfo {
+        let json = #"{"id":"h","name":"H","protocol":"claude","installed":true,"authOk":true,"#
+            + #""caps":{"resume":true,"interrupt":true,"setMode":true,"freeModel":true,"modelSelect":true\#(steers ? #","steer":true"# : "")}}"#
+        return try WireCoding.decoder().decode(HarnessInfo.self, from: Data(json.utf8))
+    }
+
+    @Test func steersWhileAnAgentThatCanWorks() throws {
+        let s = SessionStore._testMake("s")
+        let steers = try harness(steers: true)
+        s._testSynchronized(seq: 0, reset: true)
+        s._testApply([try sessionEvent(1, "s", "idle")])
+        #expect(!s.canSteer("more", harness: steers))
+        s._testApply([try sessionEvent(2, "s", "running")])
+        #expect(s.canSteer("more", harness: steers))
+        s._testApply([try sessionEvent(3, "s", "awaiting_approval")])
+        #expect(s.canSteer("more", harness: steers))
+        #expect(!s.canSteer("more", harness: try harness(steers: false)))
+        #expect(!s.canSteer("more", harness: nil))
+        // Slash commands run only as prompts of their own.
+        #expect(!s.canSteer(" /compact", harness: steers))
+    }
+}
+
 func sessionEvent(_ seq: Int64, _ id: String, _ status: String, archived: Bool = false, error: String? = nil) throws -> Event {
     var obj: [String: Any] = ["id": id, "projectId": "p", "harness": "fake", "status": status, "title": id, "archived": archived,
                               "workspace": ["kind": "root", "path": "/tmp/p"],

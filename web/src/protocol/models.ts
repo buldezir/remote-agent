@@ -283,6 +283,8 @@ export interface HarnessCaps {
   login?: boolean;
   /** The agent can be the system agent (`ServerSettings`). */
   oneShot?: boolean;
+  /** The agent takes a prompt into the running turn (`session.steer`). */
+  steer?: boolean;
 }
 
 export interface HarnessInfo {

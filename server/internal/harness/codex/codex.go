@@ -84,7 +84,7 @@ func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 	info := model.HarnessInfo{
 		ID: "codex", Name: "Codex", Protocol: "codex", Modes: modes, DefaultMode: "auto",
 		Commands: []model.Command{harness.Compact},
-		Caps:     model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, ModelSelect: true, FreeModel: true},
+		Caps:     model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, ModelSelect: true, FreeModel: true, Steer: true},
 	}
 	v, err := proc.Version(ctx, h.cmd.Command, "--version")
 	if err != nil {

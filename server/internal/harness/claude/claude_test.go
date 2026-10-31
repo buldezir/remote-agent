@@ -3,12 +3,14 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"remote-agent/internal/config"
 	"remote-agent/internal/harness"
@@ -520,6 +522,106 @@ func TestReplayWorktree(t *testing.T) {
 	}
 	if got := moves(replaytest.RunTurn(t, rt, "Reply with just: ok", nil)); len(got) != 0 {
 		t.Errorf("moves = %v, want none", got)
+	}
+	replaytest.CloseClean(t, rt)
+}
+
+func isText(ev harness.Event) bool {
+	it, ok := ev.(harness.ItemEvent)
+	return ok && it.Item.Kind == model.ItemAssistantMessage && it.Item.Text != ""
+}
+
+func isTool(ev harness.Event) bool {
+	it, ok := ev.(harness.ItemEvent)
+	return ok && it.Item.Kind == model.ItemToolCall
+}
+
+func replies(turn *replaytest.Turn) []string {
+	var out []string
+	for _, it := range turn.ItemsOf(model.ItemAssistantMessage) {
+		out = append(out, it.Text)
+	}
+	return out
+}
+
+// A prompt steered into a turn goes to Claude as it works. Claude reads it
+// after the tool call it runs; one that comes while Claude writes its
+// reply, it reads in a turn of its own once the turn ends, which goes on
+// the turn; stopped meanwhile, the turn stops there too.
+func TestReplaySteer(t *testing.T) {
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, _ := openReplay(t, "testdata/steer.ndjson", "claude-rec/ws",
+		harness.OpenOptions{SessionID: "1915cdd8-941f-4912-b853-e63b3b361d1b", Model: "haiku", Mode: "bypassPermissions", DiagPath: diag})
+	if err := rt.(harness.Steerer).Steer(context.Background(), harness.Input{Text: "early"}); !errors.Is(err, harness.ErrNoTurn) {
+		t.Fatalf("steer without a turn: %v", err)
+	}
+	var events []harness.Event
+
+	tool := replaytest.SteerTurn(t, rt, "Run the shell command `sleep 6 && echo first` with your shell tool. Then reply with just the word: done.",
+		isTool, "Also end your reply with the word: banana.", false)
+	if tool.End.Status != model.TurnCompleted || !reflect.DeepEqual(replies(tool), []string{"done\n\nbanana"}) {
+		t.Errorf("steered during a tool call: %+v, replies %q", tool.End, replies(tool))
+	}
+	events = append(events, tool.Events...)
+
+	reply := replaytest.SteerTurn(t, rt, "Without using any tools, write a 100-word story about a lighthouse.",
+		isText, "Now reply with just the word: banana.", false)
+	got := replies(reply)
+	if reply.End.Status != model.TurnCompleted || len(got) != 2 || !strings.HasPrefix(got[0], "The lighthouse keeper, Elsie,") || got[1] != "banana" {
+		t.Errorf("steered during the reply: %+v, replies %q", reply.End, got)
+	}
+	// Both of Claude's turns count; the cost is the process's so far.
+	if u := reply.End.Usage; u == nil || *u != (model.Usage{InputTokens: 4, OutputTokens: 380, CacheReadTokens: 80641, CacheWriteTokens: 686, CostUSD: 0.00425829}) {
+		t.Errorf("usage = %+v", u)
+	}
+	events = append(events, reply.Events...)
+
+	stopped := replaytest.SteerTurn(t, rt, "Without using any tools, write a 400-word story about a lighthouse.",
+		isText, "Now reply with just the word: banana.", true)
+	if stopped.End.Status != model.TurnInterrupted {
+		t.Errorf("stopped after steering: %+v", stopped.End)
+	}
+	events = append(events, stopped.Events...)
+	events = append(events, replaytest.CloseClean(t, rt)...)
+	ends := 0
+	for _, ev := range events {
+		switch ev := ev.(type) {
+		case harness.TurnStarted:
+			t.Errorf("a turn of Claude's own: %+v", ev)
+		case harness.TurnEnded:
+			ends++
+		}
+	}
+	if ends != 3 {
+		t.Errorf("%d turns ended, want 3", ends)
+	}
+	command, sent := replaytest.Diag(t, diag)
+	if !strings.Contains(command, `"--replay-user-messages"`) {
+		t.Errorf("command = %s", command)
+	}
+	// The user's stop, then the one that stops Claude going on.
+	interrupts := 0
+	for _, f := range sent {
+		if r, _ := f["request"].(map[string]any); r["subtype"] == "interrupt" {
+			interrupts++
+		}
+	}
+	if interrupts != 2 {
+		t.Errorf("%d interrupts sent, want 2", interrupts)
+	}
+}
+
+// A turn that Claude doesn't go on with, though a prompt steered into it
+// was left unread, ends a little later.
+func TestReplaySteerLeftUnread(t *testing.T) {
+	defer func(d time.Duration) { carryTimeout = d }(carryTimeout)
+	carryTimeout = 50 * time.Millisecond
+	rt, _ := openReplay(t, "testdata/steer-unread.ndjson", "claude-rec/ws",
+		harness.OpenOptions{SessionID: "1915cdd8-941f-4912-b853-e63b3b361d1b", Model: "haiku", Mode: "bypassPermissions"})
+	turn := replaytest.SteerTurn(t, rt, "Without using any tools, write a 100-word story about a lighthouse.",
+		isText, "Now reply with just the word: banana.", false)
+	if turn.End.Status != model.TurnCompleted || len(replies(turn)) != 1 {
+		t.Errorf("turn = %+v, replies %q", turn.End, replies(turn))
 	}
 	replaytest.CloseClean(t, rt)
 }

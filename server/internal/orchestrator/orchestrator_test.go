@@ -139,7 +139,7 @@ func (e *env) create(p CreateSessionParams) *model.Session {
 
 func (e *env) prompt(sessionID, text, cmd string) *model.Item {
 	e.t.Helper()
-	it, err := e.o.Prompt(bg, sessionID, text, nil, cmd)
+	it, err := e.o.Prompt(bg, sessionID, text, nil, cmd, false)
 	if err != nil {
 		e.t.Fatalf("prompt %q: %v", text, err)
 	}
@@ -407,7 +407,7 @@ func TestImages(t *testing.T) {
 		t.Errorf("picture not stored: %v", err)
 	}
 
-	if _, err := e.o.Prompt(bg, s.ID, "look", []string{"nope.png"}, ""); CodeOf(err) != CodeInvalid {
+	if _, err := e.o.Prompt(bg, s.ID, "look", []string{"nope.png"}, "", false); CodeOf(err) != CodeInvalid {
 		t.Errorf("unknown image: err = %v", err)
 	}
 }
@@ -467,10 +467,10 @@ func TestInvalidRequests(t *testing.T) {
 	if s.Title != "New session" {
 		t.Errorf("title = %q", s.Title)
 	}
-	if _, err := e.o.Prompt(bg, s.ID, "  \n", nil, ""); CodeOf(err) != CodeInvalid {
+	if _, err := e.o.Prompt(bg, s.ID, "  \n", nil, "", false); CodeOf(err) != CodeInvalid {
 		t.Errorf("empty prompt: %v", err)
 	}
-	if _, err := e.o.Prompt(bg, "missing", "hi", nil, ""); CodeOf(err) != CodeNotFound {
+	if _, err := e.o.Prompt(bg, "missing", "hi", nil, "", false); CodeOf(err) != CodeNotFound {
 		t.Errorf("unknown session: %v", err)
 	}
 	if _, err := e.o.TurnDiff(bg, "missing", nil); CodeOf(err) != CodeNotFound {
@@ -591,7 +591,7 @@ func TestIdempotentCommands(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			it, err := e.o.Prompt(bg, s1.ID, "second", nil, "prompt-2")
+			it, err := e.o.Prompt(bg, s1.ID, "second", nil, "prompt-2", false)
 			if err != nil {
 				t.Error(err)
 				return
@@ -767,6 +767,157 @@ func TestCancelQueued(t *testing.T) {
 	}
 	if n := len(e.turns(s.ID)); n != 2 {
 		t.Errorf("turns = %d", n)
+	}
+}
+
+func TestSteer(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	s := e.create(CreateSessionParams{Prompt: "slow reply with quite a few words in it"})
+	e.waitFor("streaming", func() bool { return len(byKind(e.items(s.ID), model.ItemAssistantMessage)) == 1 })
+	first := e.prompt(s.ID, "first", "")
+	second := e.prompt(s.ID, "steer me", "")
+	if err := e.o.Steer(bg, s.ID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	// The turn goes on with the steered prompt, which shows where the agent
+	// got it; the other prompt waits for the next turn.
+	if turn := e.waitTurn(s.ID, 1); turn.Status != model.TurnCompleted {
+		t.Errorf("turn 1 = %s", turn.Status)
+	}
+	e.waitTurn(s.ID, 2)
+	turns := e.turns(s.ID)
+	items := e.items(s.ID)
+	var turn1 []string
+	for _, it := range items {
+		if it.TurnID == turns[0].ID && it.Kind != model.ItemReasoning {
+			turn1 = append(turn1, string(it.Kind)+": "+it.Text)
+		}
+		if it.ID == first.ID && it.TurnID != turns[1].ID {
+			t.Errorf("%q ran in the wrong turn: %+v", it.Text, it)
+		}
+	}
+	if len(turn1) != 4 || turn1[0] != "user_message: slow reply with quite a few words in it" || !strings.HasPrefix(turn1[1], "assistant_message: Echo:") ||
+		turn1[2] != "user_message: steer me" || turn1[3] != "assistant_message: Steered: steer me" {
+		t.Errorf("turn 1 = %q", turn1)
+	}
+	checkOrder(t, items, turns)
+	if !strings.Contains(e.log.String(), `msg=steered`) {
+		t.Errorf("log:\n%s", e.log.String())
+	}
+
+	// A prompt that has left the queue is left as it is.
+	if err := e.o.Steer(bg, s.ID, second.ID); err != nil {
+		t.Error(err)
+	}
+	if n := len(e.turns(s.ID)); n != 2 {
+		t.Errorf("turns = %d", n)
+	}
+}
+
+func TestPromptSteers(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	// With nothing running, a prompt that would steer starts a turn.
+	s := e.create(CreateSessionParams{})
+	it, err := e.o.Prompt(bg, s.ID, "slow reply with quite a few words in it", nil, "", true)
+	if err != nil || it.Status != model.ItemCompleted {
+		t.Fatalf("prompt = %+v, %v", it, err)
+	}
+	e.waitFor("streaming", func() bool { return len(byKind(e.items(s.ID), model.ItemAssistantMessage)) == 1 })
+	joined, err := e.o.Prompt(bg, s.ID, "join in", nil, "c2", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := e.turns(s.ID)[0]
+	if joined.Status != model.ItemCompleted || joined.TurnID != turn.ID {
+		t.Errorf("steered prompt = %+v", joined)
+	}
+	// A slash command waits for the turn to end.
+	compact, err := e.o.Prompt(bg, s.ID, "/compact", nil, "", true)
+	if err != nil || compact.Status != model.ItemQueued {
+		t.Errorf("slash command = %+v, %v", compact, err)
+	}
+	if turn := e.waitTurn(s.ID, 1); turn.Status != model.TurnCompleted {
+		t.Errorf("turn 1 = %s", turn.Status)
+	}
+	if got := lastReply(e, s.ID, 1); got != "Steered: join in" {
+		t.Errorf("turn 1's reply = %q", got)
+	}
+	e.waitTurn(s.ID, 2)
+}
+
+// lastReply is the last agent message of turn n.
+func lastReply(e *env, sessionID string, n int) string {
+	e.t.Helper()
+	id := e.turns(sessionID)[n-1].ID
+	reply := ""
+	for _, it := range byKind(e.items(sessionID), model.ItemAssistantMessage) {
+		if it.TurnID == id {
+			reply = it.Text
+		}
+	}
+	return reply
+}
+
+// noSteer is the fake agent under another name, which can't steer.
+type noSteer struct{ plainAgent }
+
+func (noSteer) ID() string { return "nosteer" }
+func (h noSteer) Open(ctx context.Context, o harness.OpenOptions) (harness.Runtime, error) {
+	rt, err := h.plainAgent.Open(ctx, o)
+	return struct{ harness.Runtime }{rt}, err
+}
+
+// endingTurn is the fake agent whose turn ends as Steer gets to it.
+type endingTurn struct{ fake.Harness }
+
+func (h endingTurn) Open(ctx context.Context, o harness.OpenOptions) (harness.Runtime, error) {
+	rt, err := h.Harness.Open(ctx, o)
+	return endingTurnRuntime{rt}, err
+}
+
+type endingTurnRuntime struct{ harness.Runtime }
+
+func (endingTurnRuntime) Steer(context.Context, harness.Input) error { return harness.ErrNoTurn }
+
+func TestSteerWithoutATurnToTake(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		h      harness.Harness
+		text   string
+		code   string // the error, if any; the prompt waits in the queue either way
+		steers bool   // the agent takes another prompt
+	}{
+		{"agent can't steer", noSteer{}, "later", CodeInvalid, false},
+		{"turn ended", endingTurn{}, "later", "", false},
+		{"slash command", fake.Harness{}, "/compact", CodeInvalid, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := newEnvAt(t, t.TempDir(), false, tc.h)
+			s := e.create(CreateSessionParams{Harness: tc.h.ID(), Prompt: "slow reply with quite a few words in it"})
+			e.waitFor("streaming", func() bool { return len(byKind(e.items(s.ID), model.ItemAssistantMessage)) == 1 })
+			q := e.prompt(s.ID, tc.text, "")
+			if err := e.o.Steer(bg, s.ID, q.ID); tc.code == "" && err != nil || tc.code != "" && CodeOf(err) != tc.code {
+				t.Errorf("steer: %v, want %q", err, tc.code)
+			}
+			// It still waits, and starts the next turn. So does a prompt
+			// that would steer, where the agent can't take it.
+			if it, err := e.o.Prompt(bg, s.ID, "steered", nil, "", true); err != nil || (it.Status == model.ItemQueued) == tc.steers {
+				t.Errorf("prompt that steers = %+v, %v", it, err)
+			}
+			if turn := e.waitTurn(s.ID, 1); turn.Status != model.TurnCompleted {
+				t.Errorf("turn 1 = %s", turn.Status)
+			}
+			e.waitTurn(s.ID, 2)
+			for _, it := range e.items(s.ID) {
+				if it.ID == q.ID && it.TurnID != e.turns(s.ID)[1].ID {
+					t.Errorf("queued prompt = %+v", it)
+				}
+			}
+		})
 	}
 }
 
@@ -1114,7 +1265,7 @@ func TestSetModeAndArchive(t *testing.T) {
 	if refs := run(t, e.dir, "git", "for-each-ref", "refs/ra/cp/"+s.ID+"/"); refs != "" {
 		t.Errorf("checkpoint refs left: %s", refs)
 	}
-	if _, err := e.o.Prompt(bg, s.ID, "more", nil, ""); CodeOf(err) != CodeConflict {
+	if _, err := e.o.Prompt(bg, s.ID, "more", nil, "", false); CodeOf(err) != CodeConflict {
 		t.Errorf("prompt archived session: %v", err)
 	}
 	if err := e.o.RemoveProject(bg, e.proj.ID); err != nil {
@@ -1337,7 +1488,7 @@ func TestDelete(t *testing.T) {
 	if len(evs) != 1 || evs[0].Type != model.EvSessionRemoved || evs[0].ID != s.ID {
 		t.Errorf("index events = %+v", evs)
 	}
-	if _, err := e.o.Prompt(bg, s.ID, "more", nil, ""); CodeOf(err) != CodeNotFound {
+	if _, err := e.o.Prompt(bg, s.ID, "more", nil, "", false); CodeOf(err) != CodeNotFound {
 		t.Errorf("prompt deleted session: %v", err)
 	}
 	if err := e.o.Delete(bg, s.ID, false); CodeOf(err) != CodeNotFound {

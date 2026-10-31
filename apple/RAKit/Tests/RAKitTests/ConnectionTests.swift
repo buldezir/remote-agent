@@ -234,6 +234,25 @@ struct ConnectionTests {
         #expect(store.outbox.values.map(\.text) == ["hello"])
     }
 
+    @Test func steersPrompts() async throws {
+        let server = try TestServer()
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        let store = c.sessionStore("s1")
+
+        try await store.send("also this", steer: true)
+        try await store.send("later")
+        let prompts = server.calls.filter { $0.method == "session.prompt" }
+        #expect(prompts.map { $0.params?["steer"] } == [.bool(true), nil])
+
+        let queued = try WireCoding.decoder().decode(Item.self, from: Data(
+            #"{"id":"q","sessionId":"s1","order":2,"kind":"user_message","status":"queued","createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#.utf8))
+        try await store.steer(queued)
+        let steer = try #require(server.calls.last)
+        #expect(steer.method == "session.steer")
+        #expect(steer.params == .object(["sessionId": .string("s1"), "itemId": .string("q")]))
+    }
+
     @Test func promptFailsOnceTheConnectionGivesUp() async throws {
         let server = try TestServer()
         let c = try await connect(to: server)

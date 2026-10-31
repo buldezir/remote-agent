@@ -3,6 +3,7 @@ package pi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -368,6 +369,33 @@ func TestReplaySkills(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("skill invocation missing: %+v", sent)
+	}
+	replaytest.CloseClean(t, rt)
+}
+
+// A prompt steered into a turn goes to pi with steer, for the run it does
+// for the turn: pi gives it to the model after the tool call, and settles
+// once it has. A stop clears pi's queue before it aborts, since pi would go
+// on with what it holds.
+func TestReplaySteer(t *testing.T) {
+	rt, _ := open(t, "testdata/steer.ndjson", "01a18fa0-5f3e-7d2b-9c41-2d6a0e7b51c3")
+	if err := rt.(harness.Steerer).Steer(context.Background(), harness.Input{Text: "early"}); !errors.Is(err, harness.ErrNoTurn) {
+		t.Fatalf("steer without a turn: %v", err)
+	}
+	isTool := func(ev harness.Event) bool {
+		it, ok := ev.(harness.ItemEvent)
+		return ok && it.Item.Kind == model.ItemToolCall
+	}
+	turn := replaytest.SteerTurn(t, rt, "Run `sleep 3` with bash, then reply with one short sentence.",
+		isTool, "Also end your reply with the word: banana.", false)
+	msgs := turn.ItemsOf(model.ItemAssistantMessage)
+	if turn.End.Status != model.TurnCompleted || len(msgs) != 1 || msgs[0].Text != "Slept for three seconds, banana." {
+		t.Errorf("steered during a tool call: %+v, replies %+v", turn.End, msgs)
+	}
+	stopped := replaytest.SteerTurn(t, rt, "Run `sleep 20` with bash, then reply with one short sentence.",
+		isTool, "Now reply with just the word: banana.", true)
+	if stopped.End.Status != model.TurnInterrupted {
+		t.Errorf("stopped after steering: %+v", stopped.End)
 	}
 	replaytest.CloseClean(t, rt)
 }

@@ -69,6 +69,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -286,7 +287,8 @@ private fun SessionScreen(
         val separator = if (prefix.isEmpty() || prefix.last().isWhitespace()) "" else " "
         dictation.start(listOfNotNull(project?.name, harness?.name)) { text -> draft = prefix + separator + text }
     }
-    fun send() {
+    // With steer, the prompt joins the running turn, where the agent takes it.
+    fun send(steer: Boolean = false) {
         if (!canSend) return
         val text = draft
         val sent = attachments.entries.toList()
@@ -296,7 +298,7 @@ private fun SessionScreen(
         toBottom()
         connection.scope.launch {
             try {
-                store.send(text, sent.mapNotNull { it.ref })
+                store.send(text, sent.mapNotNull { it.ref }, steer)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -468,7 +470,7 @@ private fun SessionScreen(
                     }
                     items(rows.asReversed(), key = { it.key }, contentType = { (it as? Row.ItemRow)?.item?.kind ?: "footer" }) { row ->
                         when (row) {
-                            is Row.ItemRow -> ItemView(row.item, store, children)
+                            is Row.ItemRow -> ItemView(row.item, store, children, harness)
                             is Row.Footer -> TurnFooter(row.turn)
                         }
                     }
@@ -502,7 +504,8 @@ private fun SessionScreen(
                     running = running, enabled = !archived, canSend = canSend, focusPrompt = focusPrompt, focusRequester = focusRequester,
                     onSaveDraft = if (offersDraft) ::saveDraft else null, canSaveDraft = canSaveDraft,
                     // The keyboard has its own dictation key.
-                    onFocus = { focused = it; if (it) dictation.stop() }, onSend = ::send, onStop = { run { store.interrupt() } },
+                    onFocus = { focused = it; if (it) dictation.stop() }, onSend = { send() }, onStop = { run { store.interrupt() } },
+                    onSteer = if (canSend && store.canSteer(draft, harness)) ({ send(steer = true) }) else null,
                 )
             }
             if (below) {
@@ -673,6 +676,8 @@ private fun Composer(
     onFocus: (Boolean) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    // Ctrl+Shift+Enter on a hardware keyboard: into the running turn; null: it can't.
+    onSteer: (() -> Unit)? = null,
 ) {
     var focusedNow by remember { mutableStateOf(false) }
     var field by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
@@ -756,7 +761,10 @@ private fun Composer(
                                 }
                             }
                         }
-                        if (it.key == Key.Enter && it.type == KeyEventType.KeyDown && !it.isShiftPressed) {
+                        if (it.key == Key.Enter && it.type == KeyEventType.KeyDown && it.isShiftPressed && it.isCtrlPressed && onSteer != null) {
+                            onSteer()
+                            true
+                        } else if (it.key == Key.Enter && it.type == KeyEventType.KeyDown && !it.isShiftPressed) {
                             onSend()
                             true
                         } else {

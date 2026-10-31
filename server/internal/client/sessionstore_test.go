@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -123,7 +124,7 @@ func TestSessionStoreEmptiesWhenTheSessionIsDeleted(t *testing.T) {
 	s.synchronized(1, true)
 	s.setSession(&model.Session{ID: "s"})
 	s.apply([]model.Event{itemEvent(2, "a", 1, "first", model.ItemAssistantMessage, "")})
-	s.Send("pending", nil)
+	s.Send("pending", nil, false)
 	s.apply([]model.Event{{Stream: "session:s", Seq: 3, Type: model.EvSessionRemoved, ID: "s"}})
 	if !s.Removed || s.Session != nil || len(s.Transcript) != 0 || len(s.Items) != 0 || len(s.Turns) != 0 || len(s.Outbox) != 0 {
 		t.Fatalf("not emptied: %+v", s)
@@ -179,7 +180,7 @@ func TestSessionStoreKeepsAPromptInTheOutboxUntilConfirmed(t *testing.T) {
 	h := &fakeHost{}
 	s := newSessionStore("s", h)
 	s.synchronized(0, true)
-	if err := s.Send("hello", nil)(context.Background()); err != nil {
+	if err := s.Send("hello", nil, false)(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if len(s.Outbox) != 1 || s.Outbox[0].Text != "hello" || h.calls[0].method != "session.prompt" {
@@ -194,7 +195,7 @@ func TestSessionStoreKeepsAPromptInTheOutboxUntilConfirmed(t *testing.T) {
 func TestSessionStoreDropsTheOutboxEntryWhenSendingFails(t *testing.T) {
 	h := &fakeHost{err: errors.New("nope")}
 	s := newSessionStore("s", h)
-	if err := s.Send("hello", nil)(context.Background()); err == nil || len(s.Outbox) != 0 {
+	if err := s.Send("hello", nil, false)(context.Background()); err == nil || len(s.Outbox) != 0 {
 		t.Fatalf("err %v, outbox %+v", err, s.Outbox)
 	}
 }
@@ -263,6 +264,57 @@ func TestSessionStoreSendsAQueuedPromptNow(t *testing.T) {
 	h.err = &RPCError{"not_found", "no such item"}
 	if err := s.SendNow(context.Background(), "u"); err == nil || err.Error() != "no such item" {
 		t.Fatalf("err %v", err)
+	}
+}
+
+func TestSessionStoreSteersAQueuedPrompt(t *testing.T) {
+	h := &fakeHost{}
+	s := newSessionStore("s", h)
+	if err := s.Steer(context.Background(), "u"); err != nil || h.calls[0].method != "session.steer" ||
+		!reflect.DeepEqual(h.calls[0].params, map[string]any{"sessionId": "s", "itemId": "u"}) {
+		t.Fatalf("err %v, calls %+v", err, h.calls)
+	}
+	h.err = &RPCError{"method_not_found", "unknown method session.steer"}
+	if err := s.Steer(context.Background(), "u"); err == nil || err.Error() != "This rad is too old to steer a prompt into a turn. Update rad." {
+		t.Fatalf("err %v", err)
+	}
+	h.err = &RPCError{"not_found", "no such item"}
+	if err := s.Steer(context.Background(), "u"); err == nil || err.Error() != "no such item" {
+		t.Fatalf("err %v", err)
+	}
+}
+
+func TestSessionStoreSendsAPromptThatSteers(t *testing.T) {
+	h := &fakeHost{}
+	s := newSessionStore("s", h)
+	if err := s.Send("also this", nil, true)(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if p := h.calls[0].params.(map[string]any); h.calls[0].method != "session.prompt" || p["steer"] != true || p["text"] != "also this" {
+		t.Fatalf("calls %+v", h.calls)
+	}
+	// Without steer, the prompt says nothing of it.
+	if s.Send("later", nil, false)(context.Background()); h.calls[1].params.(map[string]any)["steer"] != nil {
+		t.Fatalf("calls %+v", h.calls)
+	}
+}
+
+func TestSessionStoreCanSteer(t *testing.T) {
+	s := newSessionStore("s", &fakeHost{})
+	steers := &model.HarnessInfo{ID: "claude", Caps: model.HarnessCaps{Steer: true}}
+	plain := &model.HarnessInfo{ID: "acp:cursor"}
+	s.setSession(&model.Session{ID: "s", Status: model.SessionIdle})
+	if s.CanSteer("more", steers) {
+		t.Error("steers with no turn running")
+	}
+	for _, st := range []model.SessionStatus{model.SessionRunning, model.SessionAwaitingApproval} {
+		s.setSession(&model.Session{ID: "s", Status: st})
+		if !s.CanSteer("more", steers) {
+			t.Errorf("doesn't steer while %s", st)
+		}
+	}
+	if s.CanSteer("more", plain) || s.CanSteer("more", nil) || s.CanSteer(" /compact", steers) {
+		t.Error("steers with an agent that can't, or a slash command")
 	}
 }
 

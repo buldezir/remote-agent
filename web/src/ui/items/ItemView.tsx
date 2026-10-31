@@ -17,14 +17,16 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
-import type { Draft, ImageRef, Item, JSONValue, Plan, Turn } from "../../protocol/models";
+import type { Draft, HarnessInfo, ImageRef, Item, JSONValue, Plan, Turn } from "../../protocol/models";
 import type { SessionStore } from "../../store/sessionStore";
 import { ImageGallery } from "../images";
 import { Markdown } from "../Markdown";
 import { ErrorAlert, Spinner } from "../primitives";
 import { ApprovalView } from "./ApprovalView";
 
-export function ItemView({ item, store }: { item: Item; store: SessionStore }) {
+/** An item of the transcript. `harness` is the session's agent, which says
+ *  whether a queued prompt can steer into the turn. */
+export function ItemView({ item, store, harness }: { item: Item; store: SessionStore; harness?: HarnessInfo }) {
   switch (item.kind) {
     case "user_message":
       return (
@@ -34,6 +36,7 @@ export function ItemView({ item, store }: { item: Item; store: SessionStore }) {
           pending={item.status === "queued"}
           cancelled={item.status === "cancelled"}
           onSendNow={item.status === "queued" ? () => store.sendNow(item.id) : undefined}
+          onSteer={item.status === "queued" && store.canSteer(item.text ?? "", harness) ? () => store.steer(item.id) : undefined}
           onCancel={item.status === "queued" ? () => store.cancelQueued(item.id) : undefined}
         />
       );
@@ -64,8 +67,9 @@ export function ItemView({ item, store }: { item: Item; store: SessionStore }) {
   }
 }
 
-/** A prompt. Queued on the server, it offers to send it now or cancel it; in
- *  the outbox (`pending` without `onSendNow`) it only waits. A `draft` is drawn in
+/** A prompt. Queued on the server, it offers to send it now, to steer it into
+ *  the running turn where the agent can take it, or to cancel it; in the
+ *  outbox (`pending` without `onSendNow`) it only waits. A `draft` is drawn in
  *  outline, with `note` under it. */
 export function UserBubble({
   text,
@@ -74,6 +78,7 @@ export function UserBubble({
   cancelled = false,
   draft = false,
   onSendNow,
+  onSteer,
   onCancel,
   note,
 }: {
@@ -83,6 +88,7 @@ export function UserBubble({
   cancelled?: boolean;
   draft?: boolean;
   onSendNow?: () => Promise<void>;
+  onSteer?: () => Promise<void>;
   onCancel?: () => Promise<void>;
   note?: ReactNode;
 }) {
@@ -99,7 +105,8 @@ export function UserBubble({
           {text}
         </div>
       )}
-      {pending && (onSendNow ? <QueuedNote onSendNow={onSendNow} onCancel={onCancel} /> : <div className="bubble-note">Queued</div>)}
+      {pending &&
+        (onSendNow ? <QueuedNote onSendNow={onSendNow} onSteer={onSteer} onCancel={onCancel} /> : <div className="bubble-note">Queued</div>)}
       {cancelled && <div className="bubble-note">Not sent</div>}
       {note}
     </div>
@@ -151,9 +158,18 @@ export function DraftBubble({
   );
 }
 
-/** "Queued · Send now · Cancel": Send now stops the running turn and sends
- *  this prompt next; Cancel takes it out of the queue, unsent. */
-function QueuedNote({ onSendNow, onCancel }: { onSendNow: () => Promise<void>; onCancel?: () => Promise<void> }) {
+/** "Queued · Send now · Steer · Cancel": Send now stops the running turn and
+ *  sends this prompt next; Steer adds it to the running turn, without
+ *  stopping it; Cancel takes it out of the queue, unsent. */
+function QueuedNote({
+  onSendNow,
+  onSteer,
+  onCancel,
+}: {
+  onSendNow: () => Promise<void>;
+  onSteer?: () => Promise<void>;
+  onCancel?: () => Promise<void>;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const act = async (f: () => Promise<void>) => {
@@ -173,6 +189,20 @@ function QueuedNote({ onSendNow, onCancel }: { onSendNow: () => Promise<void>; o
         <button className="link" onClick={() => void act(onSendNow)} disabled={busy} title="Stop the current turn and send this prompt now" aria-label="Send now">
           Send now
         </button>
+        {onSteer && (
+          <>
+            {" · "}
+            <button
+              className="link"
+              onClick={() => void act(onSteer)}
+              disabled={busy}
+              title="Add this prompt to what the agent is doing, without stopping it"
+              aria-label="Steer"
+            >
+              Steer
+            </button>
+          </>
+        )}
         {onCancel && (
           <>
             {" · "}

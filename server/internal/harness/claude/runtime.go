@@ -1,10 +1,12 @@
 package claude
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,6 +54,15 @@ type runtime struct {
 	interrupting bool
 	inTurn       bool
 	forkPoint    string // the turn's last message of the main agent, for --resume-session-at
+
+	// Prompts steered into the turn that Claude hasn't read yet, by their
+	// text (Steer). It echoes each as it reads it. One it gets after its last
+	// step makes it start another turn once the turn ends, which goes on the
+	// turn: carried holds the turn's end until then, and carryGen tells the
+	// carryTimeout that Claude went on.
+	steers   []string
+	carried  *harness.TurnEnded
+	carryGen int
 
 	// Streaming state per agent (main agent is "", subagents are keyed by
 	// their Task tool_use id), since parallel subagents interleave events.
@@ -104,7 +115,8 @@ func (r *runtime) waitExit() {
 	}
 	r.mu.Lock()
 	inTurn := r.inTurn
-	r.inTurn = false
+	r.inTurn, r.carried = false, nil
+	r.carryGen++
 	r.mu.Unlock()
 	if inTurn && err == nil {
 		r.emit(harness.TurnEnded{Status: model.TurnInterrupted})
@@ -129,19 +141,51 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	r.inTurn = true
 	r.interrupting = false
 	r.forkPoint = ""
+	r.steers, r.carried = nil, nil
 	r.mu.Unlock()
-	err = r.conn.p.WriteJSON(map[string]any{
-		"type":               "user",
-		"message":            map[string]any{"role": "user", "content": content},
-		"parent_tool_use_id": nil,
-		"session_id":         r.nativeID,
-	})
-	if err != nil {
+	if err = r.write(content); err != nil {
 		r.mu.Lock()
 		r.inTurn = false
 		r.mu.Unlock()
 	}
 	return err
+}
+
+// Steer writes the prompt to Claude while it works, as Claude Code takes
+// one typed during a turn: it reads it at its next step, after the tool
+// calls it runs, and goes on with it. One that comes after its last step,
+// while it writes its reply, it reads in a turn of its own once the turn
+// ends, which rad shows as the same turn (onResult).
+func (r *runtime) Steer(ctx context.Context, in harness.Input) error {
+	content, err := promptContent(in)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	if !r.inTurn || r.interrupting {
+		r.mu.Unlock()
+		return harness.ErrNoTurn
+	}
+	r.steers = append(r.steers, in.Text)
+	r.mu.Unlock()
+	if err = r.write(content); err != nil {
+		r.mu.Lock()
+		if i := slices.Index(r.steers, in.Text); i >= 0 {
+			r.steers = slices.Delete(r.steers, i, i+1)
+		}
+		r.mu.Unlock()
+	}
+	return err
+}
+
+// write sends Claude a user message.
+func (r *runtime) write(content any) error {
+	return r.conn.p.WriteJSON(map[string]any{
+		"type":               "user",
+		"message":            map[string]any{"role": "user", "content": content},
+		"parent_tool_use_id": nil,
+		"session_id":         r.nativeID,
+	})
 }
 
 // promptContent is the text alone, or image blocks followed by the text.
@@ -367,18 +411,32 @@ func (r *runtime) onFrame(f frame, raw []byte) {
 }
 
 // onInit starts each turn. One that no prompt started is Claude's own,
-// reporting on background tasks that ended.
+// reporting on background tasks that ended, or the turn it ended going on
+// with prompts steered into it. Stopped meanwhile, the turn stops there too.
 func (r *runtime) onInit() {
 	r.mu.Lock()
 	own := !r.inTurn
 	if own {
 		r.inTurn, r.interrupting, r.forkPoint = true, false, ""
 	}
+	stop := false
+	if r.carried != nil {
+		r.carryGen++
+		stop = r.interrupting
+	}
 	r.mu.Unlock()
 	notices := r.notices
 	r.notices = nil
 	if own {
 		r.emit(harness.TurnStarted{Notice: strings.Join(notices, "\n")})
+	}
+	if stop {
+		// Not on the read loop, which reads the answer.
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			r.conn.request(ctx, map[string]any{"subtype": "interrupt"})
+		}()
 	}
 }
 
@@ -676,6 +734,9 @@ func (r *runtime) onUser(f frame) {
 	if json.Unmarshal(f.Message, &m) != nil {
 		return
 	}
+	if f.IsReplay {
+		r.onEcho(&m)
+	}
 	for _, b := range m.blocks() {
 		if b.Type != "tool_result" {
 			continue
@@ -695,6 +756,21 @@ func (r *runtime) onUser(f frame) {
 			r.onWorktree(it.Tool.Name, f.ToolUseResult)
 		}
 	}
+}
+
+// onEcho notes that Claude read a prompt steered into the turn.
+func (r *runtime) onEcho(m *message) {
+	var text strings.Builder
+	for _, b := range m.blocks() {
+		if b.Type == "text" {
+			text.WriteString(b.Text)
+		}
+	}
+	r.mu.Lock()
+	if i := slices.Index(r.steers, text.String()); i >= 0 {
+		r.steers = slices.Delete(r.steers, i, i+1)
+	}
+	r.mu.Unlock()
 }
 
 // onWorktree follows Claude into a worktree it made with EnterWorktree, and
@@ -768,7 +844,12 @@ func (r *runtime) onResult(f frame) {
 	r.mu.Lock()
 	interrupted := r.interrupting
 	forkPoint := r.forkPoint
-	r.inTurn, r.interrupting = false, false
+	// Claude reads the steered prompts it hasn't read in a turn of its own,
+	// which this one goes on in.
+	goesOn := len(r.steers) > 0
+	if !goesOn {
+		r.inTurn, r.interrupting = false, false
+	}
 	pendingIDs := make([]string, 0, len(r.approvals))
 	for id := range r.approvals {
 		pendingIDs = append(pendingIDs, id)
@@ -815,7 +896,53 @@ func (r *runtime) onResult(f frame) {
 			ev.Error = f.Subtype
 		}
 	}
+	r.mu.Lock()
+	if c := r.carried; c != nil {
+		ev.Usage = addUsage(c.Usage, ev.Usage)
+		r.carried = nil
+	}
+	if goesOn {
+		r.carried = &ev
+		gen := r.carryGen
+		time.AfterFunc(carryTimeout, func() { r.endCarried(gen) })
+		r.mu.Unlock()
+		return
+	}
+	r.mu.Unlock()
 	r.emit(ev)
+}
+
+// carryTimeout is how long a turn waits for Claude to go on with prompts
+// steered into it before it ends anyway: Claude starts at once.
+var carryTimeout = 5 * time.Second
+
+// endCarried ends the turn whose end onResult held, unless Claude went on
+// with it since (carryGen).
+func (r *runtime) endCarried(gen int) {
+	r.mu.Lock()
+	ev := r.carried
+	if ev == nil || gen != r.carryGen {
+		r.mu.Unlock()
+		return
+	}
+	r.carried, r.steers = nil, nil
+	r.inTurn, r.interrupting = false, false
+	r.mu.Unlock()
+	if r.log != nil {
+		r.log.Warn("claude: steered prompts left unread")
+	}
+	r.emit(*ev)
+}
+
+// addUsage is the usage of a turn that Claude went on in, from its parts'.
+// Results report the process's total cost so far, so the later one's is it.
+func addUsage(a, b *model.Usage) *model.Usage {
+	if a == nil || b == nil {
+		return cmp.Or(b, a)
+	}
+	return &model.Usage{InputTokens: a.InputTokens + b.InputTokens, OutputTokens: a.OutputTokens + b.OutputTokens,
+		CacheReadTokens: a.CacheReadTokens + b.CacheReadTokens, CacheWriteTokens: a.CacheWriteTokens + b.CacheWriteTokens,
+		CostUSD: b.CostUSD}
 }
 
 // inBackground reports whether a tool call is a background subagent's.

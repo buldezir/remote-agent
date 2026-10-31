@@ -92,7 +92,7 @@ TerminalMessage {
 | `list_agents` | — | the installed, signed-in agents, with their models, efforts and modes |
 | `list_sessions` | `project?`, `archived?` | the sessions, newest first |
 | `start_session` | `project`, `prompt`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `title?` | `session.create`; a folder under `roots` becomes a project |
-| `send_prompt` | `session`, `prompt` | `session.prompt` |
+| `send_prompt` | `session`, `prompt`, `steer?` | `session.prompt` (`steer`: into the running turn, as below); `list_agents` says `steers` for agents that take it |
 | `read_session` | `session`, `turns?` (default 1; 0: all) | the status and transcript, as text |
 | `wait_for_session` | `session`, `timeoutSeconds?` (default 600, at most 3600) | waits until the agent stops working; its status and last reply |
 | `stop_session` | `session` | `session.interrupt` |
@@ -260,11 +260,12 @@ Approval {
 | `session.create` | `{commandId, projectId, harness, model?, effort?, mode?, workspace: {kind, branch?, baseRef?}, prompt?, images?, title?, draft?}` | `Session` (`draft`: keep the prompt as the session's draft, see below) |
 | `session.fork` | `{commandId, sessionId, turn?, harness?, model?, effort?, mode?, workspace?: {kind, branch?}, prompt?, images?, title?, draft?}` | `Session` (see below) |
 | `session.commands` | `{sessionId}` | `{commands: [{name, description?, kind?, scope?}]}` |
-| `session.prompt` | `{commandId, sessionId, text, images?}` | `Item` (the user message; `queued` if a turn is running) |
+| `session.prompt` | `{commandId, sessionId, text, images?, steer?}` | `Item` (the user message; `queued` if a turn is running, unless it steers; see below) |
 | `session.saveDraft` | `{sessionId, text, images?}` | `Session` (see below) |
 | `session.sendDraft` | `{commandId, sessionId}` | `Item` (the user message, as `session.prompt`; `conflict` without a draft) |
 | `session.interrupt` | `{sessionId, force?}` | `{}` (`force` kills the agent process) |
 | `session.sendNow` | `{sessionId, itemId}` | `{}` (see below) |
+| `session.steer` | `{sessionId, itemId}` | `{}` (`invalid` for an agent without `caps.steer`, or a slash command; see below) |
 | `session.cancelQueued` | `{sessionId, itemId}` | `{}` (see below) |
 | `session.setMode` | `{sessionId, mode}` | `{}` |
 | `session.markRead` | `{sessionId}` | `{}` (see below) |
@@ -287,7 +288,8 @@ HarnessInfo {
   modes?: [Choice], defaultMode?,              // Choice = {id, name, description?}
   commands?: [{name, description?}],           // slash commands to offer, such as {name: "compact"}
   caps: { resume, interrupt, setMode, freeModel, modelSelect,
-          update?, login?, oneShot? }           // harness.update, harness.login, and the system agent
+          update?, login?, oneShot?,            // harness.update, harness.login, and the system agent
+          steer? }                              // takes a prompt into the running turn (session.steer)
 }
 
 ServerSettings { systemAgent?: { harness, model?, effort? } }   // absent: none
@@ -324,6 +326,8 @@ FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", addit
   - `prompt`, `images`, `title` and `draft` work as in `session.create`. The title defaults to the source's with " (fork)"; with the system agent, a prompt names it. Servers that fork say `forks: true` in `server.info`; older ones answer `method_not_found`.
 - **Deleting a session.** `session.delete` works on archived and unarchived sessions. It stops the agent and the session's shell, and deletes the session, its turns, its transcript and its checkpoints; `removeWorktree` deletes its worktree too, and the branch is kept either way. Images stay, since other sessions may show them. The session's stream then holds only a `session.removed` event, the next in its seq, which reaches its subscribers; later commands on the session are `not_found`.
 - **Queued prompts.** A prompt sent while a turn runs waits as a `queued` user message, and the next turn starts with it once the turn ends. Interrupting the turn cancels every queued prompt. `session.sendNow` sends one of them at once instead: rad interrupts the turn and starts the next turn with that prompt, ahead of the others, which stay queued behind it. `session.cancelQueued` takes one of them out of the queue, `cancelled`, and leaves the turn and the other prompts as they are. A prompt no longer queued (it started, or was cancelled) is left as it is. Older servers answer `method_not_found`, which clients show as a reason to update rad.
+- **Steering.** `session.steer` adds one of the queued prompts to the running turn, without interrupting it, for agents with `caps.steer`: the agent reads it at its next step, such as after the tool call it runs, and goes on in the same turn, which ends once. Its user message becomes `completed`, with the turn's `turnId`, and moves below what the turn has shown so far (a new `order`), where the agent got it. `session.prompt` with `steer` does the same for a new prompt: while a turn runs, it joins that turn where the agent can take it, and is queued as usual where it can't (any other agent, a slash command); with no turn running, it starts one. Clients offer "Steer" beside "Send now" while the agent works and its harness has `caps.steer`, and not for a prompt starting with `/`: slash commands run only as prompts of their own (`invalid`). A prompt no longer queued is left as it is; one whose turn ends before the agent takes it stays queued and starts the next turn. Older servers answer `session.steer` with `method_not_found`, and ignore `steer` in `session.prompt`, which then queues the prompt.
+  - Claude Code takes a prompt written to it mid-turn (stream-json) after the tool calls it runs; one that comes while it writes its reply, it reads in a turn of its own right after, which rad shows as the same turn. Codex takes it with `turn/steer` and Pi with its `steer` command (as many at a time as Pi's own steering mode says); stopping the turn clears Pi's queue first. ACP agents can't.
 - **Images in prompts.** `images` lists ids from `POST /v1/images`. A prompt needs text, images or both. An unknown id is `invalid`.
 - **Approval answers.** For a `question` approval, put `answers` (question text → chosen label; join multiple labels with `", "`) in the request, along with the option of kind `allow_once`.
 - **Answers in the user's own words.** Clients offer one more choice under each question's options, a text field, for an answer of the user's own: it replaces the chosen option, or with `multiSelect` it comes after the chosen labels (`"Red, Blue, teal, not green"`). A question may have no options, and then the text is its only answer. `optionsOnly` questions take only their options (Pi's dialogs), so clients show no text field for them.

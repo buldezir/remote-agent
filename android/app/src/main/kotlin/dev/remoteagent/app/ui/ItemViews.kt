@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.remoteagent.core.protocol.Draft
+import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.Item
 import dev.remoteagent.core.protocol.ItemKind
@@ -71,14 +72,18 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
-/** One transcript item. Mirrors apple/Shared/Views/ItemViews.swift. */
+/**
+ * One transcript item. Mirrors apple/Shared/Views/ItemViews.swift. `harness`
+ * is the session's agent, which says whether a queued prompt can steer.
+ */
 @Composable
-fun ItemView(item: Item, store: SessionStore, children: Map<String, List<Item>>) {
+fun ItemView(item: Item, store: SessionStore, children: Map<String, List<Item>>, harness: HarnessInfo? = null) {
     when (item.kind) {
         ItemKind.USER_MESSAGE -> UserBubble(
             item.text ?: "", item.images ?: emptyList(),
             pending = item.status == ItemStatus.QUEUED, cancelled = item.status == ItemStatus.CANCELLED,
             sendNow = if (item.status == ItemStatus.QUEUED) ({ store.sendNow(item.id) }) else null,
+            steer = if (item.status == ItemStatus.QUEUED && store.canSteer(item.text ?: "", harness)) ({ store.steer(item.id) }) else null,
             cancelQueued = if (item.status == ItemStatus.QUEUED) ({ store.cancelQueued(item.id) }) else null,
         )
         ItemKind.ASSISTANT_MESSAGE -> SelectionContainer {
@@ -102,14 +107,16 @@ fun ItemView(item: Item, store: SessionStore, children: Map<String, List<Item>>)
 
 /**
  * A prompt. `pending` fades it, as one waiting to be sent or queued behind the
- * running turn; `sendNow`, for one queued on the server, sends it at once, and
- * `cancelQueued` takes it out of the queue, unsent.
+ * running turn; `sendNow`, for one queued on the server, sends it at once,
+ * `steer` adds it to the running turn without stopping it, and `cancelQueued`
+ * takes it out of the queue, unsent.
  * `draft` outlines it, as a prompt saved to send later (DraftBubble).
  */
 @Composable
 fun UserBubble(
     text: String, images: List<ImageRef> = emptyList(), pending: Boolean = false, cancelled: Boolean = false,
-    draft: Boolean = false, sendNow: (suspend () -> Unit)? = null, cancelQueued: (suspend () -> Unit)? = null,
+    draft: Boolean = false, sendNow: (suspend () -> Unit)? = null, steer: (suspend () -> Unit)? = null,
+    cancelQueued: (suspend () -> Unit)? = null,
 ) {
     val faded = pending || cancelled
     val shape = RoundedCornerShape(Metrics.Corner.bubble)
@@ -132,7 +139,7 @@ fun UserBubble(
                     )
                 }
             }
-            if (pending && sendNow != null) QueuedCaption(sendNow, cancelQueued)
+            if (pending && sendNow != null) QueuedCaption(sendNow, steer, cancelQueued)
             else if (pending) Text("Queued", style = Type.caption2, color = palette.subtext)
             else if (cancelled) Text("Not sent", style = Type.caption2, color = palette.subtext)
         }
@@ -141,10 +148,11 @@ fun UserBubble(
 
 /**
  * "Queued", with a way to send the prompt now, where rad interrupts the turn
- * and starts the next with it, and one to cancel it.
+ * and starts the next with it, one to steer it into the running turn, where
+ * the agent can take it, and one to cancel it.
  */
 @Composable
-private fun QueuedCaption(sendNow: suspend () -> Unit, cancelQueued: (suspend () -> Unit)?) {
+private fun QueuedCaption(sendNow: suspend () -> Unit, steer: (suspend () -> Unit)?, cancelQueued: (suspend () -> Unit)?) {
     val connection = LocalConnection.current
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -169,6 +177,10 @@ private fun QueuedCaption(sendNow: suspend () -> Unit, cancelQueued: (suspend ()
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("Queued · ", style = Type.caption2, color = palette.subtext)
         Action("Send now", "send-now", sendNow)
+        if (steer != null) {
+            Text(" · ", style = Type.caption2, color = palette.subtext)
+            Action("Steer", "steer", steer)
+        }
         if (cancelQueued != null) {
             Text(" · ", style = Type.caption2, color = palette.subtext)
             Action("Cancel", "cancel-queued", cancelQueued)

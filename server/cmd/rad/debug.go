@@ -40,8 +40,9 @@ const debugUsage = `rad debug — test client
       --deny            auto-deny
       --diff            print the turn diff at the end
       --image FILE      attach an image (repeatable)
-  rad debug prompt [--image FILE] <sessionId> <prompt>
-                                          send a follow-up prompt and stream until idle
+  rad debug prompt [--image FILE] [--steer] <sessionId> <prompt>
+                                          send a follow-up prompt and stream until idle;
+                                          --steer adds it to the running turn
 `
 
 type client struct {
@@ -250,10 +251,11 @@ func debug(args []string) error {
 		fs := flag.NewFlagSet("prompt", flag.ExitOnError)
 		var imgs imageFlags
 		fs.Var(&imgs, "image", "")
+		steer := fs.Bool("steer", false, "")
 		fs.Parse(args[1:])
 		rest := fs.Args()
 		if len(rest) < 2 && !(len(rest) == 1 && len(imgs) > 0) {
-			return errors.New("usage: rad debug prompt [--image FILE] <sessionId> <prompt>")
+			return errors.New("usage: rad debug prompt [--image FILE] [--steer] <sessionId> <prompt>")
 		}
 		c, err := dial(ctx, cfg)
 		if err != nil {
@@ -264,8 +266,8 @@ func debug(args []string) error {
 			return err
 		}
 		return streamSession(ctx, c, rest[0], func() error {
-			return c.call(ctx, "session.prompt", map[string]any{"sessionId": rest[0], "text": strings.Join(rest[1:], " "), "images": ids, "commandId": store.NewID()}, nil)
-		}, approvalPolicy{})
+			return c.call(ctx, "session.prompt", map[string]any{"sessionId": rest[0], "text": strings.Join(rest[1:], " "), "images": ids, "commandId": store.NewID(), "steer": *steer}, nil)
+		}, approvalPolicy{}, *steer)
 	}
 	fmt.Print(debugUsage)
 	return nil
@@ -320,7 +322,7 @@ func debugRun(ctx context.Context, cfg *config.Config, args []string) error {
 	fmt.Printf("session %s (%s, mode %s) in %s\n", sess.ID, sess.Harness, sess.Mode, sess.Workspace.Path)
 	err = streamSession(ctx, c, sess.ID, func() error {
 		return c.call(ctx, "session.prompt", map[string]any{"sessionId": sess.ID, "text": prompt, "images": ids, "commandId": store.NewID()}, nil)
-	}, approvalPolicy{*approve, *deny})
+	}, approvalPolicy{*approve, *deny}, false)
 	if err != nil {
 		return err
 	}
@@ -348,7 +350,9 @@ func debugRun(ctx context.Context, cfg *config.Config, args []string) error {
 
 // streamSession subscribes to a session, runs start, and prints events until
 // the turn ends.
-func streamSession(ctx context.Context, c *client, sessionID string, start func() error, pol approvalPolicy) error {
+// streamSession prints what the session does from start on, until the turn
+// start began ends. With steer, start joined the running turn: that turn.
+func streamSession(ctx context.Context, c *client, sessionID string, start func() error, pol approvalPolicy, steer bool) error {
 	stream := model.SessionStream(sessionID)
 	if err := c.call(ctx, "subscribe", map[string]any{"stream": stream, "afterSeq": 0}, nil); err != nil {
 		return err
@@ -387,6 +391,7 @@ func streamSession(ctx context.Context, c *client, sessionID string, start func(
 						sawTurn = true
 						fmt.Printf("── turn %d started ──\n", t.N)
 					} else {
+						sawTurn = sawTurn || steer
 						usage := ""
 						if t.Usage != nil {
 							usage = fmt.Sprintf(" in=%d out=%d $%.4f", t.Usage.InputTokens, t.Usage.OutputTokens, t.Usage.CostUSD)

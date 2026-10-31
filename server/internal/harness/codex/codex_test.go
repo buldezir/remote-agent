@@ -2,9 +2,11 @@ package codex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 
@@ -214,5 +216,68 @@ func TestSplitAnswer(t *testing.T) {
 		if got := splitAnswer(a, labels); !slices.Equal(got, want) {
 			t.Errorf("splitAnswer(%q) = %q, want %q", a, got, want)
 		}
+	}
+}
+
+// A prompt steered into a turn goes to Codex with turn/steer, for the turn
+// that runs: Codex reads it before its next model call, during a command or
+// while it writes its reply, and the turn goes on.
+func TestReplaySteer(t *testing.T) {
+	root := t.TempDir()
+	cwd := filepath.Join(root, "codex-rec/ws")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe, env := replaytest.Command(t, "testdata/steer.ndjson", root)
+	h := New(config.Command{Command: exe, Env: env})
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, err := h.Open(context.Background(), harness.OpenOptions{SessionID: "local", Cwd: cwd, Mode: "full", Effort: "low", DiagPath: diag})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := rt.(harness.Steerer).Steer(context.Background(), harness.Input{Text: "early"}); !errors.Is(err, harness.ErrNoTurn) {
+		t.Fatalf("steer without a turn: %v", err)
+	}
+	isTool := func(ev harness.Event) bool {
+		it, ok := ev.(harness.ItemEvent)
+		return ok && it.Item.Kind == model.ItemToolCall
+	}
+	isText := func(ev harness.Event) bool {
+		it, ok := ev.(harness.ItemEvent)
+		return ok && it.Item.Kind == model.ItemAssistantMessage && it.Item.Status == model.ItemInProgress && it.Item.Text != ""
+	}
+	last := func(turn *replaytest.Turn) string {
+		msgs := turn.ItemsOf(model.ItemAssistantMessage)
+		return msgs[len(msgs)-1].Text
+	}
+
+	tool := replaytest.SteerTurn(t, rt, "Run the shell command `sleep 6 && echo first` with your shell tool. Then reply with just the word: done.",
+		isTool, "Also end your reply with the word: banana.", false)
+	if tool.End.Status != model.TurnCompleted || last(tool) != "done banana" {
+		t.Errorf("steered during a command: %+v, last reply %q", tool.End, last(tool))
+	}
+	reply := replaytest.SteerTurn(t, rt, "Without using any tools, write a 100-word story about a lighthouse.",
+		isText, "Now reply with just the word: banana.", false)
+	if reply.End.Status != model.TurnCompleted || last(reply) != "banana" {
+		t.Errorf("steered during the reply: %+v, last reply %q", reply.End, last(reply))
+	}
+	stopped := replaytest.SteerTurn(t, rt, "Without using any tools, write a 400-word story about a lighthouse.",
+		isText, "Now reply with just the word: banana.", true)
+	if stopped.End.Status != model.TurnInterrupted {
+		t.Errorf("stopped after steering: %+v", stopped.End)
+	}
+	replaytest.CloseClean(t, rt)
+
+	_, sent := replaytest.Diag(t, diag)
+	var steers []any
+	for _, f := range sent {
+		if f["method"] == "turn/steer" {
+			steers = append(steers, f["params"])
+		}
+	}
+	want := map[string]any{"threadId": "01a18f92-16c3-78c2-9f0d-9111b9f171d3", "expectedTurnId": "01a18f92-183a-7e90-ba95-04dcf867ef55",
+		"input": []any{map[string]any{"type": "text", "text": "Also end your reply with the word: banana."}}}
+	if len(steers) != 3 || !reflect.DeepEqual(steers[0], want) {
+		t.Errorf("turn/steer params = %v", steers)
 	}
 }

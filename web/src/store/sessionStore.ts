@@ -1,4 +1,4 @@
-import type { SlashCommand, Diff, Draft, Event, FileStat, ImageRef, Item, Session, Turn } from "../protocol/models";
+import type { SlashCommand, Diff, Draft, Event, FileStat, HarnessInfo, ImageRef, Item, Session, Turn } from "../protocol/models";
 import { RPCError } from "../protocol/rpc";
 import type { Drafts } from "./drafts";
 import { Observable } from "./observable";
@@ -228,9 +228,18 @@ export class SessionStore extends Observable {
     return this.host;
   }
 
+  /** Whether a prompt can join the running turn (steer): its agent takes
+   *  one, and it isn't a slash command, which agents run only as a prompt of
+   *  its own. */
+  canSteer(text: string, harness: HarnessInfo | undefined): boolean {
+    return this.isRunning && !!harness?.caps.steer && !text.trim().startsWith("/");
+  }
+
   /** Sends a prompt. It shows in `outbox` until the transcript has it, and
-   *  waits out a dropped connection; it throws once the connection gives up. */
-  async send(text: string, images: ImageRef[] = []) {
+   *  waits out a dropped connection; it throws once the connection gives up.
+   *  With `steer`, a prompt sent while the agent works joins its turn where
+   *  the agent can take it, and is queued where it can't. */
+  async send(text: string, images: ImageRef[] = [], steer = false) {
     const c = this.c;
     const commandId = crypto.randomUUID();
     this.outbox.set(commandId, { text, images });
@@ -241,6 +250,7 @@ export class SessionStore extends Observable {
         sessionId: this.sessionID,
         text,
         images: images.length ? images.map((i) => i.id) : undefined,
+        steer: steer || undefined,
       });
     } catch (e) {
       this.outbox.delete(commandId);
@@ -290,6 +300,19 @@ export class SessionStore extends Observable {
     } catch (e) {
       if (e instanceof RPCError && e.code === "method_not_found") {
         throw new RPCError("method_not_found", "This server's rad is too old to send a queued prompt now. Update rad on it.");
+      }
+      throw e;
+    }
+  }
+
+  /** Adds this queued prompt to the running turn, without interrupting it,
+   *  for agents that take one (`canSteer`). */
+  async steer(itemId: string) {
+    try {
+      await this.c.call("session.steer", { sessionId: this.sessionID, itemId });
+    } catch (e) {
+      if (e instanceof RPCError && e.code === "method_not_found") {
+        throw new RPCError("method_not_found", "This server's rad is too old to steer a prompt into a turn. Update rad on it.");
       }
       throw e;
     }

@@ -168,7 +168,7 @@ struct SessionView: View {
                 ForEach(rows) { row in
                     switch row {
                     case .item(let item):
-                        ItemView(item: item, store: store)
+                        ItemView(item: item, store: store, harness: harness)
                             .id(item.id)
                     case .turnFooter(let turn):
                         TurnFooter(turn: turn)
@@ -507,7 +507,9 @@ struct SessionView: View {
             .help("Save as Draft")
             .accessibilityLabel("Save as Draft")
         }
-        Button(action: mainButtonTapped) {
+        Button {
+            mainButtonTapped()
+        } label: {
             Image(systemName: mainAction.symbol)
                 .font(.system(size: Metrics.roundButton))
                 .contentTransition(.symbolEffect(.replace))
@@ -519,8 +521,25 @@ struct SessionView: View {
         .keyboardShortcut(mainAction == .send && !terminalHasKeys ? KeyboardShortcut(.return) : nil)
         // While dictation finishes, the final pass is still rewriting the draft.
         .disabled(session?.archived == true || (mainAction == .send && !canSend) || dictation.phase == .finishing)
+        .help(steers ? "Queue (Return) · Steer into the turn (⇧⌘Return)" : "")
         .accessibilityLabel(mainAction.label)
         .animation(.snappy, value: mainAction)
+        // ⇧⌘Return sends the prompt into the running turn, where the agent
+        // takes one, from a keyboard.
+        .background {
+            if steers && !terminalHasKeys {
+                Button("Steer") { mainButtonTapped(steer: true) }
+                    .keyboardShortcut(.return, modifiers: [.command, .shift])
+                    .opacity(0)
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+
+    /// What the composer holds can join the running turn (⇧⌘Return).
+    private var steers: Bool {
+        mainAction == .send && canSend && store.canSteer(store.draft, harness: harness)
     }
 
     private enum MainAction {
@@ -568,7 +587,8 @@ struct SessionView: View {
             && store.synced && store.transcript.isEmpty && store.outbox.isEmpty && !nothingToSend
     }
 
-    private func mainButtonTapped() {
+    /// With steer, a prompt joins the running turn, where the agent takes it.
+    private func mainButtonTapped(steer: Bool = false) {
         switch mainAction {
         case .dictate:
             startDictation()
@@ -581,7 +601,7 @@ struct SessionView: View {
             scrollToFoot()
             Task {
                 do {
-                    try await store.send(text, images: sent.compactMap(\.ref))
+                    try await store.send(text, images: sent.compactMap(\.ref), steer: steer)
                 } catch {
                     // It didn't go: back into the composer, ahead of anything
                     // written since.

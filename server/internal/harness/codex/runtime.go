@@ -47,6 +47,7 @@ type runtime struct {
 	turnID       string
 	inTurn       bool
 	interrupting bool
+	compacting   bool                      // the turn is a compaction's, which takes no prompts
 	requests     map[string]*serverRequest // approval id -> request
 	nextReq      int
 	skillCatalog []skill
@@ -104,30 +105,7 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	if _, ok := in.Command(harness.Compact.Name); ok {
 		return r.compact(ctx)
 	}
-	var input []map[string]any
-	text := in.Text
-	r.mu.Lock()
-	catalog, loaded := r.skillCatalog, r.skillsLoaded
-	r.mu.Unlock()
-	if !loaded && invokes(text) {
-		// Nothing has listed the skills since Codex started, as with a draft
-		// sent after a restart: look them up, briefly. A failure isn't kept,
-		// so the next such prompt tries again.
-		lookup, cancel := context.WithTimeout(ctx, 3*time.Second)
-		catalog, _ = r.skills(lookup, false)
-		cancel()
-	}
-	var selected map[string]any
-	text, selected = skillInput(text, catalog)
-	if selected != nil {
-		input = append(input, selected)
-	}
-	for _, img := range in.Images {
-		input = append(input, map[string]any{"type": "localImage", "path": img.Path})
-	}
-	if in.Text != "" || len(input) == 0 {
-		input = append(input, map[string]any{"type": "text", "text": text})
-	}
+	input := r.input(ctx, in)
 	r.mu.Lock()
 	if r.inTurn {
 		r.mu.Unlock()
@@ -164,6 +142,62 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	return nil
 }
 
+// Steer adds the prompt to the running turn with turn/steer: Codex reads it
+// before its next model call, and goes on in the same turn.
+func (r *runtime) Steer(ctx context.Context, in harness.Input) error {
+	input := r.input(ctx, in)
+	r.mu.Lock()
+	turnID := r.turnID
+	running := r.inTurn && !r.interrupting && !r.compacting && turnID != ""
+	r.mu.Unlock()
+	if !running {
+		return harness.ErrNoTurn
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	err := r.conn.Call(ctx, "turn/steer", map[string]any{"threadId": r.threadID, "expectedTurnId": turnID, "input": input}, nil)
+	if err != nil {
+		// Codex refuses a turn that ended meanwhile, or that ends.
+		r.mu.Lock()
+		ended := !r.inTurn || r.turnID != turnID
+		r.mu.Unlock()
+		if ended {
+			return harness.ErrNoTurn
+		}
+	}
+	return err
+}
+
+// input is the prompt as Codex's user input: a skill it invokes, its
+// images, and its text.
+func (r *runtime) input(ctx context.Context, in harness.Input) []map[string]any {
+	var input []map[string]any
+	text := in.Text
+	r.mu.Lock()
+	catalog, loaded := r.skillCatalog, r.skillsLoaded
+	r.mu.Unlock()
+	if !loaded && invokes(text) {
+		// Nothing has listed the skills since Codex started, as with a draft
+		// sent after a restart: look them up, briefly. A failure isn't kept,
+		// so the next such prompt tries again.
+		lookup, cancel := context.WithTimeout(ctx, 3*time.Second)
+		catalog, _ = r.skills(lookup, false)
+		cancel()
+	}
+	var selected map[string]any
+	text, selected = skillInput(text, catalog)
+	if selected != nil {
+		input = append(input, selected)
+	}
+	for _, img := range in.Images {
+		input = append(input, map[string]any{"type": "localImage", "path": img.Path})
+	}
+	if in.Text != "" || len(input) == 0 {
+		input = append(input, map[string]any{"type": "text", "text": text})
+	}
+	return input
+}
+
 // compact asks Codex to summarize the thread. It runs as a turn of its own,
 // with a contextCompaction item, and ends with turn/completed like any
 // other. Codex takes no instructions for the summary.
@@ -173,13 +207,13 @@ func (r *runtime) compact(ctx context.Context) error {
 		r.mu.Unlock()
 		return fmt.Errorf("a turn is already running")
 	}
-	r.inTurn, r.interrupting = true, false
+	r.inTurn, r.interrupting, r.compacting = true, false, true
 	r.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	if err := r.conn.Call(ctx, "thread/compact/start", map[string]any{"threadId": r.threadID}, nil); err != nil {
 		r.mu.Lock()
-		r.inTurn = false
+		r.inTurn, r.compacting = false, false
 		r.mu.Unlock()
 		return err
 	}
@@ -435,7 +469,7 @@ func (r *runtime) endTurn(status string, turnErr *struct {
 	r.mu.Lock()
 	interrupted := r.interrupting
 	turnID := r.turnID
-	r.inTurn, r.interrupting, r.turnID = false, false, ""
+	r.inTurn, r.interrupting, r.compacting, r.turnID = false, false, false, ""
 	var cancelled []string
 	for id := range r.requests {
 		cancelled = append(cancelled, id)

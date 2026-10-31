@@ -1,6 +1,6 @@
 // As apple/RAKit/Tests/RAKitTests/StoreTests.swift.
 import { describe, expect, it, vi } from "vitest";
-import type { Event, Item, Session } from "../protocol/models";
+import type { Event, HarnessInfo, Item, Session } from "../protocol/models";
 import { RPCError } from "../protocol/rpc";
 import { SessionStore, type SessionHost } from "./sessionStore";
 
@@ -228,6 +228,55 @@ describe("SessionStore", () => {
       throw new RPCError("not_found", "no such item");
     };
     await expect(s.sendNow("u")).rejects.toThrow("no such item");
+  });
+
+  it("steers a queued prompt into the turn", async () => {
+    const h = host();
+    const s = new SessionStore("s", h);
+    await s.steer("u");
+    expect(h.calls).toEqual([["session.steer", { sessionId: "s", itemId: "u" }]]);
+  });
+
+  it("says when rad is too old to steer", async () => {
+    const h = host();
+    h.call = async () => {
+      throw new RPCError("method_not_found", "unknown method session.steer");
+    };
+    const s = new SessionStore("s", h);
+    await expect(s.steer("u")).rejects.toThrow("This server's rad is too old to steer a prompt into a turn. Update rad on it.");
+    // Other errors pass through.
+    h.call = async () => {
+      throw new RPCError("not_found", "no such item");
+    };
+    await expect(s.steer("u")).rejects.toThrow("no such item");
+  });
+
+  it("sends a prompt that steers", async () => {
+    const h = host();
+    const s = new SessionStore("s", h);
+    await s.send("also this", [], true);
+    expect(h.calls[0]).toEqual(["session.prompt", expect.objectContaining({ text: "also this", steer: true })]);
+    // Without steer, the prompt says nothing of it.
+    await s.send("later");
+    expect((h.calls[1][1] as Record<string, unknown>).steer).toBeUndefined();
+  });
+
+  it("steers while the agent that can take it works, and not slash commands", () => {
+    const s = new SessionStore("s", host());
+    const steers = { id: "claude", caps: { steer: true } } as HarnessInfo;
+    const plain = { id: "acp:cursor", caps: {} } as HarnessInfo;
+    const status = (st: string, seq: number) =>
+      s.apply([{ stream: "session:s", seq, type: "session.upserted", session: { id: "s", status: st } as Session }]);
+    s.synchronized(0, true);
+    status("idle", 1);
+    expect(s.canSteer("more", steers)).toBe(false);
+    status("running", 2);
+    expect(s.canSteer("more", steers)).toBe(true);
+    status("awaiting_approval", 3);
+    expect(s.canSteer("more", steers)).toBe(true);
+    expect(s.canSteer("more", plain)).toBe(false);
+    expect(s.canSteer("more", undefined)).toBe(false);
+    expect(s.canSteer(" /compact", steers)).toBe(false);
   });
 
   it("cancels a queued prompt", async () => {

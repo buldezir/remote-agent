@@ -193,7 +193,7 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 		if p.CommandID != "" {
 			cmd = p.CommandID + "/prompt"
 		}
-		if _, err := o.Prompt(ctx, s.ID, p.Prompt, p.Images, cmd); err != nil {
+		if _, err := o.Prompt(ctx, s.ID, p.Prompt, p.Images, cmd, false); err != nil {
 			o.log.Warn("initial prompt failed", "session", s.ID, "err", err)
 		}
 	}

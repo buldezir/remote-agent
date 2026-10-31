@@ -4,6 +4,8 @@ import SwiftUI
 struct ItemView: View {
     let item: Item
     let store: SessionStore
+    /// The session's agent, which says whether a queued prompt can steer.
+    var harness: HarnessInfo?
 
     var body: some View {
         switch item.kind {
@@ -11,6 +13,8 @@ struct ItemView: View {
             UserBubble(text: item.text ?? "", images: item.images ?? [], store: store,
                        pending: item.status == .queued, cancelled: item.status == .cancelled,
                        sendNow: item.status == .queued ? { try await store.sendNow(item) } : nil,
+                       steer: item.status == .queued && store.canSteer(item.text ?? "", harness: harness)
+                           ? { try await store.steer(item) } : nil,
                        cancelQueued: item.status == .queued ? { try await store.cancelQueued(item) } : nil)
         case .assistantMessage:
             AgentMarkdown(text: item.text ?? "", images: item.images ?? [], store: store)
@@ -49,6 +53,8 @@ struct UserBubble: View {
     var draft = false
     /// Sends a queued prompt at once, stopping the turn it waits for.
     var sendNow: (() async throws -> Void)?
+    /// Adds a queued prompt to the running turn, without stopping it.
+    var steer: (() async throws -> Void)?
     /// Takes a queued prompt out of the queue, unsent.
     var cancelQueued: (() async throws -> Void)?
     @State private var sending = false
@@ -83,6 +89,15 @@ struct UserBubble: View {
                                 .foregroundStyle(Palette.accent)
                                 .disabled(sending)
                                 .help("Stop the current turn and send this prompt now")
+                        }
+                        if let steer {
+                            Text("·")
+                            Button("Steer") { send(steer) }
+                                .buttonStyle(.borderless)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(Palette.accent)
+                                .disabled(sending)
+                                .help("Add this prompt to what the agent is doing, without stopping it")
                         }
                         if let cancelQueued {
                             Text("·")

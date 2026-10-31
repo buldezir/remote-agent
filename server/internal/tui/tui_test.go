@@ -540,6 +540,44 @@ func TestCancelsAQueuedPrompt(t *testing.T) {
 	}
 }
 
+func TestSteersPromptsIntoTheTurn(t *testing.T) {
+	u := startUI(t, 120, 36)
+	u.key("ctrl+n")
+	u.waitFor("New Session")
+	u.key("enter")
+	u.key("enter")
+	u.waitFor("▸ /")
+	u.key("a")
+	u.waitFor("Fake (scripted)")
+	for !strings.Contains(u.screen(), "save as draft") {
+		u.key("tab")
+	}
+	u.key("slow reply with a good many words in it, so that it streams for a while yet")
+	u.key("enter")
+	u.waitFor("Echo: slow")
+	u.waitFor("ctrl+t steers it into the turn")
+	u.key("turn left")
+	u.key("enter")
+	u.waitFor("t steers it in")
+	// The queued prompt is the last item.
+	u.key("shift+tab")
+	u.key("end")
+	u.key("t")
+	u.waitFor("Steered: turn left")
+	// From the prompt, ctrl+t steers at once.
+	u.key("tab")
+	u.key("slow again, with a good many words in it, so that it streams for a while")
+	u.key("enter")
+	u.waitFor("Echo: slow again")
+	u.key("and right")
+	u.key("ctrl+t")
+	u.waitFor("Steered: and right")
+	time.Sleep(300 * time.Millisecond)
+	if s := u.screen(); strings.Contains(s, "Echo: turn left") || strings.Contains(s, "Echo: and right") || strings.Contains(s, "Queued") {
+		t.Errorf("a steered prompt waited for a turn of its own:\n%s", s)
+	}
+}
+
 func TestNarrowWindowShowsOnePane(t *testing.T) {
 	u := startUI(t, 80, 30)
 	s := u.waitFor("No sessions yet")

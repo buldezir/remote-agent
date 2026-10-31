@@ -5,14 +5,18 @@ import dev.remoteagent.core.net.RpcError
 import dev.remoteagent.core.net.params
 import dev.remoteagent.core.protocol.Draft
 import dev.remoteagent.core.protocol.Event
+import dev.remoteagent.core.protocol.HarnessCaps
+import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.Item
 import dev.remoteagent.core.protocol.ItemKind
 import dev.remoteagent.core.protocol.ItemStatus
 import dev.remoteagent.core.protocol.Session
+import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.Turn
 import dev.remoteagent.core.protocol.TurnStatus
 import dev.remoteagent.core.protocol.WireCoding
+import dev.remoteagent.core.protocol.Workspace
 import dev.remoteagent.core.store.Drafts
 import dev.remoteagent.core.store.ImageCache
 import dev.remoteagent.core.store.Outgoing
@@ -25,7 +29,9 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 import kotlin.test.Test
@@ -206,6 +212,59 @@ class SessionStoreTests {
         // Other errors are the server's own.
         h.fail = RpcError("not_found", "no such session")
         assertEquals("no such session", assertFailsWith<RpcError> { s.sendNow("q") }.message)
+    }
+
+    @Test
+    fun steerNamesTheQueuedPrompt() = runTest {
+        val h = Host(this)
+        val s = SessionStore("s", h)
+        s.steer("q")
+        assertEquals("session.steer", h.calls[0].first)
+        assertEquals(params("sessionId" to "s", "itemId" to "q"), h.calls[0].second)
+    }
+
+    @Test
+    fun steerOnAnOlderRadSaysToUpdateIt() = runTest {
+        val h = Host(this).apply { fail = RpcError("method_not_found", "unknown method session.steer") }
+        val s = SessionStore("s", h)
+        val e = assertFailsWith<RpcError> { s.steer("q") }
+        assertEquals("method_not_found", e.code)
+        assertEquals("This server's rad is too old to steer a prompt into a turn. Update rad on it.", e.message)
+        // Other errors are the server's own.
+        h.fail = RpcError("not_found", "no such session")
+        assertEquals("no such session", assertFailsWith<RpcError> { s.steer("q") }.message)
+    }
+
+    @Test
+    fun promptThatSteersSaysSo() = runTest {
+        val h = Host(this)
+        val s = SessionStore("s", h)
+        s.send("also this", steer = true)
+        s.send("later")
+        assertEquals(JsonPrimitive(true), h.calls[0].second.jsonObject["steer"])
+        assertEquals(null, h.calls[1].second.jsonObject["steer"])
+    }
+
+    @Test
+    fun steersWhileAnAgentThatCanWorks() = runTest {
+        val s = SessionStore("s", Host(this))
+        val steers = HarnessInfo("claude", "Claude Code", "claude", installed = true, authOk = true, caps = HarnessCaps(steer = true))
+        val plain = steers.copy(id = "acp:cursor", caps = HarnessCaps())
+        fun status(st: SessionStatus, seq: Long) = s.apply(listOf(Event("session:s", seq, "session.upserted", session = Session(
+            id = "s", projectId = "p", harness = "claude", workspace = Workspace(Workspace.Kind.ROOT, "/tmp/p"), status = st, title = "s",
+            createdAt = Instant.parse("2026-10-09T12:00:00Z"), updatedAt = Instant.parse("2026-10-09T12:00:00Z"),
+        ))))
+        s.synchronized(0, true)
+        status(SessionStatus.IDLE, 1)
+        assertFalse(s.canSteer("more", steers))
+        status(SessionStatus.RUNNING, 2)
+        assertTrue(s.canSteer("more", steers))
+        status(SessionStatus.AWAITING_APPROVAL, 3)
+        assertTrue(s.canSteer("more", steers))
+        assertFalse(s.canSteer("more", plain))
+        assertFalse(s.canSteer("more", null))
+        // Slash commands run only as prompts of their own.
+        assertFalse(s.canSteer(" /compact", steers))
     }
 
     @Test

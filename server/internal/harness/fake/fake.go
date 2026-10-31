@@ -18,6 +18,10 @@
 //	           EnterWorktree does: .claude/worktrees/<name> (fake by default),
 //	           on the branch worktree-<name>; "exit worktree" moves back
 //
+// A prompt steered into a turn (Steer) cuts the reply short at its next
+// word, as an agent reads one after its tool call, and the turn goes on to
+// answer it: "Steered: <prompt>".
+//
 // As the system agent, it names sessions after their first words; its update
 // and login commands are scripts (maintenance.go).
 //
@@ -66,7 +70,7 @@ func (Harness) Probe(context.Context) model.HarnessInfo {
 		Modes:       []model.Choice{{ID: "ask", Name: "Ask"}, {ID: "auto", Name: "Auto"}},
 		DefaultMode: "ask",
 		Commands:    []model.Command{harness.Compact},
-		Caps:        model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true},
+		Caps:        model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, Steer: true},
 	}
 }
 
@@ -99,7 +103,9 @@ type runtime struct {
 	closed    bool
 	done      chan struct{} // closed with the runtime
 	tasks     []model.BackgroundTask
-	worktree  string // the worktree it moved to; "" in the cwd
+	worktree  string   // the worktree it moved to; "" in the cwd
+	steers    []string // prompts steered into the turn, not yet answered
+	steerable bool     // a prompt's turn runs, which takes steered prompts
 }
 
 // dir is the folder the fake works in.
@@ -145,6 +151,9 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	if _, ok := in.Command(harness.Compact.Name); ok {
 		go r.compact(tctx, n)
 	} else {
+		r.mu.Lock()
+		r.steerable = true
+		r.mu.Unlock()
 		go r.turn(tctx, n, in.Text, len(in.Images))
 	}
 	return nil
@@ -168,7 +177,7 @@ func (r *runtime) compact(ctx context.Context, n int) {
 func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 	end := func(st model.TurnStatus, errMsg string) {
 		r.mu.Lock()
-		r.cancel = nil
+		r.cancel, r.steers, r.steerable = nil, nil, false
 		r.mu.Unlock()
 		// Only the first turn reports the window, like Claude before its first result.
 		var window int64
@@ -294,35 +303,78 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 	if r.opts.Fork && n == 1 {
 		reply = fmt.Sprintf("Forked %s at %s. %s", r.opts.ResumeID, r.opts.ForkAt, reply)
 	}
-	msg := model.Item{ID: key("msg"), Kind: model.ItemAssistantMessage, Status: model.ItemInProgress}
-	words := strings.Fields(reply)
-	for i, w := range words {
-		select {
-		case <-ctx.Done():
-			msg.Status = model.ItemCompleted
+	// Each reply streams word by word. A prompt steered in meanwhile cuts it
+	// short and gets a reply of its own, after it; the turn ends once none
+	// is left to answer.
+	replies := []string{reply}
+	for k := 0; ; k++ {
+		if k == len(replies) {
+			r.mu.Lock()
+			steers := r.steers
+			r.steers = nil
+			if len(steers) == 0 {
+				r.cancel, r.steerable = nil, false // from here, Steer finds no turn
+			}
+			r.mu.Unlock()
+			if len(steers) == 0 {
+				break
+			}
+			replies = append(replies, "Steered: "+strings.Join(steers, " / "))
+		}
+		msg := model.Item{ID: key("msg"), Kind: model.ItemAssistantMessage, Status: model.ItemInProgress}
+		if k > 0 {
+			msg.ID = key(fmt.Sprintf("msg%d", k))
+		}
+		for i, w := range strings.Fields(replies[k]) {
+			select {
+			case <-ctx.Done():
+				msg.Status = model.ItemCompleted
+				r.emit(harness.ItemEvent{Item: msg})
+				end(model.TurnInterrupted, "")
+				return
+			case <-time.After(delay):
+			}
+			if i > 0 {
+				msg.Text += " "
+			}
+			msg.Text += w
 			r.emit(harness.ItemEvent{Item: msg})
-			end(model.TurnInterrupted, "")
-			return
-		case <-time.After(delay):
+			if r.steered() {
+				break
+			}
 		}
-		if i > 0 {
-			msg.Text += " "
+		if k == 0 && strings.Contains(text, "markdown") {
+			msg.Text += "\n\n" + sampleMarkdown
 		}
-		msg.Text += w
+		if k == 0 && strings.Contains(text, "picture") {
+			path := filepath.Join(r.dir(), fmt.Sprintf("picture-%d.png", n))
+			if err := os.WriteFile(path, screenshot(n), 0o644); err == nil {
+				msg.Text += "\n\n![Picture](" + path + ")"
+			}
+		}
+		msg.Status = model.ItemCompleted
 		r.emit(harness.ItemEvent{Item: msg})
 	}
-	if strings.Contains(text, "markdown") {
-		msg.Text += "\n\n" + sampleMarkdown
-	}
-	if strings.Contains(text, "picture") {
-		path := filepath.Join(r.dir(), fmt.Sprintf("picture-%d.png", n))
-		if err := os.WriteFile(path, screenshot(n), 0o644); err == nil {
-			msg.Text += "\n\n![Picture](" + path + ")"
-		}
-	}
-	msg.Status = model.ItemCompleted
-	r.emit(harness.ItemEvent{Item: msg})
 	end(model.TurnCompleted, "")
+}
+
+// steered reports whether a prompt was steered into the turn.
+func (r *runtime) steered() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.steers) > 0
+}
+
+// Steer adds the prompt to the running turn, which answers it once the
+// reply it streams gets to its next word.
+func (r *runtime) Steer(_ context.Context, in harness.Input) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.steerable {
+		return harness.ErrNoTurn
+	}
+	r.steers = append(r.steers, in.Text)
+	return nil
 }
 
 // enterWorktree makes a worktree in the cwd's repo and moves into it, as

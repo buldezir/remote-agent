@@ -84,6 +84,14 @@ func (v *sessionView) archived() bool {
 	return v.store.Session != nil && v.store.Session.Archived
 }
 
+// canSteer reports whether the queued prompt it can join the running turn.
+func (v *sessionView) canSteer(m *Model, it *model.Item) bool {
+	if it.Kind != model.ItemUserMessage || it.Status != model.ItemQueued || v.store.Session == nil {
+		return false
+	}
+	return v.store.CanSteer(it.Text, m.conn.Harness(v.store.Session.Harness))
+}
+
 // sync keeps the dock, the composer and the command list in step with the
 // session.
 func (v *sessionView) sync(m *Model) tea.Cmd {
@@ -309,13 +317,13 @@ func (v *sessionView) foot(m *Model, width int) []tblock {
 		return []tblock{{key: "f:loading", lines: []string{m.st.Faint.Render(m.spinner() + " Loading…")}}}
 	}
 	for _, o := range v.store.Outbox {
-		lines := m.renderPrompt(o.Text, o.Images, width, "")
+		lines := m.renderPrompt(o.Text, o.Images, width, "", false)
 		lines = append(lines, m.st.Faint.Render("  Sending…"))
 		blocks = append(blocks, tblock{key: "o:" + o.CommandID, lines: lines})
 	}
 	if d := v.store.UnsentDraft(); d != nil {
 		lines := []string{m.st.Accent.Render("✎ Draft") + m.st.Faint.Render(" · not sent")}
-		lines = append(lines, m.renderPrompt(d.Text, d.Images, width, "")...)
+		lines = append(lines, m.renderPrompt(d.Text, d.Images, width, "", false)...)
 		lines = append(lines, m.st.Key.Render("  s")+m.st.Faint.Render(" sends it · ")+m.st.Key.Render("e")+m.st.Faint.Render(" edits it"))
 		blocks = append(blocks, tblock{key: "d:draft", lines: lines, selectable: true})
 	}
@@ -531,6 +539,11 @@ func (v *sessionView) transcriptKey(m *Model, k tea.KeyPressMsg) tea.Cmd {
 			id := b.item.ID
 			return m.do(func(ctx context.Context) error { return v.store.SendNow(ctx, id) }, nil)
 		}
+	case "t":
+		if b, ok := v.current(); ok && b.item != nil && v.canSteer(m, b.item) {
+			id := b.item.ID
+			return m.do(func(ctx context.Context) error { return v.store.Steer(ctx, id) }, nil)
+		}
 	case "x":
 		if b, ok := v.current(); ok && b.item != nil && b.item.Kind == model.ItemUserMessage && b.item.Status == model.ItemQueued {
 			id := b.item.ID
@@ -633,7 +646,7 @@ func (v *sessionView) actions(m *Model) overlay {
 		for _, c := range h.Commands {
 			name := c.Name
 			items = append(items, menuItem{label: "/" + name, detail: c.Description, run: func(m *Model) tea.Cmd {
-				return v.composer.send(m, v, "/"+name, nil)
+				return v.composer.send(m, v, "/"+name, nil, false)
 			}})
 		}
 	}
