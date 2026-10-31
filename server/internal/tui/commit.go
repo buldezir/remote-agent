@@ -404,13 +404,10 @@ func (f *commitForm) view(m *Model, width, height int) string {
 
 // branchLine is where the commit goes: "⑂ ra/fix → origin".
 func (f *commitForm) branchLine(m *Model, inner int) string {
-	p := f.preview
-	if p == nil {
-		if b := f.src.Workspace.Branch; b != "" {
-			return m.st.Text.Render("⑂ " + b)
-		}
-		return ""
+	if f.progress != nil {
+		return f.followedBranchLine(m, inner)
 	}
+	p := f.preview
 	line := m.st.Text.Render("⑂ " + p.Branch)
 	if p.Branch == "" {
 		line = m.st.Yellow.Render("Detached HEAD")
@@ -421,6 +418,42 @@ func (f *commitForm) branchLine(m *Model, inner int) string {
 		line += m.st.Faint.Render(" · no remote to push to")
 	}
 	return truncate(line, inner)
+}
+
+// followedBranchLine is where the commit it follows goes: the remote is
+// the one its push step names, so that the line reads the same whether the
+// commit started here, after a preview, or the form opened onto it running,
+// without one.
+func (f *commitForm) followedBranchLine(m *Model, inner int) string {
+	branch := f.src.Workspace.Branch
+	if f.preview != nil {
+		branch = f.preview.Branch
+	}
+	var line string
+	switch {
+	case branch != "":
+		line = m.st.Text.Render("⑂ " + branch)
+	case f.preview != nil:
+		line = m.st.Yellow.Render("Detached HEAD")
+	default:
+		return ""
+	}
+	if remote := pushRemote(f.progress.Task); remote != "" {
+		line += m.st.Subtext.Render(" → " + remote)
+	}
+	return truncate(line, inner)
+}
+
+// pushRemote is where a commit task pushes: rad names the remote in its
+// push step's title, "Push to origin". "" when it doesn't push, or has no
+// remote to.
+func pushRemote(t model.Task) string {
+	for _, s := range t.Steps {
+		if remote, ok := strings.CutPrefix(s.Title, "Push to "); s.ID == "push" && ok {
+			return remote
+		}
+	}
+	return ""
 }
 
 func (f *commitForm) formLines(m *Model, inner, height int) []string {

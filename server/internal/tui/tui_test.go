@@ -937,6 +937,7 @@ func TestCommitsPushesAndOpensAPullRequest(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	origin := filepath.Join(t.TempDir(), "origin.git")
+	release := filepath.Join(t.TempDir(), "release")
 
 	var src model.Session
 	u := startUIWith(t, 120, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
@@ -948,6 +949,11 @@ func TestCommitsPushesAndOpensAPullRequest(t *testing.T) {
 		}
 		ctx := context.Background()
 		if err := rpc.Call(ctx, "server.setSettings", map[string]any{"systemAgent": map[string]string{"harness": "fake", "model": "echo"}}, nil); err != nil {
+			t.Fatal(err)
+		}
+		// The commit waits in its hook until the test lets it go.
+		hook := "#!/bin/sh\nwhile [ ! -f '" + release + "' ]; do sleep 0.02; done\n"
+		if err := os.WriteFile(filepath.Join(r.Root, ".git", "hooks", "pre-commit"), []byte(hook), 0o755); err != nil {
 			t.Fatal(err)
 		}
 		var p model.Project
@@ -965,6 +971,8 @@ func TestCommitsPushesAndOpensAPullRequest(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	// A test that fails lets the commit go too.
+	t.Cleanup(func() { os.WriteFile(release, nil, 0o644) })
 	u.waitFor("Echo: hello")
 	u.turnsEnded(src.ID, 1)
 	u.key("ctrl+p")
@@ -987,8 +995,24 @@ func TestCommitsPushesAndOpensAPullRequest(t *testing.T) {
 		t.Errorf("the button:\n%s", s)
 	}
 	u.key("ctrl+s")
+	s = u.waitFor("Committing…")
+	if !strings.Contains(s, "⑂ ra/notes → origin") {
+		t.Errorf("the progress lacks where it goes:\n%s", s)
+	}
+	// Opened again while the commit runs, it follows it, and says the same.
+	u.key("esc")
+	u.key("ctrl+p")
+	u.menuTo("Commit…")
+	u.key("enter")
+	s = u.waitFor("Committing…")
+	if !strings.Contains(s, "⑂ ra/notes → origin") {
+		t.Errorf("the commit followed lacks where it goes:\n%s", s)
+	}
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	s = u.waitFor("✓ Done.")
-	for _, want := range []string{"✓ Commit", "✓ Push to origin", "ra/notes → origin", "✓ Open a pull request", "#12 Fake: Change notes.txt",
+	for _, want := range []string{"⑂ ra/notes → origin", "✓ Commit", "✓ Push to origin", "ra/notes → origin", "✓ Open a pull request", "#12 Fake: Change notes.txt",
 		"https://github.com/test/repo/pull/12", "$ git push --set-upstream origin ra/notes"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the progress lacks %q:\n%s", want, s)
