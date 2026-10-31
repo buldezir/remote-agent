@@ -320,7 +320,7 @@ export interface HarnessInfo {
   efforts?: Choice[];
   modes?: Choice[];
   defaultMode?: string;
-  /** The slash commands to offer in a menu, such as /compact. */
+  /** Slash commands the composer suggests besides the session's own, such as /compact. */
   commands?: SlashCommand[];
   caps: HarnessCaps;
 }

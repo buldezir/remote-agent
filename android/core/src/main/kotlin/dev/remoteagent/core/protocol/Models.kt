@@ -454,7 +454,7 @@ data class HarnessInfo(
     val efforts: List<Choice>? = null,
     val modes: List<Choice>? = null,
     val defaultMode: String? = null,
-    /** The slash commands to offer in a menu, such as /compact. */
+    /** Slash commands the composer suggests besides the session's own, such as /compact. */
     val commands: List<SlashCommand>? = null,
     val caps: HarnessCaps = HarnessCaps(),
 ) {

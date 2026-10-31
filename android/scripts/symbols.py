@@ -16,7 +16,7 @@ SYMBOLS = {
     "add": False, "add_circle": False, "alt_route": False, "archive": False, "arrow_back": False,
     "arrow_upward": False, "assignment": False, "asterisk": False, "build": False, "cancel": True,
     "check": False, "check_box": True, "check_box_outline_blank": False, "check_circle": True,
-    "chevron_right": False, "circle": False, "close": False, "code": False, "compress": False,
+    "chevron_right": False, "circle": False, "close": False, "code": False,
     "computer": False, "contact_support": False, "content_copy": False, "content_paste": False,
     "data_object": False, "delete": False, "description": False, "diamond": False, "difference": False,
     "download": False, "edit": False, "edit_square": False, "expand_more": False, "folder": False, "folder_off": False,

@@ -133,7 +133,7 @@ type_text 'screenshot'; tap 'id=send'; sleep 3
 shot 04-images
 
 step "/compact"
-hide_keyboard; tap 'id=session-menu'; sleep 0.5; tap 'text=/compact'
+type_text '/compact'; tap 'id=send'
 wait_for 'text=Context compacted' 15 || fail "no compact notice"
 
 step "changes and revert"

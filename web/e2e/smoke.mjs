@@ -211,7 +211,9 @@ await page.getByText("Failed", { exact: true }).last().waitFor();
 step("/compact");
 await page.getByRole("button", { name: "Session", exact: true }).click();
 await shot("menu");
-await page.getByRole("menuitem", { name: /\/compact/ }).click();
+await page.keyboard.press("Escape");
+await prompt.fill("/compact");
+await prompt.press("Enter");
 await page.getByText(/compacted/i).waitFor();
 
 step("expand a tool call");

@@ -431,7 +431,7 @@ public struct HarnessInfo: Codable, Hashable, Identifiable, Sendable {
     public var efforts: [Choice]?
     public var modes: [Choice]?
     public var defaultMode: String?
-    /// The slash commands to offer in a menu, such as /compact.
+    /// Slash commands the composer suggests besides the session's own, such as /compact.
     public var commands: [SlashCommand]?
     public var caps: HarnessCaps
 

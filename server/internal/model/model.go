@@ -408,7 +408,7 @@ type HarnessInfo struct {
 	Efforts     []Choice    `json:"efforts,omitempty"` // for the default model; a listed model's own efforts win
 	Modes       []Choice    `json:"modes,omitempty"`
 	DefaultMode string      `json:"defaultMode,omitempty"`
-	Commands    []Command   `json:"commands,omitempty"` // slash commands the apps offer in a menu
+	Commands    []Command   `json:"commands,omitempty"` // slash commands the composer suggests besides the session's own
 	Caps        HarnessCaps `json:"caps"`
 }
 

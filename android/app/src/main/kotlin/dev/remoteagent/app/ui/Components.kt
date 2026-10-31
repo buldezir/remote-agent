@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.SessionStatus
-import dev.remoteagent.core.protocol.SlashCommand
 import dev.remoteagent.core.store.ConnectionState
 import kotlinx.coroutines.delay
 import java.time.Duration
@@ -136,13 +135,6 @@ fun HarnessIcon(id: String, modifier: Modifier = Modifier) {
     }
     Icon(painterResource(harnessSymbol(id)), null, modifier.size(16.dp), tint = tint)
 }
-
-/** Its icon in menus. */
-val SlashCommand.symbol: Int
-    @DrawableRes get() = when (name) {
-        "compact" -> Icons.compact
-        else -> Icons.terminal
-    }
 
 @Composable
 fun HarnessBadge(id: String, name: String?, style: TextStyle = Type.caption, color: Color = palette.subtext) {

@@ -709,15 +709,6 @@ func (v *sessionView) actions(m *Model) overlay {
 				}})
 		}
 	}
-	if h != nil && len(h.Commands) > 0 && !s.Archived {
-		items = append(items, menuItem{label: "Commands", header: true})
-		for _, c := range h.Commands {
-			name := c.Name
-			items = append(items, menuItem{label: "/" + name, detail: c.Description, run: func(m *Model) tea.Cmd {
-				return v.composer.send(m, v, "/"+name, nil, false)
-			}})
-		}
-	}
 	project := "Project"
 	path := s.Workspace.Path
 	if s.Workspace.AgentPath != "" {

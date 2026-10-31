@@ -866,13 +866,6 @@ struct SessionView: View {
         }
     }
 
-    /// Runs a slash command, as a prompt of its own: the draft stays. While
-    /// a turn runs, it waits for it, like a follow-up.
-    private func send(_ command: SlashCommand) {
-        scrollToFoot()
-        Task { await run { try await store.send(command.prompt) } }
-    }
-
     /// Back to the foot of the transcript, which then follows the reply. Not
     /// animated: in a long transcript an animated jump goes by the estimated
     /// heights of the rows it passes, which change as they're laid out, and
@@ -953,17 +946,6 @@ struct SessionView: View {
                 }
                 if canFork {
                     Button("Fork…", systemImage: "arrow.triangle.branch") { showFork = true }
-                }
-                if let commands = harness?.commands, !commands.isEmpty {
-                    Section("Commands") {
-                        ForEach(commands) { c in
-                            Button { send(c) } label: {
-                                Label(c.prompt, systemImage: c.symbol)
-                                if let d = c.description { Text(d) }
-                            }
-                        }
-                    }
-                    .disabled(session?.archived == true)
                 }
                 if let s = session {
                     Section(project?.name ?? "") {

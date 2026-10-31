@@ -26,7 +26,6 @@ object Icons {
     @DrawableRes val circle = R.drawable.sym_circle // circle
     @DrawableRes val close = R.drawable.sym_close // xmark
     @DrawableRes val codex = R.drawable.sym_code // chevron.left.forwardslash.chevron.right
-    @DrawableRes val compact = R.drawable.sym_compress // rectangle.compress.vertical
     @DrawableRes val server = R.drawable.sym_computer // desktopcomputer
     @DrawableRes val question = R.drawable.sym_contact_support // questionmark.bubble
     @DrawableRes val copy = R.drawable.sym_content_copy // doc.on.doc

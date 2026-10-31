@@ -8,7 +8,6 @@ import {
   Copy,
   Ellipsis,
   FileDiff,
-  FoldVertical,
   Folder,
   GitBranch,
   GitFork,
@@ -20,7 +19,6 @@ import {
   Save,
   Search,
   Square,
-  SquareSlash,
   SquareTerminal,
   Users,
 } from "lucide-react";
@@ -377,21 +375,6 @@ export function SessionView({
     canTerminal && { label: showTerminal ? "Hide Terminal" : "Terminal", icon: SquareTerminal, onSelect: () => setShowTerminal(!showTerminal) },
     canFork && { label: "Fork…", icon: GitFork, onSelect: () => onFork(session) },
     canCommit && { label: "Commit…", icon: GitPullRequestArrow, disabled: store.isRunning, onSelect: openCommit },
-    harness?.commands?.length
-      ? {
-          section: "Commands",
-          items: harness.commands.map((c) => ({
-            label: "/" + c.name,
-            icon: c.name === "compact" ? FoldVertical : SquareSlash,
-            detail: c.description,
-            disabled: session?.archived,
-            onSelect: () => {
-              pinned.current = true;
-              void run(() => store.send("/" + c.name));
-            },
-          })),
-        }
-      : null,
     session && {
       section: project?.name ?? "",
       items: [

@@ -409,13 +409,6 @@ private fun SessionScreen(
         }
     }
 
-    // Runs a slash command, as a prompt of its own: the draft stays. While a
-    // turn runs, it waits for it, like a follow-up.
-    fun send(command: SlashCommand) {
-        toBottom()
-        run { store.send(command.prompt) }
-    }
-
     // Find in the session: the items whose text has the query, in the
     // transcript's order, and the current one, the newest until stepped from.
     var findOpen by remember(store) { mutableStateOf(false) }
@@ -546,7 +539,6 @@ private fun SessionScreen(
                     onRename = if (canRename) ({ showRename = true }) else null,
                     onFork = if (canFork) ({ showFork = true }) else null,
                     onCommit = if (canCommit) ({ showCommit = true }) else null,
-                    onCommand = ::send,
                     onCopyPath = { path -> Platform.copy(context, path, "Path") },
                     onForceStop = { run { store.interrupt(force = true) } },
                 )
@@ -913,7 +905,6 @@ private fun SessionMenu(
     onFork: (() -> Unit)?,
     // Null: the server or the session can't commit.
     onCommit: (() -> Unit)?,
-    onCommand: (SlashCommand) -> Unit,
     onCopyPath: (String) -> Unit,
     onForceStop: () -> Unit,
 ) {
@@ -933,24 +924,6 @@ private fun SessionMenu(
         if (onFork != null) MenuItem("Fork…", Icons.fork) { onDismiss(); onFork() }
         // Not while the agent works: it may be changing the files.
         if (onCommit != null) MenuItem("Commit…", Icons.commit, enabled = !running) { onDismiss(); onCommit() }
-        val commands = harness?.commands
-        if (!commands.isNullOrEmpty()) {
-            HorizontalDivider(color = palette.surface0)
-            MenuHeader("Commands")
-            for (c in commands) {
-                androidx.compose.material3.DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(c.prompt, color = palette.text, fontFamily = FontFamily.Monospace)
-                            c.description?.let { Text(it, style = Type.caption, color = palette.subtext, maxLines = 2) }
-                        }
-                    },
-                    leadingIcon = { Icon(painterResource(c.symbol), null, tint = palette.text) },
-                    enabled = session?.archived != true,
-                    onClick = { onDismiss(); onCommand(c) },
-                )
-            }
-        }
         if (session != null) {
             HorizontalDivider(color = palette.surface0)
             MenuHeader(projectName ?: "")
