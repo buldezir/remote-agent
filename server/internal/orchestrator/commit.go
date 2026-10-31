@@ -63,6 +63,10 @@ type CommitPreview struct {
 	// Ahead counts the branch's commits that its remote branch doesn't
 	// have, or, before its first push, that base doesn't.
 	Ahead int `json:"ahead"`
+	// NoPullRequest says why a pull request can't be opened from the
+	// branch, such as the repository's default branch; absent: it can, or
+	// there's no push.
+	NoPullRequest string `json:"noPullRequest,omitempty"`
 }
 
 // CommitParams are git.commit's.
@@ -178,6 +182,7 @@ func (o *Orchestrator) CommitPreview(ctx context.Context, sessionID string) (*Co
 	p := &CommitPreview{Branch: gitx.CurrentBranch(ctx, c.dir), Files: files}
 	p.Remote, _ = pushRemote(ctx, c.dir, p.Branch)
 	p.Base = c.baseBranch(ctx, p.Branch, p.Remote)
+	p.NoPullRequest = c.noPullRequest(ctx, p.Branch, p.Remote, p.Base)
 	switch {
 	case p.Remote != "" && gitx.RemoteBranchExists(ctx, c.dir, p.Remote, p.Branch):
 		p.Ahead = gitx.CountCommits(ctx, c.dir, p.Remote+"/"+p.Branch+"..HEAD")
@@ -238,6 +243,24 @@ func (c commitPlace) baseBranch(ctx context.Context, branch, remote string) stri
 		}
 	}
 	return ""
+}
+
+// noPullRequest says why a pull request can't go from branch to remote,
+// into base, or "". It can't from the repository's default branch, which
+// has nowhere to go: the branch the remote's HEAD names, as the last fetch
+// saw it, else main or master when no other branch is there to go into.
+func (c commitPlace) noPullRequest(ctx context.Context, branch, remote, base string) string {
+	if branch == "" || remote == "" {
+		return "" // the push fails first, and says why
+	}
+	def := gitx.RemoteDefaultBranch(ctx, c.dir, remote)
+	if def == "" && base == "" && (branch == "main" || branch == "master") {
+		def = branch
+	}
+	if branch != def {
+		return ""
+	}
+	return branch + " is the repository's default branch: a pull request needs a branch of its own"
 }
 
 // baseRev names base as a commit: the remote's, which the pull request goes
@@ -403,15 +426,16 @@ func (r *commitRun) pullRequest(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, ghTimeout+writeTimeout)
 	defer cancel()
 	r.set(stepPullRequest, model.StepRunning, "")
+	// As the preview said.
+	base := r.place.baseBranch(ctx, r.branch, r.remote)
+	if why := r.place.noPullRequest(ctx, r.branch, r.remote, base); why != "" {
+		return r.fail(stepPullRequest, errors.New(why))
+	}
 	gh, err := exec.LookPath("gh")
 	if err != nil {
 		return r.fail(stepPullRequest, errors.New("GitHub's command line tool, gh, isn't installed on the computer: install it (https://cli.github.com), then sign in with gh auth login"))
 	}
 	dir := r.place.dir
-	if r.branch == gitx.RemoteDefaultBranch(ctx, dir, r.remote) {
-		return r.fail(stepPullRequest, fmt.Errorf("%s is the repository's default branch: a pull request needs a branch of its own", r.branch))
-	}
-	base := r.place.baseBranch(ctx, r.branch, r.remote)
 
 	// One may be open already, which the push brought up to date.
 	out, err := runCommand(ctx, dir, "", nil, gh, "pr", "list", "--head", r.branch, "--state", "open", "--json", "number,url,title", "--limit", "1")

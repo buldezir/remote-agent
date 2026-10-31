@@ -515,6 +515,8 @@ data class CommitPreview(
     val base: String? = null,
     /** The branch's commits its remote branch lacks (before its first push: that `base` lacks). */
     val ahead: Int = 0,
+    /** Why a pull request can't be opened from the branch, such as the repository's default branch; null: it can. */
+    val noPullRequest: String? = null,
 )
 
 @Serializable

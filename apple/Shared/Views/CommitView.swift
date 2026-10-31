@@ -66,14 +66,6 @@ struct CommitView: View {
 
     // MARK: Before
 
-    /// What the user can choose: committing needs changes, and pushing a
-    /// remote.
-    private func scopes(_ p: CommitPreview) -> [ServerConnection.CommitScope] {
-        var out: [ServerConnection.CommitScope] = p.files.isEmpty ? [] : [.commit]
-        if p.remote != nil && p.branch != nil { out += [.push, .pullRequest] }
-        return out
-    }
-
     private func label(_ s: ServerConnection.CommitScope, files: Bool) -> String {
         switch s {
         case .commit: "Commit only"
@@ -103,7 +95,7 @@ struct CommitView: View {
 
     private var canStart: Bool {
         guard let preview, progress == nil, !starting else { return false }
-        return scopes(preview).contains(scope)
+        return preview.scopes.contains(scope)
     }
 
     @ViewBuilder private func previewRows(_ p: CommitPreview) -> some View {
@@ -154,7 +146,7 @@ struct CommitView: View {
             }
         }
 
-        let choices = scopes(p)
+        let choices = p.scopes
         Section {
             if choices.count > 1 {
                 Picker("Then", selection: $scope) {
@@ -178,6 +170,9 @@ struct CommitView: View {
                 Text("The repository has no remote to push to.").formFooterFont()
             } else if p.branch == nil {
                 Text("HEAD is detached: check out a branch to push it.").formFooterFont()
+            } else if let why = p.noPullRequest {
+                // Why the choices end at a push.
+                Text(why.hasSuffix(".") ? why : "\(why).").formFooterFont()
             } else if scope == .pullRequest {
                 Text("GitHub's gh opens it on the computer, with a title and description written from the branch's commits.").formFooterFont()
             }
@@ -288,17 +283,7 @@ struct CommitView: View {
             let p = try await connection.commitPreview(sessionID: sessionID)
             preview = p
             if message.isEmpty { message = p.message }
-            // The last choice, else as far as a push; with nothing to commit,
-            // a commit becomes a push.
-            let choices = scopes(p)
-            let wanted = ServerConnection.CommitScope(rawValue: savedScope) ?? (p.remote != nil ? .push : .commit)
-            if choices.contains(wanted) {
-                scope = wanted
-            } else if wanted == .commit, choices.contains(.push) {
-                scope = .push
-            } else {
-                scope = choices.first ?? .commit
-            }
+            scope = .initial(saved: savedScope, for: p)
         } catch {
             loadError = error.localizedDescription
         }

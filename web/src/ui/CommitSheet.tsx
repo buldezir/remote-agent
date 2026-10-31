@@ -38,13 +38,29 @@ function savedScope(): CommitScope | undefined {
 }
 
 /** The scope to start with: the one asked for, if the preview allows it,
- *  else the last one used, else a push where there's somewhere to push. */
+ *  else the last one used, else a push where there's somewhere to push.
+ *  A pull request the branch can't open, such as from the default branch,
+ *  gives way to a push. */
 export function commitScope(preview: CommitPreview, chosen: CommitScope | undefined): CommitScope {
   const canPush = !!preview.remote && !!preview.branch;
   let s = chosen ?? savedScope() ?? (canPush ? "push" : "commit");
   if (!canPush) s = "commit";
   else if (s === "commit" && preview.files.length === 0) s = "push";
+  else if (s === "pullRequest" && preview.noPullRequest) s = "push";
   return s;
+}
+
+/** Why the preview doesn't allow a scope, or undefined when it does. */
+export function scopeUnavailable(preview: CommitPreview, scope: CommitScope): string | undefined {
+  if (scope === "commit") return preview.files.length ? undefined : "Nothing to commit.";
+  if (!preview.branch) return "HEAD is detached: check out a branch to push it.";
+  if (!preview.remote) return "No remote to push to.";
+  if (scope === "pullRequest" && preview.noPullRequest) return sentence(preview.noPullRequest);
+  return undefined;
+}
+
+function sentence(s: string): string {
+  return s.endsWith(".") ? s : s + ".";
 }
 
 /** The button's label: what it will do. A phone's bar has no room for the
@@ -295,15 +311,16 @@ function CommitForm({
       <h4 className="form-header">Action</h4>
       <section className="form-section" role="radiogroup" aria-label="Action">
         {scopes.map((s) => {
-          const disabled = s.id === "commit" ? !hasFiles : !canPush;
+          const why = scopeUnavailable(preview, s.id);
           return (
-            <button key={s.id} className="form-row commit-scope" role="radio" aria-checked={scope === s.id} disabled={disabled} onClick={() => setScope(s.id)}>
+            <button key={s.id} className="form-row commit-scope" role="radio" aria-checked={scope === s.id} disabled={!!why} title={why} onClick={() => setScope(s.id)}>
               <span>{s.label}</span>
               {scope === s.id && <Check size={17} className="c-accent" strokeWidth={2.5} />}
             </button>
           );
         })}
       </section>
+      {canPush && preview.noPullRequest && <p className="form-footer">{sentence(preview.noPullRequest)}</p>}
 
       {error && (
         <div className="form-message c-red">

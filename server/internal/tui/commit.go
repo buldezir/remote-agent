@@ -472,6 +472,11 @@ func (f *commitForm) formLines(m *Model, inner, height int) []string {
 	tail := []string{"", labelRow(m, "Then", m.st.Text.Render(f.scope.Choice()), f.field == commitFieldScope, inner)}
 	if why := f.scope.Unavailable(*p); why != "" {
 		tail = append(tail, "  "+m.st.Yellow.Render(truncate(why, inner-2)))
+	} else if p.NoPullRequest != "" {
+		// Why the choices end at a push.
+		for _, l := range wrap(client.CommitPushAndPR.Unavailable(*p), inner-2) {
+			tail = append(tail, "  "+m.st.Faint.Render(l))
+		}
 	}
 	tail = append(tail, "", formButton(m, f.scope.Action(len(p.Files) > 0), f.field == commitFieldStart, f.starting))
 	if len(p.Files) == 0 {

@@ -180,6 +180,10 @@ struct FixtureTests {
         #expect(p.files.map(\.status) == [.modified, .added])
         #expect(p.files[0].additions == 4 && p.files[0].deletions == 1)
         #expect(p.message.hasPrefix("Fix the flaky tests\n\n"))
+        #expect(p.noPullRequest == nil)
+        let onMain = try #require(try dec.decode(Response<CommitPreview>.self, from: load("response_commit_preview_default_branch.json")).result)
+        #expect(onMain.branch == "main" && onMain.remote == "origin" && onMain.base == nil)
+        #expect(onMain.noPullRequest == "main is the repository's default branch: a pull request needs a branch of its own")
 
         let task = try #require(try dec.decode(Response<ServerTask>.self, from: load("response_task_commit.json")).result)
         #expect(task.kind == .commit && task.sessionId == "s1" && task.status == .succeeded && task.harness == nil)

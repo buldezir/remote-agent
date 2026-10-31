@@ -124,6 +124,9 @@ type CommitPreview struct {
 	Remote  string     `json:"remote,omitempty"`
 	Base    string     `json:"base,omitempty"`
 	Ahead   int        `json:"ahead"`
+	// NoPullRequest says why a pull request can't be opened from the
+	// branch, such as the repository's default branch; "": it can.
+	NoPullRequest string `json:"noPullRequest,omitempty"`
 }
 
 // FileStat is a file a diff or a commit changes.

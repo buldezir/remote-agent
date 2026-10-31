@@ -582,14 +582,19 @@ public struct CommitPreview: Codable, Hashable, Sendable {
     /// The branch's commits its remote branch lacks (before the first push:
     /// that `base` lacks).
     public var ahead: Int
+    /// Why a pull request can't be opened from the branch, such as the
+    /// repository's default branch; nil: it can (or there's no push).
+    public var noPullRequest: String?
 
-    public init(branch: String? = nil, files: [FileStat] = [], message: String = "", remote: String? = nil, base: String? = nil, ahead: Int = 0) {
+    public init(branch: String? = nil, files: [FileStat] = [], message: String = "", remote: String? = nil, base: String? = nil, ahead: Int = 0,
+                noPullRequest: String? = nil) {
         self.branch = branch
         self.files = files
         self.message = message
         self.remote = remote
         self.base = base
         self.ahead = ahead
+        self.noPullRequest = noPullRequest
     }
 
     public init(from decoder: Decoder) throws {
@@ -600,6 +605,7 @@ public struct CommitPreview: Codable, Hashable, Sendable {
         remote = try c.decodeIfPresent(String.self, forKey: .remote)
         base = try c.decodeIfPresent(String.self, forKey: .base)
         ahead = try c.decodeIfPresent(Int.self, forKey: .ahead) ?? 0
+        noPullRequest = try c.decodeIfPresent(String.self, forKey: .noPullRequest)
     }
 }
 

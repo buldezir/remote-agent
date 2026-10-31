@@ -455,6 +455,8 @@ export interface CommitPreview {
   base?: string;
   /** The branch's commits its remote branch lacks (before the first push: that base lacks). */
   ahead: number;
+  /** Why a pull request can't be opened from the branch, such as the repository's default branch; absent: it can. */
+  noPullRequest?: string;
 }
 
 export interface ServerInfo {

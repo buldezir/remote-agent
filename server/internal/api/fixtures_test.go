@@ -150,6 +150,9 @@ func fixtures() map[string]any {
 			Branch: "ra/fix-tests", Message: "Fix the flaky tests\n\nWait for the server before dialing.",
 			Files:  []gitx.FileStat{{Path: "api_test.go", Status: gitx.Modified, Additions: 4, Deletions: 1}, {Path: "notes.md", Status: gitx.Added, Additions: 2}},
 			Remote: "origin", Base: "main", Ahead: 1}},
+		"response_commit_preview_default_branch.json": response{ID: json.RawMessage("16"), Result: orchestrator.CommitPreview{
+			Branch: "main", Message: "Add notes", Files: []gitx.FileStat{{Path: "notes.md", Status: gitx.Added, Additions: 2}},
+			Remote: "origin", NoPullRequest: "main is the repository's default branch: a pull request needs a branch of its own"}},
 		"response_task_commit.json": response{ID: json.RawMessage("13"), Result: model.Task{
 			ID: "k4", Kind: model.TaskCommit, SessionID: "s1", Status: model.TaskSucceeded,
 			Steps: []model.TaskStep{

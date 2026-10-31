@@ -148,7 +148,7 @@ func TestCommitPushAndPullRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Branch != "ra/feature" || p.Remote != "origin" || p.Base != "main" || p.Ahead != 0 || len(p.Files) != 2 ||
+	if p.Branch != "ra/feature" || p.Remote != "origin" || p.Base != "main" || p.Ahead != 0 || p.NoPullRequest != "" || len(p.Files) != 2 ||
 		p.Files[0].Path != "a.txt" || p.Files[0].Status != gitx.Modified || p.Files[1].Path != "b.txt" || p.Files[1].Status != gitx.Added {
 		t.Fatalf("preview %+v", p)
 	}
@@ -264,7 +264,7 @@ func TestCommitWithoutRemote(t *testing.T) {
 	dir := s.Workspace.Path
 	write(t, dir, "a.txt", "fixed\n")
 	p, err := e.o.CommitPreview(bg, s.ID)
-	if err != nil || p.Remote != "" || p.Base != "main" || p.Message != "Fix the redirect" || p.Ahead != 0 {
+	if err != nil || p.Remote != "" || p.Base != "main" || p.Message != "Fix the redirect" || p.Ahead != 0 || p.NoPullRequest != "" {
 		t.Fatalf("preview %+v, %v", p, err)
 	}
 
@@ -332,16 +332,38 @@ func TestPullRequestFromDefaultBranch(t *testing.T) {
 	ghLog := withFakeGH(t)
 	e := newEnv(t, true)
 	e.addOrigin()
-	run(t, e.dir, "git", "remote", "set-head", "origin", "main")
 	s := e.create(CreateSessionParams{})
+	const why = "main is the repository's default branch: a pull request needs a branch of its own"
+	// The preview says so, whether the last fetch saw what origin's HEAD
+	// names or not: then main, with no other branch to go into, is taken
+	// for the default.
+	exec.Command("git", "-C", e.dir, "symbolic-ref", "--delete", "refs/remotes/origin/HEAD").Run()
 	write(t, e.dir, "a.txt", "changed\n")
+	p, err := e.o.CommitPreview(bg, s.ID)
+	if err != nil || p.Branch != "main" || p.Remote != "origin" || p.Base != "" || p.NoPullRequest != why {
+		t.Fatalf("preview without origin's HEAD %+v, %v", p, err)
+	}
+	run(t, e.dir, "git", "remote", "set-head", "origin", "main")
+	if p, err = e.o.CommitPreview(bg, s.ID); err != nil || p.NoPullRequest != why {
+		t.Fatalf("preview %+v, %v", p, err)
+	}
+
+	// A client that asks anyway gets the commit and the push, and the
+	// pull request's step says why not, without calling gh.
 	task := e.commit(CommitParams{SessionID: s.ID, PullRequest: true})
-	if task.Status != model.TaskFailed || steps(task) != "commit:succeeded push:succeeded pull_request:failed" ||
-		!strings.Contains(task.Error, "main is the repository's default branch") {
+	if task.Status != model.TaskFailed || steps(task) != "commit:succeeded push:succeeded pull_request:failed" || task.Error != why {
 		t.Fatalf("task %+v", task)
 	}
 	if calls := ghCalls(t, ghLog); len(calls) != 0 {
 		t.Fatalf("gh calls %q", calls)
+	}
+
+	// Where origin's default is another branch, main goes into it.
+	run(t, e.dir, "git", "push", "-q", "origin", "main:develop")
+	run(t, e.dir, "git", "remote", "set-head", "origin", "develop")
+	write(t, e.dir, "b.txt", "new\n")
+	if p, err = e.o.CommitPreview(bg, s.ID); err != nil || p.Base != "develop" || p.NoPullRequest != "" {
+		t.Fatalf("preview with develop the default %+v, %v", p, err)
 	}
 }
 

@@ -1,0 +1,18 @@
+{
+  "id": 16,
+  "result": {
+    "branch": "main",
+    "files": [
+      {
+        "path": "notes.md",
+        "status": "added",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "message": "Add notes",
+    "remote": "origin",
+    "ahead": 0,
+    "noPullRequest": "main is the repository's default branch: a pull request needs a branch of its own"
+  }
+}

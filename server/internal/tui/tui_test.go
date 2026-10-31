@@ -1064,6 +1064,74 @@ func TestCommitsPushesAndOpensAPullRequest(t *testing.T) {
 	u.key("esc")
 }
 
+// On the repository's default branch the form commits and pushes, and says
+// why it doesn't open a pull request, even where that was the last choice.
+func TestCommitOffersNoPullRequestFromTheDefaultBranch(t *testing.T) {
+	for k, v := range map[string]string{"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com", "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com"} {
+		t.Setenv(k, v)
+	}
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	var src model.Session
+	u := startUIWith(t, 120, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		for _, args := range [][]string{{"init", "-q", "-b", "main", r.Root}, {"-C", r.Root, "commit", "-q", "--allow-empty", "-m", "init"},
+			{"init", "-q", "--bare", "-b", "main", origin}, {"-C", r.Root, "remote", "add", "origin", origin}, {"-C", r.Root, "push", "-q", "origin", "main"}} {
+			if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+				t.Skipf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		ctx := context.Background()
+		var p model.Project
+		if err := rpc.Call(ctx, "project.add", map[string]any{"path": r.Root}, &p); err != nil {
+			t.Fatal(err)
+		}
+		if err := rpc.Call(ctx, "session.create", map[string]any{"commandId": "c1", "projectId": p.ID, "harness": "fake",
+			"workspace": map[string]any{"kind": "root"}, "prompt": "hello"}, &src); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(r.Root, "notes.txt"), []byte("hi\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: src.ID, LastCommit: "pullRequest"}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	u.waitFor("Echo: hello")
+	u.turnsEnded(src.ID, 1)
+	u.key("ctrl+p")
+	u.menuTo("Commit…")
+	u.key("enter")
+	s := u.waitFor("CHANGES")
+	for _, want := range []string{"⑂ main → origin", "Then         Commit & push", "main is the repository's default branch:", "Commit & Push"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the form lacks %q:\n%s", want, s)
+		}
+	}
+	// Choosing goes round commit and push, never to the pull request.
+	u.key("tab")
+	for range 3 {
+		u.key("right")
+		if s := u.screen(); strings.Contains(s, "Open PR") || strings.Contains(s, "Pull request into") {
+			t.Fatalf("a pull request was chosen:\n%s", s)
+		}
+	}
+	u.key("enter")
+	u.waitFor("Commit, push & open PR")
+	u.inspect(func(m *Model) {
+		mn, ok := m.topOverlay().(*menu)
+		if !ok {
+			t.Fatal("no menu")
+		}
+		for _, it := range mn.items {
+			if it.label == "Commit, push & open PR" && (!it.disabled || !strings.HasPrefix(it.detail, "main is the repository's default branch")) {
+				t.Errorf("the pull request in the menu: %+v", it)
+			}
+		}
+	})
+	u.key("esc")
+	u.key("esc")
+}
+
 // The new session form picks up a session the agent ran in the terminal:
 // the fake's two, the one written just now with a warning.
 func TestContinuesATerminalSession(t *testing.T) {

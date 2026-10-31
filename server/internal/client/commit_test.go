@@ -16,10 +16,17 @@ func TestCommitScopes(t *testing.T) {
 	clean := CommitPreview{Branch: "ra/x", Remote: "origin", Files: []FileStat{}}
 	local := CommitPreview{Branch: "ra/x", Files: []FileStat{{Path: "a"}}}
 	detached := CommitPreview{Remote: "origin", Files: []FileStat{{Path: "a"}}}
+	onMain := CommitPreview{Branch: "main", Remote: "origin", Files: []FileStat{{Path: "a"}},
+		NoPullRequest: "main is the repository's default branch: a pull request needs a branch of its own"}
 
 	if CommitOnly.Unavailable(full) != "" || CommitOnly.Unavailable(clean) == "" || CommitAndPush.Unavailable(clean) != "" ||
 		CommitPushAndPR.Unavailable(local) != "No remote to push to." || CommitAndPush.Unavailable(detached) == "" {
 		t.Fatal("availability")
+	}
+	// The default branch commits and pushes, and says why it opens no pull request.
+	if CommitOnly.Unavailable(onMain) != "" || CommitAndPush.Unavailable(onMain) != "" ||
+		CommitPushAndPR.Unavailable(onMain) != "main is the repository's default branch: a pull request needs a branch of its own." {
+		t.Fatalf("on the default branch: %q", CommitPushAndPR.Unavailable(onMain))
 	}
 	for s, want := range map[CommitScope][2]string{
 		CommitOnly:      {"Commit", "Commit"},
@@ -38,6 +45,8 @@ func TestCommitScopes(t *testing.T) {
 	}{
 		{"", full, CommitAndPush}, {"pullRequest", full, CommitPushAndPR}, {"commit", full, CommitOnly},
 		{"commit", clean, CommitAndPush}, {"pullRequest", local, CommitOnly}, {"nonsense", local, CommitOnly},
+		// A pull request remembered from another branch gives way to a push.
+		{"pullRequest", onMain, CommitAndPush},
 	} {
 		if got := DefaultCommitScope(c.saved, c.p); got != c.want {
 			t.Errorf("default for %q with %+v: %v, want %v", c.saved, c.p, got, c.want)

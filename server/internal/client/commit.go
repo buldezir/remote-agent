@@ -112,8 +112,18 @@ func (s CommitScope) Unavailable(p CommitPreview) string {
 		return "HEAD is detached: there's no branch to push."
 	case p.Remote == "":
 		return "No remote to push to."
+	case s == CommitPushAndPR && p.NoPullRequest != "":
+		return sentence(p.NoPullRequest)
 	}
 	return ""
+}
+
+// sentence ends s with a full stop.
+func sentence(s string) string {
+	if strings.HasSuffix(s, ".") {
+		return s
+	}
+	return s + "."
 }
 
 // Params are git.commit's for the scope.

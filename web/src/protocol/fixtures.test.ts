@@ -231,6 +231,11 @@ describe("fixtures", () => {
       ["api_test.go", "modified", 4, 1],
       ["notes.md", "added", 2, 0],
     ]);
+    expect(preview.noPullRequest).toBeUndefined();
+    const onMain: CommitPreview = load("response_commit_preview_default_branch.json").result;
+    expect(onMain).toMatchObject({ branch: "main", remote: "origin" });
+    expect(onMain.base).toBeUndefined();
+    expect(onMain.noPullRequest).toBe("main is the repository's default branch: a pull request needs a branch of its own");
 
     const commit: ServerTask = load("response_task_commit.json").result;
     expect(commit).toMatchObject({ id: "k4", kind: "commit", sessionId: "s1", status: "succeeded" });

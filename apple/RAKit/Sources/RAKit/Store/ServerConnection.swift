@@ -646,6 +646,18 @@ public final class ServerConnection {
     /// How far a commit goes.
     public enum CommitScope: String, CaseIterable, Sendable {
         case commit, push, pullRequest
+
+        /// Where a commit starts: `saved`, the last one chosen, where the
+        /// preview allows it, else as far as a push. With nothing to commit a
+        /// commit becomes a push, and so does a pull request the branch can't
+        /// open, such as one chosen last on another branch.
+        public static func initial(saved: String, for preview: CommitPreview) -> CommitScope {
+            let choices = preview.scopes
+            let wanted = CommitScope(rawValue: saved) ?? (preview.remote != nil ? .push : .commit)
+            if choices.contains(wanted) { return wanted }
+            if choices.contains(.push) { return .push }
+            return choices.first ?? .commit
+        }
     }
 
     struct CommitParams: Encodable, Sendable {
@@ -721,4 +733,17 @@ struct SubscribeParams: Encodable, Sendable {
 struct SubscribeResult: Decodable, Sendable {
     var stream: String
     var seq: Int64
+}
+
+extension CommitPreview {
+    /// How far a commit can go: committing needs changes, pushing a branch
+    /// and a remote, and a pull request a branch that can open one.
+    public var scopes: [ServerConnection.CommitScope] {
+        var out: [ServerConnection.CommitScope] = files.isEmpty ? [] : [.commit]
+        if remote != nil && branch != nil {
+            out.append(.push)
+            if noPullRequest == nil { out.append(.pullRequest) }
+        }
+        return out
+    }
 }

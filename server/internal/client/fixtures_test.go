@@ -105,8 +105,14 @@ func TestFixtures(t *testing.T) {
 	}
 	preview := fixture[resultFrame[CommitPreview]](t, "response_commit_preview.json").Result
 	if preview.Branch != "ra/fix-tests" || len(preview.Files) != 2 || preview.Files[1].Status != "added" || preview.Files[0].Additions != 4 ||
-		preview.Remote != "origin" || preview.Base != "main" || preview.Ahead != 1 || !strings.HasPrefix(preview.Message, "Fix the flaky tests\n\n") {
+		preview.Remote != "origin" || preview.Base != "main" || preview.Ahead != 1 || !strings.HasPrefix(preview.Message, "Fix the flaky tests\n\n") ||
+		preview.NoPullRequest != "" {
 		t.Errorf("git.commitPreview: %+v", preview)
+	}
+	onMain := fixture[resultFrame[CommitPreview]](t, "response_commit_preview_default_branch.json").Result
+	if onMain.Branch != "main" || onMain.Remote != "origin" || onMain.Base != "" ||
+		onMain.NoPullRequest != "main is the repository's default branch: a pull request needs a branch of its own" {
+		t.Errorf("git.commitPreview on the default branch: %+v", onMain)
 	}
 	if u := fixture[resultFrame[model.UpdateInfo]](t, "response_check_update.json").Result; u.Current == "" {
 		t.Errorf("server.checkUpdate: %+v", u)

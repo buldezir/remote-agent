@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,8 +64,12 @@ internal enum class CommitScope(val label: String) {
 
     val pushes: Boolean get() = this != COMMIT
 
-    /** Whether the sheet offers it: a commit needs changes, a push a remote. */
-    fun enabled(preview: CommitPreview): Boolean = if (pushes) preview.remote != null else preview.files.isNotEmpty()
+    /** Whether the sheet offers it: a commit needs changes, a push a remote, a pull request a branch that can open one. */
+    fun enabled(preview: CommitPreview): Boolean = when (this) {
+        COMMIT -> preview.files.isNotEmpty()
+        PUSH -> preview.remote != null
+        PULL_REQUEST -> preview.remote != null && preview.noPullRequest == null
+    }
 
     /** The button that starts it: without changes, it only pushes. */
     fun action(hasChanges: Boolean): String = when (this) {
@@ -167,7 +172,7 @@ fun CommitDialog(connection: ServerConnection, sessionID: String, onDismiss: () 
             return@FullScreenDialog
         }
         val pv = preview
-        val current = pv?.let { choice ?: CommitScope.initial(null, it) }
+        val current = pv?.let { p -> choice?.takeIf { it.enabled(p) } ?: CommitScope.initial(null, p) }
         Screen(
             title = { Text("Commit", style = Type.headline) },
             onBack = onDismiss, backIcon = Icons.close, backLabel = "Cancel", background = palette.mantle,
@@ -255,7 +260,9 @@ private fun CommitForm(
         }
     }
 
-    FormSection("Then") {
+    // Why the choices end at a push, such as on the default branch.
+    val noPullRequest = preview.noPullRequest?.takeIf { preview.remote != null }?.let { AnnotatedString(if (it.endsWith(".")) it else "$it.") }
+    FormSection("Then", footer = noPullRequest) {
         CommitScope.entries.forEachIndexed { i, s ->
             if (i > 0) FormDivider()
             val enabled = s.enabled(preview)

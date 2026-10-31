@@ -285,6 +285,32 @@ struct ConnectionTests {
         #expect(server.calls.last?.method == "task.list" && server.calls.last?.params?["sessionId"] == nil)
     }
 
+    @Test func commitScopes() {
+        let file = FileStat(path: "a.txt", status: .modified, additions: 1, deletions: 0)
+        let changes = CommitPreview(branch: "ra/x", files: [file], message: "Fix", remote: "origin", base: "main")
+        let local = CommitPreview(branch: "ra/x", files: [file], message: "Fix")
+        let pushed = CommitPreview(branch: "ra/x", remote: "origin", ahead: 2)
+        let onMain = CommitPreview(branch: "main", files: [file], message: "Fix", remote: "origin",
+                                   noPullRequest: "main is the repository's default branch: a pull request needs a branch of its own")
+        // Committing needs changes, pushing a remote, a pull request a branch that can open one.
+        #expect(changes.scopes == [.commit, .push, .pullRequest])
+        #expect(local.scopes == [.commit])
+        #expect(pushed.scopes == [.push, .pullRequest])
+        #expect(onMain.scopes == [.commit, .push])
+        #expect(CommitPreview(remote: "origin").scopes.isEmpty)
+
+        // The last choice where it can go, else as far as a push.
+        typealias Scope = ServerConnection.CommitScope
+        #expect(Scope.initial(saved: "", for: changes) == .push)
+        #expect(Scope.initial(saved: "pullRequest", for: changes) == .pullRequest)
+        #expect(Scope.initial(saved: "commit", for: changes) == .commit)
+        #expect(Scope.initial(saved: "commit", for: pushed) == .push)
+        #expect(Scope.initial(saved: "pullRequest", for: local) == .commit)
+        #expect(Scope.initial(saved: "", for: local) == .commit)
+        // A pull request chosen on another branch gives way to a push on the default one.
+        #expect(Scope.initial(saved: "pullRequest", for: onMain) == .push)
+    }
+
     @Test func importsTheAgentsOwnSessions() async throws {
         let server = try TestServer()
         let c = try await connect(to: server)

@@ -304,11 +304,18 @@ class FixtureTests {
         assertEquals("origin", preview.remote)
         assertEquals("main", preview.base)
         assertEquals(1, preview.ahead)
+        assertNull(preview.noPullRequest)
+        val onMain = result<CommitPreview>("response_commit_preview_default_branch.json")
+        assertEquals("main", onMain.branch)
+        assertEquals("origin", onMain.remote)
+        assertNull(onMain.base)
+        assertEquals("main is the repository's default branch: a pull request needs a branch of its own", onMain.noPullRequest)
         // Nothing to commit, no remote, a detached HEAD.
         val clean = WireCoding.json.decodeFromString(CommitPreview.serializer(), """{"files":[],"message":"","ahead":0}""")
         assertNull(clean.branch)
         assertNull(clean.remote)
         assertNull(clean.base)
+        assertNull(clean.noPullRequest)
 
         // A newer server's kinds and statuses decode: the kind as sent, the status as ended.
         val future = WireCoding.json.decodeFromString(
