@@ -318,8 +318,49 @@ data class Item(
      * Agent messages: the images the text links to (`ImageRef.idLinkedBy`).
      */
     val images: List<ImageRef>? = null,
+    /** An error's turn failed because the agent hit this usage limit (`UsageLimitsFormat.limitNotice`). */
+    val limit: UsageWindow? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
+)
+
+/**
+ * How much of its plan's usage an agent's account has used, in the windows
+ * the plan meters (5 hours, a week), as the agent last said. They're the
+ * account's, not a session's: the index keeps the latest for each agent
+ * (`limits.upserted`, `ServerConnection.limits`).
+ */
+@Serializable
+data class UsageLimits(
+    /** The agent's id, as in `harness.list`. */
+    val harness: String,
+    /** In the agent's order: the 5 hours first, then the week. */
+    val windows: List<UsageWindow> = emptyList(),
+    /** A limit was hit: the agent refuses turns until [resetsAt]. */
+    val limited: Boolean = false,
+    /** When the limit that was hit resets; null: unknown. */
+    val resetsAt: Instant? = null,
+    /** The account's plan, such as "Plus" or "Max". */
+    val plan: String? = null,
+    /** The account goes on past its limits on extra usage. */
+    val overage: Boolean = false,
+    /** When the agent last said, within a minute. */
+    val updatedAt: Instant,
+)
+
+/** One metered window of a plan, such as its 5 hours. */
+@Serializable
+data class UsageWindow(
+    /** five_hour, weekly, weekly_opus, … */
+    val id: String,
+    /** Short, for a gauge: "5h", "week", "Opus week". */
+    val label: String,
+    /** 0–100; 100: spent. */
+    val usedPercent: Int = 0,
+    /** When the window starts afresh; null: unknown. */
+    val resetsAt: Instant? = null,
+    /** Its length: 300, 10080; null: unknown. */
+    val windowMinutes: Int? = null,
 )
 
 /** One change on a stream. The payload of an event type this app doesn't know is skipped. */
@@ -332,6 +373,8 @@ data class Event(
     val session: Session? = null,
     val turn: Turn? = null,
     val item: Item? = null,
+    /** `limits.upserted`: an agent's usage limits, in the index. */
+    val limits: UsageLimits? = null,
     val id: String? = null,
     val ts: Instant? = null,
 )
@@ -354,6 +397,7 @@ object EventSerializer : KSerializer<Event> {
             session = payload("session", Session.serializer()),
             turn = payload("turn", Turn.serializer()),
             item = payload("item", Item.serializer()),
+            limits = payload("limits", UsageLimits.serializer()),
             id = (o["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
             ts = (o["ts"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.let(WireCoding::parseDate),
         )
@@ -370,6 +414,7 @@ object EventSerializer : KSerializer<Event> {
             value.session?.let { put("session", json.encodeToJsonElement(Session.serializer(), it)) }
             value.turn?.let { put("turn", json.encodeToJsonElement(Turn.serializer(), it)) }
             value.item?.let { put("item", json.encodeToJsonElement(Item.serializer(), it)) }
+            value.limits?.let { put("limits", json.encodeToJsonElement(UsageLimits.serializer(), it)) }
             value.id?.let { put("id", it) }
             value.ts?.let { put("ts", it.toString()) }
         })

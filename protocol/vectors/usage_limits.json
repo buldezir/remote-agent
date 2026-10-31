@@ -1,0 +1,295 @@
+{
+  "_comment": "Shared by every client's usage-limits formatting: ra's internal/client/limits.go, RAKit's UsageLimitsFormat, web/src/store/usageLimits.ts and android/core's UsageLimitsFormat. Times are relative to now.",
+  "now": "2026-10-31T12:00:00Z",
+  "cases": [
+    {
+      "name": "plain",
+      "limits": {
+        "harness": "codex",
+        "windows": [
+          {
+            "id": "five_hour",
+            "label": "5h",
+            "usedPercent": 34,
+            "resetsAt": "2026-10-31T14:14:00Z",
+            "windowMinutes": 300
+          },
+          {
+            "id": "weekly",
+            "label": "week",
+            "usedPercent": 61,
+            "resetsAt": "2026-11-03T16:00:00Z",
+            "windowMinutes": 10080
+          }
+        ],
+        "plan": "Plus",
+        "updatedAt": "2026-10-31T11:55:00Z"
+      },
+      "gauge": "5h 34% · week 61%",
+      "level": "normal",
+      "windowLevels": [
+        "normal",
+        "normal"
+      ],
+      "windowPercents": [
+        34,
+        61
+      ],
+      "details": [
+        "5h: 34% used · resets in 2h 14m",
+        "week: 61% used · resets in 3d 4h",
+        "Plus plan",
+        "Updated 5m ago"
+      ]
+    },
+    {
+      "name": "nearing a limit",
+      "limits": {
+        "harness": "claude",
+        "windows": [
+          {
+            "id": "five_hour",
+            "label": "5h",
+            "usedPercent": 80,
+            "resetsAt": "2026-10-31T12:40:01Z",
+            "windowMinutes": 300
+          },
+          {
+            "id": "weekly",
+            "label": "week",
+            "usedPercent": 79,
+            "resetsAt": "2026-11-06T12:00:00Z",
+            "windowMinutes": 10080
+          }
+        ],
+        "updatedAt": "2026-10-31T11:59:01Z"
+      },
+      "gauge": "5h 80% · week 79%",
+      "level": "warning",
+      "windowLevels": [
+        "warning",
+        "normal"
+      ],
+      "windowPercents": [
+        80,
+        79
+      ],
+      "details": [
+        "5h: 80% used · resets in 41m",
+        "week: 79% used · resets in 6d",
+        "Updated just now"
+      ]
+    },
+    {
+      "name": "limit reached",
+      "limits": {
+        "harness": "claude",
+        "windows": [
+          {
+            "id": "five_hour",
+            "label": "5h",
+            "usedPercent": 100,
+            "resetsAt": "2026-10-31T13:05:00Z",
+            "windowMinutes": 300
+          },
+          {
+            "id": "weekly",
+            "label": "week",
+            "usedPercent": 92,
+            "resetsAt": "2026-11-02T12:00:00Z",
+            "windowMinutes": 10080
+          }
+        ],
+        "limited": true,
+        "resetsAt": "2026-10-31T13:05:00Z",
+        "updatedAt": "2026-10-31T11:59:30Z"
+      },
+      "gauge": "5h 100% · week 92%",
+      "level": "limited",
+      "windowLevels": [
+        "limited",
+        "warning"
+      ],
+      "windowPercents": [
+        100,
+        92
+      ],
+      "details": [
+        "Limit reached · resets in 1h 5m",
+        "5h: 100% used · resets in 1h 5m",
+        "week: 92% used · resets in 2d",
+        "Updated just now"
+      ]
+    },
+    {
+      "name": "reset since",
+      "limits": {
+        "harness": "codex",
+        "windows": [
+          {
+            "id": "five_hour",
+            "label": "5h",
+            "usedPercent": 100,
+            "resetsAt": "2026-10-31T11:40:00Z",
+            "windowMinutes": 300
+          },
+          {
+            "id": "weekly",
+            "label": "week",
+            "usedPercent": 50,
+            "resetsAt": "2026-11-06T12:00:00Z",
+            "windowMinutes": 10080
+          }
+        ],
+        "limited": true,
+        "resetsAt": "2026-10-31T11:40:00Z",
+        "plan": "Pro",
+        "updatedAt": "2026-10-31T06:40:00Z"
+      },
+      "gauge": "5h 0% · week 50%",
+      "level": "normal",
+      "windowLevels": [
+        "normal",
+        "normal"
+      ],
+      "windowPercents": [
+        0,
+        50
+      ],
+      "details": [
+        "5h: reset 20m ago",
+        "week: 50% used · resets in 6d",
+        "Pro plan",
+        "Updated 5h 20m ago"
+      ]
+    },
+    {
+      "name": "on extra usage, no reset times",
+      "limits": {
+        "harness": "claude",
+        "windows": [
+          {
+            "id": "weekly_opus",
+            "label": "Opus week",
+            "usedPercent": 100,
+            "windowMinutes": 10080
+          }
+        ],
+        "overage": true,
+        "updatedAt": "2026-10-29T09:00:00Z"
+      },
+      "gauge": "Opus week 100%",
+      "level": "limited",
+      "windowLevels": [
+        "limited"
+      ],
+      "windowPercents": [
+        100
+      ],
+      "details": [
+        "Opus week: 100% used",
+        "Using extra usage",
+        "Updated 2d 3h ago"
+      ]
+    },
+    {
+      "name": "limited without windows",
+      "limits": {
+        "harness": "codex",
+        "windows": [],
+        "limited": true,
+        "updatedAt": "2026-10-31T11:59:00Z"
+      },
+      "gauge": "Limit reached",
+      "level": "limited",
+      "windowLevels": [],
+      "windowPercents": [],
+      "details": [
+        "Limit reached",
+        "Updated 1m ago"
+      ]
+    },
+    {
+      "name": "nothing to show",
+      "limits": {
+        "harness": "codex",
+        "windows": [],
+        "updatedAt": "2026-10-31T11:59:59Z"
+      },
+      "gauge": "",
+      "level": "normal",
+      "windowLevels": [],
+      "windowPercents": [],
+      "details": [
+        "Updated just now"
+      ]
+    }
+  ],
+  "notices": [
+    {
+      "window": {
+        "id": "five_hour",
+        "label": "5h",
+        "usedPercent": 100,
+        "resetsAt": "2026-10-31T14:14:00Z",
+        "windowMinutes": 300
+      },
+      "text": "5h limit reached · resets in 2h 14m"
+    },
+    {
+      "window": {
+        "id": "weekly",
+        "label": "week",
+        "usedPercent": 100,
+        "resetsAt": "2026-10-31T09:00:00Z",
+        "windowMinutes": 10080
+      },
+      "text": "Week limit reached · reset 3h ago"
+    },
+    {
+      "window": {
+        "id": "usage",
+        "label": "usage",
+        "usedPercent": 100
+      },
+      "text": "Usage limit reached"
+    }
+  ],
+  "durations": [
+    {
+      "seconds": 1,
+      "future": "1m",
+      "past": "1m"
+    },
+    {
+      "seconds": 61,
+      "future": "2m",
+      "past": "1m"
+    },
+    {
+      "seconds": 3599,
+      "future": "1h",
+      "past": "59m"
+    },
+    {
+      "seconds": 3600,
+      "future": "1h",
+      "past": "1h"
+    },
+    {
+      "seconds": 8040,
+      "future": "2h 14m",
+      "past": "2h 14m"
+    },
+    {
+      "seconds": 86400,
+      "future": "1d",
+      "past": "1d"
+    },
+    {
+      "seconds": 275400,
+      "future": "3d 4h",
+      "past": "3d 4h"
+    }
+  ]
+}

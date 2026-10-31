@@ -20,6 +20,7 @@ import dev.remoteagent.core.protocol.ServerSettings
 import dev.remoteagent.core.protocol.ServerTask
 import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.UpdateInfo
+import dev.remoteagent.core.protocol.UsageLimits
 import dev.remoteagent.core.protocol.WireCoding
 import dev.remoteagent.core.protocol.Workspace
 import kotlinx.coroutines.CoroutineScope
@@ -57,10 +58,10 @@ sealed interface ConnectionState {
 }
 
 /**
- * A live connection to one server: keeps the index (projects + sessions)
- * in sync, owns per-session stores, and reconnects with backoff. It stays
- * `Connecting` while it tries, and gives up after `MAX_ATTEMPTS` failures in
- * a row: `Failed` until `start()` or `retry()`.
+ * A live connection to one server: keeps the index (projects, sessions and
+ * the agents' usage limits) in sync, owns per-session stores, and reconnects
+ * with backoff. It stays `Connecting` while it tries, and gives up after
+ * `MAX_ATTEMPTS` failures in a row: `Failed` until `start()` or `retry()`.
  * Mirrors apple/RAKit/Sources/RAKit/Store/ServerConnection.swift. Its state
  * changes on `scope` (the app: the main thread).
  */
@@ -84,6 +85,9 @@ class ServerConnection(
     val projects: StateFlow<Map<String, Project>> = _projects.asStateFlow()
     private val _sessions = MutableStateFlow<Map<String, Session>>(emptyMap())
     val sessions: StateFlow<Map<String, Session>> = _sessions.asStateFlow()
+    private val _limits = MutableStateFlow<Map<String, UsageLimits>>(emptyMap())
+    /** The agents' usage limits, by harness, as the index has them (`limits.upserted`); agents that report none are missing. */
+    val limits: StateFlow<Map<String, UsageLimits>> = _limits.asStateFlow()
     /** The agents installed on the server; null until first loaded. */
     private val _harnesses = MutableStateFlow<List<HarnessInfo>?>(null)
     val harnesses: StateFlow<List<HarnessInfo>?> = _harnesses.asStateFlow()
@@ -222,11 +226,13 @@ class ServerConnection(
                     val before = _sessions.value
                     val projects = if (msg.reset) HashMap() else HashMap(_projects.value)
                     val sessions = if (msg.reset) HashMap() else HashMap(before)
+                    val limits = if (msg.reset) HashMap() else HashMap(_limits.value)
                     val buffered = indexReplay
                     indexReplay = mutableListOf()
-                    val changes = buffered.mapNotNull { upsertIndex(it, projects, sessions, before) }
+                    val changes = buffered.mapNotNull { upsertIndex(it, projects, sessions, limits, before) }
                     _projects.value = projects
                     _sessions.value = sessions
+                    _limits.value = limits
                     indexSeq = msg.seq
                     indexOutstanding = maxOf(0, indexOutstanding - 1)
                     indexLive = indexOutstanding == 0
@@ -270,6 +276,7 @@ class ServerConnection(
         }
         val projects = HashMap(_projects.value)
         val sessions = HashMap(_sessions.value)
+        val limits = HashMap(_limits.value)
         val changes = mutableListOf<Pair<Session, Session>>()
         for (ev in events) {
             if (ev.seq <= indexSeq) continue
@@ -279,10 +286,11 @@ class ServerConnection(
                 break
             }
             indexSeq = ev.seq
-            upsertIndex(ev, projects, sessions)?.let { changes += it }
+            upsertIndex(ev, projects, sessions, limits)?.let { changes += it }
         }
         _projects.value = projects
         _sessions.value = sessions
+        _limits.value = limits
         report(changes)
     }
 
@@ -295,6 +303,7 @@ class ServerConnection(
         ev: Event,
         projects: MutableMap<String, Project>,
         sessions: MutableMap<String, Session>,
+        limits: MutableMap<String, UsageLimits>,
         before: Map<String, Session> = emptyMap(),
     ): Pair<Session, Session>? {
         when (ev.type) {
@@ -308,6 +317,7 @@ class ServerConnection(
                 sessions.remove(it)
                 drafts[it] = ""
             }
+            "limits.upserted" -> ev.limits?.let { limits[it.harness] = it }
         }
         return null
     }

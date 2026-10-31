@@ -74,6 +74,7 @@ fun ForkSessionDialog(connection: ServerConnection, store: SessionStore, onDismi
     val sessions by connection.sessions.collectAsStateWithLifecycle()
     val projects by connection.projects.collectAsStateWithLifecycle()
     val harnesses by connection.harnesses.collectAsStateWithLifecycle()
+    val limits by connection.limits.collectAsStateWithLifecycle()
     val turns by store.turns.collectAsStateWithLifecycle()
     val transcript by store.transcript.collectAsStateWithLifecycle()
     val source = storeSession ?: sessions[store.sessionID]
@@ -184,7 +185,7 @@ fun ForkSessionDialog(connection: ServerConnection, store: SessionStore, onDismi
                     ) { turn = it.toInt() }
                 }
 
-                AgentSection(harnesses, harnessID) { harnessID = it }
+                AgentSection(harnesses, harnessID, limits) { harnessID = it }
 
                 if (harness != null) {
                     OptionsSection(

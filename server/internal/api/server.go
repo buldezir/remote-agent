@@ -292,6 +292,7 @@ func (s *Server) ws(w http.ResponseWriter, r *http.Request) {
 	s.st.TouchDevice(r.Context(), dev.ID)
 	s.log.Info("client connected", "device", dev.Name, "remote", r.RemoteAddr)
 	conn := newConn(s, c, dev)
+	defer s.orch.ClientConnected()() // keeps the agents' limits fresh meanwhile
 	conn.run(context.Background())
 	s.log.Info("client disconnected", "device", dev.Name)
 }

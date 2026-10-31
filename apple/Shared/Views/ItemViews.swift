@@ -36,11 +36,15 @@ struct ItemView: View {
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
         case .error:
-            Label { Text(FindHighlight.text(item.text ?? "Error", highlight)) } icon: {
-                Image(systemName: "exclamationmark.triangle.fill")
+            if let limit = item.limit {
+                LimitNotice(window: limit, text: item.text)
+            } else {
+                Label { Text(FindHighlight.text(item.text ?? "Error", highlight)) } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                    .scaledFont(.footnote)
+                    .foregroundStyle(Palette.red)
             }
-                .scaledFont(.footnote)
-                .foregroundStyle(Palette.red)
         case .unknown:
             EmptyView()
         }

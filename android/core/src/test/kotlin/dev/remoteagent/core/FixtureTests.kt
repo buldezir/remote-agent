@@ -27,11 +27,17 @@ import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.SubscribeResult
 import dev.remoteagent.core.protocol.TerminalMessage
 import dev.remoteagent.core.protocol.UpdateInfo
+import dev.remoteagent.core.protocol.UsageLimits
+import dev.remoteagent.core.protocol.UsageWindow
 import dev.remoteagent.core.protocol.WireCoding
 import dev.remoteagent.core.protocol.Workspace
 import dev.remoteagent.core.protocol.get
 import dev.remoteagent.core.protocol.stringValue
+import dev.remoteagent.core.store.ImageCache
+import dev.remoteagent.core.store.SavedServer
+import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.TerminalSession
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
@@ -62,7 +68,7 @@ class FixtureTests {
     fun sessionEvents() {
         val n = assertIs<ServerMessage.Events>(notification("notification_events_session.json"))
         val events = n.events
-        assertEquals(14, events.size)
+        assertEquals(15, events.size)
         val session = assertNotNull(events[0].session)
         assertEquals(SessionStatus.AWAITING_APPROVAL, session.status)
         assertEquals(Workspace.Kind.WORKTREE, session.workspace.kind)
@@ -71,11 +77,12 @@ class FixtureTests {
         assertEquals("Then update the changelog", session.draft?.text)
         assertEquals(0.0123, events[1].turn?.usage?.costUsd)
         val items = events.mapNotNull { it.item }
-        assertEquals(11, items.size)
+        assertEquals(12, items.size)
         assertEquals(
             listOf(
                 ItemKind.USER_MESSAGE, ItemKind.REASONING, ItemKind.TOOL_CALL, ItemKind.ASSISTANT_MESSAGE, ItemKind.APPROVAL,
                 ItemKind.APPROVAL, ItemKind.APPROVAL, ItemKind.PLAN, ItemKind.NOTICE, ItemKind.ERROR, ItemKind.ASSISTANT_MESSAGE,
+                ItemKind.ERROR,
             ),
             items.map { it.kind },
         )
@@ -97,6 +104,12 @@ class FixtureTests {
         assertEquals(Approval.Special.PLAN, items[6].approval?.special)
         assertEquals(2, items[7].plan?.entries?.size)
         assertEquals("i3", items[10].parentItemId)
+        // An error whose turn hit a usage limit says which; another error has none.
+        assertNull(items[9].limit)
+        assertEquals(
+            UsageWindow("five_hour", "5h", 100, Instant.parse("2026-10-09T15:00:00Z"), windowMinutes = 300),
+            items[11].limit,
+        )
         // Unknown event types decode without payload instead of failing the batch.
         assertEquals("future.event", events.last().type)
     }
@@ -104,10 +117,38 @@ class FixtureTests {
     @Test
     fun indexEvents() {
         val events = assertIs<ServerMessage.Events>(notification("notification_events_index.json")).events
-        assertEquals(listOf("project.upserted", "session.upserted", "project.removed"), events.map { it.type })
+        assertEquals(listOf("project.upserted", "session.upserted", "project.removed", "limits.upserted"), events.map { it.type })
         assertEquals(true, events[0].project?.isGitRepo)
         assertEquals(listOf("image/jpeg"), events[1].session?.draft?.images?.map { it.mimeType })
         assertEquals("p0", events[2].id)
+        val l = assertNotNull(events[3].limits)
+        assertEquals("claude", l.harness)
+        assertEquals(listOf("five_hour", "weekly"), l.windows.map { it.id })
+        assertEquals(listOf("5h", "week"), l.windows.map { it.label })
+        assertEquals(61, l.windows[1].usedPercent)
+        assertEquals(10080, l.windows[1].windowMinutes)
+        assertTrue(l.limited)
+        assertEquals(Instant.parse("2026-10-09T15:00:00Z"), l.resetsAt)
+        assertEquals("Max", l.plan)
+        assertTrue(l.overage)
+        assertEquals(Instant.parse("2026-10-09T12:00:05Z"), l.updatedAt)
+        // Left out when false or unknown.
+        val bare = WireCoding.json.decodeFromString(UsageLimits.serializer(), """{"harness":"codex","windows":[],"updatedAt":"2026-10-09T12:00:05Z"}""")
+        assertTrue(!bare.limited && !bare.overage && bare.resetsAt == null && bare.plan == null)
+    }
+
+    /** The connection keeps the index's usage limits by agent, as ra's ServerConnection does. */
+    @Test
+    fun indexLimits() = runTest {
+        val c = ServerConnection(SavedServer("srv", "Test", listOf("http://127.0.0.1:1"), "d", Instant.now()), "", backgroundScope, ImageCache(null), {})
+        c.handle(notification("notification_events_index.json"))
+        c.handle(ServerMessage.Synchronized("index", 4, reset = true))
+        val l = assertNotNull(c.limits.value["claude"])
+        assertEquals(setOf("claude"), c.limits.value.keys)
+        assertEquals(61, l.windows[1].usedPercent)
+        assertTrue(l.limited && l.overage)
+        assertEquals("Max", l.plan)
+        assertEquals(setOf("p1"), c.projects.value.keys)
     }
 
     @Serializable
@@ -330,9 +371,9 @@ class FixtureTests {
 
     @Test
     fun notifications() {
-        assertEquals(ServerMessage.Synchronized("session:s1", 14, true), notification("notification_synchronized.json"))
+        assertEquals(ServerMessage.Synchronized("session:s1", 15, true), notification("notification_synchronized.json"))
         assertEquals(ServerMessage.Resync("session:s1"), notification("notification_resync.json"))
-        assertEquals(SubscribeResult("session:s1", 14), result<SubscribeResult>("response_subscribe.json"))
+        assertEquals(SubscribeResult("session:s1", 15), result<SubscribeResult>("response_subscribe.json"))
     }
 
     private fun terminal(name: String) = WireCoding.json.decodeFromString(TerminalMessage.serializer(), fixture(name))

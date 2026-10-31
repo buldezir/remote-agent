@@ -306,6 +306,9 @@ public struct Item: Codable, Hashable, Identifiable, Sendable {
     /// User messages: the attached images. Tool calls: images in the output.
     /// Agent messages: the images the text links to (`ImageRef.id(linkedBy:)`).
     public var images: [ImageRef]?
+    /// Errors: the turn failed because the agent hit this usage limit
+    /// (`UsageLimitsFormat.limitNotice`).
+    public var limit: UsageWindow?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -334,10 +337,12 @@ public struct Event: Decodable, Sendable {
     public var session: Session?
     public var turn: Turn?
     public var item: Item?
+    /// `limits.upserted`, in the index: an agent's usage limits.
+    public var limits: UsageLimits?
     public var id: String?
     public var ts: Date?
 
-    enum CodingKeys: String, CodingKey { case stream, seq, type, project, session, turn, item, id, ts }
+    enum CodingKeys: String, CodingKey { case stream, seq, type, project, session, turn, item, limits, id, ts }
 
     // Payloads of unknown event types are skipped rather than failing the batch.
     public init(from decoder: Decoder) throws {
@@ -349,8 +354,74 @@ public struct Event: Decodable, Sendable {
         session = try? c.decodeIfPresent(Session.self, forKey: .session)
         turn = try? c.decodeIfPresent(Turn.self, forKey: .turn)
         item = try? c.decodeIfPresent(Item.self, forKey: .item)
+        limits = try? c.decodeIfPresent(UsageLimits.self, forKey: .limits)
         id = try c.decodeIfPresent(String.self, forKey: .id)
         ts = try? c.decodeIfPresent(Date.self, forKey: .ts)
+    }
+}
+
+/// How much of its plan an agent's account has used, in windows such as 5
+/// hours and a week, as the agent last said. They're the account's, not a
+/// session's: rad keeps the latest for each agent, which the index brings
+/// (`ServerConnection.limits`). `UsageLimitsFormat` words them.
+public struct UsageLimits: Codable, Hashable, Sendable {
+    /// The agent's id, as in `HarnessInfo.id`.
+    public var harness: String
+    /// In the agent's order: the 5 hours first, then the week.
+    public var windows: [UsageWindow]
+    /// A limit was hit: the agent refuses turns until `resetsAt`.
+    public var limited: Bool
+    /// When the limit that was hit resets; nil: unknown.
+    public var resetsAt: Date?
+    /// The account's plan, such as "Plus" or "Max".
+    public var plan: String?
+    /// The account goes on past its limits on extra usage.
+    public var overage: Bool
+    /// When the agent last said, within a minute.
+    public var updatedAt: Date
+
+    public init(harness: String, windows: [UsageWindow], limited: Bool = false, resetsAt: Date? = nil,
+                plan: String? = nil, overage: Bool = false, updatedAt: Date) {
+        self.harness = harness
+        self.windows = windows
+        self.limited = limited
+        self.resetsAt = resetsAt
+        self.plan = plan
+        self.overage = overage
+        self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        harness = try c.decode(String.self, forKey: .harness)
+        windows = try c.decodeIfPresent([UsageWindow].self, forKey: .windows) ?? []
+        limited = try c.decodeIfPresent(Bool.self, forKey: .limited) ?? false
+        resetsAt = try c.decodeIfPresent(Date.self, forKey: .resetsAt)
+        plan = try c.decodeIfPresent(String.self, forKey: .plan)
+        overage = try c.decodeIfPresent(Bool.self, forKey: .overage) ?? false
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+    }
+}
+
+/// One metered window of a plan, such as its 5 hours.
+public struct UsageWindow: Codable, Hashable, Identifiable, Sendable {
+    /// "five_hour", "weekly", "weekly_opus"…
+    public var id: String
+    /// Short, for a gauge: "5h", "week", "Opus week".
+    public var label: String
+    /// 0–100; 100: spent.
+    public var usedPercent: Int
+    /// When the window starts afresh.
+    public var resetsAt: Date?
+    /// Its length: 300, 10080; nil: unknown.
+    public var windowMinutes: Int?
+
+    public init(id: String, label: String, usedPercent: Int, resetsAt: Date? = nil, windowMinutes: Int? = nil) {
+        self.id = id
+        self.label = label
+        self.usedPercent = usedPercent
+        self.resetsAt = resetsAt
+        self.windowMinutes = windowMinutes
     }
 }
 

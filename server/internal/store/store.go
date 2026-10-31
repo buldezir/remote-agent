@@ -282,6 +282,13 @@ func (w *W) PutItem(it *model.Item) error {
 	return w.Emit(model.Event{Stream: model.SessionStream(it.SessionID), Type: model.EvItemUpserted, Item: &cp})
 }
 
+// PutLimits keeps an agent's latest usage limits. They live only in the
+// index's change feed, which keeps the latest per agent across restarts.
+func (w *W) PutLimits(l *model.UsageLimits) error {
+	cp := *l
+	return w.Emit(model.Event{Stream: model.IndexStream, Type: model.EvLimitsUpserted, Limits: &cp})
+}
+
 // Receipt returns the stored result of an already-applied command.
 func (w *W) Receipt(commandID string) (json.RawMessage, bool, error) {
 	if commandID == "" {
@@ -381,6 +388,20 @@ func (s *Store) Items(ctx context.Context, sessionID string) ([]*model.Item, err
 	out := make([]*model.Item, 0, len(evs))
 	for _, e := range evs {
 		out = append(out, e.Item)
+	}
+	return out, nil
+}
+
+// Limits returns the latest usage limits of each agent that reported them.
+func (s *Store) Limits(ctx context.Context) ([]*model.UsageLimits, error) {
+	evs, err := queryJSON[model.Event](ctx, s.db,
+		`SELECT data FROM changes WHERE stream=? AND +type=? ORDER BY entity`, model.IndexStream, model.EvLimitsUpserted)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*model.UsageLimits, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, e.Limits)
 	}
 	return out, nil
 }

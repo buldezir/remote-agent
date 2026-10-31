@@ -2,7 +2,7 @@
   "method": "synchronized",
   "params": {
     "stream": "session:s1",
-    "seq": 14,
+    "seq": 15,
     "reset": true
   }
 }

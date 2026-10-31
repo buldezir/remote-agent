@@ -12,6 +12,7 @@ import type {
   ServerTask,
   Session,
   UpdateInfo,
+  UsageLimits,
 } from "../protocol/models";
 import { parseDate } from "../protocol/models";
 import { RPCClient, RPCError, type ServerMessage } from "../protocol/rpc";
@@ -81,10 +82,11 @@ export interface CommitParams {
   pullRequest?: boolean;
 }
 
-/** A live connection to one server: keeps the index (projects and sessions)
- *  in sync, owns per-session stores, and reconnects with backoff. It stays
- *  `connecting` while it tries, and gives up after `maxAttempts` failures in
- *  a row: `failed` until `start()` or `retry()`. A socket that has been
+/** A live connection to one server: keeps the index (projects, sessions and
+ *  the agents' usage limits) in sync, owns per-session stores, and
+ *  reconnects with backoff. It stays `connecting` while it tries, and gives
+ *  up after `maxAttempts` failures in a row: `failed` until `start()` or
+ *  `retry()`. A socket that has been
  *  silent for `heartbeat` is pinged, and dropped if it doesn't answer, so
  *  one that died while the computer slept doesn't pass for connected. */
 export class ServerConnection extends Observable implements SessionHost, TaskSource {
@@ -94,6 +96,8 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
   info: ServerInfo | undefined;
   projects = new Map<string, Project>();
   sessions = new Map<string, Session>();
+  /** The agents' usage limits, by harness, as the index last said. */
+  limits = new Map<string, UsageLimits>();
   /** The agents installed on the server; undefined until first loaded. */
   harnesses: HarnessInfo[] | undefined;
   indexSynced = false;
@@ -290,6 +294,7 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
           if (msg.reset) {
             this.projects.clear();
             this.sessions.clear();
+            this.limits.clear();
           }
           const buffered = this.indexReplay;
           this.indexReplay = [];
@@ -378,6 +383,9 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
           this.sessions.delete(ev.id);
           this.drafts.set(ev.id, "");
         }
+        break;
+      case "limits.upserted":
+        if (ev.limits) this.limits.set(ev.limits.harness, ev.limits);
         break;
     }
     return undefined;

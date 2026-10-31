@@ -128,6 +128,7 @@ func (s *Server) mcpServer() *mcp.Server {
 			Input:       object(nil, map[string]any{}), Call: s.toolListProjects},
 		{Name: "list_agents", Title: "List agents", ReadOnly: true,
 			Description: "Lists the coding agents installed and signed in on this machine, with their models, reasoning efforts and permission modes, " +
+				"how much of their plan's usage limits they have used where they say (limits: the 5-hour and weekly windows, and whether a limit is reached), " +
 				"and the agent, model and effort the user chose for new sessions, if any.",
 			Input: object(nil, map[string]any{}), Call: s.toolListAgents},
 		{Name: "list_sessions", Title: "List sessions", ReadOnly: true,
@@ -206,6 +207,8 @@ type agentSummary struct {
 	Modes       []model.Choice `json:"modes,omitempty"`
 	DefaultMode string         `json:"defaultMode,omitempty"`
 	Steers      bool           `json:"steers,omitempty"` // takes send_prompt's steer
+	// Limits: how much of its plan's usage limits it has used, where it says.
+	Limits *model.UsageLimits `json:"limits,omitempty"`
 }
 
 // defaultSummary is the agent, model and effort sessions start with when
@@ -219,10 +222,15 @@ type defaultSummary struct {
 func (s *Server) toolListAgents(ctx context.Context, _ json.RawMessage) (any, error) {
 	out := []agentSummary{}
 	def := s.defaultAgent(ctx)
+	limits := s.orch.Limits(ctx)
 	res := map[string]any{}
 	for _, h := range s.orch.Registry().Installed(ctx, false) {
 		if h.AuthOK {
-			out = append(out, agentSummary{h.ID, h.Name, h.Models, h.Efforts, h.Modes, h.DefaultMode, h.Caps.Steer})
+			sum := agentSummary{h.ID, h.Name, h.Models, h.Efforts, h.Modes, h.DefaultMode, h.Caps.Steer, nil}
+			if l, ok := limits[h.ID]; ok {
+				sum.Limits = &l
+			}
+			out = append(out, sum)
 			if def != nil && def.Harness == h.ID {
 				res["default"] = defaultSummary{def.Harness, def.Model, def.Effort}
 			}

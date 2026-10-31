@@ -219,6 +219,47 @@ struct IndexChangeTests {
     }
 }
 
+func limitsEvent(_ seq: Int64, _ harness: String, used: Int, limited: Bool = false) throws -> Event {
+    var limits: [String: Any] = ["harness": harness, "updatedAt": "2026-10-09T12:00:00Z",
+                                 "windows": [["id": "five_hour", "label": "5h", "usedPercent": used, "windowMinutes": 300]]]
+    if limited { limits["limited"] = true }
+    let data = try JSONSerialization.data(withJSONObject: ["stream": "index", "seq": seq, "type": "limits.upserted", "limits": limits])
+    return try WireCoding.decoder().decode(Event.self, from: data)
+}
+
+/// The agents' usage limits come with the index, one per agent.
+@MainActor
+struct IndexLimitsTests {
+    let server = SavedServer(id: "srv", name: "Test", urls: [URL(string: "http://127.0.0.1:1")!], deviceId: "d", addedAt: .now)
+
+    @Test func keptByAgent() throws {
+        let c = ServerConnection(server: server, token: "", defaults: UserDefaults(suiteName: "dev.remote-agent.IndexLimitsTests")!) { _ in }
+        c._testHandle(.events(stream: "index", events: [try limitsEvent(1, "claude", used: 34), try sessionEvent(2, "a", "idle"),
+                                                        try limitsEvent(3, "codex", used: 12)]))
+        // Not before the replay is applied.
+        #expect(c.limits.isEmpty)
+        c._testHandle(.synchronized(stream: "index", seq: 3, reset: true))
+        #expect(c.limits["claude"]?.windows.first?.usedPercent == 34)
+        #expect(c.limits["codex"]?.windows.first?.usedPercent == 12)
+        #expect(c.sessions["a"] != nil)
+        // Live: the agent's latest replaces what it said before.
+        c._testHandle(.events(stream: "index", events: [try limitsEvent(4, "claude", used: 100, limited: true)]))
+        #expect(c.limits["claude"]?.limited == true)
+        #expect(c.limits["claude"]?.windows.first?.usedPercent == 100)
+        #expect(c.limits.count == 2)
+        // An event type this app doesn't know is passed over.
+        let unknown = try WireCoding.decoder().decode(Event.self, from: Data(#"{"stream":"index","seq":5,"type":"future.event","future":{"x":1}}"#.utf8))
+        c._testHandle(.events(stream: "index", events: [unknown, try limitsEvent(6, "codex", used: 40)]))
+        #expect(c.limits["codex"]?.windows.first?.usedPercent == 40)
+        // A reset drops them with the rest of the index, and the replay brings back what's there.
+        c._testHandle(.closed(reason: nil))
+        c._testHandle(.events(stream: "index", events: [try limitsEvent(1, "codex", used: 50)]))
+        c._testHandle(.synchronized(stream: "index", seq: 1, reset: true))
+        #expect(c.limits.keys.sorted() == ["codex"])
+        #expect(c.limits["codex"]?.windows.first?.usedPercent == 50)
+    }
+}
+
 /// Drafts stay on the device, by server and session.
 @MainActor @Suite(.serialized)
 struct DraftTests {

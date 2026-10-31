@@ -1786,3 +1786,50 @@ func TestFoldsRunsOfToolCalls(t *testing.T) {
 		t.Errorf("a run folded with Group tool calls off:\n%s", s)
 	}
 }
+
+// Server Settings and the new session form show each agent's usage limits,
+// with their details under the agent chosen, and a turn that hit one says
+// which, and when it resets.
+func TestShowsUsageLimits(t *testing.T) {
+	u := startUIWith(t, 120, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		p := addProject(t, rpc, r)
+		prompted(t, rpc, r, p.ID, "limits 85")
+	})
+	u.key("ctrl+p")
+	u.menuTo("Server Settings…")
+	u.key("enter")
+	u.waitFor("5h 85% · week ")
+	u.key("down") // the fake, whose details show
+	s := u.waitFor("5h: 85% used · resets in ")
+	for _, want := range []string{"week: ", "Fake plan", "Updated just now"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in\n%s", want, s)
+		}
+	}
+	u.key("esc")
+
+	u.key("ctrl+n")
+	s = u.waitFor("New Session")
+	if !strings.Contains(s, "Fake (scripted)  1  5h 85% · week ") {
+		t.Errorf("no gauge beside the agent in\n%s", s)
+	}
+	for i := 0; !strings.Contains(u.screen(), "Fake plan"); i++ {
+		if i > 10 {
+			t.Fatalf("no details under the agent in\n%s", u.screen())
+		}
+		u.key("shift+tab")
+	}
+	for !strings.Contains(u.screen(), "save as draft") {
+		u.key("tab")
+	}
+	u.key("limit")
+	u.key("enter")
+	u.waitFor("◔ 5h limit reached · resets in ")
+
+	u.key("ctrl+p")
+	u.menuTo("Server Settings…")
+	u.key("enter")
+	u.waitFor("5h 100% · week ")
+	u.key("down")
+	u.waitFor("Limit reached · resets in ")
+}

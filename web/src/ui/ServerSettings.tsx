@@ -1,6 +1,15 @@
 import { ChevronRight, Ellipsis, RefreshCw, TriangleAlert, UserRound } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { effortsForModel, installable, type AgentSpec, type HarnessInfo, type ServerSettings, type ServerTask, type UpdateInfo } from "../protocol/models";
+import {
+  effortsForModel,
+  installable,
+  type AgentSpec,
+  type HarnessInfo,
+  type ServerSettings,
+  type ServerTask,
+  type UpdateInfo,
+  type UsageLimits,
+} from "../protocol/models";
 import { RPCError } from "../protocol/rpc";
 import { useObserved } from "../store/observable";
 import { ServerTasks, type ServerTaskProgress } from "../store/serverTask";
@@ -8,6 +17,7 @@ import { HarnessIcon } from "./components";
 import { useConnection } from "./context";
 import { Confirm, Menu, Modal, Spinner } from "./primitives";
 import { openLink, TaskSheet } from "./TaskSheet";
+import { LimitsGauge } from "./UsageLimits";
 
 /** "1 busy session", "2 busy sessions". */
 function count(n: number, noun: string): string {
@@ -243,6 +253,7 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
                   <AgentRow
                     key={h.id}
                     harness={h}
+                    limits={connection.limits.get(h.id)}
                     running={running}
                     runningLabel={login ? "Signing in…" : "Updating…"}
                     disabled={!connected || starting === h.id}
@@ -360,9 +371,11 @@ function TaskRow({ progress, label, onOpen }: { progress: ServerTaskProgress; la
   );
 }
 
-/** An installed agent: its version and sign-in state, and Update and Sign In. */
+/** An installed agent: its version and sign-in state, its plan's usage
+ *  limits when it reports them, and Update and Sign In. */
 function AgentRow({
   harness: h,
+  limits,
   running,
   runningLabel,
   disabled,
@@ -371,6 +384,7 @@ function AgentRow({
   onLogin,
 }: {
   harness: HarnessInfo;
+  limits: UsageLimits | undefined;
   running: ServerTaskProgress | undefined;
   runningLabel: string;
   disabled: boolean;
@@ -413,6 +427,7 @@ function AgentRow({
       <span className="harness-row-text">
         {name}
         {h.authOk ? <span className="small c-green">Ready</span> : <span className="small c-yellow">{h.hint || "Not signed in"}</span>}
+        {limits && <LimitsGauge limits={limits} />}
       </span>
       {canLogin && !h.authOk && (
         <button className="button" disabled={disabled} onClick={onLogin}>

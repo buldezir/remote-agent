@@ -35,6 +35,10 @@ tasks.test {
     val fixtures = layout.projectDirectory.dir("../../protocol/fixtures")
     inputs.dir(fixtures).withPropertyName("fixtures")
     systemProperty("fixtures", fixtures.asFile.path)
+    // The cases every client's shared formatting checks, such as usage_limits.json.
+    val vectors = layout.projectDirectory.dir("../../protocol/vectors")
+    inputs.dir(vectors).withPropertyName("vectors")
+    systemProperty("vectors", vectors.asFile.path)
     // LiveSmokeTest runs only against a scratch rad: RA_PAIR_LINK="$(rad pair --print-url)".
     providers.environmentVariable("RA_PAIR_LINK").orNull?.let { environment("RA_PAIR_LINK", it) }
     providers.environmentVariable("RA_PROJECT").orNull?.let { environment("RA_PROJECT", it) }

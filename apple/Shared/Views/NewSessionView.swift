@@ -337,7 +337,9 @@ struct NewSessionView: View {
 }
 
 /// The agents on the server, as a form's rows, the chosen one ticked. The
-/// ones that aren't installed or signed in can't be chosen.
+/// ones that aren't installed or signed in can't be chosen. An agent that
+/// reports usage limits has their gauge under its name, a control of its own
+/// on iOS, where a tap shows the details.
 struct HarnessChoiceRows: View {
     let connection: ServerConnection
     @Binding var harnessID: String
@@ -345,15 +347,22 @@ struct HarnessChoiceRows: View {
     var body: some View {
         if let harnesses = connection.harnesses {
             ForEach(harnesses) { h in
-                Button {
-                    harnessID = h.id
-                } label: {
-                    HarnessChoiceRow(harness: h, selected: h.id == harnessID)
-                        .contentShape(Rectangle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Button {
+                        harnessID = h.id
+                    } label: {
+                        HarnessChoiceRow(harness: h, selected: h.id == harnessID)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!h.usable)
+                    .accessibilityAddTraits(h.id == harnessID ? .isSelected : [])
+                    if let limits = connection.limits[h.id] {
+                        UsageLimitsGauge(limits: limits)
+                            .padding(.leading, HarnessChoiceRow.textInset)
+                            .opacity(h.usable ? 1 : 0.5)
+                    }
                 }
-                .buttonStyle(.plain)
-                .disabled(!h.usable)
-                .accessibilityAddTraits(h.id == harnessID ? .isSelected : [])
             }
             if harnesses.isEmpty {
                 Text("No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.")
@@ -429,6 +438,9 @@ extension HarnessInfo {
 struct HarnessChoiceRow: View {
     let harness: HarnessInfo
     let selected: Bool
+
+    /// Where the name starts: past the icon's column and the space after it.
+    static let textInset: CGFloat = 28 + 12
 
     var body: some View {
         HStack(spacing: 12) {

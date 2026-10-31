@@ -59,6 +59,8 @@ type runtime struct {
 	usageTotal *usage
 	usageBase  *usage
 	lastError  string
+	overLimit  bool               // the turn's error says a usage limit is spent
+	limits     *model.UsageLimits // the account's, as Codex last said (r.mu)
 }
 
 type usage struct {
@@ -441,21 +443,20 @@ func (r *runtime) onNotify(method string, raw json.RawMessage) {
 		}
 	case "error":
 		var p struct {
-			Error struct {
-				Message string `json:"message"`
-			} `json:"error"`
-			WillRetry bool `json:"willRetry"`
+			Error     turnError `json:"error"`
+			WillRetry bool      `json:"willRetry"`
 		}
 		if json.Unmarshal(raw, &p) == nil && !p.WillRetry {
 			r.lastError = p.Error.Message
+			r.overLimit = r.overLimit || limitError(p.Error.CodexErrorInfo)
 		}
+	case "account/rateLimits/updated":
+		r.onRateLimits(raw)
 	case "turn/completed":
 		var p struct {
 			Turn struct {
-				Status string `json:"status"`
-				Error  *struct {
-					Message string `json:"message"`
-				} `json:"error"`
+				Status string     `json:"status"`
+				Error  *turnError `json:"error"`
 			} `json:"turn"`
 		}
 		json.Unmarshal(raw, &p)
@@ -463,9 +464,13 @@ func (r *runtime) onNotify(method string, raw json.RawMessage) {
 	}
 }
 
-func (r *runtime) endTurn(status string, turnErr *struct {
-	Message string `json:"message"`
-}) {
+// turnError is Codex's TurnError: its message, and what kind it is.
+type turnError struct {
+	Message        string          `json:"message"`
+	CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
+}
+
+func (r *runtime) endTurn(status string, turnErr *turnError) {
 	r.mu.Lock()
 	interrupted := r.interrupting
 	turnID := r.turnID
@@ -492,6 +497,11 @@ func (r *runtime) endTurn(status string, turnErr *struct {
 		if ev.Error == "" {
 			ev.Error = "turn failed"
 		}
+		if r.overLimit || turnErr != nil && limitError(turnErr.CodexErrorInfo) {
+			r.mu.Lock()
+			ev.Limit = harness.LimitReached(r.limits)
+			r.mu.Unlock()
+		}
 	}
 	if t := r.usageTotal; t != nil {
 		b := r.usageBase
@@ -503,7 +513,7 @@ func (r *runtime) endTurn(status string, turnErr *struct {
 			CacheReadTokens: t.CachedInputTokens - b.CachedInputTokens, CacheWriteTokens: t.CacheWriteTokens - b.CacheWriteTokens,
 		}
 	}
-	r.lastError = ""
+	r.lastError, r.overLimit = "", false
 	r.items = map[string]*model.Item{}
 	r.plan = nil
 	r.emit(ev)

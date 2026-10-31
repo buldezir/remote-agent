@@ -84,6 +84,9 @@ func (m *Model) renderItem(v *sessionView, it *model.Item, width int) []string {
 		}
 		return lines
 	case model.ItemError:
+		if it.Limit != nil {
+			return m.limitNotice(*it.Limit, width)
+		}
 		lines := wrap(strings.TrimSpace(it.Text), width-2)
 		for i, l := range lines {
 			lead := "  "

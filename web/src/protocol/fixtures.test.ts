@@ -43,7 +43,7 @@ describe("fixtures", () => {
     const n = load("notification_events_session.json");
     expect(n.method).toBe("events");
     const events: Event[] = n.params.events;
-    expect(events).toHaveLength(14);
+    expect(events).toHaveLength(15);
     const session = events[0].session!;
     expect(session.status).toBe("awaiting_approval");
     expect(session.draft?.images).toHaveLength(1);
@@ -53,7 +53,7 @@ describe("fixtures", () => {
     expect(session.customTitle).toBe(true);
     expect(events[1].turn?.usage?.costUsd).toBe(0.0123);
     const items = events.flatMap((e) => (e.item ? [e.item] : []));
-    expect(items).toHaveLength(11);
+    expect(items).toHaveLength(12);
     expect(items.map((i) => i.kind)).toEqual([
       "user_message",
       "reasoning",
@@ -66,6 +66,7 @@ describe("fixtures", () => {
       "notice",
       "error",
       "assistant_message",
+      "error",
     ]);
     expect(items[0].images?.[0].mimeType).toBe("image/png");
     expect(aspectRatio(items[0].images![0])).toBe(1170 / 2532);
@@ -85,6 +86,10 @@ describe("fixtures", () => {
     expect(items[6].approval?.special).toBe("plan");
     expect(items[7].plan?.entries).toHaveLength(2);
     expect(items[10].parentItemId).toBe("i3");
+    // A turn that failed on a usage limit says which.
+    expect(items[9].limit).toBeUndefined();
+    expect(items[11].limit).toEqual({ id: "five_hour", label: "5h", usedPercent: 100, resetsAt: "2026-10-09T15:00:00Z", windowMinutes: 300 });
+    expect(parseDate(items[11].limit?.resetsAt)).toBe(Date.UTC(2026, 9, 9, 15));
     // Unknown event types come through, for the stores to skip.
     expect(events[events.length - 1].type).toBe("future.event");
     expect(Number.isNaN(parseDate(items[0].createdAt))).toBe(false);
@@ -92,10 +97,24 @@ describe("fixtures", () => {
 
   it("index events", () => {
     const events: Event[] = load("notification_events_index.json").params.events;
-    expect(events.map((e) => e.type)).toEqual(["project.upserted", "session.upserted", "project.removed"]);
+    expect(events.map((e) => e.type)).toEqual(["project.upserted", "session.upserted", "project.removed", "limits.upserted"]);
     expect(events[0].project?.isGitRepo).toBe(true);
     expect(events[1].session?.draft?.text).toBe("Then update the changelog");
     expect(events[2].id).toBe("p0");
+    // An agent's usage limits, one per harness.
+    const limits = events[3].limits!;
+    expect(events[3].seq).toBe(4);
+    expect(limits.harness).toBe("claude");
+    expect(limits.windows).toHaveLength(2);
+    expect(limits.windows.map((w) => [w.id, w.label, w.usedPercent, w.windowMinutes])).toEqual([
+      ["five_hour", "5h", 100, 300],
+      ["weekly", "week", 61, 10080],
+    ]);
+    expect(limits.limited).toBe(true);
+    expect(parseDate(limits.resetsAt)).toBe(Date.UTC(2026, 9, 9, 15));
+    expect(limits.plan).toBe("Max");
+    expect(limits.overage).toBe(true);
+    expect(parseDate(limits.updatedAt)).toBe(Date.UTC(2026, 9, 9, 12, 0, 5));
   });
 
   it("responses", () => {
@@ -263,9 +282,9 @@ describe("fixtures", () => {
   });
 
   it("notifications", () => {
-    expect(load("notification_synchronized.json").params).toEqual({ stream: "session:s1", seq: 14, reset: true });
+    expect(load("notification_synchronized.json").params).toEqual({ stream: "session:s1", seq: 15, reset: true });
     expect(load("notification_resync.json").params.stream).toBe("session:s1");
-    expect(load("response_subscribe.json").result).toEqual({ stream: "session:s1", seq: 14 });
+    expect(load("response_subscribe.json").result).toEqual({ stream: "session:s1", seq: 15 });
   });
 });
 

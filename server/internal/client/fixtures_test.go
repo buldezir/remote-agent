@@ -55,7 +55,7 @@ func TestFixtures(t *testing.T) {
 	}
 
 	sub := fixture[resultFrame[subscribeResult]](t, "response_subscribe.json").Result
-	if sub.Stream != "session:s1" || sub.Seq != 14 {
+	if sub.Stream != "session:s1" || sub.Seq != 15 {
 		t.Errorf("subscribe: %+v", sub)
 	}
 
@@ -130,7 +130,7 @@ func TestFixtures(t *testing.T) {
 	}
 
 	synced := fixture[notificationFrame[synchronizedParams]](t, "notification_synchronized.json")
-	if synced.Method != "synchronized" || synced.Params.Seq != 14 || !synced.Params.Reset {
+	if synced.Method != "synchronized" || synced.Params.Seq != 15 || !synced.Params.Reset {
 		t.Errorf("synchronized: %+v", synced)
 	}
 	if r := fixture[notificationFrame[resyncParams]](t, "notification_resync.json"); r.Method != "resync" || r.Params.Stream != "session:s1" {
@@ -151,8 +151,27 @@ func TestFixtures(t *testing.T) {
 	if len(questions) != 2 || questions[0].OptionsOnly || !questions[1].OptionsOnly {
 		t.Errorf("questions: %+v", questions)
 	}
+	var limit *model.UsageWindow
+	for _, e := range ev.Events {
+		if it := e.Item; it != nil && it.Kind == model.ItemError && it.Limit != nil {
+			limit = it.Limit
+		}
+	}
+	if limit == nil || limit.ID != "five_hour" || limit.Label != "5h" || limit.UsedPercent != 100 || limit.ResetsAt == nil || limit.WindowMinutes != 300 {
+		t.Errorf("error's limit: %+v", limit)
+	}
 	idx := fixture[notificationFrame[eventsParams]](t, "notification_events_index.json").Params
 	if idx.Stream != "index" || len(idx.Events) == 0 {
 		t.Errorf("index events: %+v", idx)
+	}
+	// The agents' usage limits, which ServerConnection keeps by harness.
+	c := NewServerConnection(nil, nil, "", nil)
+	for i := range idx.Events {
+		c.upsertIndex(&idx.Events[i], nil)
+	}
+	l := c.Limits["claude"]
+	if l == nil || len(l.Windows) != 2 || l.Windows[1].ID != "weekly" || l.Windows[1].UsedPercent != 61 || !l.Limited || l.ResetsAt == nil ||
+		l.Plan != "Max" || !l.Overage || l.UpdatedAt.IsZero() {
+		t.Errorf("limits: %+v", l)
 	}
 }

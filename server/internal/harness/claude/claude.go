@@ -398,6 +398,9 @@ type frame struct {
 		PostTokens int64 `json:"post_tokens"`
 	} `json:"compact_metadata"`
 
+	// rate_limit_event
+	RateLimitInfo *rateLimitInfo `json:"rate_limit_info"`
+
 	// result
 	IsError      bool    `json:"is_error"`
 	Result       string  `json:"result"`

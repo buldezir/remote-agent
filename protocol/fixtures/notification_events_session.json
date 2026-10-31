@@ -418,6 +418,30 @@
       {
         "stream": "session:s1",
         "seq": 14,
+        "type": "item.upserted",
+        "item": {
+          "id": "i12",
+          "sessionId": "s1",
+          "turnId": "t1",
+          "order": 12,
+          "kind": "error",
+          "status": "completed",
+          "text": "Claude Code's 5-hour limit is reached; it resets at 15:00 UTC.",
+          "limit": {
+            "id": "five_hour",
+            "label": "5h",
+            "usedPercent": 100,
+            "resetsAt": "2026-10-09T15:00:00Z",
+            "windowMinutes": 300
+          },
+          "createdAt": "2026-10-09T12:00:00Z",
+          "updatedAt": "2026-10-09T12:00:05Z"
+        },
+        "ts": "2026-10-09T12:00:05Z"
+      },
+      {
+        "stream": "session:s1",
+        "seq": 15,
         "type": "future.event",
         "id": "x",
         "ts": "2026-10-09T12:00:05Z"

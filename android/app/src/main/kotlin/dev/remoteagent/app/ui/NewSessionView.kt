@@ -52,6 +52,7 @@ import dev.remoteagent.core.protocol.FSListing
 import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.Project
 import dev.remoteagent.core.protocol.Session
+import dev.remoteagent.core.protocol.UsageLimits
 import dev.remoteagent.core.protocol.Workspace
 import dev.remoteagent.core.store.NewSession
 import dev.remoteagent.core.store.ServerConnection
@@ -77,6 +78,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     val projects by connection.projects.collectAsStateWithLifecycle()
     val harnesses by connection.harnesses.collectAsStateWithLifecycle()
     val info by connection.info.collectAsStateWithLifecycle()
+    val limits by connection.limits.collectAsStateWithLifecycle()
     var projectID by rememberSaveable { mutableStateOf(projectId ?: "") }
     var harnessID by rememberSaveable { mutableStateOf("") }
     var model by rememberSaveable { mutableStateOf("") }
@@ -263,7 +265,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                     }
                 }
 
-                AgentSection(harnesses, harnessID) { harnessID = it }
+                AgentSection(harnesses, harnessID, limits) { harnessID = it }
 
                 if (harness != null) {
                     OptionsSection(
@@ -422,9 +424,13 @@ internal data class AgentChoices(val model: String = "", val customModel: String
     }
 }
 
-/** The agents on the server, to choose one; the ones not installed or signed in can't be. */
+/**
+ * The agents on the server, to choose one; the ones not installed or signed
+ * in can't be. Each shows its plan's usage limits, from [limits], when it
+ * reports them, so that they can be compared before choosing.
+ */
 @Composable
-internal fun AgentSection(harnesses: List<HarnessInfo>?, selected: String, onSelect: (String) -> Unit) {
+internal fun AgentSection(harnesses: List<HarnessInfo>?, selected: String, limits: Map<String, UsageLimits>, onSelect: (String) -> Unit) {
     FormSection("Agent") {
         when {
             harnesses == null -> Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -437,7 +443,7 @@ internal fun AgentSection(harnesses: List<HarnessInfo>?, selected: String, onSel
             )
             else -> harnesses.forEachIndexed { i, h ->
                 if (i > 0) FormDivider()
-                HarnessChoiceRow(h, h.id == selected) { onSelect(h.id) }
+                HarnessChoiceRow(h, h.id == selected, limits[h.id]) { onSelect(h.id) }
             }
         }
     }
@@ -528,10 +534,13 @@ private fun FormNote(text: String) {
 }
 
 @Composable
-private fun HarnessChoiceRow(harness: HarnessInfo, selected: Boolean, onClick: () -> Unit) {
+private fun HarnessChoiceRow(harness: HarnessInfo, selected: Boolean, limits: UsageLimits?, onClick: () -> Unit) {
+    // The agent's usage, beneath its name but outside the row's tap, which
+    // would take the gauge's first tap after choosing.
+    val gauge = limits?.takeIf { it.hasGauge() }
     Row(
         Modifier.fillMaxWidth().clickable(enabled = harness.usable, onClick = onClick).alpha(if (harness.usable) 1f else 0.5f)
-            .padding(horizontal = 12.dp, vertical = 10.dp).testTag("harness-${harness.id}"),
+            .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = if (gauge != null) 0.dp else 10.dp).testTag("harness-${harness.id}"),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -545,6 +554,7 @@ private fun HarnessChoiceRow(harness: HarnessInfo, selected: Boolean, onClick: (
         }
         if (selected) Icon(painterResource(Icons.check), "Selected", tint = palette.accent)
     }
+    gauge?.let { UsageGauge(it, Modifier.padding(start = 52.dp, end = 12.dp, bottom = 8.dp)) }
 }
 
 /** Picks a folder on the server to add as a project, starting from its roots (`fs.list`). */

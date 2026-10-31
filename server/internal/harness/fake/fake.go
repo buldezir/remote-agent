@@ -21,6 +21,12 @@
 //	"enter worktree [name]" move into a worktree of its own, as Claude's
 //	           EnterWorktree does: .claude/worktrees/<name> (fake by default),
 //	           on the branch worktree-<name>; "exit worktree" moves back
+//	"limit"    fail the turn on its plan's 5-hour limit, which the next turn
+//	           starts afresh
+//	"limits <n>" set the 5-hour limit's use to n%
+//
+// Its plan's usage limits are an account's, which every turn reports, using
+// a little more of them (limits.go).
 //
 // A prompt steered into a turn (Steer) cuts the reply short at its next
 // word, as an agent reads one after its tool call, and the turn goes on to
@@ -200,6 +206,16 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 	key := func(s string) string { return fmt.Sprintf("t%d-%s", n, s) }
 
 	r.emit(harness.ItemEvent{Item: model.Item{ID: key("think"), Kind: model.ItemReasoning, Status: model.ItemCompleted, Text: "Considering: " + text}})
+
+	limits, hit := useLimits(text)
+	r.emit(harness.UsageLimits{Limits: limits})
+	if hit != nil {
+		r.mu.Lock()
+		r.cancel, r.steers, r.steerable = nil, nil, false
+		r.mu.Unlock()
+		r.emit(harness.TurnEnded{Status: model.TurnFailed, Error: "You've hit your 5-hour limit", Limit: hit})
+		return
+	}
 
 	if _, after, ok := strings.Cut(text, "enter worktree"); ok {
 		name := "fake"

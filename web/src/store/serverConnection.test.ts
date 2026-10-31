@@ -4,8 +4,10 @@ import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RPCClient, RPCError } from "../protocol/rpc";
-import type { ServerTask } from "../protocol/models";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { RPCClient, RPCError, type ServerMessage } from "../protocol/rpc";
+import type { Event, ServerTask, UsageLimits } from "../protocol/models";
 import { ServerConnection } from "./serverConnection";
 import type { SavedServer } from "./serverStore";
 import { ServerTaskProgress } from "./serverTask";
@@ -664,6 +666,56 @@ describe("ServerConnection's server management", () => {
       c.stop();
       await server.stop();
     }
+  });
+});
+
+describe("ServerConnection.limits", () => {
+  const indexEvents: Event[] = JSON.parse(
+    readFileSync(join(import.meta.dirname, "../../../protocol/fixtures/notification_events_index.json"), "utf8"),
+  ).params.events;
+  const limits = (harness: string, used: number): UsageLimits => ({
+    harness,
+    windows: [{ id: "five_hour", label: "5h", usedPercent: used, windowMinutes: 300 }],
+    updatedAt: "2026-10-09T12:01:00Z",
+  });
+  const upserted = (seq: number, l: UsageLimits): Event => ({ stream: "index", seq, type: "limits.upserted", limits: l });
+
+  it("keeps the agents' limits from the index, by harness", () => {
+    const c = new ServerConnection(saved("http://127.0.0.1:1"), "", () => {});
+    const handle = (m: ServerMessage) => (c as unknown as { handle(m: ServerMessage): void }).handle(m);
+    let changes = 0;
+    c.watch(() => changes++);
+
+    // The replay brings the last known, applied once synchronized.
+    handle({ type: "events", stream: "index", events: indexEvents });
+    expect(c.limits.size).toBe(0);
+    handle({ type: "synchronized", stream: "index", seq: 4, reset: true });
+    expect([...c.limits.keys()]).toEqual(["claude"]);
+    expect(c.limits.get("claude")).toMatchObject({ limited: true, plan: "Max", overage: true });
+    expect(c.limits.get("claude")?.windows.map((w) => w.usedPercent)).toEqual([100, 61]);
+    expect(changes).toBe(1);
+
+    // Live: one per harness, the latest replacing what was there; unknown
+    // types are skipped without losing the place.
+    handle({ type: "events", stream: "index", events: [upserted(5, limits("codex", 12))] });
+    handle({ type: "events", stream: "index", events: [{ stream: "index", seq: 6, type: "future.event" }, upserted(7, limits("claude", 3))] });
+    expect(changes).toBe(3);
+    expect([...c.limits.keys()].sort()).toEqual(["claude", "codex"]);
+    expect(c.limits.get("claude")?.limited).toBeUndefined();
+    expect(c.limits.get("claude")?.windows[0].usedPercent).toBe(3);
+    expect(c.limits.get("codex")?.windows[0].usedPercent).toBe(12);
+
+    // A reset drops them with the projects and sessions; the replay brings
+    // back what the server still has.
+    handle({ type: "closed" });
+    handle({ type: "events", stream: "index", events: [upserted(2, limits("codex", 40))] });
+    handle({ type: "synchronized", stream: "index", seq: 2, reset: true });
+    expect([...c.limits.keys()]).toEqual(["codex"]);
+    expect(c.limits.get("codex")?.windows[0].usedPercent).toBe(40);
+    expect(c.projects.size).toBe(0);
+    handle({ type: "closed" });
+    handle({ type: "synchronized", stream: "index", seq: 0, reset: true });
+    expect(c.limits.size).toBe(0);
   });
 });
 

@@ -242,8 +242,45 @@ export interface Item {
   /** User messages: the attached images. Tool calls: images in the output.
    *  Agent messages: the images the text links to. */
   images?: ImageRef[];
+  /** Errors: the turn failed because the agent hit this usage limit. */
+  limit?: UsageWindow;
   createdAt: string;
   updatedAt: string;
+}
+
+/** How much of its plan's usage an agent's account has used, in each window
+ *  its provider meters (Claude Code's and Codex's 5 hours and week), as the
+ *  agent last said. The account's, not a session's: the index keeps the
+ *  latest for each agent (`limits.upserted`). */
+export interface UsageLimits {
+  /** The agent's id, as in `harness.list`. */
+  harness: string;
+  /** In the agent's order: the 5 hours first, then the week. */
+  windows: UsageWindow[];
+  /** A limit was hit: the agent refuses turns until `resetsAt`. */
+  limited?: boolean;
+  /** When the limit that was hit resets; absent: unknown. */
+  resetsAt?: string;
+  /** The account's plan, such as "Plus" or "Max". */
+  plan?: string;
+  /** The account goes on past its limits on extra usage. */
+  overage?: boolean;
+  /** When the agent last said, within a minute. */
+  updatedAt: string;
+}
+
+/** One metered window of a plan, such as its 5 hours. */
+export interface UsageWindow {
+  /** "five_hour", "weekly", "weekly_opus", … */
+  id: string;
+  /** Short, for a gauge: "5h", "week", "Opus week". */
+  label: string;
+  /** 0–100, an integer; 100: spent. */
+  usedPercent: number;
+  /** When the window starts afresh. */
+  resetsAt?: string;
+  /** Its length in minutes: 300, 10080; absent: unknown. */
+  windowMinutes?: number;
 }
 
 export interface Event {
@@ -255,6 +292,8 @@ export interface Event {
   session?: Session;
   turn?: Turn;
   item?: Item;
+  /** `limits.upserted`: an agent's usage limits, in the index. */
+  limits?: UsageLimits;
   id?: string;
 }
 

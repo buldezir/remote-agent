@@ -83,6 +83,9 @@ type runtime struct {
 	ctxModel  string
 	ctxUsed   int64
 	ctxWindow int64
+
+	// The limit the turn's requests hit, from its last rate_limit_event.
+	limitHit *model.UsageWindow
 }
 
 func (r *runtime) Commands(context.Context) ([]model.Command, error) {
@@ -142,6 +145,7 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	r.interrupting = false
 	r.forkPoint = ""
 	r.steers, r.carried = nil, nil
+	r.limitHit = nil
 	r.mu.Unlock()
 	if err = r.write(content); err != nil {
 		r.mu.Lock()
@@ -397,6 +401,8 @@ func (r *runtime) onFrame(f frame, raw []byte) {
 		r.onUser(f)
 	case "result":
 		r.onResult(f)
+	case "rate_limit_event":
+		r.onRateLimit(f.RateLimitInfo)
 	case "control_request":
 		r.onControlRequest(f)
 	case "control_cancel_request":
@@ -892,9 +898,19 @@ func (r *runtime) onResult(f frame) {
 			CostUSD: f.TotalCostUSD,
 		}
 	}
+	r.mu.Lock()
+	limitHit := r.limitHit
+	if !goesOn {
+		r.limitHit = nil
+	}
+	r.mu.Unlock()
 	switch {
 	case interrupted:
 		ev.Status = model.TurnInterrupted
+	case limitHit != nil:
+		// Refused for the limit, whatever the result says.
+		ev.Status, ev.Limit = model.TurnFailed, limitHit
+		ev.Error = cmp.Or(f.Result, strings.Join(f.Errors, "; "), "usage limit reached")
 	case f.IsError || (f.Subtype != "" && f.Subtype != "success"):
 		ev.Status = model.TurnFailed
 		ev.Error = f.Result

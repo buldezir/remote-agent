@@ -1031,6 +1031,27 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   gap: 2px;
 }
 .form-row.stack { flex-direction: column; align-items: flex-start; gap: 2px; }
+/* An agent's usage limits: the gauge, coloured by the nearest limit, and
+   the details a click shows under it. */
+.limits {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.limits-gauge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.limits-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
 .task-row { text-align: left; }
 
 /* Server tasks: an update or a sign-in as it goes */
@@ -1355,6 +1376,14 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   overflow-wrap: anywhere;
 }
 .item-error svg { margin-top: 2px; }
+/* A turn that hit a usage limit: red until the limit resets. */
+.limit-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
 .turn-footer {
   font-size: 0.75em;
   color: var(--subtext);

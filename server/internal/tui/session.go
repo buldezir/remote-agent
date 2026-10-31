@@ -358,6 +358,9 @@ func (v *sessionView) itemKey(m *Model, it *model.Item, width int) string {
 	if it.Status == model.ItemInProgress || it.Status == model.ItemQueued {
 		fmt.Fprintf(h, "|f%d", m.frame)
 	}
+	if it.Limit != nil { // "resets in" counts down
+		fmt.Fprintf(h, "|m%d", time.Now().Unix()/60)
+	}
 	return fmt.Sprint(h.Sum64())
 }
 

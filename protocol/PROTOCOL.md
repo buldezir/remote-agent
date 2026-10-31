@@ -89,7 +89,7 @@ TerminalMessage {
 | Tool | Arguments | Does |
 |---|---|---|
 | `list_projects` | — | the projects |
-| `list_agents` | — | the installed, signed-in agents, with their models, efforts and modes, and `default`: the server's `defaultAgent` (below), when it's one of them |
+| `list_agents` | — | the installed, signed-in agents, with their models, efforts and modes, their `limits` where they report them (`UsageLimits`, below), and `default`: the server's `defaultAgent` (below), when it's one of them |
 | `list_sessions` | `project?`, `archived?` | the sessions, newest first |
 | `start_session` | `project`, `prompt`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `title?` | `session.create`; a folder under `roots` becomes a project |
 | `send_prompt` | `session`, `prompt`, `steer?` | `session.prompt` (`steer`: into the running turn, as below); `list_agents` says `steers` for agents that take it |
@@ -125,7 +125,7 @@ If the client retries with the same `commandId`, it gets the original result bac
 ## Streams and sync
 
 State is delivered as **streams of change events**. There are two kinds:
-- `index`: projects, plus a summary of every session (status, title, timestamps).
+- `index`: projects, plus a summary of every session (status, title, timestamps), and the agents' usage limits.
 - `session:<sessionId>`: the session itself, its turns and its transcript items.
 
 Each stream has a per-stream, gap-free `seq`. The server keeps only the **latest event per entity**, so replaying a stream from `seq` 0 is a full snapshot.
@@ -153,7 +153,7 @@ Subscribing works like this:
  "item": { …Item… }}
 ```
 
-Each event carries exactly one of `project`, `session`, `turn` or `item`, or `id` for the `*.removed` types.
+Each event carries exactly one of `project`, `session`, `turn`, `item` or `limits`, or `id` for the `*.removed` types.
 
 | `type` | payload | streams |
 |---|---|---|
@@ -163,6 +163,7 @@ Each event carries exactly one of `project`, `session`, `turn` or `item`, or `id
 | `session.removed` | `id` | index and `session:<id>` (the session was deleted) |
 | `turn.upserted` | `turn` | `session:<id>` |
 | `item.upserted` | `item` | `session:<id>` |
+| `limits.upserted` | `limits` | index (an agent's usage limits, one per harness; see "Usage limits") |
 
 Clients must ignore unknown event types and unknown fields.
 
@@ -218,6 +219,7 @@ Item {
   plan?: { entries?: [{content, status: "pending"|"in_progress"|"completed"}], text? },
   images?: [ImageRef],                     // user_message: attached to the prompt; tool_call: in the tool's output (a screenshot, an image file read);
                                            // assistant_message: the rad-image:<id> links in its text, in order
+  limit?: UsageWindow,                     // error: the turn failed because the agent hit this usage limit (see "Usage limits")
   createdAt, updatedAt
 }
 
@@ -229,7 +231,28 @@ Approval {
   questions?: [{ question, header?, multiSelect?, options: [{label, description?}], optionsOnly? }],
   decision?: { optionId, message?, answers?, at }
 }
+
+UsageLimits {
+  harness,                           // the agent's id, as in harness.list
+  windows: [UsageWindow],            // in the agent's order: the 5 hours first, then the week
+  limited?,                          // a limit was hit: the agent refuses turns until resetsAt
+  resetsAt?,                         // when that limit resets; absent: unknown
+  plan?,                             // the account's plan, such as "Plus" or "Max"
+  overage?,                          // the account goes on past its limits on extra usage
+  updatedAt                          // when the agent last said, within a minute
+}
+UsageWindow {
+  id,                                // "five_hour" | "weekly" | "weekly_opus" | "weekly_sonnet" | "daily" | …
+  label,                             // short, for a gauge: "5h", "week", "Opus week"
+  usedPercent,                       // 0–100, an integer; 100: spent
+  resetsAt?,                         // when the window starts afresh
+  windowMinutes?                     // its length: 300, 10080
+}
 ```
+
+**Usage limits.** Claude Code's and Codex's plans meter use in windows, such as 5 hours and a week, per account rather than per session. rad keeps the latest each agent reported as a `limits.upserted` event in the index, one per harness, so a client gets them with the index's replay, including the last known after rad restarts, with their `updatedAt`, and live as they change. Claude Code reports them with each request of a turn (stream-json's `rate_limit_event`); Codex at the end of each turn (`account/rateLimits/updated`), and rad asks it (`account/rateLimits/read`, an app-server without a thread) when rad starts, when a client connects, and every 10 minutes while one is connected, if the last it heard is older than that or names a reset that has passed. Pi and ACP agents report none, so they have no event. An unchanged report is written again at most once a minute.
+- **A limit hit.** A turn the agent refuses for a limit fails, and its `error` item says which and when it resets in the server's time zone ("Claude Code's 5-hour limit is reached; it resets at 15:00 CET."), with that window as `limit`. The agent's `limits` then say `limited`, until it reports otherwise.
+- **Clients** show a gauge per agent, such as "5h 34% · week 61%", in Server Settings' agents and beside the agent in the new session form, amber from 80% and red once spent or `limited`, with each window's reset, the plan and the age on hover or a tap; and an error with `limit` as a notice ("5h limit reached · resets in 2h 14m"). A window whose `resetsAt` has passed counts as 0% until the agent says again, and `limited` lapses at `resetsAt`. The wording and the rounding are shared: `protocol/vectors/usage_limits.json` holds the cases every client's tests check.
 
 **Streaming text.** Assistant text and reasoning stream as repeated `item.upserted` events for the same `id`, each carrying the **full** text so far. Updates are coalesced to at most 10 per second.
 

@@ -1,0 +1,6 @@
+{"dir": "out", "frame": {"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "remote-agent", "title": "Remote Agent", "version": "0.1"}}}}
+{"dir": "in", "frame": {"id": 1, "result": {"userAgent": "remote-agent/0.164.0 (Mac OS 27.2.0; arm64) unknown (remote-agent; 0.1)", "codexHome": "/Users/user/.codex", "platformFamily": "unix", "platformOs": "macos"}}}
+{"dir": "out", "frame": {"method": "initialized"}}
+{"dir": "in", "frame": {"method": "account/updated", "params": {"authMode": "chatgpt", "planType": "plus"}, "emittedAtMs": 1793486336181}}
+{"dir": "out", "frame": {"id": 2, "method": "account/rateLimits/read", "params": {"excludeResetCreditDetails": true}}}
+{"dir": "in", "frame": {"id": 2, "result": {"ordinaryUsageAllowed": true, "rateLimits": {"limitId": "codex", "limitName": null, "normalModelSlug": null, "primary": {"usedPercent": 0, "windowDurationMins": 300, "resetsAt": 1793504336}, "secondary": {"usedPercent": 2, "windowDurationMins": 10080, "resetsAt": 1793785422}, "credits": {"hasCredits": false, "unlimited": false, "balance": "0"}, "individualLimit": null, "spendControlReached": false, "planType": "plus", "rateLimitReachedType": null}, "rateLimitsByLimitId": null, "rateLimitResetCredits": {"availableCount": 2, "credits": null}, "accountId": "00000000-0000-4000-8000-000000000000", "rateLimitUpsell": null}}}

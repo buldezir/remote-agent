@@ -81,6 +81,7 @@ object Icons {
     @DrawableRes val search = R.drawable.sym_search // magnifyingglass
     @DrawableRes val settings = R.drawable.sym_settings // gear
     @DrawableRes val share = R.drawable.sym_share // square.and.arrow.up
+    @DrawableRes val usage = R.drawable.sym_speed // gauge.with.dots.needle.33percent
     @DrawableRes val stop = R.drawable.sym_stop_fill // stop.fill
     @DrawableRes val stopped = R.drawable.sym_stop_circle // stop.circle
     @DrawableRes val skipped = R.drawable.sym_do_not_disturb_on // minus.circle

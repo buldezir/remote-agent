@@ -120,7 +120,8 @@ func (in Input) Command(name string) (args string, ok bool) {
 
 // Event is emitted by a Runtime. Implementations: ItemEvent, ApprovalEvent,
 // ApprovalCancelled, TurnStarted, TurnEnded, NativeID, ModeChanged,
-// ContextUsage, ModelInfo, BackgroundTasks, Exited.
+// ContextUsage, ModelInfo, BackgroundTasks, WorkdirChanged, UsageLimits,
+// Exited.
 type Event interface{ isEvent() }
 
 // ItemEvent carries the full current state of a transcript item. Item.ID and
@@ -150,6 +151,8 @@ type TurnEnded struct {
 	// ForkPoint is where the conversation stands after the turn, in the
 	// agent's own terms, for OpenOptions.ForkAt; empty where it can't fork.
 	ForkPoint string
+	// Limit is the usage limit a failed turn hit, if that's why it failed.
+	Limit *model.UsageWindow
 }
 
 // NativeID reports the harness's own session/thread id once known.
@@ -173,6 +176,10 @@ type BackgroundTasks struct{ Tasks []model.BackgroundTask }
 // it made itself, or back to.
 type WorkdirChanged struct{ Dir string }
 
+// UsageLimits reports how much of its plan's usage limits the agent's
+// account has used, in full each time. Harness is left to the orchestrator.
+type UsageLimits struct{ Limits model.UsageLimits }
+
 // Exited is the last event; the runtime is unusable afterwards.
 type Exited struct{ Err error }
 
@@ -187,6 +194,7 @@ func (ContextUsage) isEvent()      {}
 func (ModelInfo) isEvent()         {}
 func (BackgroundTasks) isEvent()   {}
 func (WorkdirChanged) isEvent()    {}
+func (UsageLimits) isEvent()       {}
 func (Exited) isEvent()            {}
 
 type Response struct {
@@ -220,6 +228,14 @@ type Steerer interface {
 
 // ErrNoTurn is Steer's answer when the agent has no turn running.
 var ErrNoTurn = errors.New("the agent has no turn running")
+
+// LimitsReader is implemented by harnesses, and runtimes, whose agent says
+// whenever asked how much of its plan's usage limits the account has used
+// (Codex's account/rateLimits/read), without a session of its own. Others
+// report them as they go (UsageLimits), or not at all.
+type LimitsReader interface {
+	ReadLimits(ctx context.Context) (model.UsageLimits, error)
+}
 
 // CommandDiscovery advertises listing support before an agent is opened.
 type CommandDiscovery interface {
@@ -407,6 +423,20 @@ func (r *Registry) Info(ctx context.Context, h Harness, refresh bool) model.Harn
 	r.mu.Unlock()
 	return r.withLogin(info)
 }
+
+// Cached is the agent's last probe, if there was one, without probing.
+func (r *Registry) Cached(id string) (model.HarnessInfo, bool) {
+	r.mu.Lock()
+	c, ok := r.info[id]
+	r.mu.Unlock()
+	if !ok {
+		return model.HarnessInfo{}, false
+	}
+	return r.withLogin(c.info), true
+}
+
+// All lists the configured harnesses.
+func (r *Registry) All() []Harness { return slices.Clone(r.list) }
 
 // withLogin marks an agent whose turn failed for want of a login.
 func (r *Registry) withLogin(info model.HarnessInfo) model.HarnessInfo {

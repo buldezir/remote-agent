@@ -1187,3 +1187,79 @@ func TestRenameOverWebSocket(t *testing.T) {
 		t.Errorf("rename an unknown session: %+v", e)
 	}
 }
+
+func TestUsageLimitsOverWebSocket(t *testing.T) {
+	s := startServer(t)
+	c := connect(t, s)
+	dir := filepath.Join(s.root, "limits-project")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var project model.Project
+	c.mustCall("project.add", map[string]any{"path": dir}, &project)
+	cursor := c.subscribe(model.IndexStream, 0).sync.Seq
+
+	// A turn reports the fake's limits, which come to every client in the
+	// index, and fails on the 5-hour limit with which one and when it resets.
+	var sess model.Session
+	c.mustCall("session.create", map[string]any{"commandId": "create-1", "projectId": project.ID, "harness": "fake",
+		"workspace": map[string]any{"kind": "root"}, "prompt": "limit"}, &sess)
+	var limits *model.UsageLimits
+	for limits == nil {
+		f := c.note()
+		if f.Method != "events" || streamOf(f) != model.IndexStream {
+			continue
+		}
+		var ev eventsParams
+		json.Unmarshal(f.Params, &ev)
+		for _, e := range ev.Events {
+			if e.Seq != cursor+1 {
+				t.Fatalf("event %d after %d", e.Seq, cursor)
+			}
+			cursor = e.Seq
+			if e.Type == model.EvLimitsUpserted {
+				limits = e.Limits
+			}
+		}
+	}
+	if limits.Harness != "fake" || !limits.Limited || len(limits.Windows) != 2 || limits.Windows[0].UsedPercent != 100 {
+		t.Fatalf("limits = %+v", limits)
+	}
+	// A client that subscribes afresh gets them in the replay.
+	var replayed []model.Event
+	for _, e := range c.subscribe(model.IndexStream, 0).replay {
+		if e.Type == model.EvLimitsUpserted {
+			replayed = append(replayed, e)
+		}
+	}
+	if len(replayed) != 1 || replayed[0].Limits.Harness != "fake" {
+		t.Errorf("replay has %+v", replayed)
+	}
+
+	// The turn's error says which limit, with the window for clients.
+	c.subscribe(model.SessionStream(sess.ID), 0)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		items, _ := s.st.Items(context.Background(), sess.ID)
+		if i := slices.IndexFunc(items, func(it *model.Item) bool { return it.Kind == model.ItemError }); i >= 0 {
+			if it := items[i]; it.Limit == nil || it.Limit.ID != "five_hour" || !strings.Contains(it.Text, "5-hour limit is reached") {
+				t.Fatalf("error item = %+v", it)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no error item")
+		}
+	}
+
+	// Agents see them in list_agents.
+	m := s.mcp(t, s.token(t))
+	var agents struct {
+		Agents []struct {
+			ID     string             `json:"id"`
+			Limits *model.UsageLimits `json:"limits"`
+		} `json:"agents"`
+	}
+	if m.ok("list_agents", nil, &agents); len(agents.Agents) != 1 || agents.Agents[0].Limits == nil || !agents.Agents[0].Limits.Limited {
+		t.Errorf("list_agents = %+v", agents)
+	}
+}

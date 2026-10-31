@@ -50,6 +50,7 @@ import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ServerSettings
 import dev.remoteagent.core.protocol.ServerTask
 import dev.remoteagent.core.protocol.UpdateInfo
+import dev.remoteagent.core.protocol.UsageLimits
 import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.ServerTaskProgress
 import kotlinx.coroutines.CancellationException
@@ -69,6 +70,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
     val server by connection.server.collectAsStateWithLifecycle()
     val info by connection.info.collectAsStateWithLifecycle()
     val harnesses by connection.harnesses.collectAsStateWithLifecycle()
+    val limits by connection.limits.collectAsStateWithLifecycle()
 
     var update by remember { mutableStateOf<UpdateInfo?>(null) }
     var checking by remember { mutableStateOf(false) }
@@ -262,6 +264,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
                             if (i > 0) FormDivider()
                             AgentRow(
                                 h,
+                                limits = limits[h.id],
                                 task = running.firstOrNull { it.harness == h.id && it.kind != ServerTask.UPDATE_SERVER },
                                 starting = starting == h.id,
                                 onUpdate = { start(h.id, { agentsError = it }) { connection.updateHarness(h.id) } },
@@ -436,12 +439,14 @@ private fun AgentSpecRows(
 }
 
 /**
- * An agent: its version, whether it is signed in, and its actions. While a
- * task of its runs, the row says so, and a tap shows the task.
+ * An agent: its version, whether it is signed in, its plan's usage limits
+ * when it reports them, and its actions. While a task of its runs, the row
+ * says so, and a tap shows the task.
  */
 @Composable
 private fun AgentRow(
     h: HarnessInfo,
+    limits: UsageLimits?,
     task: ServerTaskProgress?,
     starting: Boolean,
     onUpdate: () -> Unit,
@@ -449,9 +454,10 @@ private fun AgentRow(
     onOpen: (ServerTaskProgress) -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
+    val gauge = limits?.takeIf { it.hasGauge() }
     Row(
         Modifier.fillMaxWidth().then(if (task != null) Modifier.clickable { onOpen(task) } else Modifier)
-            .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp).testTag("agent-${h.id}"),
+            .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = if (gauge != null) 0.dp else 6.dp).testTag("agent-${h.id}"),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -487,6 +493,9 @@ private fun AgentRow(
             }
         }
     }
+    // Beneath the name, outside the row's tap (a task's), which would take
+    // the gauge's first tap after it.
+    gauge?.let { UsageGauge(it, Modifier.padding(start = 52.dp, end = 12.dp, bottom = 10.dp)) }
 }
 
 @Composable

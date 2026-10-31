@@ -414,6 +414,13 @@ func (ss *serverSettings) view(m *Model, width, height int) string {
 			state = m.st.Yellow.Render(truncate(hint, inner/2))
 		}
 		line(m.st.Text.Render(h.Name)+" "+m.st.Faint.Render(h.Version), state)
+		// Its plan's usage limits, and their details while it's chosen.
+		if g := m.limitsGauge(h.ID); g != "" {
+			lines = append(lines, "    "+g)
+			if ss.row == row-1 {
+				lines = append(lines, m.limitsDetails(h.ID, "      ", inner)...)
+			}
+		}
 	}
 	if len(m.conn.Harnesses) == 0 {
 		lines = append(lines, "  "+m.st.Faint.Render("No agents are installed on this computer."))

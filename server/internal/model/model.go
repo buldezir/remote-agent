@@ -201,8 +201,10 @@ type Item struct {
 	Approval     *Approval  `json:"approval,omitempty"`
 	Plan         *Plan      `json:"plan,omitempty"`
 	Images       []ImageRef `json:"images,omitempty"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	UpdatedAt    time.Time  `json:"updatedAt"`
+	// Limit: an error's turn failed because the agent hit this usage limit.
+	Limit     *UsageWindow `json:"limit,omitempty"`
+	CreatedAt time.Time    `json:"createdAt"`
+	UpdatedAt time.Time    `json:"updatedAt"`
 }
 
 // ImageRef points to an image rad keeps; clients fetch the bytes with
@@ -315,6 +317,7 @@ const (
 	EvSessionRemoved  = "session.removed"
 	EvTurnUpserted    = "turn.upserted"
 	EvItemUpserted    = "item.upserted"
+	EvLimitsUpserted  = "limits.upserted"
 )
 
 // Streams.
@@ -325,15 +328,16 @@ func SessionStream(id string) string { return "session:" + id }
 // Event is one entry of a stream's change feed. The feed keeps only the latest
 // event per entity, so replaying a stream from seq 0 yields a full snapshot.
 type Event struct {
-	Stream  string    `json:"stream"`
-	Seq     int64     `json:"seq"`
-	Type    string    `json:"type"`
-	Project *Project  `json:"project,omitempty"`
-	Session *Session  `json:"session,omitempty"`
-	Turn    *Turn     `json:"turn,omitempty"`
-	Item    *Item     `json:"item,omitempty"`
-	ID      string    `json:"id,omitempty"` // entity id for *.removed
-	TS      time.Time `json:"ts"`
+	Stream  string       `json:"stream"`
+	Seq     int64        `json:"seq"`
+	Type    string       `json:"type"`
+	Project *Project     `json:"project,omitempty"`
+	Session *Session     `json:"session,omitempty"`
+	Turn    *Turn        `json:"turn,omitempty"`
+	Item    *Item        `json:"item,omitempty"`
+	Limits  *UsageLimits `json:"limits,omitempty"`
+	ID      string       `json:"id,omitempty"` // entity id for *.removed
+	TS      time.Time    `json:"ts"`
 }
 
 // EntityKey identifies the entity an event is about; the feed keeps one row per key.
@@ -347,6 +351,8 @@ func (e *Event) EntityKey() string {
 		return "turn:" + e.Turn.ID
 	case e.Item != nil:
 		return "item:" + e.Item.ID
+	case e.Limits != nil:
+		return "limits:" + e.Limits.Harness
 	case e.Type == EvProjectRemoved:
 		return "project:" + e.ID
 	case e.Type == EvSessionRemoved:
@@ -410,6 +416,31 @@ type HarnessInfo struct {
 	DefaultMode string      `json:"defaultMode,omitempty"`
 	Commands    []Command   `json:"commands,omitempty"` // slash commands the composer suggests besides the session's own
 	Caps        HarnessCaps `json:"caps"`
+}
+
+// UsageLimits is how much of its plan's usage an agent's account has used,
+// in each window its provider meters (Claude Code's and Codex's 5-hour and
+// weekly limits), as the agent last said. Limits are the account's, not a
+// session's: rad keeps the latest for each agent (limits.upserted).
+type UsageLimits struct {
+	Harness string        `json:"harness"`
+	Windows []UsageWindow `json:"windows"`
+	// Limited: a limit was hit, and the agent refuses turns until ResetsAt.
+	Limited  bool       `json:"limited,omitempty"`
+	ResetsAt *time.Time `json:"resetsAt,omitempty"` // when the limit that was hit resets; absent: unknown
+	Plan     string     `json:"plan,omitempty"`     // the account's plan, such as "Plus" or "Max"
+	Overage  bool       `json:"overage,omitempty"`  // the account goes on past its limits on extra usage
+	// UpdatedAt is when the agent last said, within a minute.
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// UsageWindow is one metered window of a plan, such as its 5 hours.
+type UsageWindow struct {
+	ID            string     `json:"id"`                      // five_hour, weekly, …
+	Label         string     `json:"label"`                   // short, for a gauge: "5h", "week"
+	UsedPercent   int        `json:"usedPercent"`             // 0–100
+	ResetsAt      *time.Time `json:"resetsAt,omitempty"`      // when the window starts afresh
+	WindowMinutes int        `json:"windowMinutes,omitempty"` // its length: 300, 10080; absent: unknown
 }
 
 // AgentSpec is an agent with a model and an effort: the system agent, or

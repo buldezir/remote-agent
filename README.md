@@ -18,6 +18,7 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac, an And
   - fork a session after any of its turns, with the same agent or another, in a worktree with the files as they were then
   - let agents start and drive sessions of their own, with other agents, through rad's MCP tools
   - update rad and the agents, and sign an agent in again, without going to the computer
+  - see how much of their plan's 5-hour and weekly limits Claude Code and Codex have used, and when they reset
   - get a notification on the Mac when a session needs you or finishes
   - see which sessions finished while you were away, marked unread until you open them
   - search what was said in every session on all your servers, and find text in the one you have open
@@ -281,7 +282,7 @@ ra
 
 - **New session:**
   1. Pick a project folder; you can browse anything under `roots` from the config.
-  2. Pick an agent, a model, an effort and a permission mode. The app remembers what you last started each agent with.
+  2. Pick an agent, a model, an effort and a permission mode. The app remembers what you last started each agent with. Beside Claude Code and Codex, a gauge shows how much of their plan's limits they've used (see [Usage limits](#managing-a-server-from-the-apps)).
   3. Optionally choose **Isolated git worktree**, which puts the agent on its own branch in `~/Library/Application Support/remote-agent/worktrees/…`.
   4. Write the first prompt, or leave it empty to open the session and write it there.
 - **Images:** the + beside the prompt attaches photos, image files or the clipboard's image. You can also drop images on the session. The app scales them to 2048 px and strips their metadata before uploading.
@@ -361,6 +362,9 @@ A server's menu has **Server Settings…**: in the sidebar, a server's ⋯ or ri
   - **Sign In** shows when an agent isn't signed in, and **Sign In Again** in its ⋯ menu otherwise. It runs the agent's sign-in on the computer (`claude auth login`, `codex login --device-auth`, `cursor-agent login`) without opening a browser there, and shows its sign-in page as a button: open it on your phone. Claude's page then gives you a code to paste back in the app; Codex shows a code to enter on its page; Cursor needs nothing more.
   - rad can't always tell that a login expired. When a turn fails because the agent isn't signed in, the agent shows as signed out until it signs in again or a turn of its works.
   - `update` and `login` in the config replace these commands, or add them for an agent without one (see [Configuration](#configuration)).
+- **Usage limits:** under Claude Code and Codex, how much of their plan's usage limits the account has used, such as *5h 34% · week 61%*: the 5-hour window and the week. It turns amber from 80% and red once a limit is reached. Hover over it, or tap it, for when each window resets, the plan, extra usage, and how old the figures are. The new session form shows the same gauge beside the agent you pick.
+  - Claude Code reports them with each request it makes, so they show once it has run a turn, and stay as they were between turns. rad asks Codex itself when it starts, when an app connects, and every 10 minutes while one is connected, besides what Codex reports at the end of each turn. rad keeps the last figures, so they show after a restart too, with their age. Pi and ACP agents don't report any.
+  - When an agent refuses a turn for its limit, the turn fails, and the session says which limit, and when it resets: *5h limit reached · resets in 2h 14m*.
 - **New Sessions:** the agent, model and effort that new sessions start with, on every device: the New Session form begins with them, and so do the sessions agents start with rad's MCP tools unless they choose their own. Pick another agent in the form and it begins with the model and effort you last used with it. With **Last Used**, each device begins with the agent it used last, and an agent's sessions with its own agent. The permission mode stays each device's own choice.
 - **System Agent:** the agent and model that name new sessions. From the first prompt, it gives the session a short title and its worktree a branch name such as `ra/fix-login-redirect`, a few seconds after the session starts with names taken from the prompt. A title or branch you chose is kept, and so is a name you give the session later with *Rename…*. It also writes the messages of the commits you make from the apps, from their diffs, and the titles and descriptions of their pull requests. Pick a small, fast model, such as Claude's Haiku. With **None**, a session's title is its prompt's first line, and a commit's message is the session's title.
   - The calls leave nothing with the agent: no session, no history, no tools. Claude Code runs `claude -p --no-session-persistence --safe-mode --tools ""`, Codex `codex exec --ephemeral` in a read-only sandbox, and Pi `pi --print --no-session --no-tools`, each in an empty folder that rad removes afterwards. ACP agents can't be the system agent, as ACP has no such call.
@@ -483,8 +487,10 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 - `logout`: fails the turn as an agent whose login expired does, so Server Settings shows Fake as signed out
 - `enter worktree [name]`: moves into a git worktree of its own, `.claude/worktrees/<name>` on the branch `worktree-<name>`, as Claude Code's EnterWorktree does, so the session's branch and changes follow it there; `exit worktree` moves back
 - `/compact`: marks the transcript with *Context compacted* and reports less context in use
+- `limit`: fails the turn on the plan's 5-hour limit, as Claude Code and Codex do when it's spent; the next turn starts the 5 hours afresh
+- `limits <n>`: sets the 5-hour limit's use to n%, such as `limits 85` to see the gauge turn amber
 
-It also says how many images came with a prompt, and a fork's first reply says which conversation it was forked from. In every folder it has two sessions of its own to continue, as if it ran them in a terminal: "Fix the login redirect", from two hours ago, and "Add a dark theme to the settings page", written to just now, so the list warns about it. The first reply in one you picked up says so. `rad debug run --image shot.png "…"` attaches one from the command line.
+Its plan's usage limits are shared by its sessions, as an account's are: rad reads them as it starts (5h 12%, week 34%), and each turn uses a little more. It also says how many images came with a prompt, and a fork's first reply says which conversation it was forked from. In every folder it has two sessions of its own to continue, as if it ran them in a terminal: "Fix the login redirect", from two hours ago, and "Add a dark theme to the settings page", written to just now, so the list warns about it. The first reply in one you picked up says so. `rad debug run --image shot.png "…"` attaches one from the command line.
 
 In Server Settings, Fake's **Update** prints a progress line and finishes in a second, and its **Sign In** shows a link and asks for a code: any code signs it in. As the system agent, it names a session "Named: " and the prompt's first words, writes "Change " and the files as a commit's message, and titles a pull request "Fake: " and its latest commit's subject.
 

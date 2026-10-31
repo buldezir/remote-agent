@@ -88,6 +88,36 @@
         "type": "project.removed",
         "id": "p0",
         "ts": "2026-10-09T12:00:05Z"
+      },
+      {
+        "stream": "index",
+        "seq": 4,
+        "type": "limits.upserted",
+        "limits": {
+          "harness": "claude",
+          "windows": [
+            {
+              "id": "five_hour",
+              "label": "5h",
+              "usedPercent": 100,
+              "resetsAt": "2026-10-09T15:00:00Z",
+              "windowMinutes": 300
+            },
+            {
+              "id": "weekly",
+              "label": "week",
+              "usedPercent": 61,
+              "resetsAt": "2026-10-13T12:00:00Z",
+              "windowMinutes": 10080
+            }
+          ],
+          "limited": true,
+          "resetsAt": "2026-10-09T15:00:00Z",
+          "plan": "Max",
+          "overage": true,
+          "updatedAt": "2026-10-09T12:00:05Z"
+        },
+        "ts": "2026-10-09T12:00:05Z"
       }
     ]
   }

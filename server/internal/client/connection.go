@@ -68,7 +68,8 @@ type ServerConnection struct {
 	Info        *ServerInfo
 	Projects    map[string]*model.Project
 	Sessions    map[string]*model.Session
-	Harnesses   []model.HarnessInfo // nil until loaded
+	Limits      map[string]*model.UsageLimits // the agents' usage limits, by harness
+	Harnesses   []model.HarnessInfo           // nil until loaded
 	IndexSynced bool
 	Images      *ImageCache
 	// Version counts changes to the index, for views that cache what they drew.
@@ -104,6 +105,7 @@ func NewServerConnection(d Dispatcher, urls []string, token string, drafts *Draf
 		Heartbeat:       15 * time.Second,
 		Projects:        map[string]*model.Project{},
 		Sessions:        map[string]*model.Session{},
+		Limits:          map[string]*model.UsageLimits{},
 		d:               d,
 		rpc:             NewRPCClient(token),
 		draftsRef:       drafts,
@@ -391,6 +393,7 @@ func (c *ServerConnection) indexSynchronized(seq int64, reset bool) {
 	if reset {
 		c.Projects = map[string]*model.Project{}
 		c.Sessions = map[string]*model.Session{}
+		c.Limits = map[string]*model.UsageLimits{}
 	} else {
 		before = nil
 	}
@@ -468,6 +471,10 @@ func (c *ServerConnection) upsertIndex(ev *model.Event, before map[string]*model
 		if ev.ID != "" {
 			delete(c.Sessions, ev.ID)
 			c.draftsRef.Set(ev.ID, "")
+		}
+	case model.EvLimitsUpserted:
+		if ev.Limits != nil {
+			c.Limits[ev.Limits.Harness] = ev.Limits
 		}
 	}
 	return sessionChange{}, false

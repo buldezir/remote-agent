@@ -175,6 +175,9 @@ struct ServerSettingsView: View {
                 } else {
                     Text(h.hint ?? "Not signed in").scaledFont(.caption).foregroundStyle(Palette.peach)
                 }
+                if let limits = connection.limits[h.id] {
+                    UsageLimitsGauge(limits: limits)
+                }
             }
             Spacer(minLength: 0)
             if let p = progress[h.id], p.isActive {

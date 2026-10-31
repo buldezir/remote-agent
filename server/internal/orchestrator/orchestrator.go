@@ -52,6 +52,8 @@ type Orchestrator struct {
 	bg     context.Context // the system agent's calls; cancelled by Shutdown
 	stopBg context.CancelFunc
 	naming sync.WaitGroup
+
+	limits limitsState // the agents' usage limits (limits.go)
 }
 
 func New(st *store.Store, reg *harness.Registry, opt Options) *Orchestrator {
@@ -63,7 +65,8 @@ func New(st *store.Store, reg *harness.Registry, opt Options) *Orchestrator {
 	}
 	bg, stopBg := context.WithCancel(context.Background())
 	return &Orchestrator{st: st, reg: reg, opt: opt, log: opt.Log, actors: map[string]*actor{}, inflight: map[string]*sync.Mutex{},
-		tokens: map[string]string{}, parents: map[string]string{}, bg: bg, stopBg: stopBg}
+		tokens: map[string]string{}, parents: map[string]string{}, bg: bg, stopBg: stopBg,
+		limits: limitsState{tried: map[string]time.Time{}, wake: make(chan struct{}, 1)}}
 }
 
 func (o *Orchestrator) Registry() *harness.Registry { return o.reg }
@@ -676,6 +679,7 @@ func (o *Orchestrator) Recover(ctx context.Context) error {
 
 // Run reaps idle runtimes, and records switched branches, until ctx is done.
 func (o *Orchestrator) Run(ctx context.Context) {
+	go o.watchLimits(ctx)
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
 	branches := time.NewTicker(branchPoll)

@@ -77,6 +77,14 @@ func fixtures() map[string]any {
 	errItem.Text = "Agent exited: signal: killed"
 	sub := item("i11", 11, model.ItemAssistantMessage, model.ItemCompleted)
 	sub.ParentItemID, sub.Text = "i3", "sub-agent text"
+	fiveHourReset, weekReset := t0.Add(3*time.Hour), t0.Add(4*24*time.Hour)
+	limitItem := item("i12", 12, model.ItemError, model.ItemCompleted)
+	limitItem.Text = "Claude Code's 5-hour limit is reached; it resets at 15:00 UTC."
+	limitItem.Limit = &model.UsageWindow{ID: "five_hour", Label: "5h", UsedPercent: 100, ResetsAt: &fiveHourReset, WindowMinutes: 300}
+	limits := &model.UsageLimits{Harness: "claude", Windows: []model.UsageWindow{
+		{ID: "five_hour", Label: "5h", UsedPercent: 100, ResetsAt: &fiveHourReset, WindowMinutes: 300},
+		{ID: "weekly", Label: "week", UsedPercent: 61, ResetsAt: &weekReset, WindowMinutes: 10080},
+	}, Limited: true, ResetsAt: &fiveHourReset, Plan: "Max", Overage: true, UpdatedAt: t1}
 
 	stream := model.SessionStream("s1")
 	var evs []model.Event
@@ -88,7 +96,7 @@ func fixtures() map[string]any {
 	}
 	add(model.Event{Type: model.EvSessionUpserted, Session: sess})
 	add(model.Event{Type: model.EvTurnUpserted, Turn: turn})
-	for _, it := range []*model.Item{user, reasoning, tool, assistant, approval, question, planApproval, plan, notice, errItem, sub} {
+	for _, it := range []*model.Item{user, reasoning, tool, assistant, approval, question, planApproval, plan, notice, errItem, sub, limitItem} {
 		add(model.Event{Type: model.EvItemUpserted, Item: it})
 	}
 	add(model.Event{Type: "future.event", ID: "x"}) // clients must ignore unknown types
@@ -98,6 +106,7 @@ func fixtures() map[string]any {
 		{Stream: model.IndexStream, Seq: 1, Type: model.EvProjectUpserted, Project: proj, TS: t0},
 		{Stream: model.IndexStream, Seq: 2, Type: model.EvSessionUpserted, Session: sess, TS: t1},
 		{Stream: model.IndexStream, Seq: 3, Type: model.EvProjectRemoved, ID: "p0", TS: t1},
+		{Stream: model.IndexStream, Seq: 4, Type: model.EvLimitsUpserted, Limits: limits, TS: t1},
 	}
 
 	return map[string]any{

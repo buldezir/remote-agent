@@ -4,8 +4,9 @@
 # session, the fake keywords, images, changes and revert, the terminal, the
 # Inbox and Servers tabs, search and find in a session, runs of tool calls
 # folding and opening, renaming a session, a tablet's sidebar, the dark theme, the server's settings (updating and
-# signing in the fake agent, naming sessions with it), and a draft saved,
-# edited, saved again and sent. Saves screenshots to
+# signing in the fake agent, naming sessions with it), the agent's usage
+# limits and a turn that hits one, and a draft saved, edited, saved again and
+# sent. Saves screenshots to
 # $SCRATCH/shots and removes the server at the end, which unpairs it. Never
 # point it at the developer's rad.
 #
@@ -350,6 +351,18 @@ hide_keyboard; shot 11-signed-in
 tap 'id=task-done'; sleep 1
 ! find_view 'id=sign-in-fake' > /dev/null || fail "Fake still shows Sign In"
 
+step "usage limits"
+# The fake agent's plan, which rad read as it started: a gauge under the
+# agent, whose tap shows each window's reset, the plan and their age.
+wait_for 'id=limits-fake' 10 || fail "no usage gauge under the fake agent"
+texts 'contains=· week' | grep -Eq '^5h [0-9]+% · week [0-9]+%$' || fail "the gauge doesn't show the 5 hours and the week"
+tap 'id=limits-fake'
+wait_for 'text=Fake plan' 5 || fail "tapping the gauge didn't show its details"
+find_view 'contains=% used · resets in' > /dev/null || fail "the details don't say when the windows reset"
+shot 11b-usage-limits
+tap 'id=limits-fake'; sleep 0.5
+! find_view 'text=Fake plan' > /dev/null || fail "tapping the gauge again didn't hide its details"
+
 step "system agent"
 tap 'id=system-agent'; sleep 0.5; tap 'text=Fake (scripted)'
 wait_for 'id=system-model' 10 || fail "the system agent wasn't saved"
@@ -371,11 +384,29 @@ tap 'id=system-agent'; sleep 0.5; tap 'text=None'; sleep 1
 find_view 'id=system-model' > /dev/null && fail "the system agent wasn't unset"
 tap 'desc=Done'; sleep 0.5
 
+step "usage limit reached"
+# A turn that hits the plan's 5-hour limit fails with a notice of which and
+# when it resets, rather than the agent's error; the next turn (the draft's,
+# below) starts the 5 hours afresh.
+tap 'text=write smoke.txt' || fail "no smoke session"
+wait_for 'id=composer' 10 || fail "the session didn't open"
+fill 'id=composer' 'limit'; tap 'id=send'
+wait_for 'id=limit-notice' 15 || fail "no notice for the limit"
+find_view 'contains=5h limit reached · resets in' > /dev/null || fail "the notice doesn't say which limit and when it resets"
+! find_view 'contains=5-hour limit is reached' > /dev/null || fail "the limit shows as a plain error"
+hide_keyboard; shot 12b-limit-notice
+tap 'desc=Back'; sleep 1
+
 step "empty session: its prompt takes the keyboard"
 tap 'id=new-session'
 wait_for 'id=project-picker' 10 || fail "no new session sheet"
 tap 'id=project-picker'; sleep 0.5; tap "text=$PROJECT"; sleep 0.5
 tap 'id=harness-fake'; sleep 0.3
+# The chosen agent's usage, spent by the turn above.
+wait_for 'id=limits-fake' 5 || fail "no usage gauge under the chosen agent"
+tap 'id=limits-fake'
+wait_for 'contains=Limit reached · resets in' 5 || fail "the new session form's gauge doesn't say the limit was reached"
+shot 12c-new-session-limited
 tap 'id=start'
 wait_for 'contains=No prompts yet' 10 || fail "the empty session didn't open"
 sleep 1   # for the keyboard, as fill waits

@@ -624,6 +624,9 @@ func (ns *newSession) view(m *Model, width, height int) string {
 			continue
 		}
 		lines = append(lines, formRow(m, f, value(f), f == ns.field, inner))
+		if f == fieldAgent && ns.field == fieldAgent {
+			lines = append(lines, m.limitsDetails(ns.harness, pad("", 15), inner)...)
+		}
 	}
 	if ns.worktree && ns.field >= fieldWorktree && ns.field <= fieldBase {
 		lines = append(lines, "", m.st.Faint.Render(truncate("The agent works on its own branch, in a folder of its own.", inner)))
@@ -812,7 +815,11 @@ func (a *agentChoice) optionValue(m *Model, field int) string {
 	switch field {
 	case fieldAgent:
 		if h != nil {
-			return h.Name + m.st.Faint.Render("  "+h.Version)
+			v := h.Name + m.st.Faint.Render("  "+h.Version)
+			if g := m.limitsGauge(h.ID); g != "" {
+				v += "  " + g
+			}
+			return v
 		}
 		return m.st.Faint.Render("Choose…")
 	case fieldModel:

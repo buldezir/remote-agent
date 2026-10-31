@@ -154,9 +154,17 @@ fun ItemView(item: Item, store: SessionStore, children: Map<String, List<Item>>,
             findHighlighted(item.text ?: ""), style = Type.footnote, color = palette.subtext, textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().testTag("notice"),
         )
-        ItemKind.ERROR -> Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource(Icons.warning), null, Modifier.size(16.dp), tint = palette.red)
-            Text(findHighlighted(item.text ?: "Error"), style = Type.footnote, color = palette.red)
+        ItemKind.ERROR -> {
+            // A turn that hit a usage limit says which, and when it resets.
+            val limit = item.limit
+            if (limit != null) {
+                LimitNotice(limit)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(painterResource(Icons.warning), null, Modifier.size(16.dp), tint = palette.red)
+                    Text(findHighlighted(item.text ?: "Error"), style = Type.footnote, color = palette.red)
+                }
+            }
         }
         ItemKind.UNKNOWN -> {}
     }

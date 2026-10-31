@@ -1,6 +1,6 @@
 import { Check, ChevronLeft, ChevronRight, Folder, FolderGit2, FolderPlus, ImagePlus, Save, SquareTerminal, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { effortsForModel, usable, type AgentSpec, type Choice, type FSListing, type HarnessInfo, type Session } from "../protocol/models";
+import { effortsForModel, usable, type AgentSpec, type Choice, type FSListing, type HarnessInfo, type Session, type UsageLimits } from "../protocol/models";
 import { Attachments } from "../store/attachments";
 import { useObserved } from "../store/observable";
 import { storage } from "../store/storage";
@@ -9,6 +9,7 @@ import { useConnection } from "./context";
 import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./images";
 import { ImportSession } from "./ImportSession";
 import { Modal, Spinner } from "./primitives";
+import { LimitsGauge } from "./UsageLimits";
 
 export const custom = "__custom";
 
@@ -311,7 +312,13 @@ export function NewSession({
           {harnesses ? (
             <>
               {harnesses.map((h) => (
-                <HarnessChoiceRow key={h.id} harness={h} selected={h.id === harnessID} onSelect={() => setHarnessID(h.id)} />
+                <HarnessChoiceRow
+                  key={h.id}
+                  harness={h}
+                  selected={h.id === harnessID}
+                  limits={connection.limits.get(h.id)}
+                  onSelect={() => setHarnessID(h.id)}
+                />
               ))}
               {harnesses.length === 0 && (
                 <div className="form-row hint">No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.</div>
@@ -526,7 +533,18 @@ export function AgentOptions({
   );
 }
 
-export function HarnessChoiceRow({ harness, selected, onSelect }: { harness: HarnessInfo; selected: boolean; onSelect: () => void }) {
+/** An agent to choose; `limits`, its plan's usage, show under its name. */
+export function HarnessChoiceRow({
+  harness,
+  selected,
+  limits,
+  onSelect,
+}: {
+  harness: HarnessInfo;
+  selected: boolean;
+  limits?: UsageLimits;
+  onSelect: () => void;
+}) {
   const ok = usable(harness);
   return (
     <button className="form-row harness-row" disabled={!ok} onClick={onSelect} aria-pressed={selected} style={{ opacity: ok ? 1 : 0.5 }}>
@@ -538,6 +556,7 @@ export function HarnessChoiceRow({ harness, selected, onSelect }: { harness: Har
           {harness.name} {harness.version && <span className="mono small c-overlay">{harness.version}</span>}
         </span>
         {harness.hint && !ok && <span className="small c-yellow">{harness.hint}</span>}
+        {limits && <LimitsGauge limits={limits} inButton />}
       </span>
       {selected && <Check size={17} className="c-accent" strokeWidth={2.5} />}
     </button>

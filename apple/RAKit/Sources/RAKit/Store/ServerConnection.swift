@@ -23,6 +23,9 @@ public final class ServerConnection {
     public private(set) var info: ServerInfo?
     public private(set) var projects: [String: Project] = [:]
     public private(set) var sessions: [String: Session] = [:]
+    /// The agents' usage limits, by agent id, as the index last said: only
+    /// the agents that report them (`UsageLimitsFormat` words them).
+    public private(set) var limits: [String: UsageLimits] = [:]
     /// The agents installed on the server; nil until first loaded.
     public private(set) var harnesses: [HarnessInfo]?
     public private(set) var indexSynced = false
@@ -164,7 +167,7 @@ public final class ServerConnection {
                 // A reset drops what was cached, but the replay is still
                 // compared with it.
                 let before = sessions
-                if reset { projects = [:]; sessions = [:] }
+                if reset { projects = [:]; sessions = [:]; limits = [:] }
                 let buffered = indexReplay
                 indexReplay = []
                 let changes = buffered.compactMap { upsertIndex($0, before: before) }
@@ -234,6 +237,7 @@ public final class ServerConnection {
                 sessions[id] = nil
                 drafts[id] = ""
             }
+        case "limits.upserted": if let l = ev.limits { limits[l.harness] = l }
         default: break
         }
         return nil

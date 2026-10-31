@@ -1,6 +1,7 @@
 package dev.remoteagent.core
 
 import dev.remoteagent.core.net.PairingLink
+import dev.remoteagent.core.net.ServerMessage
 import dev.remoteagent.core.net.RpcError
 import dev.remoteagent.core.net.params
 import dev.remoteagent.core.protocol.Draft
@@ -14,6 +15,8 @@ import dev.remoteagent.core.protocol.ItemStatus
 import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.Turn
+import dev.remoteagent.core.protocol.UsageLimits
+import dev.remoteagent.core.protocol.UsageWindow
 import dev.remoteagent.core.protocol.TurnStatus
 import dev.remoteagent.core.protocol.WireCoding
 import dev.remoteagent.core.protocol.Workspace
@@ -407,6 +410,45 @@ class DraftTests {
         assertEquals("", reread["b"])
         d.removeAll()
         assertNull(storage["drafts.srv"])
+    }
+}
+
+/** The agents' usage limits the index brings (`limits.upserted`), by harness. As ra's ServerConnection keeps them. */
+class IndexLimitsTests {
+    private val server = SavedServer("srv", "Test", listOf("http://127.0.0.1:1"), "d", Instant.now())
+    private val at = Instant.parse("2026-10-09T12:00:00Z")
+
+    private fun limits(harness: String, fiveHour: Int, limited: Boolean = false) = UsageLimits(
+        harness = harness,
+        windows = listOf(UsageWindow("five_hour", "5h", fiveHour, at.plusSeconds(3600), 300), UsageWindow("weekly", "week", 40)),
+        limited = limited,
+        updatedAt = at,
+    )
+
+    private fun upserted(seq: Long, l: UsageLimits) = Event("index", seq, "limits.upserted", limits = l)
+
+    @Test
+    fun keptByAgentLiveAndDroppedOnReset() = runTest {
+        val c = ServerConnection(server, "", backgroundScope, ImageCache(null), {})
+        // The replay: the last of each agent's counts.
+        c.handle(ServerMessage.Events("index", listOf(upserted(1, limits("claude", 10)), upserted(2, limits("codex", 50)), upserted(3, limits("claude", 20)))))
+        assertEquals(emptyMap(), c.limits.value)
+        c.handle(ServerMessage.Synchronized("index", 3, reset = true))
+        assertEquals(mapOf("claude" to 20, "codex" to 50), c.limits.value.mapValues { it.value.windows[0].usedPercent })
+
+        // Live: a limit hit, and an event type this app doesn't know, which changes nothing.
+        c.handle(ServerMessage.Events("index", listOf(upserted(4, limits("claude", 100, limited = true)), Event("index", 5, "limits.removed", id = "codex"))))
+        assertTrue(c.limits.value.getValue("claude").limited)
+        assertEquals(setOf("claude", "codex"), c.limits.value.keys)
+
+        // Caught up without a reset: kept. After the socket closes, a reset
+        // replays the index afresh, without the agent that's gone.
+        c.handle(ServerMessage.Synchronized("index", 5, reset = false))
+        assertEquals(setOf("claude", "codex"), c.limits.value.keys)
+        c.handle(ServerMessage.Closed(null))
+        c.handle(ServerMessage.Events("index", listOf(upserted(1, limits("codex", 60)))))
+        c.handle(ServerMessage.Synchronized("index", 1, reset = true))
+        assertEquals(mapOf("codex" to 60), c.limits.value.mapValues { it.value.windows[0].usedPercent })
     }
 }
 

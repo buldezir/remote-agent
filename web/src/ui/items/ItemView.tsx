@@ -23,6 +23,7 @@ import { capitalized, runParts, runTitle, runTools, runWorking, type ToolRun } f
 import { ImageGallery } from "../images";
 import { Markdown } from "../Markdown";
 import { ErrorAlert, Spinner } from "../primitives";
+import { LimitNotice } from "../UsageLimits";
 import { ApprovalView } from "./ApprovalView";
 
 /** An item of the transcript. `harness` is the session's agent, which says
@@ -58,6 +59,7 @@ export function ItemView({ item, store, harness }: { item: Item; store: SessionS
     case "notice":
       return <div className="notice">{item.text}</div>;
     case "error":
+      if (item.limit) return <LimitNotice limit={item.limit} text={item.text} />;
       return (
         <div className="item-error">
           <TriangleAlert size={14} /> {item.text || "Error"}

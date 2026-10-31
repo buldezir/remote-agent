@@ -500,6 +500,8 @@ func (a *actor) handle(gen int, ev harness.Event) {
 		}
 	case harness.WorkdirChanged:
 		a.onWorkdir(ctx, ev.Dir)
+	case harness.UsageLimits:
+		a.o.setLimits(ctx, a.sess.Harness, ev.Limits)
 	case harness.BackgroundTasks:
 		if !slices.Equal(ev.Tasks, a.sess.BackgroundTasks) {
 			a.sess.BackgroundTasks = ev.Tasks
@@ -729,9 +731,16 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 	turn.Status, turn.Usage, turn.Error, turn.EndedAt, turn.ForkPoint = ev.Status, ev.Usage, ev.Error, &now, ev.ForkPoint
 	turn.CheckpointAfter = a.checkpoint(ctx, turn.N, "after")
 	a.refreshBranch(ctx)
-	if ev.Error != "" {
+	if ev.Status == model.TurnFailed && ev.Limit != nil {
+		// Which limit, and when it resets, rather than the agent's words.
+		turn.Error = limitError(a.o.agentName(a.sess.Harness), *ev.Limit, now)
+	}
+	if turn.Error != "" {
 		e := a.newItem(model.ItemError, model.ItemCompleted)
-		e.Text = ev.Error
+		e.Text = turn.Error
+		if ev.Status == model.TurnFailed {
+			e.Limit = ev.Limit
+		}
 		changed = append(changed, e)
 	}
 	a.turn = nil

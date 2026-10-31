@@ -915,6 +915,55 @@ await systemAgent.selectOption({ label: "None" });
 await settingsSection("System Agent").getByLabel(/^Model/).waitFor({ state: "detached" });
 await page.getByRole("button", { name: "Done" }).click();
 
+step("usage limits: the fake's gauge and its details, amber, and a turn that hits the limit");
+// The fake's plan: each turn uses 6% of its 5 hours and 2% of its week;
+// "limits <n>" sets the 5 hours' use, and "limit" spends them.
+const fakeGauge = page.locator(".harness-row", { hasText: fake }).locator(".limits-gauge");
+await openServerSettings();
+await fakeGauge.filter({ hasText: /5h \d+% · week \d+%/ }).waitFor();
+if (!(await fakeGauge.getAttribute("title"))?.includes("Fake plan")) throw new Error("the gauge's details don't show on hover");
+// A click shows them too, for touch.
+await fakeGauge.click();
+await page.locator(".harness-row", { hasText: fake }).locator(".limits-details", { hasText: "Fake plan" }).waitFor();
+await shot("limits-settings");
+await page.getByRole("button", { name: "Done" }).click();
+// Beside the chosen agent in the new session form; a click on it keeps the agent.
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
+await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
+await page.locator(".harness-row", { hasText: "Fake" }).click();
+const chosenGauge = page.locator(".harness-row[aria-pressed=true]", { hasText: "Fake" }).locator(".limits-gauge");
+await chosenGauge.click();
+await page.locator(".harness-row[aria-pressed=true]", { hasText: "Fake" }).locator(".limits-details", { hasText: "Fake plan" }).waitFor();
+await page.getByPlaceholder("What should the agent do?").fill("limits 85");
+await shot("limits-new-session");
+await page.getByRole("button", { name: "Start", exact: true }).click();
+await page.getByText("Echo: limits 85").waitFor();
+await openServerSettings();
+await fakeGauge.filter({ hasText: "5h 85%" }).and(page.locator(".c-yellow")).waitFor();
+await shot("limits-amber");
+await page.getByRole("button", { name: "Done" }).click();
+await prompt.fill("limit");
+await prompt.press("Enter");
+const limitNotice = page.locator(".limit-notice.c-red", { hasText: /5h limit reached · resets in \d/ });
+await limitNotice.waitFor();
+if (await page.locator(".item-error", { hasText: "5-hour limit" }).count()) throw new Error("the limit shows as a plain error too");
+await shot("limit-notice");
+await page.setViewportSize({ width: 390, height: 844 });
+await shot("phone-limit-notice");
+await page.setViewportSize({ width: 1280, height: 820 });
+await openServerSettings();
+await fakeGauge.filter({ hasText: "5h 100%" }).and(page.locator(".c-red")).waitFor();
+await page.getByRole("button", { name: "Done" }).click();
+// The next turn starts the 5 hours afresh.
+await prompt.fill("go on");
+await prompt.press("Enter");
+await page.getByText("Echo: go on").waitFor();
+await openServerSettings();
+// Red no more: the week, which the smoke test's turns have used, may be amber.
+await fakeGauge.filter({ hasText: "5h 6%" }).waitFor();
+if ((await fakeGauge.getAttribute("class")).includes("c-red")) throw new Error("the gauge stays red after the limit reset");
+await page.getByRole("button", { name: "Done" }).click();
+
 step("remove server");
 await page.locator(".server-header").hover();
 await page.getByRole("button", { name: / actions$/ }).click();

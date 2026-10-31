@@ -18,7 +18,7 @@ struct FixtureTests {
     @Test func sessionEvents() throws {
         let n = try WireCoding.decoder().decode(Notification<EventsParams>.self, from: load("notification_events_session.json"))
         #expect(n.method == "events")
-        #expect(n.params.events.count == 14)
+        #expect(n.params.events.count == 15)
         let session = try #require(n.params.events[0].session)
         #expect(session.status == .awaitingApproval)
         #expect(session.workspace.kind == .worktree)
@@ -27,8 +27,8 @@ struct FixtureTests {
         let turn = try #require(n.params.events[1].turn)
         #expect(turn.usage?.costUsd == 0.0123)
         let items = n.params.events.compactMap(\.item)
-        #expect(items.count == 11)
-        #expect(items.map(\.kind) == [.userMessage, .reasoning, .toolCall, .assistantMessage, .approval, .approval, .approval, .plan, .notice, .error, .assistantMessage])
+        #expect(items.count == 12)
+        #expect(items.map(\.kind) == [.userMessage, .reasoning, .toolCall, .assistantMessage, .approval, .approval, .approval, .plan, .notice, .error, .assistantMessage, .error])
         #expect(items[0].images?.first?.mimeType == "image/png")
         #expect(items[0].images?.first?.aspectRatio == 1170.0 / 2532.0)
         #expect(items[2].images?.first?.width == nil)  // WebP: no dimensions
@@ -47,16 +47,31 @@ struct FixtureTests {
         #expect(items[6].approval?.special == .plan)
         #expect(items[7].plan?.entries?.count == 2)
         #expect(items[10].parentItemId == "i3")
+        // A turn that hit a usage limit: its error names the window.
+        #expect(items[9].limit == nil)
+        let limit = try #require(items[11].limit)
+        #expect(limit == UsageWindow(id: "five_hour", label: "5h", usedPercent: 100,
+                                     resetsAt: WireCoding.parseDate("2026-10-09T15:00:00Z"), windowMinutes: 300))
         // Unknown event types decode without payload instead of failing the batch.
         #expect(n.params.events.last?.type == "future.event")
     }
 
     @Test func indexEvents() throws {
         let n = try WireCoding.decoder().decode(Notification<EventsParams>.self, from: load("notification_events_index.json"))
-        #expect(n.params.events.map(\.type) == ["project.upserted", "session.upserted", "project.removed"])
+        #expect(n.params.events.map(\.type) == ["project.upserted", "session.upserted", "project.removed", "limits.upserted"])
         #expect(n.params.events[0].project?.isGitRepo == true)
         #expect(n.params.events[1].session?.draft?.images?.first?.width == 800)
         #expect(n.params.events[2].id == "p0")
+        #expect(n.params.events[0].limits == nil)
+        let limits = try #require(n.params.events[3].limits)
+        #expect(limits.harness == "claude")
+        #expect(limits.windows.map(\.id) == ["five_hour", "weekly"])
+        #expect(limits.windows.map(\.label) == ["5h", "week"])
+        #expect(limits.windows[1].usedPercent == 61 && limits.windows[1].windowMinutes == 10080)
+        #expect(limits.windows[1].resetsAt == WireCoding.parseDate("2026-10-13T12:00:00Z"))
+        #expect(limits.limited && limits.resetsAt == WireCoding.parseDate("2026-10-09T15:00:00Z"))
+        #expect(limits.plan == "Max" && limits.overage)
+        #expect(limits.updatedAt == WireCoding.parseDate("2026-10-09T12:00:05Z"))
     }
 
     @Test func responses() throws {
