@@ -282,6 +282,39 @@ struct ConnectionTests {
         #expect(server.calls.last?.method == "task.list" && server.calls.last?.params?["sessionId"] == nil)
     }
 
+    @Test func importsTheAgentsOwnSessions() async throws {
+        let server = try TestServer()
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+
+        let list = try await c.importable(projectID: "p", harness: "claude")
+        #expect(list.map(\.id) == ["n2", "n1"])
+        #expect(list.map(\.isActive) == [true, false])
+        #expect(list.map(\.messages) == [6, 4])
+        let listed = try #require(server.calls.last)
+        #expect(listed.method == "session.importable")
+        #expect(listed.params == .object(["projectId": .string("p"), "harness": .string("claude")]))
+
+        // A socket that dies on the way: sent again on the new one, with the
+        // same commandId, and the session is in the index at once.
+        server.quiet()
+        let s = try await c.importSession(.init(projectId: "p", harness: "claude", nativeId: "n1", model: "opus", mode: "plan"))
+        #expect(s.nativeId == "n1" && s.harness == "claude" && s.workspace.kind == .root)
+        #expect(c.sessions[s.id]?.nativeId == "n1")
+        let imports = server.calls.filter { $0.method == "session.import" }
+        #expect(imports.last?.connection == 1)
+        #expect(Set(imports.map(\.commandID)).count == 1)
+        let call = try #require(imports.last)
+        #expect(call.commandID?.isEmpty == false)
+        #expect(call.params?["projectId"] == .string("p"))
+        #expect(call.params?["harness"] == .string("claude"))
+        #expect(call.params?["nativeId"] == .string("n1"))
+        #expect(call.params?["model"] == .string("opus"))
+        #expect(call.params?["mode"] == .string("plan"))
+        // What's unset is left out: the agent's defaults, and its own title.
+        #expect(call.params?["effort"] == nil && call.params?["title"] == nil)
+    }
+
     @Test func promptFailsOnceTheConnectionGivesUp() async throws {
         let server = try TestServer()
         let c = try await connect(to: server)

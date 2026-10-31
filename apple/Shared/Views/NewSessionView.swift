@@ -25,6 +25,8 @@ struct NewSessionView: View {
     /// Why the chosen project wasn't forgotten, beside its Forget button.
     @State private var forgetError: String?
     @State private var browsing = false
+    /// Showing the agent's own sessions in the project, to pick one up.
+    @State private var choosingImport = false
     @State private var attachments = Attachments()
     @FocusState private var promptFocused: Bool
 
@@ -88,6 +90,14 @@ struct NewSessionView: View {
                         Section {
                             HarnessOptionRows(harness: harness, model: $model, customModel: $customModel,
                                               effort: $effort, mode: $mode)
+                            if project != nil, harness.caps.import == true {
+                                Button {
+                                    choosingImport = true
+                                } label: {
+                                    Label("Continue a terminal session…", systemImage: "apple.terminal")
+                                }
+                                .disabled(creating)
+                            }
                         } header: {
                             Text("Options").formHeaderFont()
                         }
@@ -186,6 +196,17 @@ struct NewSessionView: View {
                 .frame(minWidth: 420, minHeight: 460)
                 #endif
             }
+            .sheet(isPresented: $choosingImport) {
+                if let project, let harness {
+                    ImportSessionView(connection: connection, project: project, harness: harness,
+                                      model: chosenModel, effort: effort.isEmpty ? nil : effort,
+                                      mode: mode.isEmpty ? nil : mode) { s in
+                        choosingImport = false
+                        imported(s, project: project, harness: harness)
+                    }
+                    .appStyle()
+                }
+            }
             .task {
                 if connection.harnesses == nil { await connection.refreshHarnesses() }
                 if projectID.isEmpty, connection.projects[lastProject] != nil { projectID = lastProject }
@@ -273,11 +294,7 @@ struct NewSessionView: View {
                 projectId: project.id, harness: harness.id,
                 model: chosenModel, effort: effort.isEmpty ? nil : effort,
                 mode: mode.isEmpty ? nil : mode, workspace: ws, prompt: prompt, images: attachments.refs, draft: draft))
-            lastHarness = harness.id
-            lastProject = project.id
-            UserDefaults.standard.set(chosenModel ?? "", forKey: "lastModel." + harness.id)
-            UserDefaults.standard.set(effort, forKey: "lastEffort." + harness.id)
-            UserDefaults.standard.set(mode, forKey: "lastMode." + harness.id)
+            rememberChoices(project: project, harness: harness)
             dismiss()
             // As rad decides whether to start a turn. A draft isn't empty:
             // the prompt is there, waiting.
@@ -285,6 +302,23 @@ struct NewSessionView: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// A session of the agent's own, picked up: it opens as a new one does,
+    /// waiting for the prompt that goes on with it.
+    private func imported(_ s: Session, project: Project, harness: HarnessInfo) {
+        rememberChoices(project: project, harness: harness)
+        dismiss()
+        onCreated(s, true)
+    }
+
+    /// The next session starts in this project, with this agent and its options.
+    private func rememberChoices(project: Project, harness: HarnessInfo) {
+        lastHarness = harness.id
+        lastProject = project.id
+        UserDefaults.standard.set(chosenModel ?? "", forKey: "lastModel." + harness.id)
+        UserDefaults.standard.set(effort, forKey: "lastEffort." + harness.id)
+        UserDefaults.standard.set(mode, forKey: "lastMode." + harness.id)
     }
 }
 

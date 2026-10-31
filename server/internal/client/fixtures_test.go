@@ -68,8 +68,13 @@ func TestFixtures(t *testing.T) {
 	if len(hs) == 0 || hs[0].ID != "claude" || len(hs[0].Models) == 0 || len(hs[0].Models[0].Efforts) != 2 {
 		t.Errorf("harness.list: %+v", hs)
 	}
-	if len(hs) < 2 || !hs[0].Caps.Steer || hs[1].Caps.Steer {
+	if len(hs) < 2 || !hs[0].Caps.Steer || hs[1].Caps.Steer || !hs[0].Caps.Import || hs[1].Caps.Import {
 		t.Errorf("harness.list caps: %+v", hs)
+	}
+	importable := fixture[resultFrame[importableList]](t, "response_session_importable.json").Result.Sessions
+	if len(importable) != 2 || importable[0].Title != "Fix the flaky login test" || importable[0].Messages != 12 || !importable[0].Active ||
+		importable[1].Active || importable[1].UpdatedAt.IsZero() {
+		t.Errorf("session.importable: %+v", importable)
 	}
 
 	tasks := fixture[resultFrame[taskList]](t, "response_task_list.json").Result.Tasks

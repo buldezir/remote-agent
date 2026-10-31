@@ -116,6 +116,11 @@ type projectIDParams struct {
 	ProjectID string `json:"projectId"`
 }
 
+type importableParams struct {
+	ProjectID string `json:"projectId"`
+	Harness   string `json:"harness"`
+}
+
 func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	// Commands outlive a dropped connection: a half-applied create or prompt
 	// is worse than finishing it. Clients retry with the same commandId.
@@ -220,6 +225,15 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "session.fork":
 		return call(raw, func(p orchestrator.ForkParams) (any, error) { return o.Fork(ctx, p) })
+
+	case "session.importable":
+		return call(raw, func(p importableParams) (any, error) {
+			list, err := o.Importable(ctx, p.ProjectID, p.Harness)
+			return map[string]any{"sessions": list}, err
+		})
+
+	case "session.import":
+		return call(raw, func(p orchestrator.ImportParams) (any, error) { return o.Import(ctx, p) })
 
 	case "session.commands":
 		return call(raw, func(p sessionParams) (any, error) {

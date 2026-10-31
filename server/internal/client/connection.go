@@ -734,6 +734,35 @@ func (c *ServerConnection) Fork(ctx context.Context, p ForkSession) (model.Sessi
 	return s, nil
 }
 
+// Importable lists the sessions the agent ran in the project's folder
+// outside rad, such as in a terminal, newest first, for Import.
+func (c *ServerConnection) Importable(ctx context.Context, projectID, harness string) ([]model.ImportableSession, error) {
+	var res importableList
+	err := c.callTimeout(ctx, "session.importable", map[string]any{"projectId": projectID, "harness": harness}, &res, 60*time.Second)
+	return res.Sessions, err
+}
+
+// Import picks up one of the agent's own sessions as a session of rad's,
+// whose next prompt goes on with it, as CreateSession makes one: sent again
+// after a drop, with the same commandId.
+func (c *ServerConnection) Import(ctx context.Context, p ImportSession) (model.Session, error) {
+	params := map[string]any{"commandId": uuid.NewString(), "projectId": p.ProjectID, "harness": p.Harness, "nativeId": p.NativeID}
+	for k, v := range map[string]string{"model": p.Model, "effort": p.Effort, "mode": p.Mode} {
+		if v != "" {
+			params[k] = v
+		}
+	}
+	var s model.Session
+	if err := c.Deliver(ctx, "session.import", params, &s, 90*time.Second); err != nil {
+		return s, err
+	}
+	c.d.Post(func() {
+		c.Sessions[s.ID] = &s
+		c.Version++
+	})
+	return s, nil
+}
+
 // SaveDraft keeps a prompt in the session, unsent, for any device to send
 // later, in place of the draft it had; no text and no images remove it.
 // Saving it twice does no harm, so it is sent again after a drop, as

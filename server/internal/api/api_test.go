@@ -930,6 +930,59 @@ func TestSessionCommandSuggestions(t *testing.T) {
 	}
 }
 
+// TestImportOverWebSocket picks up one of the fake agent's sessions from the
+// terminal: the listing, the import, and its transcript on the stream.
+func TestImportOverWebSocket(t *testing.T) {
+	s := startServer(t)
+	c := connect(t, s)
+	dir := filepath.Join(s.root, "import-project")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var project model.Project
+	c.mustCall("project.add", map[string]any{"path": dir}, &project)
+	var harnesses struct {
+		Harnesses []model.HarnessInfo `json:"harnesses"`
+	}
+	c.mustCall("harness.list", nil, &harnesses)
+	if len(harnesses.Harnesses) == 0 || !harnesses.Harnesses[0].Caps.Import {
+		t.Errorf("harnesses = %+v, want the fake with caps.import", harnesses.Harnesses)
+	}
+	var list struct {
+		Sessions []model.ImportableSession `json:"sessions"`
+	}
+	c.mustCall("session.importable", map[string]any{"projectId": project.ID, "harness": "fake"}, &list)
+	if len(list.Sessions) != 2 || !list.Sessions[0].Active || list.Sessions[1].Title != "Fix the login redirect" {
+		t.Fatalf("importable = %+v", list)
+	}
+	var sess model.Session
+	c.mustCall("session.import", map[string]any{"commandId": "import-1", "projectId": project.ID, "harness": "fake",
+		"nativeId": list.Sessions[1].ID, "mode": "auto"}, &sess)
+	if sess.NativeID != list.Sessions[1].ID || sess.Title != "Fix the login redirect" || sess.Workspace.Path != project.Path {
+		t.Fatalf("session = %+v", sess)
+	}
+	sub := c.subscribe(model.SessionStream(sess.ID), 0)
+	turns, items := 0, 0
+	for _, ev := range sub.replay {
+		if ev.Turn != nil {
+			turns++
+		}
+		if ev.Item != nil {
+			items++
+		}
+	}
+	if turns != 2 || items != 7 {
+		t.Errorf("stream has %d turns and %d items", turns, items)
+	}
+	if _, e := c.call("session.import", map[string]any{"commandId": "import-2", "projectId": project.ID, "harness": "fake",
+		"nativeId": list.Sessions[1].ID}); e == nil || e.Code != "conflict" {
+		t.Errorf("second import: %+v", e)
+	}
+	if _, e := c.call("session.importable", map[string]any{"projectId": "missing", "harness": "fake"}); e == nil || e.Code != "not_found" {
+		t.Errorf("missing project: %+v", e)
+	}
+}
+
 func TestCommitOverWebSocket(t *testing.T) {
 	// git without the developer's config; gh a script that answers as GitHub would.
 	for k, v := range map[string]string{"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",

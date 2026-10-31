@@ -43,11 +43,12 @@ const (
 	fieldBase
 	fieldPrompt
 	fieldStart
+	fieldImport // the new session form's: Continue a terminal session…
 )
 
 var fieldLabels = map[int]string{
 	fieldTurn: "After turn", fieldProject: "Project", fieldAgent: "Agent", fieldModel: "Model", fieldEffort: "Effort",
-	fieldMode: "Permissions", fieldWorktree: "Workspace", fieldBranch: "Branch", fieldBase: "Based on",
+	fieldMode: "Permissions", fieldWorktree: "Workspace", fieldBranch: "Branch", fieldBase: "Based on", fieldImport: "Or",
 }
 
 type branchesMsg struct {
@@ -167,6 +168,9 @@ func (ns *newSession) pick(m *Model, id string) { ns.setHarness(m, id, false) }
 // fields are the rows shown, by what the agent and the project offer.
 func (ns *newSession) fields(m *Model) []int {
 	f := append([]int{fieldProject, fieldAgent}, ns.optionFields(m)...)
+	if ns.canImport(m) {
+		f = append(f, fieldImport)
+	}
 	if p := ns.project(m); p != nil && p.IsGitRepo {
 		f = append(f, fieldWorktree)
 		if ns.worktree {
@@ -174,6 +178,13 @@ func (ns *newSession) fields(m *Model) []int {
 		}
 	}
 	return append(f, fieldPrompt, fieldStart)
+}
+
+// canImport: the agent can pick up the sessions it ran in the project's
+// folder outside rad (session.importable).
+func (ns *newSession) canImport(m *Model) bool {
+	h := ns.h(m)
+	return ns.project(m) != nil && usable(h) && h.Caps.Import
 }
 
 func (ns *newSession) focusField() {
@@ -390,6 +401,10 @@ func (ns *newSession) choose(m *Model) tea.Cmd {
 		ns.chooseOption(m, ns.field, ns.pick)
 	case fieldWorktree:
 		return ns.toggleWorktree(m)
+	case fieldImport:
+		il := newImportList(ns)
+		m.push(il)
+		return il.load(m)
 	case fieldBase:
 		items := []menuItem{{label: "Current HEAD", checked: ns.base == "", run: func(m *Model) tea.Cmd { ns.base = ""; return nil }}}
 		if ns.branches != nil {
@@ -536,6 +551,11 @@ func (ns *newSession) view(m *Model, width, height int) string {
 				return "Current HEAD"
 			}
 			return ns.base
+		case fieldImport:
+			if ns.field == fieldImport {
+				return m.st.Accent.Render("Continue a terminal session…")
+			}
+			return "Continue a terminal session…"
 		}
 		return ns.optionValue(m, f)
 	}

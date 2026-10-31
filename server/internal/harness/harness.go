@@ -244,6 +244,50 @@ type Forker interface {
 	SupportsFork() bool
 }
 
+// Importer is implemented by harnesses whose agent keeps its sessions in
+// files that rad can read, such as the ones the user ran in a terminal, so
+// that rad can pick one up (session.import): it lists those that ran in a
+// folder, and reads one's conversation. The session's next prompt resumes it
+// as rad resumes its own (OpenOptions.ResumeID).
+type Importer interface {
+	// ListNative lists the agent's sessions that ran in dir, newest first, at
+	// most ImportLimit of them. It leaves out the ones in known (rad's own,
+	// by their native ids), any other that rad started, sub-agents' and
+	// sessions too short to go on with. Active is left to the caller.
+	ListNative(ctx context.Context, dir string, known map[string]bool) ([]model.ImportableSession, error)
+	// ReadNative reads the conversation of the session id that ran in dir,
+	// keeping the images in it. It returns ErrNotFound if there's none.
+	ReadNative(ctx context.Context, dir, id string, images ImageStore) (*Transcript, error)
+}
+
+// ImportLimit is how many sessions ListNative lists at most.
+const ImportLimit = 30
+
+// ErrNotFound is ReadNative's answer for a session that isn't there.
+var ErrNotFound = errors.New("no such session")
+
+// Transcript is an agent's own record of a session: its title, if it gave
+// one, the model it last ran with, and its turns.
+type Transcript struct {
+	Title     string // the agent's or the user's name for it; empty: none
+	Model     string
+	Turns     []TranscriptTurn
+	UpdatedAt time.Time // when the agent last wrote to it
+}
+
+// TranscriptTurn is one turn of a Transcript: a prompt and what the agent
+// did with it, or a turn the agent started itself. Items' IDs and
+// ParentItemIDs are the adapter's keys, as in ItemEvent; Approval.ToolItemID
+// too.
+type TranscriptTurn struct {
+	Items     []model.Item
+	Status    model.TurnStatus
+	Error     string
+	StartedAt time.Time
+	EndedAt   time.Time
+	ForkPoint string // as TurnEnded.ForkPoint
+}
+
 // OneShotter is implemented by harnesses that can be the system agent,
 // which names sessions: they answer one prompt without tools, in an empty
 // folder, and keep nothing of the conversation, so it shows up in neither
@@ -420,6 +464,7 @@ func setCaps(h Harness, info *model.HarnessInfo) {
 		_, info.Caps.Login = m.LoginCommand()
 	}
 	_, info.Caps.OneShot = h.(OneShotter)
+	_, info.Caps.Import = h.(Importer)
 }
 
 var effortNames = map[string]string{"xhigh": "Extra high"}

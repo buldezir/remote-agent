@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, Folder, FolderGit2, FolderPlus, ImagePlus, Save, TriangleAlert } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Folder, FolderGit2, FolderPlus, ImagePlus, Save, SquareTerminal, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { effortsForModel, usable, type Choice, type FSListing, type HarnessInfo, type Session } from "../protocol/models";
 import { Attachments } from "../store/attachments";
@@ -7,13 +7,14 @@ import { storage } from "../store/storage";
 import { HarnessIcon } from "./components";
 import { useConnection } from "./context";
 import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./images";
+import { ImportSession } from "./ImportSession";
 import { Modal, Spinner } from "./primitives";
 
 export const custom = "__custom";
 
 /** Starts in `projectID` when given, else in the project used last.
  *  `onCreated` gets the new session, and whether it started empty, without
- *  a prompt or a draft. */
+ *  a prompt or a draft: a session picked up from the terminal does. */
 export function NewSession({
   projectID: initialProject,
   onClose,
@@ -44,6 +45,8 @@ export function NewSession({
   /** Why the chosen project wasn't forgotten, beside its Forget button. */
   const [forgetError, setForgetError] = useState<string>();
   const [browsing, setBrowsing] = useState(false);
+  /** The list of the agent's own sessions in the project, to pick one up. */
+  const [importing, setImporting] = useState(false);
 
   const project = connection.projects.get(projectID);
   const harness = connection.harness(harnessID);
@@ -131,11 +134,7 @@ export function NewSession({
         images: attachments.refs.length ? attachments.refs.map((r) => r.id) : undefined,
         draft,
       });
-      storage.set("lastHarness", harness.id);
-      storage.set("lastProject", project.id);
-      storage.set("lastModel." + harness.id, chosenModel ?? "");
-      storage.set("lastEffort." + harness.id, effort);
-      storage.set("lastMode." + harness.id, mode);
+      remember();
       onClose();
       // As rad decides whether to start a turn.
       onCreated(s, !hasPrompt);
@@ -144,6 +143,16 @@ export function NewSession({
     } finally {
       setCreating(false);
     }
+  };
+
+  /** The next session starts from this one's project, agent and options. */
+  const remember = () => {
+    if (!project || !harness) return;
+    storage.set("lastHarness", harness.id);
+    storage.set("lastProject", project.id);
+    storage.set("lastModel." + harness.id, chosenModel ?? "");
+    storage.set("lastEffort." + harness.id, effort);
+    storage.set("lastMode." + harness.id, mode);
   };
 
   // Takes the project off the server's list, which it refuses while the
@@ -163,6 +172,24 @@ export function NewSession({
   const canStart = !!project && !!harness && attachments.ready;
   const hasPrompt = prompt.trim() !== "" || !attachments.isEmpty;
   const drafts = !!connection.info?.drafts;
+
+  if (importing && project && harness) {
+    return (
+      <ImportSession
+        project={project}
+        harness={harness}
+        model={chosenModel}
+        effort={effort || undefined}
+        mode={mode || undefined}
+        onBack={() => setImporting(false)}
+        onImported={(s) => {
+          remember();
+          onClose();
+          onCreated(s, true);
+        }}
+      />
+    );
+  }
 
   if (browsing) {
     return (
@@ -262,6 +289,14 @@ export function NewSession({
             mode={mode}
             setMode={setMode}
           />
+        )}
+
+        {project && harness?.caps.import && usable(harness) && (
+          <section className="form-section">
+            <button className="form-row link with-icon" onClick={() => setImporting(true)}>
+              <SquareTerminal size={17} /> Continue a terminal session…
+            </button>
+          </section>
         )}
 
         {project?.isGitRepo && (

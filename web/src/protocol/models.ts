@@ -285,6 +285,24 @@ export interface HarnessCaps {
   oneShot?: boolean;
   /** The agent takes a prompt into the running turn (`session.steer`). */
   steer?: boolean;
+  /** The agent picks up its own sessions, such as the ones run in a
+   *  terminal (`session.importable`, `session.import`). */
+  import?: boolean;
+}
+
+/** A session the agent ran outside rad, such as in a terminal, which
+ *  `session.import` picks up. */
+export interface ImportableSession {
+  /** The agent's own id for it: the session's `nativeId` once imported. */
+  id: string;
+  /** The agent's or the user's name for it, else its first prompt's first line. */
+  title: string;
+  /** The prompts and the agent's replies. */
+  messages: number;
+  /** When the agent last wrote to it. */
+  updatedAt: string;
+  /** Written in the last minute: it may still run in a terminal. */
+  active?: boolean;
 }
 
 export interface HarnessInfo {

@@ -4,7 +4,7 @@ import RAKit
 
 /// A WebSocket server on loopback that stands in for rad: it answers
 /// `server.info`, `session.prompt`, the drafts' calls, the index's
-/// `subscribe`, the commits' calls and pings, and records the calls. `quiet()`
+/// `subscribe`, the commits' and imports' calls and pings, and records the calls. `quiet()`
 /// makes the sockets open so far ignore everything, as a socket that died
 /// while the Mac slept does: nothing comes back, and nothing says it closed.
 final class TestServer: @unchecked Sendable {
@@ -129,6 +129,16 @@ final class TestServer: @unchecked Sendable {
             let sid = params?["sessionId"] as? String
             result = sid.map { #"{"tasks":[{"id":"k0","kind":"commit","sessionId":"\#($0)","status":"running","output":"","startedAt":"2026-01-01T00:00:00Z"}]}"# }
                 ?? #"{"tasks":[]}"#
+        case "session.importable":
+            result = #"{"sessions":[{"id":"n2","title":"Add a dark theme","messages":6,"updatedAt":"2026-01-01T00:00:00Z","active":true},"#
+                + #"{"id":"n1","title":"Fix the login redirect","messages":4,"updatedAt":"2025-12-31T22:00:00Z"}]}"#
+        case "session.import":
+            // A session of the agent's own, in the project folder.
+            let pid = params?["projectId"] as? String ?? ""
+            let harness = params?["harness"] as? String ?? ""
+            let native = params?["nativeId"] as? String ?? ""
+            result = #"{"id":"imported-\#(native)","projectId":"\#(pid)","harness":"\#(harness)","nativeId":"\#(native)","status":"idle","title":"Fix the login redirect","archived":false,"#
+                + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
         default:
             result = "{}"
         }

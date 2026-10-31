@@ -12,6 +12,7 @@ import dev.remoteagent.core.protocol.FileStat
 import dev.remoteagent.core.protocol.ForkedFrom
 import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ImageRef
+import dev.remoteagent.core.protocol.ImportableSession
 import dev.remoteagent.core.protocol.ItemKind
 import dev.remoteagent.core.protocol.OptionKind
 import dev.remoteagent.core.protocol.ServerInfo
@@ -175,6 +176,20 @@ class FixtureTests {
     }
 
     @Serializable
+    private data class Importable(val sessions: List<ImportableSession>)
+
+    @Test
+    fun importableSessions() {
+        val list = result<Importable>("response_session_importable.json").sessions
+        assertEquals(listOf("5b0e7c1a-2f4d-4c8e-9a61-3d7f2b8e4c90", "9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4"), list.map { it.id })
+        assertEquals(listOf("Fix the flaky login test", "Add a changelog"), list.map { it.title })
+        assertEquals(listOf(12, 2), list.map { it.messages })
+        assertEquals(listOf(Instant.parse("2026-10-09T12:00:05Z"), Instant.parse("2026-10-09T12:00:00Z")), list.map { it.updatedAt })
+        // Only one written in the last minute says so.
+        assertEquals(listOf(true, false), list.map { it.active })
+    }
+
+    @Serializable
     private data class Tasks(val tasks: List<ServerTask>)
 
     @Test
@@ -183,6 +198,8 @@ class FixtureTests {
         val h = result<Harnesses>("response_harness_list.json").harnesses
         assertTrue(h[0].caps.update && h[0].caps.login && h[0].caps.oneShot && h[0].caps.steer)
         assertTrue(!h[1].caps.update && !h[1].caps.login && !h[1].caps.oneShot && !h[1].caps.steer)
+        assertTrue(h[0].caps.import)
+        assertTrue(!h[1].caps.import)
 
         val settings = result<ServerSettings>("response_server_settings.json")
         assertEquals(SystemAgent("claude", "haiku", "low"), settings.systemAgent)

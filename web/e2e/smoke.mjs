@@ -398,6 +398,61 @@ if (await composerSave.count()) throw new Error("the composer offers a draft in 
 await prompt.fill("");
 await shot("draft-sent");
 
+step("continue a terminal session");
+const continueTerminal = async (name) => {
+  await page.getByRole("button", { name: "New session", exact: true }).first().click();
+  await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
+  await page.locator(".harness-row", { hasText: "Fake" }).click();
+  if (name) {
+    await page.getByRole("button", { name: "Continue a terminal session…" }).scrollIntoViewIfNeeded();
+    await shot(name);
+  }
+  await page.getByRole("button", { name: "Continue a terminal session…" }).click();
+  await page.getByRole("heading", { name: "Terminal sessions" }).waitFor();
+};
+const terminalRow = (title) => page.locator(".import-row", { hasText: title });
+const activeWarning = "Active in the last minute: if it still runs in a terminal, quit it there first.";
+await continueTerminal("new-session-continue");
+await terminalRow("Fix the login redirect").waitFor();
+await terminalRow("Add a dark theme to the settings page").waitFor();
+// Only the one written just now warns that it may still run.
+await terminalRow("Add a dark theme to the settings page").getByText(activeWarning).waitFor();
+if (await terminalRow("Fix the login redirect").getByText(activeWarning).count()) throw new Error("a session from two hours ago warns that it's active");
+await terminalRow("Fix the login redirect").getByText(/^4 messages · /).waitFor();
+await page.getByText("Picks up a session Fake (scripted) ran in this folder outside Remote Agent.").waitFor();
+await shot("import-list");
+await page.emulateMedia({ colorScheme: "light" });
+await shot("import-list-light");
+await page.emulateMedia({ colorScheme: "dark" });
+await page.setViewportSize({ width: 390, height: 844 });
+await shot("phone-import-list");
+await page.setViewportSize({ width: 1280, height: 820 });
+// It opens with the agent's transcript and a notice, and goes on from there.
+await terminalRow("Fix the login redirect").click();
+await page.locator(".session-heading h1", { hasText: "Fix the login redirect" }).waitFor();
+await page.getByText("Done in the terminal: add a test for it.").waitFor();
+await page.locator(".notice", { hasText: "Picked up from Fake (scripted)" }).waitFor();
+if (await page.getByRole("heading", { name: "Terminal sessions" }).count()) throw new Error("the list stayed open after the import");
+if (!(await isFocused(prompt))) throw new Error("a session picked up from the terminal didn't focus its prompt");
+await shot("imported");
+await prompt.fill("carry on");
+await prompt.press("Enter");
+await page.getByText(/^Picked up terminal-1-[0-9a-f]+\. Echo: carry on/).waitFor();
+await shot("imported-continued");
+await page.emulateMedia({ colorScheme: "light" });
+await shot("imported-light");
+await page.emulateMedia({ colorScheme: "dark" });
+await page.setViewportSize({ width: 390, height: 844 });
+await shot("phone-imported");
+await page.setViewportSize({ width: 1280, height: 820 });
+// Once picked up, it's no longer offered.
+await continueTerminal();
+await terminalRow("Add a dark theme to the settings page").waitFor();
+if (await terminalRow("Fix the login redirect").count()) throw new Error("a session picked up already is offered again");
+await page.getByRole("button", { name: "Back" }).click();
+await page.getByRole("button", { name: "Continue a terminal session…" }).waitFor();
+await page.getByRole("button", { name: "Cancel" }).click();
+
 step("settings and light theme");
 await page.getByRole("button", { name: "Settings", exact: true }).click();
 await page.locator("select").first().selectOption("light");

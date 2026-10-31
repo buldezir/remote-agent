@@ -259,6 +259,8 @@ Approval {
 | `session.list` | — | `{sessions}` |
 | `session.create` | `{commandId, projectId, harness, model?, effort?, mode?, workspace: {kind, branch?, baseRef?}, prompt?, images?, title?, draft?}` | `Session` (`draft`: keep the prompt as the session's draft, see below) |
 | `session.fork` | `{commandId, sessionId, turn?, harness?, model?, effort?, mode?, workspace?: {kind, branch?}, prompt?, images?, title?, draft?}` | `Session` (see below) |
+| `session.importable` | `{projectId, harness}` | `{sessions: [ImportableSession]}`, newest first (`caps.import`; see below) |
+| `session.import` | `{commandId, projectId, harness, nativeId, model?, effort?, mode?, title?}` | `Session` (see below) |
 | `session.commands` | `{sessionId}` | `{commands: [{name, description?, kind?, scope?}]}` |
 | `session.prompt` | `{commandId, sessionId, text, images?, steer?}` | `Item` (the user message; `queued` if a turn is running, unless it steers; see below) |
 | `session.saveDraft` | `{sessionId, text, images?}` | `Session` (see below) |
@@ -291,7 +293,16 @@ HarnessInfo {
   commands?: [{name, description?}],           // slash commands to offer, such as {name: "compact"}
   caps: { resume, interrupt, setMode, freeModel, modelSelect,
           update?, login?, oneShot?,            // harness.update, harness.login, and the system agent
-          steer? }                              // takes a prompt into the running turn (session.steer)
+          steer?,                               // takes a prompt into the running turn (session.steer)
+          import? }                             // picks up the agent's own sessions (session.importable, session.import)
+}
+
+ImportableSession {
+  id,                                          // the agent's own id for it; the session's nativeId once imported
+  title,                                       // the agent's or the user's name for it, else its first prompt's first line
+  messages,                                    // the prompts and the agent's replies
+  updatedAt,                                   // when the agent last wrote to it
+  active?                                      // written in the last minute: it may still run in a terminal
 }
 
 ServerSettings { systemAgent?: { harness, model?, effort? } }   // absent: none
@@ -336,6 +347,9 @@ FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", addit
   - **Agent.** `harness` defaults to the source's, and so does `mode` with the source's harness, else that harness's default. Absent `model` and `effort` are the harness's defaults, as in `session.create`: clients start their pickers at the source's and send them. The same agent, where it can, copies its own conversation, cut after the turn, when the fork first starts it (Claude Code's `--fork-session` with `--resume-session-at`, Codex's `thread/fork` with `lastTurnId`). Any other agent, or one that can't fork, starts afresh, and its first prompt brings the conversation before it as a transcript: the first request, and as much of the rest as fits, latest first. If the copy fails, a `notice` says so and the transcript goes instead.
   - **Workspace.** `workspace.kind` defaults to the source's. `worktree` checks out a new branch (`branch`, or one rad names as for a new session) at the commit the turn's last checkpoint was taken on, with the files as they were after the turn (`invalid` outside git, or for a turn without a checkpoint). `root` works in the project folder as it is now. The fork's copied turns keep their diffs.
   - `prompt`, `images`, `title` and `draft` work as in `session.create`. The title defaults to the source's with " (fork)"; with the system agent, a prompt names it. Servers that fork say `forks: true` in `server.info`; older ones answer `method_not_found`.
+- **Picking up a session from the terminal.** Agents keep their own sessions on the server, such as the ones the user ran in a terminal: Claude Code in `~/.claude/projects/` (or `CLAUDE_CONFIG_DIR`), Codex in `~/.codex/sessions/` (or `CODEX_HOME`), Pi in `~/.pi/agent/sessions/` (or `PI_CODING_AGENT_DIR`), as the harness's `env` in rad's config or rad's own environment sets them. For a harness with `caps.import`, `session.importable` lists the ones that ran in the project's folder, newest first, thirty at most. It leaves out the ones rad has a session for (by `nativeId`, archived ones included) and any other that rad started, sub-agents', and sessions with no reply yet.
+  - `session.import` makes a session of one: its `nativeId` is the agent's id, so its next prompt resumes it as rad resumes its own (`claude --resume`, Codex's `thread/resume`, Pi's `--session-id`). Its workspace is the project folder (`root`), where the agent keeps it. `model`, `effort` and `mode` are what it goes on with, as in `session.create`. It is `conflict` when rad has a session for it already, and `not_found` when the agent has no such session in that folder.
+  - Its transcript is the conversation on the branch it stands on (an agent's rewinds leave the rest out): a turn for each prompt, with the agent's replies, reasoning and tool calls with their results, as rad's own items, and turns the agent started itself (a background task's end). What doesn't map is left out. The turns have no checkpoints, so no diffs; they keep where the agent's conversation stood, so they fork as rad's own do. A `notice` ends it, which warns when the agent wrote to it in the last minute: one still open in a terminal would write over the session, so clients warn about `active` ones before they import them. The title is the agent's or the user's name for it, else the first prompt, which the system agent then names, as for a new session.
 - **Committing.** A session's work can be committed, pushed and opened as a pull request from the clients, in the folder the agent works in (its worktree, or `agentPath`), for sessions in a git repository. `git.commitPreview` shows what a commit would take, with a message the system agent writes from the diff (rad's own, the session's title or the files, when there's no system agent or it fails); it may take as long as the system agent does, up to a minute, so clients wait longer for it than for other calls. `git.commit` then runs as a task (below) of kind `commit` for the session, with a step for each part that was asked for:
   1. `commit` stages everything (`git add -A`) and commits it with `message` (absent: one written as for the preview), running the repository's hooks; `skipped` when there's nothing to commit. Prompts sent meanwhile wait in the queue, as during a turn.
   2. `push`, with `push` or `pullRequest`: pushes the branch to the remote it tracks a branch of its own name on, else to `origin`, setting that as its upstream (a worktree made from `origin/main` tracks `main`, and isn't pushed there). It fails without a remote, or on a detached HEAD.

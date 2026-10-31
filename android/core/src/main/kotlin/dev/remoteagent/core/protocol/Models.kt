@@ -411,6 +411,29 @@ data class HarnessCaps(
     val oneShot: Boolean = false,
     /** It takes a prompt into the running turn (`session.steer`). */
     val steer: Boolean = false,
+    /**
+     * It picks up the sessions the agent ran outside rad, such as in a
+     * terminal (`ServerConnection.importable`, `importSession`).
+     */
+    val import: Boolean = false,
+)
+
+/**
+ * A session the agent ran in a project's folder outside rad, such as in a
+ * terminal, that `ServerConnection.importSession` picks up.
+ */
+@Serializable
+data class ImportableSession(
+    /** The agent's own id for it: the session's `nativeId` once imported. */
+    val id: String,
+    /** The agent's or the user's name for it, else its first prompt. */
+    val title: String,
+    /** Its prompts and the agent's replies. */
+    val messages: Int = 0,
+    /** When the agent last wrote to it. */
+    val updatedAt: Instant,
+    /** Written in the last minute: it may still run in a terminal. */
+    val active: Boolean = false,
 )
 
 @Serializable

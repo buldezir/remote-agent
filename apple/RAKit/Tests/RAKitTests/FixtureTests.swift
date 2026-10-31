@@ -86,6 +86,8 @@ struct FixtureTests {
         #expect(claude?.caps.steer == true)
         #expect(h.result?.harnesses[1].caps.update == nil)
         #expect(h.result?.harnesses[1].caps.steer == nil)
+        #expect(claude?.caps.import == true)
+        #expect(h.result?.harnesses[1].caps.import == nil)
 
         let d = try dec.decode(Response<Diff>.self, from: load("response_diff.json"))
         #expect(d.result?.files.map(\.status) == [.modified, .renamed, .added])
@@ -187,5 +189,18 @@ struct FixtureTests {
         // A step status from a newer server reads as pending.
         let step = try dec.decode(ServerTask.Step.self, from: Data(#"{"id":"x","title":"X","status":"waiting"}"#.utf8))
         #expect(step.status == .pending && step.detail == nil)
+    }
+
+    @Test func importableSessions() throws {
+        struct List: Decodable { var sessions: [ImportableSession] }
+        let list = try #require(try WireCoding.decoder().decode(Response<List>.self, from: load("response_session_importable.json")).result)
+        #expect(list.sessions.map(\.id) == ["5b0e7c1a-2f4d-4c8e-9a61-3d7f2b8e4c90", "9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4"])
+        #expect(list.sessions.map(\.title) == ["Fix the flaky login test", "Add a changelog"])
+        #expect(list.sessions.map(\.messages) == [12, 2])
+        // Written in the last minute; the other leaves it out.
+        #expect(list.sessions[0].active == true && list.sessions[0].isActive)
+        #expect(list.sessions[1].active == nil && !list.sessions[1].isActive)
+        #expect(list.sessions[0].updatedAt == ISO8601DateFormatter().date(from: "2026-10-09T12:00:05Z"))
+        #expect(list.sessions[0].updatedAt.timeIntervalSince(list.sessions[1].updatedAt) == 5)
     }
 }

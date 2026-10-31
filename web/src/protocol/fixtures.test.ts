@@ -17,6 +17,7 @@ import {
   type Event,
   type FSListing,
   type HarnessInfo,
+  type ImportableSession,
   type PairResult,
   type ServerInfo,
   type SlashCommand,
@@ -110,11 +111,12 @@ describe("fixtures", () => {
     expect(claude.commands?.[0].description).toBeTruthy();
     expect(harnesses[1].commands).toBeUndefined();
     // What the server settings offer for each agent; older servers leave them out.
-    expect(claude.caps).toMatchObject({ update: true, login: true, oneShot: true, steer: true });
+    expect(claude.caps).toMatchObject({ update: true, login: true, oneShot: true, steer: true, import: true });
     expect(harnesses[1].caps.update).toBeUndefined();
     expect(harnesses[1].caps.login).toBeUndefined();
     expect(harnesses[1].caps.oneShot).toBeUndefined();
     expect(harnesses[1].caps.steer).toBeUndefined();
+    expect(harnesses[1].caps.import).toBeUndefined();
 
     const diff: Diff = load("response_diff.json").result;
     expect(diff.files.map((f) => f.status)).toEqual(["modified", "renamed", "added"]);
@@ -182,6 +184,18 @@ describe("fixtures", () => {
     expect(parseDate(tasks[1].endedAt) - parseDate(tasks[1].startedAt)).toBe(5000);
     expect(tasks[0].steps).toBeUndefined();
     expect(tasks[0].sessionId).toBeUndefined();
+  });
+
+  it("importable sessions", () => {
+    const sessions: ImportableSession[] = load("response_session_importable.json").result.sessions;
+    expect(sessions.map((s) => [s.id, s.title, s.messages])).toEqual([
+      ["5b0e7c1a-2f4d-4c8e-9a61-3d7f2b8e4c90", "Fix the flaky login test", 12],
+      ["9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4", "Add a changelog", 2],
+    ]);
+    expect(sessions[0].active).toBe(true);
+    expect(sessions[1].active).toBeUndefined();
+    expect(parseDate(sessions[0].updatedAt)).toBe(Date.UTC(2026, 9, 9, 12, 0, 5));
+    expect(parseDate(sessions[0].updatedAt) - parseDate(sessions[1].updatedAt)).toBe(5000);
   });
 
   it("commits", () => {

@@ -1,0 +1,2 @@
+{"type":"session","version":3,"id":"0d0e0f10-1112-4314-9516-171819202122","timestamp":"2026-10-30T12:00:00.000Z","cwd":"/work/app"}
+{"type":"message","id":"x1","parentId":null,"timestamp":"2026-10-30T12:00:01.000Z","message":{"role":"user","content":"hello?","timestamp":1793361601000}}

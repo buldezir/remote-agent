@@ -258,6 +258,44 @@ func TestRadForksASession(t *testing.T) {
 	}
 }
 
+// The fake agent's sessions "in the terminal" are picked up as sessions of
+// rad's, which go on with the agent's own.
+func TestRadImportsASession(t *testing.T) {
+	r := startRad(t)
+	c, q, _ := r.connect(t)
+	if h := c.Harness("fake"); h == nil || !h.Caps.Import {
+		t.Fatalf("fake %+v", h)
+	}
+	p := r.project(t, c, q)
+	var list []model.ImportableSession
+	if err := run(t, q, func() (err error) { list, err = c.Importable(context.Background(), p.ID, "fake"); return }); err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 || !list[0].Active || list[1].Title != "Fix the login redirect" {
+		t.Fatalf("importable %+v", list)
+	}
+	var s model.Session
+	if err := run(t, q, func() (err error) {
+		s, err = c.Import(context.Background(), ImportSession{ProjectID: p.ID, Harness: "fake", NativeID: list[1].ID, Mode: "auto"})
+		return
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if s.NativeID != list[1].ID || s.Title != "Fix the login redirect" || c.Sessions[s.ID] == nil {
+		t.Fatalf("imported %+v", s)
+	}
+	store := c.SessionStore(s.ID)
+	store.Activate()
+	eventually(t, q, "the transcript", func() bool { return len(store.SortedTurns()) == 2 && len(store.Transcript) == 7 })
+	job := store.Send("carry on", nil, false)
+	if err := run(t, q, func() error { return job(context.Background()) }); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, q, "the reply", func() bool {
+		return strings.HasPrefix(lastText(store, model.ItemAssistantMessage), "Picked up "+list[1].ID)
+	})
+}
+
 func TestRadApprovalsAndQuestions(t *testing.T) {
 	r := startRad(t)
 	c, q, _ := r.connect(t)

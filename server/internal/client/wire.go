@@ -97,6 +97,19 @@ type ForkSession struct {
 	Draft     bool
 }
 
+// ImportSession is session.import's params, less the commandId: the
+// agent's own session NativeID, which ran in the project's folder outside
+// rad (Importable lists them). Model, Effort and Mode are what it goes on
+// with; empty, the harness's defaults. Only for harnesses with caps.import.
+type ImportSession struct {
+	ProjectID string `json:"projectId"`
+	Harness   string `json:"harness"`
+	NativeID  string `json:"nativeId"`
+	Model     string `json:"model,omitempty"`
+	Effort    string `json:"effort,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+}
+
 // CommitPreview is git.commitPreview's result: what git.commit would
 // commit in a session, and a message for it.
 type CommitPreview struct {
@@ -151,6 +164,10 @@ type harnessList struct {
 
 type taskList struct {
 	Tasks []model.Task `json:"tasks"`
+}
+
+type importableList struct {
+	Sessions []model.ImportableSession `json:"sessions"`
 }
 
 type commandList struct {

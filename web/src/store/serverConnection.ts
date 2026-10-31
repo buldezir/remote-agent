@@ -4,6 +4,7 @@ import type {
   FSListing,
   HarnessInfo,
   ImageRef,
+  ImportableSession,
   Project,
   ServerInfo,
   ServerSettings,
@@ -57,6 +58,17 @@ export interface ForkParams {
   mode?: string;
   workspace?: { kind: "root" | "worktree"; branch?: string };
   prompt?: string;
+}
+
+/** `session.import`'s request: the agent's session `nativeId`, which ran in
+ *  the project's folder, and what it goes on with, as in `session.create`. */
+export interface ImportParams {
+  projectId: string;
+  harness: string;
+  nativeId: string;
+  model?: string;
+  effort?: string;
+  mode?: string;
 }
 
 /** `git.commit`'s request: how far to go. A pull request pushes too. */
@@ -512,6 +524,23 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
    *  `createSession` makes one. */
   async fork(p: ForkParams): Promise<Session> {
     const s = await this.deliver<Session>("session.fork", { commandId: crypto.randomUUID(), ...p }, 90);
+    this.sessions.set(s.id, s);
+    this.changed();
+    return s;
+  }
+
+  /** The sessions the agent ran in the project's folder outside rad, such
+   *  as in a terminal, newest first. The server reads the agent's files,
+   *  which may take a while the first time. */
+  async importable(projectId: string, harness: string): Promise<ImportableSession[]> {
+    const r = await this.client.call<{ sessions?: ImportableSession[] }>("session.importable", { projectId, harness }, 60);
+    return r.sessions ?? [];
+  }
+
+  /** A session made of one the agent ran outside rad, whose next prompt
+   *  goes on with the agent's own conversation, as `createSession` makes one. */
+  async importSession(p: ImportParams): Promise<Session> {
+    const s = await this.deliver<Session>("session.import", { commandId: crypto.randomUUID(), ...p }, 90);
     this.sessions.set(s.id, s);
     this.changed();
     return s;

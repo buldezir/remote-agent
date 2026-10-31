@@ -12,6 +12,7 @@ import dev.remoteagent.core.protocol.Event
 import dev.remoteagent.core.protocol.FSListing
 import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ImageRef
+import dev.remoteagent.core.protocol.ImportableSession
 import dev.remoteagent.core.protocol.Project
 import dev.remoteagent.core.protocol.ServerInfo
 import dev.remoteagent.core.protocol.ServerSettings
@@ -489,6 +490,31 @@ class ServerConnection(
         return s
     }
 
+    // Picking up a session from the terminal (protocol/PROTOCOL.md); only for an agent whose `caps.import` is true.
+
+    /**
+     * The sessions the agent ran in the project's folder outside rad, such as
+     * in a terminal, newest first. rad reads the agent's files for them, which
+     * may take a moment.
+     */
+    suspend fun importable(projectID: String, harness: String): List<ImportableSession> {
+        // The list may open as the app comes back, before the socket does.
+        withTimeoutOrNull(10.seconds) { waitUntilConnected() }
+        return client.call<ImportableList>("session.importable", params("projectId" to projectID, "harness" to harness), 60.seconds).sessions
+    }
+
+    /**
+     * Picks up one of the agent's own sessions (`importable`) as a session of
+     * rad's, whose next prompt goes on with it. Sent again after a drop with
+     * the same commandId, as `createSession` is.
+     */
+    suspend fun importSession(p: ImportSession): Session {
+        val imported = deliver("session.import", WireCoding.json.encodeToJsonElement(p), 90.seconds)
+        val s: Session = WireCoding.json.decodeFromJsonElement(imported)
+        _sessions.value += s.id to s
+        return s
+    }
+
     /**
      * Keeps a prompt in the session, unsent, for any device to send later
      * (`SessionStore.sendDraft`), replacing the one it had; no text and no
@@ -620,6 +646,9 @@ private data class HarnessList(val harnesses: List<HarnessInfo> = emptyList())
 private data class TaskList(val tasks: List<ServerTask> = emptyList())
 
 @Serializable
+private data class ImportableList(val sessions: List<ImportableSession> = emptyList())
+
+@Serializable
 data class Branches(val branches: List<String> = emptyList(), val current: String = "")
 
 @Serializable
@@ -665,6 +694,23 @@ data class ForkSession(
     val images: List<String>? = null,
     val title: String? = null,
     val draft: Boolean? = null,
+)
+
+/**
+ * `session.import`'s params: the agent's own session `nativeId`, which ran in
+ * the project's folder (`ServerConnection.importable` lists them). The model,
+ * effort and mode are what it goes on with; null isn't sent, and rad takes
+ * the agent's defaults.
+ */
+@Serializable
+data class ImportSession(
+    val commandId: String = UUID.randomUUID().toString(),
+    val projectId: String,
+    val harness: String,
+    val nativeId: String,
+    val model: String? = null,
+    val effort: String? = null,
+    val mode: String? = null,
 )
 
 // Derived

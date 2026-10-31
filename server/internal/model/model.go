@@ -379,6 +379,17 @@ type HarnessCaps struct {
 	Login       bool `json:"login,omitempty"`   // harness.login signs the CLI in again
 	OneShot     bool `json:"oneShot,omitempty"` // can be the system agent (ServerSettings)
 	Steer       bool `json:"steer,omitempty"`   // takes a prompt into the running turn (session.steer)
+	Import      bool `json:"import,omitempty"`  // picks up the agent's own sessions (session.importable, session.import)
+}
+
+// ImportableSession is a session the agent ran outside rad, such as in a
+// terminal, which session.import picks up.
+type ImportableSession struct {
+	ID        string    `json:"id"`               // the agent's own id for it, the session's nativeId once imported
+	Title     string    `json:"title"`            // the agent's or the user's name for it, else its first prompt
+	Messages  int       `json:"messages"`         // the prompts and the agent's replies
+	UpdatedAt time.Time `json:"updatedAt"`        // when the agent last wrote to it
+	Active    bool      `json:"active,omitempty"` // written in the last minute: it may still run in a terminal
 }
 
 type HarnessInfo struct {

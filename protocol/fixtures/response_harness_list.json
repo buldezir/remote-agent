@@ -62,7 +62,8 @@
           "update": true,
           "login": true,
           "oneShot": true,
-          "steer": true
+          "steer": true,
+          "import": true
         }
       },
       {

@@ -480,6 +480,52 @@ public final class ServerConnection {
         return s
     }
 
+    // MARK: Picking up the agent's own sessions
+
+    /// The sessions an agent ran in the project's folder outside rad, such as
+    /// in a terminal, the newest first. Only for an agent whose
+    /// `caps.import` is true. It reads the agent's files, which may take a
+    /// while the first time.
+    public func importable(projectID: String, harness: String) async throws -> [ImportableSession] {
+        struct Res: Decodable, Sendable { var sessions: [ImportableSession]? }
+        let r: Res = try await client.call("session.importable", ["projectId": projectID, "harness": harness], timeout: 60)
+        return r.sessions ?? []
+    }
+
+    /// A session of the agent's own (`importable`) to pick up. Left nil, the
+    /// model, effort and mode are the agent's defaults.
+    public struct ImportSession: Encodable, Sendable {
+        public var commandId = UUID().uuidString
+        public var projectId: String
+        public var harness: String
+        /// The agent's id for it: `ImportableSession.id`.
+        public var nativeId: String
+        public var model: String?
+        public var effort: String?
+        public var mode: String?
+        public var title: String?
+
+        public init(projectId: String, harness: String, nativeId: String, model: String? = nil,
+                    effort: String? = nil, mode: String? = nil, title: String? = nil) {
+            self.projectId = projectId
+            self.harness = harness
+            self.nativeId = nativeId
+            self.model = model
+            self.effort = effort
+            self.mode = mode
+            self.title = title
+        }
+    }
+
+    /// Picks up one of the agent's own sessions (`session.import`), as
+    /// `createSession` creates one: a session in the project folder with the
+    /// conversation so far, whose next prompt goes on with it.
+    public func importSession(_ p: ImportSession) async throws -> Session {
+        let s: Session = try await deliver("session.import", p, timeout: 90)
+        sessions[s.id] = s
+        return s
+    }
+
     /// Keeps a prompt in the session to send later, from any device, in place
     /// of the draft it had; no text and no images remove it. The session the
     /// server returns goes into the index at once, so the views change before

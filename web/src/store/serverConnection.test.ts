@@ -375,6 +375,64 @@ describe("ServerConnection", () => {
     }
   });
 
+  it("lists and imports an agent's own sessions", async () => {
+    const server = new TestServer();
+    const at = "2026-10-09T12:00:00Z";
+    const terminal = [
+      { id: "t2", title: "Add a dark theme", messages: 6, updatedAt: at, active: true },
+      { id: "t1", title: "Fix the login redirect", messages: 4, updatedAt: "2026-10-09T10:00:00Z" },
+    ];
+    server.handlers["session.importable"] = (p) => (p.projectId === "p1" ? { sessions: terminal } : new RPCError("not_found", "no such project"));
+    server.handlers["session.import"] = (p) => ({
+      id: "s9",
+      projectId: p.projectId,
+      harness: p.harness,
+      nativeId: p.nativeId,
+      model: p.model,
+      workspace: { kind: "root", path: "/p" },
+      status: "idle",
+      title: "Fix the login redirect",
+      archived: false,
+      createdAt: at,
+      updatedAt: at,
+    });
+    const c = await connect(server);
+    try {
+      expect(await c.importable("p1", "claude")).toEqual(terminal);
+      await expect(c.importable("p2", "claude")).rejects.toMatchObject({ code: "not_found" });
+      expect(server.calls.filter((m) => m.method === "session.importable").map((m) => m.params)).toEqual([
+        { projectId: "p1", harness: "claude" },
+        { projectId: "p2", harness: "claude" },
+      ]);
+      // An older server's answer, without any.
+      server.handlers["session.importable"] = () => ({});
+      expect(await c.importable("p1", "claude")).toEqual([]);
+
+      // Sent on a dead socket, it goes again on the new one with the same
+      // commandId, and the session joins the index at once.
+      server.quiet();
+      const s = await c.importSession({ projectId: "p1", harness: "claude", nativeId: "t1", model: "opus", mode: "default" });
+      expect(s).toMatchObject({ id: "s9", nativeId: "t1", model: "opus" });
+      expect(c.sessions.get("s9")?.nativeId).toBe("t1");
+      const imports = server.calls.filter((m) => m.method === "session.import");
+      expect(imports.map((m) => m.connection)).toEqual([0, 1]);
+      expect(new Set(imports.map((m) => m.commandId)).size).toBe(1);
+      expect(imports[0].commandId).toMatch(/^[0-9a-f-]{36}$/);
+      const { commandId, ...params } = imports[1].params;
+      expect(commandId).toBe(imports[0].commandId);
+      expect(params).toEqual({ projectId: "p1", harness: "claude", nativeId: "t1", model: "opus", mode: "default" });
+
+      // Another import is another command.
+      await c.importSession({ projectId: "p1", harness: "claude", nativeId: "t2" });
+      const again = server.calls.filter((m) => m.method === "session.import");
+      expect(again).toHaveLength(3);
+      expect(again[2].commandId).not.toBe(imports[0].commandId);
+    } finally {
+      c.stop();
+      await server.stop();
+    }
+  });
+
   it("delivers a draft saved or sent on a dead socket after reconnecting", async () => {
     const server = new TestServer();
     const at = "2026-10-09T12:00:00Z";

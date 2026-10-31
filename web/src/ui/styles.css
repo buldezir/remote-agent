@@ -1017,6 +1017,24 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
 }
 .commit-output .task-output { align-self: stretch; }
 
+/* Picking up a session the agent ran in a terminal */
+.import-row { text-align: left; }
+.import-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.import-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+.import-warning > svg { margin-top: 0.2em; }
+.import-row .relative-time { font-size: inherit; color: inherit; }
+.import-error { gap: 10px; }
+
 .folder-row { text-align: left; }
 .folder-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .chip-tag {

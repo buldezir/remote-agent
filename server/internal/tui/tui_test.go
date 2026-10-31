@@ -1002,3 +1002,67 @@ func TestCommitsPushesAndOpensAPullRequest(t *testing.T) {
 	}
 	u.key("esc")
 }
+
+// The new session form picks up a session the agent ran in the terminal:
+// the fake's two, the one written just now with a warning.
+func TestContinuesATerminalSession(t *testing.T) {
+	u := startUI(t, 120, 44)
+	u.key("ctrl+n")
+	u.waitFor("New Session")
+	u.key("enter")
+	u.key("enter")
+	u.waitFor("▸ /")
+	u.key("a")
+	u.waitFor("Continue a terminal session…")
+	for {
+		var on bool
+		u.inspect(func(m *Model) {
+			ns, ok := m.topOverlay().(*newSession)
+			on = ok && ns.field == fieldImport
+		})
+		if on {
+			break
+		}
+		u.key("down")
+	}
+	u.key("enter")
+	s := u.waitFor("Fix the login redirect")
+	for _, want := range []string{"Terminal Sessions", "Add a dark theme to the settings page", "6 messages · just now",
+		"⚠ Active in the last minute", "4 messages · 2h ago", "Picks up a session Fake (scripted) ran in this folder"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in\n%s", want, s)
+		}
+	}
+	u.key("down")
+	u.key("enter")
+	u.waitFor("Picked up from Fake (scripted)")
+	u.key("carry on")
+	u.key("enter")
+	s = u.waitFor("Echo: carry on")
+	if !strings.Contains(s, "Picked up terminal-1-") || !strings.Contains(s, "Done in the terminal: add a test for it.") {
+		t.Errorf("no resumed reply or transcript in\n%s", s)
+	}
+
+	// Picked up, it's gone from the list.
+	u.key("ctrl+n")
+	u.waitFor("New Session")
+	for {
+		var on bool
+		u.inspect(func(m *Model) {
+			ns, ok := m.topOverlay().(*newSession)
+			on = ok && ns.field == fieldImport
+		})
+		if on {
+			break
+		}
+		u.key("up")
+	}
+	u.key("enter")
+	u.waitFor("Add a dark theme")
+	u.inspect(func(m *Model) {
+		il, ok := m.topOverlay().(*importList)
+		if !ok || len(il.sessions) != 1 || il.sessions[0].Title != "Add a dark theme to the settings page" {
+			t.Errorf("listed after the import: %#v", m.topOverlay())
+		}
+	})
+}

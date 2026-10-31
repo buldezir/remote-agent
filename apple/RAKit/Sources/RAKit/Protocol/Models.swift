@@ -384,6 +384,35 @@ public struct HarnessCaps: Codable, Hashable, Sendable {
     public var oneShot: Bool?
     /// The agent takes a prompt into the running turn (`session.steer`).
     public var steer: Bool?
+    /// The agent picks up its own sessions, such as the ones run in a
+    /// terminal (`session.importable`, `session.import`).
+    public var `import`: Bool?
+}
+
+/// A session the agent ran outside rad, such as in a terminal, which
+/// `ServerConnection.importSession` picks up (`session.importable`).
+public struct ImportableSession: Codable, Hashable, Identifiable, Sendable {
+    /// The agent's own id for it, the session's `nativeId` once imported.
+    public var id: String
+    /// The agent's or the user's name for it, else its first prompt.
+    public var title: String
+    /// The prompts and the agent's replies.
+    public var messages: Int
+    /// When the agent last wrote to it.
+    public var updatedAt: Date
+    /// Written in the last minute: it may still run in a terminal, which
+    /// would write over the session once it's picked up.
+    public var active: Bool?
+
+    public var isActive: Bool { active == true }
+
+    public init(id: String, title: String, messages: Int, updatedAt: Date, active: Bool? = nil) {
+        self.id = id
+        self.title = title
+        self.messages = messages
+        self.updatedAt = updatedAt
+        self.active = active
+    }
 }
 
 public struct HarnessInfo: Codable, Hashable, Identifiable, Sendable {

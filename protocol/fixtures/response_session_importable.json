@@ -1,0 +1,20 @@
+{
+  "id": 14,
+  "result": {
+    "sessions": [
+      {
+        "id": "5b0e7c1a-2f4d-4c8e-9a61-3d7f2b8e4c90",
+        "title": "Fix the flaky login test",
+        "messages": 12,
+        "updatedAt": "2026-10-09T12:00:05Z",
+        "active": true
+      },
+      {
+        "id": "9e8d7c6b-5a49-4382-a1b0-c9d8e7f6a5b4",
+        "title": "Add a changelog",
+        "messages": 2,
+        "updatedAt": "2026-10-09T12:00:00Z"
+      }
+    ]
+  }
+}

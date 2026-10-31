@@ -600,6 +600,10 @@ type contentBlock struct {
 	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"`
 	IsError   bool            `json:"is_error"`
+	Source    *struct {
+		Type string `json:"type"`
+		Data string `json:"data"`
+	} `json:"source"` // image
 }
 
 type message struct {
@@ -792,6 +796,11 @@ func (r *runtime) onWorktree(tool string, result json.RawMessage) {
 // result splits a tool result into its text and images, e.g. a screenshot
 // from an MCP tool or an image file Read returned.
 func (r *runtime) result(raw json.RawMessage) (string, []model.ImageRef) {
+	return toolResult(raw, r.keepImage)
+}
+
+// toolResult splits a tool result into its text and the images keep kept.
+func toolResult(raw json.RawMessage, keep func(sourceType, data string) (model.ImageRef, bool)) (string, []model.ImageRef) {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return s, nil
@@ -810,7 +819,7 @@ func (r *runtime) result(raw json.RawMessage) (string, []model.ImageRef) {
 	for _, p := range parts {
 		text := p.Text
 		if p.Type == "image" {
-			if ref, ok := r.keepImage(p.Source.Type, p.Source.Data); ok {
+			if ref, ok := keep(p.Source.Type, p.Source.Data); ok {
 				images = append(images, ref)
 				continue
 			}

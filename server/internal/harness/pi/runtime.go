@@ -489,6 +489,16 @@ type message struct {
 	StopReason   string          `json:"stopReason"`
 	ErrorMessage string          `json:"errorMessage"`
 	Usage        *usage          `json:"usage"`
+	Timestamp    int64           `json:"timestamp"` // ms
+
+	// toolResult, in a session file
+	ToolCallID string `json:"toolCallId"`
+	IsError    bool   `json:"isError"`
+	// bashExecution, the user's own command, in a session file
+	Command   string `json:"command"`
+	Output    string `json:"output"`
+	ExitCode  *int   `json:"exitCode"`
+	Cancelled bool   `json:"cancelled"`
 }
 
 // usage is what a model call took, in a message or a compaction.
@@ -517,6 +527,9 @@ type block struct {
 	ID        string          `json:"id"`
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
+	Redacted  bool            `json:"redacted"` // thinking
+	Data      string          `json:"data"`     // image, base64
+	MimeType  string          `json:"mimeType"`
 }
 
 type toolResult struct {

@@ -49,6 +49,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.remoteagent.app.platform.AppSettings.Keys
 import dev.remoteagent.core.protocol.FSListing
 import dev.remoteagent.core.protocol.HarnessInfo
+import dev.remoteagent.core.protocol.Project
 import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.Workspace
 import dev.remoteagent.core.store.NewSession
@@ -62,7 +63,8 @@ private const val CUSTOM = "__custom"
 
 /**
  * "New session", in `projectId` when given, else in the project used last.
- * `onCreated` gets the new session, and whether it started empty, without a
+ * `onCreated` gets the new session, or one picked up from the agent's own
+ * (Continue a terminal session…), and whether it started empty, without a
  * prompt. Mirrors apple/Shared/Views/NewSessionView.swift.
  */
 @Composable
@@ -88,6 +90,8 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     // Why the chosen project wasn't forgotten, beside its Forget button.
     var forgetError by remember { mutableStateOf<String?>(null) }
     var browsing by remember { mutableStateOf(false) }
+    // The agent's sessions from outside Remote Agent, to pick one up instead.
+    var importing by rememberSaveable { mutableStateOf(false) }
     val attachments = rememberAttachments(connection) { error = it }
 
     val project = projects[projectID]
@@ -131,6 +135,15 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
         if (project?.isGitRepo == true) branches = runCatching { connection.branches(projectID).branches }.getOrDefault(emptyList())
     }
 
+    // The next form starts from them.
+    suspend fun rememberChoices(p: Project, h: HarnessInfo) {
+        settings.put(Keys.lastHarness, h.id)
+        settings.put(Keys.lastProject, p.id)
+        settings.put(Keys.lastModel(h.id), chosenModel ?: "")
+        settings.put(Keys.lastEffort(h.id), effort)
+        settings.put(Keys.lastMode(h.id), mode)
+    }
+
     // As a draft, the prompt waits in the new session, unsent, for any device to send.
     fun create(asDraft: Boolean = false) {
         val p = project ?: return
@@ -153,11 +166,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                         draft = true.takeIf { asDraft },
                     ),
                 )
-                settings.put(Keys.lastHarness, h.id)
-                settings.put(Keys.lastProject, p.id)
-                settings.put(Keys.lastModel(h.id), chosenModel ?: "")
-                settings.put(Keys.lastEffort(h.id), effort)
-                settings.put(Keys.lastMode(h.id), mode)
+                rememberChoices(p, h)
                 // As rad decides whether to start a turn. A draft is there to
                 // read, so the prompt doesn't take the keyboard.
                 onCreated(s, !asDraft && prompt.isBlank() && attachments.refs.isEmpty())
@@ -249,6 +258,21 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                     )
                 }
 
+                // Only an agent that can pick up its own sessions offers them.
+                if (project != null && harness?.caps?.import == true) {
+                    FormSection {
+                        Row(
+                            Modifier.fillMaxWidth().clickable(enabled = !creating, role = Role.Button) { importing = true }.padding(12.dp)
+                                .testTag("continue-terminal-session"),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(painterResource(Icons.terminal), null, tint = palette.accent)
+                            Text("Continue a terminal session…", color = palette.accent, style = Type.body, modifier = Modifier.weight(1f))
+                            Icon(painterResource(Icons.chevronRight), null, tint = palette.overlay)
+                        }
+                    }
+                }
+
                 if (project?.isGitRepo == true) {
                     FormSection(
                         "Workspace",
@@ -301,6 +325,21 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                 error?.let { FormError(it) }
             }
         }
+    }
+
+    val p = project
+    val h = harness
+    if (importing && p != null && h != null && h.caps.import) {
+        ImportSessionDialog(
+            connection, p, h, model = chosenModel, effort = effort.ifEmpty { null }, mode = mode.ifEmpty { null },
+            onDismiss = { importing = false },
+            onImported = { s ->
+                rememberChoices(p, h)
+                importing = false
+                // It opens at the conversation so far, ready for the next prompt.
+                onCreated(s, true)
+            },
+        )
     }
 
     if (browsing) {

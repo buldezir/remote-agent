@@ -29,7 +29,8 @@
 // in use.
 //
 // The reply counts the images attached to the prompt. A fork's first reply
-// names the conversation and the point it was forked from.
+// names the conversation and the point it was forked from, and so does the
+// first reply of a session picked up from its terminal sessions (import.go).
 package fake
 
 import (
@@ -302,6 +303,8 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 	}
 	if r.opts.Fork && n == 1 {
 		reply = fmt.Sprintf("Forked %s at %s. %s", r.opts.ResumeID, r.opts.ForkAt, reply)
+	} else if strings.HasPrefix(r.opts.ResumeID, "terminal-") && n == 1 {
+		reply = fmt.Sprintf("Picked up %s. %s", r.opts.ResumeID, reply)
 	}
 	// Each reply streams word by word. A prompt steered in meanwhile cuts it
 	// short and gets a reply of its own, after it; the turn ends once none

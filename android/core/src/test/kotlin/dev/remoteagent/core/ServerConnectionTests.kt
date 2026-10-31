@@ -13,6 +13,7 @@ import dev.remoteagent.core.protocol.Workspace
 import dev.remoteagent.core.store.ConnectionState
 import dev.remoteagent.core.store.ForkSession
 import dev.remoteagent.core.store.ImageCache
+import dev.remoteagent.core.store.ImportSession
 import dev.remoteagent.core.store.NewSession
 import dev.remoteagent.core.store.SavedServer
 import dev.remoteagent.core.store.ServerConnection
@@ -364,6 +365,94 @@ class ServerConnectionTests {
             ),
             rad.nextCall("session.fork")["params"],
         )
+        withContext(dispatcher) { c.stop() }
+    }
+
+    @Test
+    fun importListsTheAgentsSessionsAndPicksOneUp() = runBlocking {
+        rad.answer = { r, method, params ->
+            when (method) {
+                "session.importable" -> buildJsonObject {
+                    put(
+                        "sessions",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("id", "n2")
+                                    put("title", "Add a dark theme")
+                                    put("messages", 6)
+                                    put("updatedAt", "2026-10-09T12:00:30Z")
+                                    put("active", true)
+                                },
+                                buildJsonObject {
+                                    put("id", "n1")
+                                    put("title", "Fix the login redirect")
+                                    put("messages", 4)
+                                    put("updatedAt", "2026-10-09T10:00:00Z")
+                                },
+                            ),
+                        ),
+                    )
+                }
+                "session.import" -> session("s4")
+                else -> answerDrafts(r, method, params)
+            }
+        }
+        server.upgrade(rad)
+        val c = connect()
+        withTimeout(5.seconds) { c.indexSynced.first { it } }
+
+        val list = withContext(dispatcher) { c.importable("p1", "fake") }
+        assertEquals(params("projectId" to "p1", "harness" to "fake"), rad.nextCall("session.importable")["params"])
+        assertEquals(listOf("n2", "n1"), list.map { it.id })
+        assertEquals(listOf(true, false), list.map { it.active })
+        assertEquals(listOf(6, 4), list.map { it.messages })
+
+        // Nothing chosen: rad takes the agent's defaults.
+        val s = withContext(dispatcher) { c.importSession(ImportSession(commandId = "c1", projectId = "p1", harness = "fake", nativeId = "n1")) }
+        assertEquals(
+            params("commandId" to "c1", "projectId" to "p1", "harness" to "fake", "nativeId" to "n1"),
+            rad.nextCall("session.import")["params"],
+        )
+        // In the lists at once, without waiting for the event.
+        assertEquals("s4", s.id)
+        assertTrue("s4" in c.sessions.value)
+
+        // The form's options, and a commandId of its own each time.
+        withContext(dispatcher) {
+            c.importSession(ImportSession(projectId = "p1", harness = "fake", nativeId = "n2", model = "m", effort = "high", mode = "ask"))
+        }
+        val sent = rad.nextCall("session.import")["params"] as JsonObject
+        assertEquals(
+            params("projectId" to "p1", "harness" to "fake", "nativeId" to "n2", "model" to "m", "effort" to "high", "mode" to "ask"),
+            JsonObject(sent - "commandId"),
+        )
+        assertTrue(sent.getValue("commandId").jsonPrimitive.content.let { it.isNotEmpty() && it != "c1" })
+        withContext(dispatcher) { c.stop() }
+    }
+
+    @Test
+    fun importSentOnADeadSocketIsDeliveredAfterReconnecting() = runBlocking {
+        next.answer = { _, method, _ ->
+            when (method) {
+                "server.info" -> FakeRad.serverInfo
+                "session.import" -> session("s4")
+                else -> JsonObject(emptyMap())
+            }
+        }
+        server.upgrade(rad)
+        server.upgrade(next)
+        val c = connect(base = relay.value.base, pingInterval = 100.milliseconds)
+        withTimeout(5.seconds) { c.state.first { it == ConnectionState.Connected } }
+
+        relay.value.quiet()
+        val s = withContext(dispatcher) { c.importSession(ImportSession(projectId = "p1", harness = "fake", nativeId = "n1")) }
+
+        // Sent again on the new socket, with the same commandId, so rad picks it up once.
+        assertEquals(2, relay.value.connectionCount)
+        assertEquals(commandId(rad.nextCall("session.import")), commandId(next.nextCall("session.import")))
+        assertEquals("s4", s.id)
+        assertTrue("s4" in c.sessions.value)
         withContext(dispatcher) { c.stop() }
     }
 
