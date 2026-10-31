@@ -347,21 +347,39 @@ export function installable(u: UpdateInfo): boolean {
   return u.available && !!u.via;
 }
 
-export type TaskKind = Open<"update_server" | "update_agent" | "login">;
+export type TaskKind = Open<"update_server" | "update_agent" | "login" | "commit">;
 export type TaskStatus = Open<"running" | "succeeded" | "failed" | "cancelled">;
+/** Unknown counts as pending. */
+export type TaskStepStatus = Open<"pending" | "running" | "succeeded" | "skipped" | "failed">;
 
-/** A maintenance job on the server: updating rad or an agent, or signing an
- *  agent in. Clients poll it (`task.get`) while it runs. */
+/** One step of a task, as it gets there: a commit's "commit", "push" and
+ *  "pull_request". */
+export interface TaskStep {
+  id: string;
+  title: string;
+  status: TaskStepStatus;
+  /** What it did, or does now, or why it failed. */
+  detail?: string;
+}
+
+/** A job on the server: updating rad or an agent, signing an agent in, or
+ *  committing a session's changes. Clients poll it (`task.get`) while it
+ *  runs. */
 export interface ServerTask {
   id: string;
   kind: TaskKind;
   /** The agent, for update_agent and login. */
   harness?: string;
+  /** The session, for commit. */
+  sessionId?: string;
   /** Anything but running has ended; an unknown status counts as failed. */
   status: TaskStatus;
+  /** What it does, in order. */
+  steps?: TaskStep[];
   /** What the command printed, as a terminal shows it, without colours. */
   output: string;
-  /** The last web address in the output, such as a sign-in page. */
+  /** The last web address in the output, such as a sign-in page; for a
+   *  commit, the pull request. */
   url?: string;
   /** It takes typed lines now (`task.input`), such as a code to paste. */
   input?: boolean;
@@ -401,6 +419,23 @@ export interface Diff {
   truncated: boolean;
 }
 
+/** What `git.commit` would commit in a session, and a message for it
+ *  (`git.commitPreview`). */
+export interface CommitPreview {
+  /** Checked out where the agent works; absent: detached. */
+  branch?: string;
+  /** Everything uncommitted, untracked files included. */
+  files: FileStat[];
+  /** For the files, by the system agent or rad; "" without files. */
+  message: string;
+  /** Where a push goes; absent: nowhere. */
+  remote?: string;
+  /** The branch a pull request goes into; absent: the repository's default. */
+  base?: string;
+  /** The branch's commits its remote branch lacks (before the first push: that base lacks). */
+  ahead: number;
+}
+
 export interface ServerInfo {
   serverId: string;
   name: string;
@@ -416,6 +451,8 @@ export interface ServerInfo {
   drafts?: boolean;
   /** The server forks sessions (`session.fork`). */
   forks?: boolean;
+  /** The server commits, pushes and opens pull requests (`git.commitPreview`, `git.commit`). */
+  commit?: boolean;
 }
 
 /** A text frame on a terminal socket. The shell's output and the user's

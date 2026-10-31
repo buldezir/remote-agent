@@ -192,7 +192,7 @@ function TaskStatus({ phase, task, agent }: { phase: TaskPhase; task: ServerTask
 
 /** The command's output, kept scrolled to the end as it grows unless
  *  scrolled up to read. */
-function TaskOutput({ text }: { text: string }) {
+export function TaskOutput({ text }: { text: string }) {
   const ref = useRef<HTMLPreElement>(null);
   const atEnd = useRef(true);
   useLayoutEffect(() => {

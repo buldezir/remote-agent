@@ -1,4 +1,5 @@
 import type {
+  CommitPreview,
   Event,
   FSListing,
   HarnessInfo,
@@ -56,6 +57,15 @@ export interface ForkParams {
   mode?: string;
   workspace?: { kind: "root" | "worktree"; branch?: string };
   prompt?: string;
+}
+
+/** `git.commit`'s request: how far to go. A pull request pushes too. */
+export interface CommitParams {
+  sessionId: string;
+  /** The commit's message; empty: rad writes one. */
+  message?: string;
+  push?: boolean;
+  pullRequest?: boolean;
 }
 
 /** A live connection to one server: keeps the index (projects and sessions)
@@ -588,10 +598,36 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
     return task(await this.client.call<ServerTask>("task.get", { id }));
   }
 
-  /** The tasks that run on the server, and those that ended lately, oldest first. */
-  async tasks(): Promise<ServerTask[]> {
-    const r = await this.client.call<{ tasks?: ServerTask[] }>("task.list");
+  /** The tasks that run on the server, and those that ended lately, oldest
+   *  first: the server's own (updates and sign-ins), or a session's (its
+   *  commits). */
+  async tasks(sessionId?: string): Promise<ServerTask[]> {
+    const r = await this.client.call<{ tasks?: ServerTask[] }>("task.list", sessionId ? { sessionId } : undefined);
     return (r.tasks ?? []).map(task);
+  }
+
+  // Committing
+
+  /** What `commit` would commit in the session, and a message for it. The
+   *  server's system agent writes the message, which may take a minute. */
+  async commitPreview(sessionId: string): Promise<CommitPreview> {
+    const r = await this.client.call<CommitPreview>("git.commitPreview", { sessionId }, 90);
+    return { ...r, files: r.files ?? [], message: r.message ?? "", ahead: r.ahead ?? 0 };
+  }
+
+  /** Commits the session's changes, and pushes them and opens a pull
+   *  request as far as asked, as a task on the server. An empty message has
+   *  rad write one. A commit that runs for the session already is the answer. */
+  async commit(p: CommitParams): Promise<ServerTask> {
+    const message = p.message?.trim();
+    return task(
+      await this.client.call<ServerTask>("git.commit", {
+        sessionId: p.sessionId,
+        message: message || undefined,
+        push: p.push || p.pullRequest || undefined,
+        pullRequest: p.pullRequest || undefined,
+      }),
+    );
   }
 
   /** Types a line into the task's command, such as a code to paste. */

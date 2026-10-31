@@ -209,6 +209,9 @@ private fun SessionScreen(
     var showFork by rememberSaveable { mutableStateOf(false) }
     // A fork continues after a turn that ended, archived sessions' too.
     val canFork = info?.forks == true && session != null && turns.values.any { it.status != TurnStatus.RUNNING }
+    var showCommit by rememberSaveable { mutableStateOf(false) }
+    // Commits go in the folder the agent works in, between its turns.
+    val canCommit = info?.commit == true && project?.isGitRepo == true && session != null && !archived
     val listState = rememberLazyListState()
     val settings = LocalSettings.current
     val placementSetting by settings.state(Keys.terminalPlacement, TerminalPlacement.OVER.name)
@@ -408,6 +411,7 @@ private fun SessionScreen(
                     onChanges = { showDiff = true },
                     onTerminal = { showTerminal = !showTerminal },
                     onFork = if (canFork) ({ showFork = true }) else null,
+                    onCommit = if (canCommit) ({ showCommit = true }) else null,
                     onCommand = ::send,
                     onCopyPath = { path -> Platform.copy(context, path, "Path") },
                     onForceStop = { run { store.interrupt(force = true) } },
@@ -524,7 +528,13 @@ private fun SessionScreen(
 
     ErrorDialog(error, title = "Error") { error = null }
     if (showDiff && session != null) {
-        DiffDialog(store, canRevert = session.workspace.kind == Workspace.Kind.WORKTREE, onDismiss = { showDiff = false })
+        DiffDialog(
+            store, canRevert = session.workspace.kind == Workspace.Kind.WORKTREE, onDismiss = { showDiff = false },
+            onCommit = if (canCommit) ({ showDiff = false; showCommit = true }) else null,
+        )
+    }
+    if (showCommit && session != null) {
+        CommitDialog(connection, session.id, onDismiss = { showCommit = false })
     }
     if (showFork && session != null) {
         ForkSessionDialog(connection, store, onDismiss = { showFork = false }, onForked = { forked, empty ->
@@ -599,6 +609,8 @@ private fun SessionMenu(
     onTerminal: () -> Unit,
     // Null: the server or the session can't fork.
     onFork: (() -> Unit)?,
+    // Null: the server or the session can't commit.
+    onCommit: (() -> Unit)?,
     onCommand: (SlashCommand) -> Unit,
     onCopyPath: (String) -> Unit,
     onForceStop: () -> Unit,
@@ -615,6 +627,8 @@ private fun SessionMenu(
         if (isGitRepo) MenuItem("Changes", Icons.changes) { onDismiss(); onChanges() }
         if (terminal) MenuItem(if (showTerminal) "Hide Terminal" else "Terminal", Icons.terminal) { onDismiss(); onTerminal() }
         if (onFork != null) MenuItem("Fork…", Icons.fork) { onDismiss(); onFork() }
+        // Not while the agent works: it may be changing the files.
+        if (onCommit != null) MenuItem("Commit…", Icons.commit, enabled = !running) { onDismiss(); onCommit() }
         val commands = harness?.commands
         if (!commands.isNullOrEmpty()) {
             HorizontalDivider(color = palette.surface0)
@@ -636,7 +650,15 @@ private fun SessionMenu(
         if (session != null) {
             HorizontalDivider(color = palette.surface0)
             MenuHeader(projectName ?: "")
-            if (isGitRepo) MenuItem(session.workspace.branch ?: "Detached HEAD", Icons.branch, color = palette.subtext, enabled = true) {}
+            // The branch commits too, from here.
+            if (isGitRepo) {
+                MenuItem(session.workspace.branch ?: "Detached HEAD", Icons.branch, color = palette.subtext, enabled = true) {
+                    if (onCommit != null && !running) {
+                        onDismiss()
+                        onCommit()
+                    }
+                }
+            }
             if (session.workspace.kind == Workspace.Kind.WORKTREE) MenuItem("Worktree", Icons.folder, color = palette.subtext) {}
             MenuItem(session.workspace.path, Icons.copy, color = palette.subtext) { onDismiss(); onCopyPath(session.workspace.path) }
         }

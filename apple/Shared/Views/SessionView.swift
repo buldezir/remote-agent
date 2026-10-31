@@ -20,6 +20,9 @@ struct SessionView: View {
     @State private var error: String?
     @State private var showDiff = false
     @State private var showFork = false
+    @State private var showCommit = false
+    /// The commit sheet, opened from the changes over them.
+    @State private var showCommitFromDiff = false
     @State private var showTerminal = false
     @State private var terminalFocused = false
     @State private var height: CGFloat = 0
@@ -102,10 +105,19 @@ struct SessionView: View {
         .toolbar { toolbar }
         .sheet(isPresented: $showDiff) {
             NavigationStack {
-                DiffView(store: store, initialTurn: nil, canRevert: session?.workspace.kind == .worktree)
+                DiffView(store: store, initialTurn: nil, canRevert: session?.workspace.kind == .worktree,
+                         onCommit: canCommit ? { showCommitFromDiff = true } : nil)
+            }
+            .sheet(isPresented: $showCommitFromDiff) {
+                CommitView(connection: connection, sessionID: store.sessionID)
+                    .appStyle()
             }
             .presentationSizing(.page)
             .appStyle()
+        }
+        .sheet(isPresented: $showCommit) {
+            CommitView(connection: connection, sessionID: store.sessionID)
+                .appStyle()
         }
         .sheet(isPresented: $showFork) {
             if let s = session {
@@ -248,6 +260,12 @@ struct SessionView: View {
 
     private var canOpenTerminal: Bool {
         connection.info?.terminal == true && session?.archived == false
+    }
+
+    /// The server commits, in a git project, and the session isn't archived.
+    /// While the agent works, the menu item shows, but can't be chosen.
+    private var canCommit: Bool {
+        connection.commits && project?.isGitRepo == true && session?.archived == false
     }
 
     /// The server forks, and a turn ended to fork after. Archived sessions too.
@@ -730,6 +748,10 @@ struct SessionView: View {
                 if project?.isGitRepo == true {
                     Button("Changes", systemImage: "plusminus") { showDiff = true }
                 }
+                if canCommit {
+                    Button("Commit…", systemImage: "arrow.triangle.pull") { showCommit = true }
+                        .disabled(store.isRunning)
+                }
                 if canOpenTerminal {
                     Button(showTerminal ? "Hide Terminal" : "Terminal", systemImage: "apple.terminal") {
                         showTerminal.toggle()
@@ -751,7 +773,14 @@ struct SessionView: View {
                 }
                 if let s = session {
                     Section(project?.name ?? "") {
-                        if project?.isGitRepo == true {
+                        if canCommit {
+                            // The branch opens the commit sheet, as Commit… does.
+                            Button { showCommit = true } label: {
+                                Label(s.workspace.branch ?? "Detached HEAD", systemImage: "arrow.triangle.branch")
+                                Text("Commit…")
+                            }
+                            .disabled(store.isRunning)
+                        } else if project?.isGitRepo == true {
                             Label(s.workspace.branch ?? "Detached HEAD", systemImage: "arrow.triangle.branch")
                         }
                         if s.workspace.kind == .worktree {

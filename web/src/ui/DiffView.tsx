@@ -1,4 +1,16 @@
-import { ArrowRightLeft, ChevronLeft, ChevronRight, FileMinus, FilePen, FilePlus, TriangleAlert, Undo2, WrapText, type LucideIcon } from "lucide-react";
+import {
+  ArrowRightLeft,
+  ChevronLeft,
+  ChevronRight,
+  FileMinus,
+  FilePen,
+  FilePlus,
+  GitPullRequestArrow,
+  TriangleAlert,
+  Undo2,
+  WrapText,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Diff, FileStat, Turn } from "../protocol/models";
 import { useObserved } from "../store/observable";
@@ -7,8 +19,19 @@ import { patchLines, splitPatch } from "./patch";
 import { Confirm, Menu, Modal, Spinner } from "./primitives";
 import { settings, useSettings } from "./settings";
 
-/** The session's changes, or one turn's, file by file. */
-export function DiffView({ store, canRevert, onClose }: { store: SessionStore; canRevert: boolean; onClose: () => void }) {
+/** The session's changes, or one turn's, file by file. `onCommit`, where
+ *  rad commits, opens the commit sheet for them. */
+export function DiffView({
+  store,
+  canRevert,
+  onCommit,
+  onClose,
+}: {
+  store: SessionStore;
+  canRevert: boolean;
+  onCommit?: () => void;
+  onClose: () => void;
+}) {
   useObserved(store);
   const [scope, setScope] = useState("session"); // or a turn id
   const [diff, setDiff] = useState<Diff>();
@@ -136,6 +159,13 @@ export function DiffView({ store, canRevert, onClose }: { store: SessionStore; c
               ))}
             </section>
             {diff.truncated && <p className="form-footer">The patch was truncated; some files may show no lines.</p>}
+            {onCommit && (
+              <section className="form-section">
+                <button className="form-row link with-icon" disabled={store.isRunning} onClick={onCommit}>
+                  <GitPullRequestArrow size={16} /> Commit…
+                </button>
+              </section>
+            )}
           </>
         ) : (
           loading && (

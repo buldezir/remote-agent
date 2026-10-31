@@ -330,7 +330,7 @@ var helpSections = []struct {
 	{"Anywhere", [][2]string{
 		{"ctrl+n", "new session"},
 		{"ctrl+k", "jump to a session"},
-		{"ctrl+p", "actions: modes, commands, fork, archive, delete, settings"},
+		{"ctrl+p", "actions: modes, commands, commit, fork, archive, delete, settings"},
 		{"ctrl+x", "stop the agent"},
 		{"esc", "back: close what's open, or leave the session for the list"},
 		{"tab · shift+tab", "move between the list, the messages and the prompt"},

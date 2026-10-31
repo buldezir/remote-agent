@@ -5,6 +5,7 @@ import dev.remoteagent.core.net.RpcClient
 import dev.remoteagent.core.net.ServerMessage
 import dev.remoteagent.core.protocol.Approval
 import dev.remoteagent.core.protocol.BackgroundTask
+import dev.remoteagent.core.protocol.CommitPreview
 import dev.remoteagent.core.protocol.Diff
 import dev.remoteagent.core.protocol.FSListing
 import dev.remoteagent.core.protocol.FileStat
@@ -169,6 +170,7 @@ class FixtureTests {
         assertEquals(true, info.terminal)
         assertEquals(true, info.drafts)
         assertEquals(true, info.forks)
+        assertEquals(true, info.commit)
         assertEquals("dev1", info.deviceId)
     }
 
@@ -222,6 +224,40 @@ class FixtureTests {
         assertNull(list[1].harness)
         assertTrue(!list[1].input)
         assertTrue(list[1].error!!.contains("checksum"))
+
+        // A commit: the session's, its steps as they went, and its pull request.
+        val commit = result<ServerTask>("response_task_commit.json")
+        assertEquals(ServerTask.COMMIT, commit.kind)
+        assertEquals("s1", commit.sessionId)
+        assertNull(commit.harness)
+        assertEquals(listOf("commit", "push", "pull_request"), commit.steps.map { it.id })
+        assertEquals(
+            listOf(ServerTask.Step.Status.SKIPPED, ServerTask.Step.Status.SUCCEEDED, ServerTask.Step.Status.SUCCEEDED),
+            commit.steps.map { it.status },
+        )
+        assertEquals("Push to origin", commit.steps[1].title)
+        assertEquals("#12 Fix the flaky tests", commit.steps[2].detail)
+        assertEquals("https://github.com/me/app/pull/12", commit.url)
+        // A task without steps has none, and a step's unknown status decodes.
+        assertEquals(emptyList(), t.steps)
+        val step = WireCoding.json.decodeFromString(ServerTask.Step.serializer(), """{"id":"x","title":"X","status":"queued"}""")
+        assertEquals(ServerTask.Step.Status.UNKNOWN, step.status)
+        assertNull(step.detail)
+
+        val preview = result<CommitPreview>("response_commit_preview.json")
+        assertEquals("ra/fix-tests", preview.branch)
+        assertEquals(listOf("api_test.go", "notes.md"), preview.files.map { it.path })
+        assertEquals(listOf(FileStat.Status.MODIFIED, FileStat.Status.ADDED), preview.files.map { it.status })
+        assertEquals(4, preview.files[0].additions)
+        assertEquals("Fix the flaky tests\n\nWait for the server before dialing.", preview.message)
+        assertEquals("origin", preview.remote)
+        assertEquals("main", preview.base)
+        assertEquals(1, preview.ahead)
+        // Nothing to commit, no remote, a detached HEAD.
+        val clean = WireCoding.json.decodeFromString(CommitPreview.serializer(), """{"files":[],"message":"","ahead":0}""")
+        assertNull(clean.branch)
+        assertNull(clean.remote)
+        assertNull(clean.base)
 
         // A newer server's kinds and statuses decode: the kind as sent, the status as ended.
         val future = WireCoding.json.decodeFromString(

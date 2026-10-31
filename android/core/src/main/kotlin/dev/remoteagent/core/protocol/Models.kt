@@ -469,6 +469,26 @@ data class Diff(
     val truncated: Boolean = false,
 )
 
+/**
+ * What `git.commit` would commit in a session (`git.commitPreview`), and a
+ * message for it.
+ */
+@Serializable
+data class CommitPreview(
+    /** Checked out where the agent works; null: a detached HEAD. */
+    val branch: String? = null,
+    /** Everything uncommitted, untracked files included. */
+    val files: List<FileStat> = emptyList(),
+    /** The system agent's message for the files, or rad's; empty without files. */
+    val message: String = "",
+    /** Where a push goes; null: nowhere. */
+    val remote: String? = null,
+    /** The branch a pull request goes into; null: the repository's default. */
+    val base: String? = null,
+    /** The branch's commits its remote branch lacks (before its first push: that `base` lacks). */
+    val ahead: Int = 0,
+)
+
 @Serializable
 data class ServerInfo(
     val serverId: String,
@@ -486,6 +506,8 @@ data class ServerInfo(
     val drafts: Boolean? = null,
     /** The server forks sessions (`session.fork`); an older one answers `method_not_found`. */
     val forks: Boolean? = null,
+    /** The server commits, pushes and opens pull requests (`git.commitPreview`, `git.commit`). */
+    val commit: Boolean? = null,
 )
 
 /**
@@ -533,21 +555,26 @@ data class UpdateInfo(
 }
 
 /**
- * A maintenance job on the server: updating rad or an agent, or signing an
- * agent in. Clients poll it with `task.get` while it runs (ServerTaskProgress).
+ * A job on the server: updating rad or an agent, signing an agent in, or
+ * committing a session's changes. Clients poll it with `task.get` while it
+ * runs (ServerTaskProgress).
  */
 @Serializable
 data class ServerTask(
     val id: String,
-    /** `UPDATE_SERVER`, `UPDATE_AGENT` or `LOGIN`; a newer server's kinds are kept as sent. */
+    /** `UPDATE_SERVER`, `UPDATE_AGENT`, `LOGIN` or `COMMIT`; a newer server's kinds are kept as sent. */
     val kind: String,
     /** The agent, for an update or a login. */
     val harness: String? = null,
+    /** The session, for a commit. */
+    val sessionId: String? = null,
     /** UNKNOWN (a status this app doesn't know) counts as ended, as failed. */
     val status: Status,
+    /** What it does, in order, as it gets there: a commit's commit, push and pull request. */
+    val steps: List<Step> = emptyList(),
     /** The command's output as a terminal shows it, without colours: its last lines. */
     val output: String = "",
-    /** The last web address in the output, such as a sign-in page. */
+    /** The last web address in the output, such as a sign-in page; for a commit, its pull request. */
     val url: String? = null,
     /** It takes `task.input` now, such as a code to paste. */
     val input: Boolean = false,
@@ -566,10 +593,29 @@ data class ServerTask(
 
     val running: Boolean get() = status == Status.RUNNING
 
+    /** One step of a task: `id` is commit, push or pull_request for a commit. */
+    @Serializable
+    data class Step(
+        val id: String,
+        val title: String,
+        /** UNKNOWN (a status this app doesn't know) shows as pending. */
+        val status: Status,
+        /** What it did, or does now, or why it failed. */
+        val detail: String? = null,
+    ) {
+        @Serializable(with = Status.Serializer::class)
+        enum class Status(override val wire: String) : WireEnum {
+            PENDING("pending"), RUNNING("running"), SUCCEEDED("succeeded"), SKIPPED("skipped"), FAILED("failed"), UNKNOWN("unknown");
+
+            object Serializer : LenientEnumSerializer<Status>("ServerTask.Step.Status", entries.toTypedArray(), UNKNOWN)
+        }
+    }
+
     companion object {
         const val UPDATE_SERVER = "update_server"
         const val UPDATE_AGENT = "update_agent"
         const val LOGIN = "login"
+        const val COMMIT = "commit"
     }
 }
 

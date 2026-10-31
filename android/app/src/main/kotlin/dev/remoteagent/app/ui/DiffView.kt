@@ -55,9 +55,12 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** A session's or a turn's changes, and reverting a worktree. Mirrors apple/Shared/Views/DiffView.swift. */
+/**
+ * A session's or a turn's changes, and reverting a worktree; `onCommit`, if
+ * the session can commit, opens Commit. Mirrors apple/Shared/Views/DiffView.swift.
+ */
 @Composable
-fun DiffDialog(store: SessionStore, canRevert: Boolean, onDismiss: () -> Unit) {
+fun DiffDialog(store: SessionStore, canRevert: Boolean, onDismiss: () -> Unit, onCommit: (() -> Unit)? = null) {
     val scope = rememberCoroutineScope()
     val turns by store.turns.collectAsStateWithLifecycle()
     val session by store.session.collectAsStateWithLifecycle()
@@ -99,6 +102,11 @@ fun DiffDialog(store: SessionStore, canRevert: Boolean, onDismiss: () -> Unit) {
             title = { Text("Changes", style = Type.headline) },
             onBack = onDismiss, backIcon = Icons.close, backLabel = "Done", background = palette.mantle,
             actions = {
+                if (onCommit != null) {
+                    IconButton(onCommit, enabled = !running, modifier = Modifier.testTag("diff-commit")) {
+                        Icon(painterResource(Icons.commit), "Commit…", tint = if (running) palette.overlay else palette.accent)
+                    }
+                }
                 if (canRevert) {
                     Box {
                         TextButton({ revertMenu = true }, enabled = !running && revertible.isNotEmpty(), modifier = Modifier.testTag("revert")) {

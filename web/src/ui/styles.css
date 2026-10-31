@@ -983,6 +983,40 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   user-select: text;
 }
 
+/* Committing a session's changes */
+.commit-branch { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.commit-files {
+  max-height: 30vh;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+.commit-file {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 12px;
+}
+.commit-file-status { width: 1em; flex: none; text-align: center; }
+.commit-file-path { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 0.92em; }
+.commit-message { min-height: 96px; }
+.commit-scope { text-align: left; }
+.commit-scope:disabled { color: var(--subtext); }
+.commit-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+}
+.commit-steps { margin-top: 0; }
+.commit-step { align-items: flex-start; }
+.commit-step > svg { flex: none; margin-top: 2px; }
+.commit-output {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.commit-output .task-output { align-self: stretch; }
+
 .folder-row { text-align: left; }
 .folder-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .chip-tag {

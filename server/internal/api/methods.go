@@ -123,7 +123,8 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	o := c.s.orch
 	switch method {
 	case "server.info":
-		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true, Forks: true}, nil
+		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true, Forks: true,
+			Commit: c.s.Tasks != nil}, nil
 
 	case "device.unpair":
 		// The phone forgets this server: revoke its own token. The socket is
@@ -155,11 +156,13 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 		return c.s.updateServer(ctx)
 
 	case "task.list":
-		list := []model.Task{}
-		if c.s.Tasks != nil {
-			list = c.s.Tasks.List()
-		}
-		return map[string]any{"tasks": list}, nil
+		return call(raw, func(p sessionParams) (any, error) {
+			list := []model.Task{}
+			if c.s.Tasks != nil {
+				list = c.s.Tasks.List(p.SessionID)
+			}
+			return map[string]any{"tasks": list}, nil
+		})
 
 	case "task.get", "task.cancel", "task.input":
 		if c.s.Tasks == nil {
@@ -295,6 +298,12 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 			}
 			return map[string]any{"files": files}, err
 		})
+
+	case "git.commitPreview":
+		return call(raw, func(p sessionParams) (any, error) { return o.CommitPreview(ctx, p.SessionID) })
+
+	case "git.commit":
+		return call(raw, func(p orchestrator.CommitParams) (any, error) { return c.s.commit(ctx, p) })
 
 	case "git.branches":
 		return call(raw, func(p projectIDParams) (any, error) {

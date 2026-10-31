@@ -21,6 +21,9 @@ type ServerInfo struct {
 	Drafts bool `json:"drafts,omitempty"`
 	// Forks: the server forks sessions (session.fork).
 	Forks bool `json:"forks,omitempty"`
+	// Commit: the server commits, pushes and opens pull requests
+	// (git.commitPreview, git.commit).
+	Commit bool `json:"commit,omitempty"`
 }
 
 // PairResult is what POST /v1/pair returns.
@@ -92,6 +95,35 @@ type ForkSession struct {
 	Images    []model.ImageRef
 	Title     string
 	Draft     bool
+}
+
+// CommitPreview is git.commitPreview's result: what git.commit would
+// commit in a session, and a message for it.
+type CommitPreview struct {
+	Branch  string     `json:"branch,omitempty"` // absent: detached
+	Files   []FileStat `json:"files"`
+	Message string     `json:"message"` // "" with no files
+	Remote  string     `json:"remote,omitempty"`
+	Base    string     `json:"base,omitempty"`
+	Ahead   int        `json:"ahead"`
+}
+
+// FileStat is a file a diff or a commit changes.
+type FileStat struct {
+	Path      string `json:"path"`
+	OldPath   string `json:"oldPath,omitempty"`
+	Status    string `json:"status"` // added, modified, deleted, renamed
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Binary    bool   `json:"binary,omitempty"`
+}
+
+// CommitParams are git.commit's: what to go as far as.
+type CommitParams struct {
+	SessionID   string `json:"sessionId"`
+	Message     string `json:"message,omitempty"`
+	Push        bool   `json:"push,omitempty"`
+	PullRequest bool   `json:"pullRequest,omitempty"`
 }
 
 // Notification params.

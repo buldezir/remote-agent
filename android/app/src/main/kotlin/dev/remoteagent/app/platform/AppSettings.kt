@@ -77,6 +77,8 @@ class AppSettings(private val context: Context, private val scope: CoroutineScop
         val sidebarLayout = stringPreferencesKey(SidebarLayout.KEY)
         /** The Columns layout's collection: `SessionCollection.stored`. */
         val sessionCollection = stringPreferencesKey("sessionCollection")
+        /** How far the last commit from a session went: `CommitScope`'s name. */
+        val commitScope = stringPreferencesKey("commitScope")
         /** The sessions opened lately: `RecentSessions`. */
         val recentSessions = stringPreferencesKey("recentSessions")
     }

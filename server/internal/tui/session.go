@@ -667,6 +667,13 @@ func (v *sessionView) actions(m *Model) overlay {
 	if s.Workspace.Kind == model.WorkspaceWorktree {
 		items = append(items, menuItem{label: "Worktree", disabled: true})
 	}
+	if v.canCommit(m) {
+		commit := menuItem{label: "Commit…", run: v.commit}
+		if v.store.IsRunning() {
+			commit.disabled, commit.detail = true, "Once the agent's turn ends."
+		}
+		items = append(items, commit)
+	}
 	items = append(items, menuItem{label: "Copy Path", detail: path, run: func(m *Model) tea.Cmd {
 		m.say("Copied " + path)
 		return tea.SetClipboard(path)

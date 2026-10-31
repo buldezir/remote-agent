@@ -149,11 +149,61 @@ func TestRunFailsAndCancels(t *testing.T) {
 	if s := wait(t, m, slow.ID, ended); s.Status != model.TaskCancelled {
 		t.Fatalf("cancelled task %+v", s)
 	}
-	if got := m.List(); len(got) != 2 || got[0].ID != failing.ID {
+	if got := m.List(""); len(got) != 2 || got[0].ID != failing.ID {
 		t.Fatalf("list %+v", got)
 	}
 	if _, err := m.Get("nope"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("get unknown: %v", err)
+	}
+}
+
+func TestSessionTasks(t *testing.T) {
+	m := NewManager(nil)
+	defer m.Shutdown()
+	update := m.Start(model.TaskUpdateServer, "", func(ctx context.Context, t *Task) error {
+		t.Println("See https://example.com/notes")
+		return nil
+	})
+	release := make(chan struct{})
+	commit := m.StartForSession(model.TaskCommit, "s1", func(ctx context.Context, t *Task) error {
+		t.Step(model.TaskStep{ID: "commit", Title: "Commit", Status: model.StepRunning})
+		t.Println("Visit https://example.com/pull/new/x to open one")
+		<-release
+		t.Step(model.TaskStep{ID: "commit", Title: "Commit", Status: model.StepSucceeded, Detail: "abc1234 Fix"})
+		t.Step(model.TaskStep{ID: "push", Title: "Push", Status: model.StepSucceeded})
+		t.SetURL("https://example.com/pull/1")
+		return nil
+	})
+	if commit.SessionID != "s1" || commit.Harness != "" {
+		t.Fatalf("started %+v", commit)
+	}
+	// One per session: another start returns it, another session gets its own.
+	if again := m.StartForSession(model.TaskCommit, "s1", nil); again.ID != commit.ID {
+		t.Fatalf("second start made %s, not %s", again.ID, commit.ID)
+	}
+	other := m.StartForSession(model.TaskCommit, "s2", func(ctx context.Context, t *Task) error { return nil })
+	if other.ID == commit.ID {
+		t.Fatal("another session's commit is the first's")
+	}
+	// Only what the task sets is its url: not the output's.
+	s := wait(t, m, commit.ID, func(s model.Task) bool { return len(s.Steps) == 1 && s.Steps[0].Status == model.StepRunning })
+	if s.URL != "" {
+		t.Fatalf("url %q from the output", s.URL)
+	}
+	close(release)
+	s = wait(t, m, commit.ID, ended)
+	if s.Status != model.TaskSucceeded || s.URL != "https://example.com/pull/1" || len(s.Steps) != 2 || s.Steps[0].Detail != "abc1234 Fix" {
+		t.Fatalf("ended %+v", s)
+	}
+	if u := wait(t, m, update.ID, ended); u.URL != "https://example.com/notes" {
+		t.Fatalf("update's url %q", u.URL)
+	}
+	// The server's tasks and a session's are listed apart.
+	if got := m.List(""); len(got) != 1 || got[0].ID != update.ID {
+		t.Fatalf("server's tasks %+v", got)
+	}
+	if got := m.List("s1"); len(got) != 1 || got[0].ID != commit.ID {
+		t.Fatalf("session's tasks %+v", got)
 	}
 }
 

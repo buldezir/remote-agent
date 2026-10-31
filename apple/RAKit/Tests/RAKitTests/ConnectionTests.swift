@@ -253,6 +253,35 @@ struct ConnectionTests {
         #expect(steer.params == .object(["sessionId": .string("s1"), "itemId": .string("q")]))
     }
 
+    @Test func commits() async throws {
+        let server = try TestServer()
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+
+        let preview = try await c.commitPreview(sessionID: "s1")
+        #expect(preview.branch == "ra/x" && preview.files.count == 1 && preview.message == "Fix it" && preview.base == nil)
+        #expect(server.calls.last?.params == .object(["sessionId": .string("s1")]))
+
+        // The message goes trimmed, and only what's asked for with it.
+        let task = try await c.commit(sessionID: "s1", message: "  Fix it\n\nBecause.\n ", scope: .pullRequest)
+        #expect(task.kind == .commit && task.sessionId == "s1" && task.isRunning)
+        let full = try #require(server.calls.last)
+        #expect(full.method == "git.commit")
+        #expect(full.params == .object(["sessionId": .string("s1"), "message": .string("Fix it\n\nBecause."), "pullRequest": .bool(true)]))
+
+        _ = try await c.commit(sessionID: "s1", message: " \n", scope: .commit)
+        #expect(server.calls.last?.params == .object(["sessionId": .string("s1")]))
+        _ = try await c.commit(sessionID: "s1", message: "Fix", scope: .push)
+        #expect(server.calls.last?.params == .object(["sessionId": .string("s1"), "message": .string("Fix"), "push": .bool(true)]))
+
+        // A session's tasks are asked for with its id; the server's without.
+        let running = try await c.tasks(sessionID: "s1")
+        #expect(running.map(\.kind) == [.commit] && running.first?.sessionId == "s1")
+        #expect(server.calls.last?.params == .object(["sessionId": .string("s1")]))
+        #expect(try await c.tasks().isEmpty)
+        #expect(server.calls.last?.method == "task.list" && server.calls.last?.params?["sessionId"] == nil)
+    }
+
     @Test func promptFailsOnceTheConnectionGivesUp() async throws {
         let server = try TestServer()
         let c = try await connect(to: server)

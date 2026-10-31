@@ -239,7 +239,7 @@ Approval {
 
 | method | params | result |
 |---|---|---|
-| `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId, terminal?, drafts?, forks?}` (`terminal`: `GET /v1/terminal` is there; `drafts`: it keeps drafts; `forks`: it has `session.fork`; see below) |
+| `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId, terminal?, drafts?, forks?, commit?}` (`terminal`: `GET /v1/terminal` is there; `drafts`: it keeps drafts; `forks`: it has `session.fork`; `commit`: it has `git.commitPreview` and `git.commit`; see below) |
 | `device.unpair` | — | `{}` (revokes the calling device's token) |
 | `harness.list` | `{refresh?}` | `{harnesses: [HarnessInfo]}`, only the ones installed on the server |
 | `harness.update` | `{harness}` | `Task` (runs the agent's own updater; `caps.update`) |
@@ -248,7 +248,7 @@ Approval {
 | `server.setSettings` | `ServerSettings` | `ServerSettings` (replaces them all; `invalid` for an agent that can't be the system agent) |
 | `server.checkUpdate` | `{refresh?}` | `UpdateInfo` (`refresh` looks again rather than use the answer of the last 10 minutes) |
 | `server.update` | — | `Task` (`unavailable` when rad can't update, `conflict` when it is up to date) |
-| `task.list` | — | `{tasks: [Task]}`, running and lately ended, oldest first |
+| `task.list` | `{sessionId?}` | `{tasks: [Task]}`, running and lately ended, oldest first: the server's own (updates and sign-ins), or with `sessionId` that session's (commits) |
 | `task.get` | `{id}` | `Task` (`not_found` once forgotten, as after a restart) |
 | `task.input` | `{id, text}` | `{}` (types `text` and Return into the task's command) |
 | `task.cancel` | `{id}` | `{}` |
@@ -278,6 +278,8 @@ Approval {
 | `git.turnDiff` | `{turnId, paths?}` | `Diff` |
 | `git.sessionDiff` | `{sessionId, paths?}` | `Diff` |
 | `git.revert` | `{sessionId, turn}` | `{files: [FileStat]}` (worktree sessions only) |
+| `git.commitPreview` | `{sessionId}` | `CommitPreview` (see below) |
+| `git.commit` | `{sessionId, message?, push?, pullRequest?}` | `Task` (commits, pushes and opens a pull request; see below) |
 
 ```ts
 HarnessInfo {
@@ -302,16 +304,26 @@ UpdateInfo {
 }
 
 Task {
-  id, kind: "update_server" | "update_agent" | "login", harness?,
+  id, kind: "update_server" | "update_agent" | "login" | "commit", harness?, sessionId?,   // sessionId: commit
   status: "running" | "succeeded" | "failed" | "cancelled",
+  steps?: [{ id, title, status: "pending" | "running" | "succeeded" | "skipped" | "failed", detail? }],
+                                               // what it does, in order, as it gets there: a commit's "commit", "push", "pull_request"
   output,                                      // the command's output as a terminal shows it, without colours: its last 300 lines
-  url?,                                        // the last web address in it, such as a sign-in page
+  url?,                                        // the last web address in it, such as a sign-in page; for a commit, the pull request
   input?,                                      // takes task.input now
   error?, version?,                            // version: installed by an update, or the agent's
   startedAt, endedAt?
 }
 
 Diff { from, to, files: [FileStat], patch, truncated }   // patch: unified diff, ≤ 512 KiB
+CommitPreview {
+  branch?,                                     // checked out where the agent works; absent: detached
+  files: [FileStat],                           // everything uncommitted, untracked files included
+  message,                                     // for them, by the system agent, else rad's; "" without files
+  remote?,                                     // where a push goes; absent: nowhere
+  base?,                                       // the branch a pull request goes into; absent: the repository's default
+  ahead                                        // the branch's commits its remote branch lacks (before the first push: that base lacks)
+}
 FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", additions, deletions, binary? }
 ```
 
@@ -324,6 +336,12 @@ FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", addit
   - **Agent.** `harness` defaults to the source's, and so does `mode` with the source's harness, else that harness's default. Absent `model` and `effort` are the harness's defaults, as in `session.create`: clients start their pickers at the source's and send them. The same agent, where it can, copies its own conversation, cut after the turn, when the fork first starts it (Claude Code's `--fork-session` with `--resume-session-at`, Codex's `thread/fork` with `lastTurnId`). Any other agent, or one that can't fork, starts afresh, and its first prompt brings the conversation before it as a transcript: the first request, and as much of the rest as fits, latest first. If the copy fails, a `notice` says so and the transcript goes instead.
   - **Workspace.** `workspace.kind` defaults to the source's. `worktree` checks out a new branch (`branch`, or one rad names as for a new session) at the commit the turn's last checkpoint was taken on, with the files as they were after the turn (`invalid` outside git, or for a turn without a checkpoint). `root` works in the project folder as it is now. The fork's copied turns keep their diffs.
   - `prompt`, `images`, `title` and `draft` work as in `session.create`. The title defaults to the source's with " (fork)"; with the system agent, a prompt names it. Servers that fork say `forks: true` in `server.info`; older ones answer `method_not_found`.
+- **Committing.** A session's work can be committed, pushed and opened as a pull request from the clients, in the folder the agent works in (its worktree, or `agentPath`), for sessions in a git repository. `git.commitPreview` shows what a commit would take, with a message the system agent writes from the diff (rad's own, the session's title or the files, when there's no system agent or it fails); it may take as long as the system agent does, up to a minute, so clients wait longer for it than for other calls. `git.commit` then runs as a task (below) of kind `commit` for the session, with a step for each part that was asked for:
+  1. `commit` stages everything (`git add -A`) and commits it with `message` (absent: one written as for the preview), running the repository's hooks; `skipped` when there's nothing to commit. Prompts sent meanwhile wait in the queue, as during a turn.
+  2. `push`, with `push` or `pullRequest`: pushes the branch to the remote it tracks a branch of its own name on, else to `origin`, setting that as its upstream (a worktree made from `origin/main` tracks `main`, and isn't pushed there). It fails without a remote, or on a detached HEAD.
+  3. `pull_request`, with `pullRequest`: opens one with GitHub's `gh` (`gh pr create`), into `base`, its title and description written by the system agent from the branch's commits (else the lone commit's, or the session's title and the commits' subjects). If one is open for the branch already, the step says so and takes that one. It fails when `gh` isn't installed or signed in (`gh auth login` on the computer), or for the repository's default branch. The task's `url` is the pull request.
+
+  Each step's `detail` says what it did (`a1b2c3d Fix the redirect`, `ra/fix → origin`, `#12 Fix the redirect`, `Already open: #3 …`) or why it failed, which is the task's `error` too; the steps after a failed one stay `pending`. `output` shows the commands and what they printed. Neither git nor gh can ask for anything (a password, a passphrase): they run without a terminal, and fail instead. Once the task ends, the transcript has a `notice` with what it did, and the agent hears of it with the next prompt. `git.commit` is `conflict` while a turn runs (and the task fails if one started before the commit), or for an archived session, and `invalid` outside git; starting it while the session's commit runs returns that task. `task.list` lists a session's tasks only with its `sessionId`, so that a client following the server's tasks doesn't take a commit for an update. Servers that commit say `commit: true` in `server.info`; older ones answer `method_not_found`.
 - **Deleting a session.** `session.delete` works on archived and unarchived sessions. It stops the agent and the session's shell, and deletes the session, its turns, its transcript and its checkpoints; `removeWorktree` deletes its worktree too, and the branch is kept either way. Images stay, since other sessions may show them. The session's stream then holds only a `session.removed` event, the next in its seq, which reaches its subscribers; later commands on the session are `not_found`.
 - **Queued prompts.** A prompt sent while a turn runs waits as a `queued` user message, and the next turn starts with it once the turn ends. Interrupting the turn cancels every queued prompt. `session.sendNow` sends one of them at once instead: rad interrupts the turn and starts the next turn with that prompt, ahead of the others, which stay queued behind it. `session.cancelQueued` takes one of them out of the queue, `cancelled`, and leaves the turn and the other prompts as they are. A prompt no longer queued (it started, or was cancelled) is left as it is. Older servers answer `method_not_found`, which clients show as a reason to update rad.
 - **Steering.** `session.steer` adds one of the queued prompts to the running turn, without interrupting it, for agents with `caps.steer`: the agent reads it at its next step, such as after the tool call it runs, and goes on in the same turn, which ends once. Its user message becomes `completed`, with the turn's `turnId`, and moves below what the turn has shown so far (a new `order`), where the agent got it. `session.prompt` with `steer` does the same for a new prompt: while a turn runs, it joins that turn where the agent can take it, and is queued as usual where it can't (any other agent, a slash command); with no turn running, it starts one. Clients offer "Steer" beside "Send now" while the agent works and its harness has `caps.steer`, and not for a prompt starting with `/`: slash commands run only as prompts of their own (`invalid`). A prompt no longer queued is left as it is; one whose turn ends before the agent takes it stays queued and starts the next turn. Older servers answer `session.steer` with `method_not_found`, and ignore `steer` in `session.prompt`, which then queues the prompt.
@@ -335,7 +353,7 @@ FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", addit
 
 ### Managing the server
 
-- **Tasks.** Updates and sign-ins run on the server as tasks, which clients poll with `task.get` (about once a second) while they run. Starting one that already runs (same kind and agent) returns it. rad keeps ended tasks for 15 minutes, and forgets them all when it restarts.
+- **Tasks.** Updates, sign-ins and commits run on the server as tasks, which clients poll with `task.get` (about once a second) while they run. Starting one that already runs (same kind, and agent or session) returns it. rad keeps ended tasks for 15 minutes, and forgets them all when it restarts.
 - **Signing an agent in.** `harness.login` runs the agent's sign-in command in a pseudo-terminal on the server, with `BROWSER` set so that nothing opens there: Claude Code's `claude auth login`, Codex's `codex login --device-auth`, Cursor's `cursor-agent login`. The task's `url` is the page to open on the client. Claude's page then shows a code to paste: send it with `task.input`. Codex shows a code to enter on the page, in `output`, and Cursor needs nothing more. The task succeeds once the command exits and a probe finds the agent signed in.
   - `authOk` comes from a probe, which may not see that a login expired. When a turn fails because the agent isn't signed in, rad shows the agent as not signed in (`authOk: false`, `hint` with the agent's error) until it signs in or a turn of its succeeds.
 - **Updating an agent.** `harness.update` runs the agent's own updater (`claude update`, `codex update`, `pi update`, `cursor-agent update`, `opencode upgrade`); `version` is the version afterwards.

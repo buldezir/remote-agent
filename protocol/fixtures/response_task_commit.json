@@ -1,0 +1,33 @@
+{
+  "id": 13,
+  "result": {
+    "id": "k4",
+    "kind": "commit",
+    "sessionId": "s1",
+    "status": "succeeded",
+    "steps": [
+      {
+        "id": "commit",
+        "title": "Commit",
+        "status": "skipped",
+        "detail": "Nothing to commit"
+      },
+      {
+        "id": "push",
+        "title": "Push to origin",
+        "status": "succeeded",
+        "detail": "ra/fix-tests → origin"
+      },
+      {
+        "id": "pull_request",
+        "title": "Open a pull request",
+        "status": "succeeded",
+        "detail": "#12 Fix the flaky tests"
+      }
+    ],
+    "output": "$ git push --set-upstream origin ra/fix-tests\nbranch 'ra/fix-tests' set up to track 'origin/ra/fix-tests'.\n$ gh pr create --head ra/fix-tests --title 'Fix the flaky tests' --body-file - --base main\nhttps://github.com/me/app/pull/12",
+    "url": "https://github.com/me/app/pull/12",
+    "startedAt": "2026-10-09T12:00:00Z",
+    "endedAt": "2026-10-09T12:00:05Z"
+  }
+}

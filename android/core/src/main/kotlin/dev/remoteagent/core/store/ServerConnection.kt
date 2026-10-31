@@ -7,6 +7,7 @@ import dev.remoteagent.core.net.RpcClient
 import dev.remoteagent.core.net.RpcError
 import dev.remoteagent.core.net.ServerMessage
 import dev.remoteagent.core.net.params
+import dev.remoteagent.core.protocol.CommitPreview
 import dev.remoteagent.core.protocol.Event
 import dev.remoteagent.core.protocol.FSListing
 import dev.remoteagent.core.protocol.HarnessInfo
@@ -549,8 +550,45 @@ class ServerConnection(
     /** A task; `not_found` once rad has forgotten it, as after a restart. */
     suspend fun task(id: String): ServerTask = client.call("task.get", params("id" to id))
 
-    /** The tasks running and lately ended, oldest first. */
-    suspend fun tasks(): List<ServerTask> = client.call<TaskList>("task.list").tasks
+    /**
+     * The tasks running and lately ended, oldest first: the server's own
+     * (updates and sign-ins), or with `sessionID` that session's (commits).
+     */
+    suspend fun tasks(sessionID: String? = null): List<ServerTask> =
+        client.call<TaskList>("task.list", params("sessionId" to sessionID)).tasks
+
+    // Committing (protocol/PROTOCOL.md, "Committing"); only for a server whose `info.commit` is true.
+
+    /**
+     * What a commit would take in the session, with a message the system
+     * agent writes for it, which may take up to a minute.
+     */
+    suspend fun commitPreview(sessionID: String): CommitPreview {
+        // The sheet may open as the app comes back, before the socket does.
+        withTimeoutOrNull(10.seconds) { waitUntilConnected() }
+        return client.call("git.commitPreview", params("sessionId" to sessionID), 90.seconds)
+    }
+
+    /**
+     * Commits the session's changes with `message` (blank: rad writes one),
+     * then pushes the branch, and opens a pull request, as far as asked. The
+     * task reports each step; follow it with a ServerTaskProgress. Unlike
+     * `deliver`, it isn't sent again after a dropped connection: a commit
+     * that went would push again.
+     */
+    suspend fun commit(sessionID: String, message: String, push: Boolean, pullRequest: Boolean): ServerTask {
+        withTimeoutOrNull(10.seconds) { waitUntilConnected() }
+        return client.call(
+            "git.commit",
+            params(
+                "sessionId" to sessionID,
+                "message" to message.trim().ifEmpty { null },
+                "push" to (push || pullRequest).takeIf { it },
+                "pullRequest" to pullRequest.takeIf { it },
+            ),
+            45.seconds,
+        )
+    }
 
     /**
      * Types `text` and Return into the task's command, such as a code to

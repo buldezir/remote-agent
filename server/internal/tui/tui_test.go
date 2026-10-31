@@ -164,7 +164,8 @@ func (u *ui) menuTo(label string) {
 	u.t.Fatalf("no %q in the menu:\n%s", label, u.screen())
 }
 
-// turnsEnded waits until the session has n turns, and all of them ended.
+// turnsEnded waits until the session has n turns, and all of them ended,
+// on rad and, when it's open, in ra's store too, whose menus go by it.
 func (u *ui) turnsEnded(sessionID string, n int) {
 	u.t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -173,6 +174,16 @@ func (u *ui) turnsEnded(sessionID string, n int) {
 		ended := err == nil && len(turns) == n
 		for _, t := range turns {
 			ended = ended && t.Status != model.TurnRunning
+		}
+		if ended {
+			u.inspect(func(m *Model) {
+				if m.sess != nil && m.sess.store.ID == sessionID {
+					ended = len(m.sess.store.SortedTurns()) == n && !m.sess.store.IsRunning()
+					for _, t := range m.sess.store.SortedTurns() {
+						ended = ended && t.Status != model.TurnRunning
+					}
+				}
+			})
 		}
 		if ended {
 			return
@@ -888,4 +899,106 @@ func TestForksAWorktreeSession(t *testing.T) {
 	if f.Workspace.Kind != model.WorkspaceWorktree || f.Workspace.Branch != "ra/forked" {
 		t.Errorf("fork %+v", f)
 	}
+}
+
+func TestCommitsPushesAndOpensAPullRequest(t *testing.T) {
+	for k, v := range map[string]string{"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com", "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com"} {
+		t.Setenv(k, v)
+	}
+	// gh answers as GitHub would; origin is a bare repository.
+	bin := t.TempDir()
+	gh := "#!/bin/sh\ncase \"$1 $2\" in\n\"pr list\") echo '[]' ;;\n\"pr create\") cat >/dev/null; echo https://github.com/test/repo/pull/12 ;;\n*) exit 1 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	origin := filepath.Join(t.TempDir(), "origin.git")
+
+	var src model.Session
+	u := startUIWith(t, 120, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		for _, args := range [][]string{{"init", "-q", "-b", "main", r.Root}, {"-C", r.Root, "commit", "-q", "--allow-empty", "-m", "init"},
+			{"init", "-q", "--bare", "-b", "main", origin}, {"-C", r.Root, "remote", "add", "origin", origin}, {"-C", r.Root, "push", "-q", "origin", "main"}} {
+			if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+				t.Skipf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		ctx := context.Background()
+		if err := rpc.Call(ctx, "server.setSettings", map[string]any{"systemAgent": map[string]string{"harness": "fake", "model": "echo"}}, nil); err != nil {
+			t.Fatal(err)
+		}
+		var p model.Project
+		if err := rpc.Call(ctx, "project.add", map[string]any{"path": r.Root}, &p); err != nil {
+			t.Fatal(err)
+		}
+		if err := rpc.Call(ctx, "session.create", map[string]any{"commandId": "c1", "projectId": p.ID, "harness": "fake",
+			"workspace": map[string]any{"kind": "worktree", "branch": "ra/notes"}, "prompt": "hello"}, &src); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(src.Workspace.Path, "notes.txt"), []byte("hi\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: src.ID}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	u.waitFor("Echo: hello")
+	u.turnsEnded(src.ID, 1)
+	u.key("ctrl+p")
+	u.menuTo("Commit…")
+	u.key("enter")
+	s := u.waitFor("CHANGES")
+	for _, want := range []string{"⑂ ra/notes → origin", "A notes.txt", "+1 −0", "Change notes.txt", "Written by the fake system agent.",
+		"Commit & push", "Commit & Push"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the form lacks %q:\n%s", want, s)
+		}
+	}
+	// The message is the system agent's, to edit: a word more.
+	u.key("end")
+	u.key(" today")
+	u.key("tab")
+	u.key("right")
+	s = u.waitFor("Pull request into main")
+	if !strings.Contains(s, "Commit, Push & Open PR") {
+		t.Errorf("the button:\n%s", s)
+	}
+	u.key("ctrl+s")
+	s = u.waitFor("✓ Done.")
+	for _, want := range []string{"✓ Commit", "✓ Push to origin", "ra/notes → origin", "✓ Open a pull request", "#12 Fake: Change notes.txt",
+		"https://github.com/test/repo/pull/12", "$ git push --set-upstream origin ra/notes"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the progress lacks %q:\n%s", want, s)
+		}
+	}
+	out, err := exec.Command("git", "-C", origin, "log", "-1", "--format=%B", "ra/notes").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "Written by the fake system agent. today") {
+		t.Errorf("origin's commit: %s %v", out, err)
+	}
+	u.key("y")
+	select {
+	case c := <-u.clip:
+		if !strings.Contains(c, "https://github.com/test/repo/pull/12") {
+			t.Errorf("copied %q", c)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("nothing copied")
+	}
+	u.inspect(func(m *Model) {
+		if m.state.LastCommit != "pullRequest" {
+			t.Errorf("remembered %q", m.state.LastCommit)
+		}
+	})
+	u.key("esc")
+	u.waitFor("Committed ")
+
+	// Again, with nothing to commit: the form starts at the last choice.
+	u.key("ctrl+p")
+	u.menuTo("Commit…")
+	u.key("enter")
+	s = u.waitFor("Nothing to commit.")
+	if !strings.Contains(s, "Commit, push & open PR") || !strings.Contains(s, "Push & Open PR") || strings.Contains(s, "MESSAGE") {
+		t.Errorf("the clean form:\n%s", s)
+	}
+	u.key("esc")
 }

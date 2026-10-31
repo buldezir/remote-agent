@@ -5,6 +5,8 @@ struct DiffView: View {
     let store: SessionStore
     let initialTurn: Turn?
     let canRevert: Bool
+    /// Opens the commit sheet; nil: the session can't commit.
+    var onCommit: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     @State private var scope: String // "session" or a turn id
@@ -14,10 +16,11 @@ struct DiffView: View {
     @State private var revertTurn: Turn?
     @State private var reverted: String?
 
-    init(store: SessionStore, initialTurn: Turn?, canRevert: Bool) {
+    init(store: SessionStore, initialTurn: Turn?, canRevert: Bool, onCommit: (() -> Void)? = nil) {
         self.store = store
         self.initialTurn = initialTurn
         self.canRevert = canRevert
+        self.onCommit = onCommit
         _scope = State(initialValue: initialTurn?.id ?? "session")
     }
 
@@ -84,6 +87,15 @@ struct DiffView: View {
                     .disabled(store.isRunning)
                 }
             }
+            if let onCommit {
+                ToolbarItem(placement: commitPlacement) {
+                    Button(action: onCommit) {
+                        Label("Commit…", systemImage: "arrow.triangle.pull")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .disabled(store.isRunning)
+                }
+            }
         }
         .confirmationDialog("Revert files?", isPresented: .init(get: { revertTurn != nil }, set: { if !$0 { revertTurn = nil } }),
                             presenting: revertTurn) { t in
@@ -102,6 +114,14 @@ struct DiffView: View {
         .bottomBar
         #else
         .automatic
+        #endif
+    }
+
+    private var commitPlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        .bottomBar
+        #else
+        .primaryAction
         #endif
     }
 

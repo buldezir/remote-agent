@@ -138,6 +138,7 @@ type serverInfoResult struct {
 	Terminal bool     `json:"terminal,omitempty"` // GET /v1/terminal is there
 	Drafts   bool     `json:"drafts"`             // session.saveDraft and sendDraft, and session.create's draft
 	Forks    bool     `json:"forks,omitempty"`    // session.fork
+	Commit   bool     `json:"commit,omitempty"`   // git.commitPreview and git.commit
 }
 
 func (s *Server) info() serverInfo {

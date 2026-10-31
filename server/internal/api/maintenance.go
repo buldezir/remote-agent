@@ -7,6 +7,7 @@ import (
 
 	"remote-agent/internal/harness"
 	"remote-agent/internal/model"
+	"remote-agent/internal/orchestrator"
 	"remote-agent/internal/tasks"
 )
 
@@ -129,6 +130,20 @@ func (s *Server) loginAgent(ctx context.Context, id string) (any, error) {
 		}
 		t.Println("%s is signed in.", after.Name)
 		return nil
+	}), nil
+}
+
+// commit starts a session's commit as a task, unless the session can't
+// commit now. A commit that runs for the session already is the answer.
+func (s *Server) commit(ctx context.Context, p orchestrator.CommitParams) (any, error) {
+	if s.Tasks == nil {
+		return nil, &methodError{"unavailable", "this rad doesn't run tasks"}
+	}
+	if err := s.orch.CheckCommit(ctx, p.SessionID); err != nil {
+		return nil, err
+	}
+	return s.Tasks.StartForSession(model.TaskCommit, p.SessionID, func(ctx context.Context, t *tasks.Task) error {
+		return s.orch.Commit(ctx, p, t)
 	}), nil
 }
 

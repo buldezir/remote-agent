@@ -12,6 +12,7 @@ import {
   modelName,
   parseDate,
   usable,
+  type CommitPreview,
   type Diff,
   type Event,
   type FSListing,
@@ -145,6 +146,7 @@ describe("fixtures", () => {
     expect(info.terminal).toBe(true);
     expect(info.drafts).toBe(true);
     expect(info.forks).toBe(true);
+    expect(info.commit).toBe(true);
     expect(info.deviceId).toBe("dev1");
   });
 
@@ -178,6 +180,30 @@ describe("fixtures", () => {
     expect(tasks[1].harness).toBeUndefined();
     expect(tasks[1].error).toMatch(/checksum/);
     expect(parseDate(tasks[1].endedAt) - parseDate(tasks[1].startedAt)).toBe(5000);
+    expect(tasks[0].steps).toBeUndefined();
+    expect(tasks[0].sessionId).toBeUndefined();
+  });
+
+  it("commits", () => {
+    const preview: CommitPreview = load("response_commit_preview.json").result;
+    expect(preview).toMatchObject({ branch: "ra/fix-tests", remote: "origin", base: "main", ahead: 1 });
+    expect(preview.message).toBe("Fix the flaky tests\n\nWait for the server before dialing.");
+    expect(preview.files.map((f) => [f.path, f.status, f.additions, f.deletions])).toEqual([
+      ["api_test.go", "modified", 4, 1],
+      ["notes.md", "added", 2, 0],
+    ]);
+
+    const commit: ServerTask = load("response_task_commit.json").result;
+    expect(commit).toMatchObject({ id: "k4", kind: "commit", sessionId: "s1", status: "succeeded" });
+    expect(commit.harness).toBeUndefined();
+    expect(commit.steps?.map((s) => [s.id, s.status, s.detail])).toEqual([
+      ["commit", "skipped", "Nothing to commit"],
+      ["push", "succeeded", "ra/fix-tests → origin"],
+      ["pull_request", "succeeded", "#12 Fix the flaky tests"],
+    ]);
+    expect(commit.steps?.[1].title).toBe("Push to origin");
+    expect(commit.url).toBe("https://github.com/me/app/pull/12");
+    expect(commit.output.split("\n")[0]).toBe("$ git push --set-upstream origin ra/fix-tests");
   });
 
   it("terminal messages", () => {

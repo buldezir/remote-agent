@@ -4,7 +4,7 @@ import RAKit
 
 /// A WebSocket server on loopback that stands in for rad: it answers
 /// `server.info`, `session.prompt`, the drafts' calls, the index's
-/// `subscribe` and pings, and records the calls. `quiet()`
+/// `subscribe`, the commits' calls and pings, and records the calls. `quiet()`
 /// makes the sockets open so far ignore everything, as a socket that died
 /// while the Mac slept does: nothing comes back, and nothing says it closed.
 final class TestServer: @unchecked Sendable {
@@ -119,6 +119,16 @@ final class TestServer: @unchecked Sendable {
             let draft = text.isEmpty ? "" : #""draft":{"text":"\#(text)"},"#
             result = #"{"id":"\#(sid)","projectId":"p","harness":"fake","status":"idle","title":"\#(sid)","archived":false,"#
                 + draft + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
+        case "git.commitPreview":
+            result = #"{"branch":"ra/x","files":[{"path":"a.txt","status":"modified","additions":1,"deletions":0}],"message":"Fix it","remote":"origin","ahead":0}"#
+        case "git.commit":
+            let sid = params?["sessionId"] as? String ?? ""
+            result = #"{"id":"k\#(id)","kind":"commit","sessionId":"\#(sid)","status":"running","output":"","startedAt":"2026-01-01T00:00:00Z"}"#
+        case "task.list":
+            // A session's commit runs; the server's own tasks are none.
+            let sid = params?["sessionId"] as? String
+            result = sid.map { #"{"tasks":[{"id":"k0","kind":"commit","sessionId":"\#($0)","status":"running","output":"","startedAt":"2026-01-01T00:00:00Z"}]}"# }
+                ?? #"{"tasks":[]}"#
         default:
             result = "{}"
         }

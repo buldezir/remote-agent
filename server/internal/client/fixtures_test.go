@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"remote-agent/internal/model"
@@ -44,7 +45,7 @@ func TestFixtures(t *testing.T) {
 	}
 
 	info := fixture[resultFrame[ServerInfo]](t, "response_server_info.json").Result
-	if info.Version != "0.4.0" || info.DeviceID != "dev1" || len(info.Roots) != 1 || !info.Drafts || !info.Terminal || !info.Forks {
+	if info.Version != "0.4.0" || info.DeviceID != "dev1" || len(info.Roots) != 1 || !info.Drafts || !info.Terminal || !info.Forks || !info.Commit {
 		t.Errorf("server.info: %+v", info)
 	}
 
@@ -77,6 +78,16 @@ func TestFixtures(t *testing.T) {
 	}
 	if task := fixture[resultFrame[model.Task]](t, "response_task.json").Result; task.ID == "" || task.Kind == "" {
 		t.Errorf("task.get: %+v", task)
+	}
+	commit := fixture[resultFrame[model.Task]](t, "response_task_commit.json").Result
+	if commit.Kind != model.TaskCommit || commit.SessionID != "s1" || len(commit.Steps) != 3 || commit.Steps[0].Status != model.StepSkipped ||
+		commit.Steps[2].ID != "pull_request" || commit.Steps[2].Detail != "#12 Fix the flaky tests" || commit.URL != "https://github.com/me/app/pull/12" {
+		t.Errorf("commit task: %+v", commit)
+	}
+	preview := fixture[resultFrame[CommitPreview]](t, "response_commit_preview.json").Result
+	if preview.Branch != "ra/fix-tests" || len(preview.Files) != 2 || preview.Files[1].Status != "added" || preview.Files[0].Additions != 4 ||
+		preview.Remote != "origin" || preview.Base != "main" || preview.Ahead != 1 || !strings.HasPrefix(preview.Message, "Fix the flaky tests\n\n") {
+		t.Errorf("git.commitPreview: %+v", preview)
 	}
 	if u := fixture[resultFrame[model.UpdateInfo]](t, "response_check_update.json").Result; u.Current == "" {
 		t.Errorf("server.checkUpdate: %+v", u)

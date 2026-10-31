@@ -52,6 +52,9 @@ type State struct {
 	LastModel     map[string]string `json:"lastModel,omitempty"`
 	LastEffort    map[string]string `json:"lastEffort,omitempty"`
 	LastMode      map[string]string `json:"lastMode,omitempty"`
+	// LastCommit is how far the last commit went: commit, push or
+	// pullRequest (client.CommitScope).
+	LastCommit string `json:"lastCommit,omitempty"`
 }
 
 func loadJSON(path string, v any) {

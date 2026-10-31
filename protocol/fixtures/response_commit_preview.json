@@ -1,0 +1,24 @@
+{
+  "id": 12,
+  "result": {
+    "branch": "ra/fix-tests",
+    "files": [
+      {
+        "path": "api_test.go",
+        "status": "modified",
+        "additions": 4,
+        "deletions": 1
+      },
+      {
+        "path": "notes.md",
+        "status": "added",
+        "additions": 2,
+        "deletions": 0
+      }
+    ],
+    "message": "Fix the flaky tests\n\nWait for the server before dialing.",
+    "remote": "origin",
+    "base": "main",
+    "ahead": 1
+  }
+}

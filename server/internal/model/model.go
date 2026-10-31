@@ -434,6 +434,9 @@ const (
 	TaskUpdateServer TaskKind = "update_server"
 	TaskUpdateAgent  TaskKind = "update_agent"
 	TaskLogin        TaskKind = "login"
+	// TaskCommit commits a session's changes, and pushes them and opens a
+	// pull request when asked (git.commit).
+	TaskCommit TaskKind = "commit"
 )
 
 type TaskStatus string
@@ -445,24 +448,49 @@ const (
 	TaskCancelled TaskStatus = "cancelled"
 )
 
-// Task is a maintenance job a client started: updating rad or an agent, or
-// signing an agent in. Clients poll it with task.get while it runs.
+// Task is a job a client started: updating rad or an agent, signing an
+// agent in, or committing a session's changes. Clients poll it with
+// task.get while it runs.
 type Task struct {
-	ID      string     `json:"id"`
-	Kind    TaskKind   `json:"kind"`
-	Harness string     `json:"harness,omitempty"` // update_agent, login
-	Status  TaskStatus `json:"status"`
+	ID        string     `json:"id"`
+	Kind      TaskKind   `json:"kind"`
+	Harness   string     `json:"harness,omitempty"`   // update_agent, login
+	SessionID string     `json:"sessionId,omitempty"` // commit
+	Status    TaskStatus `json:"status"`
+	// Steps are what the task does, in order, as it gets to them: a
+	// commit's commit, push and pull request.
+	Steps []TaskStep `json:"steps,omitempty"`
 	// Output is what the command printed, as a terminal would show it,
 	// without colours: its last lines.
 	Output string `json:"output"`
-	URL    string `json:"url,omitempty"`   // the last web address in the output, such as a sign-in page
-	Input  bool   `json:"input,omitempty"` // takes typed lines (task.input), such as a code to paste
-	Error  string `json:"error,omitempty"`
+	// URL is the last web address in the output, such as a sign-in page;
+	// for a commit, the pull request it opened or found open.
+	URL   string `json:"url,omitempty"`
+	Input bool   `json:"input,omitempty"` // takes typed lines (task.input), such as a code to paste
+	Error string `json:"error,omitempty"`
 	// Version is, for an update, the version installed; for a login, the
 	// agent's version.
 	Version   string     `json:"version,omitempty"`
 	StartedAt time.Time  `json:"startedAt"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
+}
+
+type TaskStepStatus string
+
+const (
+	StepPending   TaskStepStatus = "pending"
+	StepRunning   TaskStepStatus = "running"
+	StepSucceeded TaskStepStatus = "succeeded"
+	StepSkipped   TaskStepStatus = "skipped" // nothing to do, such as a commit without changes
+	StepFailed    TaskStepStatus = "failed"
+)
+
+// TaskStep is one step of a task, as clients list it.
+type TaskStep struct {
+	ID     string         `json:"id"` // commit, push, pull_request
+	Title  string         `json:"title"`
+	Status TaskStepStatus `json:"status"`
+	Detail string         `json:"detail,omitempty"` // what it did, or does now, or why it failed
 }
 
 // TerminalMessage is a text frame on a terminal socket (GET /v1/terminal).

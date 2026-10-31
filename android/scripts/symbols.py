@@ -30,6 +30,7 @@ SYMBOLS = {
     "warning": True, "wifi_off": False, "wrap_text": False, "dangerous": False, "link": False,
     "keyboard_hide": False, "functions": False, "play_circle": False, "inbox": False,
     "dns": False, "login": False, "open_in_new": False, "save": False, "fork_right": False,
+    "commit": False, "do_not_disturb_on": False,
 }
 
 URL = "https://fonts.gstatic.com/s/i/short-term/release/materialsymbolsrounded/{name}/{style}/24px.svg"

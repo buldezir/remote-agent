@@ -16,7 +16,8 @@ import (
 )
 
 // The system agent names a session from its first prompt: a title, and a
-// branch for its worktree. Until it answers, the session has the names rad
+// branch for its worktree. It also writes commit messages and pull requests
+// (commit.go). Until it answers, the session has the names rad
 // makes up (titleFrom, provisionalBranch), and it keeps them if the agent
 // fails. Names the user chose are left alone.
 
@@ -109,28 +110,31 @@ type names struct {
 	Branch string `json:"branch"`
 }
 
-// askNames runs the system agent once, in an empty folder of its own.
+// askNames has the system agent name the session.
 func (o *Orchestrator) askNames(ctx context.Context, agent model.SystemAgent, projectName, text string, branch bool) (names, error) {
-	h, ok := o.reg.Get(agent.Harness)
-	if !ok {
-		return names{}, fmt.Errorf("unknown harness %q", agent.Harness)
-	}
-	one, ok := h.(harness.OneShotter)
-	if !ok {
-		return names{}, fmt.Errorf("%s can't be the system agent", agent.Harness)
-	}
-	dir, err := os.MkdirTemp("", "rad-system-agent-")
-	if err != nil {
-		return names{}, err
-	}
-	defer os.RemoveAll(dir)
-	reply, err := one.OneShot(ctx, harness.OneShotOptions{
-		Cwd: dir, Model: agent.Model, Effort: agent.Effort, Prompt: namingPrompt(projectName, text, branch),
-	})
+	reply, err := o.oneShot(ctx, agent, namingPrompt(projectName, text, branch))
 	if err != nil {
 		return names{}, err
 	}
 	return parseNames(reply)
+}
+
+// oneShot runs the system agent once, in an empty folder of its own.
+func (o *Orchestrator) oneShot(ctx context.Context, agent model.SystemAgent, prompt string) (string, error) {
+	h, ok := o.reg.Get(agent.Harness)
+	if !ok {
+		return "", fmt.Errorf("unknown harness %q", agent.Harness)
+	}
+	one, ok := h.(harness.OneShotter)
+	if !ok {
+		return "", fmt.Errorf("%s can't be the system agent", agent.Harness)
+	}
+	dir, err := os.MkdirTemp("", "rad-system-agent-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	return one.OneShot(ctx, harness.OneShotOptions{Cwd: dir, Model: agent.Model, Effort: agent.Effort, Prompt: prompt})
 }
 
 func namingPrompt(projectName, text string, branch bool) string {

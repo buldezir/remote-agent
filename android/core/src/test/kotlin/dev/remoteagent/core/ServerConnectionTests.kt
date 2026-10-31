@@ -367,6 +367,60 @@ class ServerConnectionTests {
         withContext(dispatcher) { c.stop() }
     }
 
+    @Test
+    fun commitSendsWhatWasChosenAndListsTheSessionsTasks() = runBlocking {
+        val task = buildJsonObject {
+            put("id", "k1")
+            put("kind", "commit")
+            put("sessionId", "s1")
+            put("status", "running")
+            put("output", "")
+            put("startedAt", "2026-10-09T12:00:00Z")
+        }
+        rad.answer = { r, method, params ->
+            when (method) {
+                "git.commitPreview" -> buildJsonObject {
+                    put("branch", "ra/x")
+                    put("files", JsonArray(emptyList()))
+                    put("message", "")
+                    put("ahead", 2)
+                }
+                "git.commit" -> task
+                "task.list" -> buildJsonObject { put("tasks", JsonArray(if ("sessionId" in params) listOf(task) else emptyList())) }
+                else -> answerDrafts(r, method, params)
+            }
+        }
+        server.upgrade(rad)
+        val c = connect()
+        withTimeout(5.seconds) { c.indexSynced.first { it } }
+
+        val preview = withContext(dispatcher) { c.commitPreview("s1") }
+        assertEquals(params("sessionId" to "s1"), rad.nextCall("git.commitPreview")["params"])
+        assertEquals("ra/x", preview.branch)
+        assertEquals(2, preview.ahead)
+        assertNull(preview.remote)
+
+        // A message as typed, trimmed; a pull request pushes too.
+        val t = withContext(dispatcher) { c.commit("s1", "  Fix it\n\nBecause.\n", push = false, pullRequest = true) }
+        assertEquals(
+            params("sessionId" to "s1", "message" to "Fix it\n\nBecause.", "push" to true, "pullRequest" to true),
+            rad.nextCall("git.commit")["params"],
+        )
+        assertEquals("commit", t.kind)
+        assertEquals("s1", t.sessionId)
+        // No message: rad writes one. Commit only: nothing more is said.
+        withContext(dispatcher) { c.commit("s1", " \n", push = false, pullRequest = false) }
+        assertEquals(params("sessionId" to "s1"), rad.nextCall("git.commit")["params"])
+        withContext(dispatcher) { c.commit("s1", "x", push = true, pullRequest = false) }
+        assertEquals(params("sessionId" to "s1", "message" to "x", "push" to true), rad.nextCall("git.commit")["params"])
+
+        // The session's tasks, apart from the server's own.
+        assertEquals(listOf("k1"), withContext(dispatcher) { c.tasks("s1") }.map { it.id })
+        assertEquals(params("sessionId" to "s1"), rad.nextCall("task.list")["params"])
+        assertEquals(emptyList(), withContext(dispatcher) { c.tasks() })
+        withContext(dispatcher) { c.stop() }
+    }
+
     private fun removed(id: String) = buildJsonObject {
         put("type", "session.removed")
         put("id", id)

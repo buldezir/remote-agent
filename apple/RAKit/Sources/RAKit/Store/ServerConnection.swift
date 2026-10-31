@@ -549,11 +549,46 @@ public final class ServerConnection {
         try await client.call("harness.login", ["harness": id])
     }
 
-    /// The tasks that run on the server, and those that ended lately.
-    public func tasks() async throws -> [ServerTask] {
+    /// The tasks that run on the server, and those that ended lately: the
+    /// server's own, or with a session, that session's (its commits).
+    public func tasks(sessionID: String? = nil) async throws -> [ServerTask] {
         struct Res: Decodable, Sendable { var tasks: [ServerTask] }
-        let r: Res = try await client.call("task.list")
+        struct P: Encodable, Sendable { var sessionId: String? }
+        let r: Res = sessionID == nil ? try await client.call("task.list") : try await client.call("task.list", P(sessionId: sessionID))
         return r.tasks
+    }
+
+    // MARK: Committing
+
+    /// Whether the server commits, pushes and opens pull requests.
+    public var commits: Bool { info?.commit == true }
+
+    /// What a commit would take in the session, with a message the system
+    /// agent writes, which may take up to a minute.
+    public func commitPreview(sessionID: String) async throws -> CommitPreview {
+        try await client.call("git.commitPreview", ["sessionId": sessionID], timeout: 90)
+    }
+
+    /// How far a commit goes.
+    public enum CommitScope: String, CaseIterable, Sendable {
+        case commit, push, pullRequest
+    }
+
+    struct CommitParams: Encodable, Sendable {
+        var sessionId: String
+        var message: String?
+        var push: Bool?
+        var pullRequest: Bool?
+    }
+
+    /// Commits the session's changes, then pushes and opens a pull request as
+    /// far as `scope` says: a task to follow. An empty message has rad
+    /// write one.
+    public func commit(sessionID: String, message: String, scope: CommitScope) async throws -> ServerTask {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let p = CommitParams(sessionId: sessionID, message: text.isEmpty ? nil : text,
+                             push: scope == .push ? true : nil, pullRequest: scope == .pullRequest ? true : nil)
+        return try await client.call("git.commit", p)
     }
 
     // MARK: Derived

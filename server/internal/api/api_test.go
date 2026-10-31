@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -926,5 +927,88 @@ func TestSessionCommandSuggestions(t *testing.T) {
 	c.mustCall("session.commands", map[string]any{"sessionId": session.ID}, &result)
 	if len(result.Commands) != 0 {
 		t.Fatal("archived session has suggestions")
+	}
+}
+
+func TestCommitOverWebSocket(t *testing.T) {
+	// git without the developer's config; gh a script that answers as GitHub would.
+	for k, v := range map[string]string{"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com", "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com"} {
+		t.Setenv(k, v)
+	}
+	bin := t.TempDir()
+	gh := "#!/bin/sh\ncase \"$1 $2\" in\n\"pr list\") echo '[]' ;;\n\"pr create\") cat >/dev/null; echo https://github.com/test/repo/pull/7 ;;\n*) exit 1 ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	s := startServer(t)
+	c := connect(t, s)
+	var info struct{ Commit bool }
+	c.mustCall("server.info", nil, &info)
+	if !info.Commit {
+		t.Fatal("server.info doesn't offer commits")
+	}
+
+	dir := filepath.Join(s.root, "proj")
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	for _, args := range [][]string{{"init", "-q", "-b", "main", dir}, {"-C", dir, "commit", "-q", "--allow-empty", "-m", "init"},
+		{"init", "-q", "--bare", "-b", "main", origin}, {"-C", dir, "remote", "add", "origin", origin}, {"-C", dir, "push", "-q", "origin", "main"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	var proj model.Project
+	c.mustCall("project.add", map[string]any{"path": dir}, &proj)
+	var sess model.Session
+	c.mustCall("session.create", map[string]any{"commandId": "c1", "projectId": proj.ID, "harness": "fake", "title": "Add notes",
+		"workspace": map[string]any{"kind": "worktree", "branch": "ra/notes"}}, &sess)
+	if err := os.WriteFile(filepath.Join(sess.Workspace.Path, "notes.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var preview orchestrator.CommitPreview
+	c.mustCall("git.commitPreview", map[string]any{"sessionId": sess.ID}, &preview)
+	if preview.Branch != "ra/notes" || len(preview.Files) != 1 || preview.Message != "Add notes" || preview.Remote != "origin" || preview.Base != "main" {
+		t.Fatalf("preview %+v", preview)
+	}
+
+	var task model.Task
+	c.mustCall("git.commit", map[string]any{"sessionId": sess.ID, "message": "Add the notes", "pullRequest": true}, &task)
+	if task.Kind != model.TaskCommit || task.SessionID != sess.ID || task.Harness != "" {
+		t.Fatalf("task %+v", task)
+	}
+	for id, deadline := task.ID, time.Now().Add(10*time.Second); task.Status == model.TaskRunning && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		task = model.Task{}
+		c.mustCall("task.get", map[string]string{"id": id}, &task)
+	}
+	if task.Status != model.TaskSucceeded || len(task.Steps) != 3 || task.URL != "https://github.com/test/repo/pull/7" {
+		t.Fatalf("ended %+v", task)
+	}
+
+	// A session's tasks are listed with it, not with the server's.
+	var list struct{ Tasks []model.Task }
+	c.mustCall("task.list", nil, &list)
+	if len(list.Tasks) != 0 {
+		t.Fatalf("server's tasks %+v", list.Tasks)
+	}
+	c.mustCall("task.list", map[string]string{"sessionId": sess.ID}, &list)
+	if len(list.Tasks) != 1 || list.Tasks[0].ID != task.ID {
+		t.Fatalf("session's tasks %+v", list.Tasks)
+	}
+
+	// Refused before the task starts.
+	plain := filepath.Join(s.root, "plain")
+	os.Mkdir(plain, 0o755)
+	var plainProj model.Project
+	c.mustCall("project.add", map[string]any{"path": plain}, &plainProj)
+	var plainSess model.Session
+	c.mustCall("session.create", map[string]any{"commandId": "c2", "projectId": plainProj.ID, "harness": "fake", "workspace": map[string]any{"kind": "root"}}, &plainSess)
+	if _, err := c.call("git.commit", map[string]any{"sessionId": plainSess.ID}); err == nil || err.Code != "invalid" {
+		t.Fatalf("outside git: %+v", err)
+	}
+	if _, err := c.call("git.commitPreview", map[string]any{"sessionId": "nope"}); err == nil || err.Code != "not_found" {
+		t.Fatalf("unknown session: %+v", err)
 	}
 }

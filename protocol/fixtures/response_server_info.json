@@ -11,6 +11,7 @@
     "deviceId": "dev1",
     "terminal": true,
     "drafts": true,
-    "forks": true
+    "forks": true,
+    "commit": true
   }
 }

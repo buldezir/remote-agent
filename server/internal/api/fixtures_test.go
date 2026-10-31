@@ -128,7 +128,7 @@ func fixtures() map[string]any {
 		"response_session.json": response{ID: json.RawMessage("6"), Result: sess},
 		"response_server_info.json": response{ID: json.RawMessage("1"), Result: serverInfoResult{
 			serverInfo: serverInfo{ServerID: "srv1", Name: "studio", ProtocolVersion: model.ProtocolVersion, Version: "0.4.0"},
-			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true, Forks: true}},
+			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true, Forks: true, Commit: true}},
 		"response_server_settings.json": response{ID: json.RawMessage("8"), Result: model.ServerSettings{
 			SystemAgent: &model.SystemAgent{Harness: "claude", Model: "haiku", Effort: "low"}}},
 		"response_check_update.json": response{ID: json.RawMessage("9"), Result: model.UpdateInfo{
@@ -144,6 +144,19 @@ func fixtures() map[string]any {
 			{ID: "k3", Kind: model.TaskUpdateServer, Status: model.TaskFailed, Output: "Downloading rad 0.12.0 (rad-linux-amd64.tar.gz)…",
 				Error: "rad-linux-amd64.tar.gz doesn't match its checksum in SHA256SUMS", StartedAt: t0, EndedAt: &t1},
 		}}},
+		"response_commit_preview.json": response{ID: json.RawMessage("12"), Result: orchestrator.CommitPreview{
+			Branch: "ra/fix-tests", Message: "Fix the flaky tests\n\nWait for the server before dialing.",
+			Files:  []gitx.FileStat{{Path: "api_test.go", Status: gitx.Modified, Additions: 4, Deletions: 1}, {Path: "notes.md", Status: gitx.Added, Additions: 2}},
+			Remote: "origin", Base: "main", Ahead: 1}},
+		"response_task_commit.json": response{ID: json.RawMessage("13"), Result: model.Task{
+			ID: "k4", Kind: model.TaskCommit, SessionID: "s1", Status: model.TaskSucceeded,
+			Steps: []model.TaskStep{
+				{ID: "commit", Title: "Commit", Status: model.StepSkipped, Detail: "Nothing to commit"},
+				{ID: "push", Title: "Push to origin", Status: model.StepSucceeded, Detail: "ra/fix-tests → origin"},
+				{ID: "pull_request", Title: "Open a pull request", Status: model.StepSucceeded, Detail: "#12 Fix the flaky tests"},
+			},
+			Output: "$ git push --set-upstream origin ra/fix-tests\nbranch 'ra/fix-tests' set up to track 'origin/ra/fix-tests'.\n$ gh pr create --head ra/fix-tests --title 'Fix the flaky tests' --body-file - --base main\nhttps://github.com/me/app/pull/12",
+			URL:    "https://github.com/me/app/pull/12", StartedAt: t0, EndedAt: &t1}},
 		"terminal_attached.json": model.TerminalMessage{Type: "attached", ID: "5f0c2a9e1b7d3c48", Offset: 262130, Reset: true, Cols: 80, Rows: 24},
 		"terminal_resize.json":   model.TerminalMessage{Type: "resize", Cols: 120, Rows: 40},
 		"terminal_exit.json":     model.TerminalMessage{Type: "exit", ExitCode: &signalled},

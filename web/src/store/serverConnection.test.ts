@@ -456,6 +456,56 @@ describe("ServerConnection's server management", () => {
     }
   });
 
+  it("commits a session's changes", async () => {
+    const server = new TestServer();
+    const commitTask = (status: string): ServerTask => ({
+      id: "k4",
+      kind: "commit",
+      sessionId: "s1",
+      status,
+      steps: [{ id: "commit", title: "Commit", status: status === "running" ? "running" : "succeeded" }],
+      output: "",
+      url: status === "running" ? undefined : "https://github.com/me/app/pull/12",
+      startedAt: at,
+    });
+    // An older field set: no files, no message, no ahead.
+    server.handlers["git.commitPreview"] = () => ({ branch: "ra/x", remote: "origin" });
+    server.handlers["git.commit"] = () => ({ ...commitTask("running"), output: undefined });
+    server.handlers["task.list"] = (p) => (p?.sessionId === "s1" ? { tasks: [commitTask("running")] } : { tasks: [] });
+    let polls = 0;
+    server.handlers["task.get"] = () => commitTask(++polls < 2 ? "running" : "succeeded");
+    const c = await connect(server);
+    try {
+      expect(await c.commitPreview("s1")).toEqual({ branch: "ra/x", remote: "origin", files: [], message: "", ahead: 0 });
+      const t = await c.commit({ sessionId: "s1", message: "  Fix it\n\n", pullRequest: true });
+      expect(t).toMatchObject({ id: "k4", kind: "commit", sessionId: "s1", output: "" });
+      await c.commit({ sessionId: "s1", message: "   ", push: true });
+      await c.commit({ sessionId: "s1" });
+      expect(server.calls.filter((m) => m.method.startsWith("git.")).map((m) => [m.method, m.params])).toEqual([
+        ["git.commitPreview", { sessionId: "s1" }],
+        ["git.commit", { sessionId: "s1", message: "Fix it", push: true, pullRequest: true }],
+        ["git.commit", { sessionId: "s1", push: true }],
+        ["git.commit", { sessionId: "s1" }],
+      ]);
+      // A session's tasks, apart from the server's.
+      expect((await c.tasks("s1")).map((k) => k.id)).toEqual(["k4"]);
+      expect(await c.tasks()).toEqual([]);
+      expect(server.calls.filter((m) => m.method === "task.list").map((m) => m.params)).toEqual([{ sessionId: "s1" }, {}]);
+
+      const p = new ServerTaskProgress(t, c);
+      p.interval = 0.01;
+      p.start();
+      await waitFor(() => p.phase.kind === "done");
+      expect(p.task.url).toBe("https://github.com/me/app/pull/12");
+      expect(p.task.steps?.[0].status).toBe("succeeded");
+      // A commit's end isn't an agent's: the agents aren't looked at again.
+      expect(server.calls.filter((m) => m.method === "harness.list" && m.params?.refresh)).toHaveLength(0);
+    } finally {
+      c.stop();
+      await server.stop();
+    }
+  });
+
   it("follows an update of rad through its restart", async () => {
     const server = new TestServer();
     let polls = 0;

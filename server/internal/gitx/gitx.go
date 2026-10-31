@@ -123,25 +123,13 @@ func Dirty(ctx context.Context, dir string) bool {
 
 // Checkpoint snapshots dir's working tree into a commit stored at ref and returns its sha.
 func Checkpoint(ctx context.Context, dir, ref, message string) (string, error) {
-	f, err := os.CreateTemp("", "rad-index-*")
+	env, done, err := tempIndex(ctx, dir)
 	if err != nil {
 		return "", err
 	}
-	idx := f.Name()
-	f.Close()
-	os.Remove(idx) // git wants to create it
-	defer os.Remove(idx)
-	env := append([]string{"GIT_INDEX_FILE=" + idx}, identityEnv...)
-
+	defer done()
+	env = append(env, identityEnv...)
 	head, _ := Head(ctx, dir)
-	if head != "" {
-		if _, err := run(ctx, dir, env, "read-tree", "HEAD"); err != nil {
-			return "", err
-		}
-	}
-	if _, err := run(ctx, dir, env, "add", "-A"); err != nil {
-		return "", err
-	}
 	tree, err := run(ctx, dir, env, "write-tree")
 	if err != nil {
 		return "", err
@@ -159,6 +147,50 @@ func Checkpoint(ctx context.Context, dir, ref, message string) (string, error) {
 		return "", err
 	}
 	return sha, nil
+}
+
+// tempIndex stages dir's whole working tree in an index of its own, so
+// that the user's index stays as it is. env points git at it, and done
+// removes it.
+func tempIndex(ctx context.Context, dir string) (env []string, done func(), err error) {
+	f, err := os.CreateTemp("", "rad-index-*")
+	if err != nil {
+		return nil, nil, err
+	}
+	idx := f.Name()
+	f.Close()
+	os.Remove(idx) // git wants to create it
+	done = func() { os.Remove(idx) }
+	env = []string{"GIT_INDEX_FILE=" + idx}
+	if head, _ := Head(ctx, dir); head != "" {
+		if _, err := run(ctx, dir, env, "read-tree", "HEAD"); err != nil {
+			done()
+			return nil, nil, err
+		}
+	}
+	if _, err := run(ctx, dir, env, "add", "-A"); err != nil {
+		done()
+		return nil, nil, err
+	}
+	return env, done, nil
+}
+
+// Uncommitted lists dir's changes since its last commit, untracked files
+// included, as committing everything would take them, and their patch cut
+// to max bytes. The user's index stays as it is.
+func Uncommitted(ctx context.Context, dir string, max int) (files []FileStat, patchText string, truncated bool, err error) {
+	env, done, err := tempIndex(ctx, dir)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer done()
+	// --cached without a commit compares with HEAD, or with nothing on a
+	// branch that has no commits yet.
+	if files, err = diffFiles(ctx, dir, env, "--cached"); err != nil {
+		return nil, "", false, err
+	}
+	patchText, truncated, err = patch(ctx, dir, env, max, "--cached")
+	return files, patchText, truncated, err
 }
 
 // SetRef points ref at sha.
@@ -200,7 +232,12 @@ type FileStat struct {
 
 // DiffFiles lists files changed between two commits.
 func DiffFiles(ctx context.Context, dir, from, to string) ([]FileStat, error) {
-	ns, err := run(ctx, dir, nil, "diff", "--name-status", "-z", "-M", from, to)
+	return diffFiles(ctx, dir, nil, from, to)
+}
+
+// diffFiles lists the files git diff finds with args, such as two commits.
+func diffFiles(ctx context.Context, dir string, env []string, args ...string) ([]FileStat, error) {
+	ns, err := run(ctx, dir, env, append([]string{"diff", "--name-status", "-z", "-M"}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +271,7 @@ func DiffFiles(ctx context.Context, dir, from, to string) ([]FileStat, error) {
 		files = append(files, f)
 	}
 
-	num, err := run(ctx, dir, nil, "diff", "--numstat", "-z", "-M", from, to)
+	num, err := run(ctx, dir, env, append([]string{"diff", "--numstat", "-z", "-M"}, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -266,11 +303,15 @@ func DiffFiles(ctx context.Context, dir, from, to string) ([]FileStat, error) {
 
 // Patch returns the unified diff between two commits, truncated to max bytes.
 func Patch(ctx context.Context, dir, from, to string, paths []string, max int) (string, bool, error) {
-	args := []string{"diff", "--no-color", "--no-ext-diff", "-M", from, to}
+	args := []string{from, to}
 	if len(paths) > 0 {
 		args = append(append(args, "--"), paths...)
 	}
-	out, err := run(ctx, dir, nil, args...)
+	return patch(ctx, dir, nil, max, args...)
+}
+
+func patch(ctx context.Context, dir string, env []string, max int, args ...string) (string, bool, error) {
+	out, err := run(ctx, dir, env, append([]string{"diff", "--no-color", "--no-ext-diff", "-M"}, args...)...)
 	if err != nil {
 		return "", false, err
 	}

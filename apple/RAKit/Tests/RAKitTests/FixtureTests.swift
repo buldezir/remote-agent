@@ -118,6 +118,7 @@ struct FixtureTests {
         #expect(info.result?.terminal == true)
         #expect(info.result?.drafts == true)
         #expect(info.result?.forks == true)
+        #expect(info.result?.commit == true)
         #expect(info.result?.deviceId == "dev1")
     }
 
@@ -163,5 +164,28 @@ struct FixtureTests {
         #expect(list.tasks.map(\.status) == [.succeeded, .failed])
         #expect(list.tasks[0].version == "0.164.0" && list.tasks[0].endedAt != nil)
         #expect(list.tasks[1].error?.contains("checksum") == true && list.tasks[1].harness == nil)
+        #expect(list.tasks.allSatisfy { $0.sessionId == nil && $0.steps == nil })
+    }
+
+    @Test func commits() throws {
+        let dec = WireCoding.decoder()
+        let p = try #require(try dec.decode(Response<CommitPreview>.self, from: load("response_commit_preview.json")).result)
+        #expect(p.branch == "ra/fix-tests" && p.remote == "origin" && p.base == "main" && p.ahead == 1)
+        #expect(p.files.map(\.path) == ["api_test.go", "notes.md"])
+        #expect(p.files.map(\.status) == [.modified, .added])
+        #expect(p.files[0].additions == 4 && p.files[0].deletions == 1)
+        #expect(p.message.hasPrefix("Fix the flaky tests\n\n"))
+
+        let task = try #require(try dec.decode(Response<ServerTask>.self, from: load("response_task_commit.json")).result)
+        #expect(task.kind == .commit && task.sessionId == "s1" && task.status == .succeeded && task.harness == nil)
+        #expect(task.steps?.map(\.id) == ["commit", "push", "pull_request"])
+        #expect(task.steps?.map(\.status) == [.skipped, .succeeded, .succeeded])
+        #expect(task.steps?[0].detail == "Nothing to commit")
+        #expect(task.steps?[2].title == "Open a pull request" && task.steps?[2].detail == "#12 Fix the flaky tests")
+        #expect(task.url == "https://github.com/me/app/pull/12")
+
+        // A step status from a newer server reads as pending.
+        let step = try dec.decode(ServerTask.Step.self, from: Data(#"{"id":"x","title":"X","status":"waiting"}"#.utf8))
+        #expect(step.status == .pending && step.detail == nil)
     }
 }

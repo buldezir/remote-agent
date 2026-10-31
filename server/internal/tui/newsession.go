@@ -788,7 +788,12 @@ func worktreeValue(m *Model, on bool) string {
 // formRow is a row of a form: its label, marked while it's the one chosen,
 // and its value.
 func formRow(m *Model, field int, value string, chosen bool, inner int) string {
-	label := pad(fieldLabels[field], 13)
+	return labelRow(m, fieldLabels[field], value, chosen, inner)
+}
+
+// labelRow is a form's row with a label of its own.
+func labelRow(m *Model, label, value string, chosen bool, inner int) string {
+	label = pad(label, 13)
 	marker := "  "
 	if chosen {
 		label = m.st.AccentBold.Render(label)

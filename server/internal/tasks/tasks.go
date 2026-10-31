@@ -64,39 +64,56 @@ func NewManager(log *slog.Logger) *Manager {
 
 // Task is one job. Its run function reports through it.
 type Task struct {
-	mu     sync.Mutex
-	t      model.Task
-	screen *screen
-	input  io.Writer // the running command's terminal, if it takes input
-	cancel context.CancelFunc
+	mu        sync.Mutex
+	t         model.Task
+	screen    *screen
+	screenURL bool      // the url is the output's last web address, rather than what SetURL sets
+	input     io.Writer // the running command's terminal, if it takes input
+	cancel    context.CancelFunc
 }
 
 // Start runs run as a new task of kind, for harness if it's about an agent,
 // unless one of the same kind and harness is running: then it returns that
 // one. A nil error from run is success; once ctx ends, the task is
-// cancelled.
+// cancelled. Its url is the last web address in its output.
 func (m *Manager) Start(kind model.TaskKind, harnessID string, run func(ctx context.Context, t *Task) error) model.Task {
+	return m.start(model.Task{Kind: kind, Harness: harnessID}, true, run)
+}
+
+// StartForSession runs run as a new task of kind for a session, as Start
+// does. Its url is only what run sets (SetURL), and task.list shows it
+// only with the session's.
+func (m *Manager) StartForSession(kind model.TaskKind, sessionID string, run func(ctx context.Context, t *Task) error) model.Task {
+	return m.start(model.Task{Kind: kind, SessionID: sessionID}, false, run)
+}
+
+func (m *Manager) start(proto model.Task, screenURL bool, run func(ctx context.Context, t *Task) error) model.Task {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.tasks {
-		if s := t.Snapshot(); s.Kind == kind && s.Harness == harnessID && s.Status == model.TaskRunning {
+		if s := t.Snapshot(); s.Kind == proto.Kind && s.Harness == proto.Harness && s.SessionID == proto.SessionID && s.Status == model.TaskRunning {
 			return s
 		}
 	}
 	m.prune()
 	ctx, cancel := context.WithCancel(m.ctx)
-	t := &Task{
-		t:      model.Task{ID: store.NewID(), Kind: kind, Harness: harnessID, Status: model.TaskRunning, StartedAt: time.Now().UTC()},
-		screen: newScreen(rows), cancel: cancel,
-	}
+	proto.ID, proto.Status, proto.StartedAt = store.NewID(), model.TaskRunning, time.Now().UTC()
+	t := &Task{t: proto, screen: newScreen(rows), screenURL: screenURL, cancel: cancel}
 	m.tasks = append(m.tasks, t)
-	m.log.Info("task started", "task", t.t.ID, "kind", kind, "harness", harnessID)
+	attrs := []any{"task", proto.ID, "kind", proto.Kind}
+	if proto.Harness != "" {
+		attrs = append(attrs, "harness", proto.Harness)
+	}
+	if proto.SessionID != "" {
+		attrs = append(attrs, "session", proto.SessionID)
+	}
+	m.log.Info("task started", attrs...)
 	m.wg.Go(func() {
 		defer cancel()
 		err := run(ctx, t)
 		t.finish(ctx, err)
 		s := t.Snapshot()
-		m.log.Info("task ended", "task", s.ID, "kind", kind, "harness", harnessID, "status", s.Status, "err", s.Error)
+		m.log.Info("task ended", append(attrs, "status", s.Status, "err", s.Error)...)
 	})
 	return t.Snapshot()
 }
@@ -136,14 +153,16 @@ func (m *Manager) Get(id string) (model.Task, error) {
 }
 
 // List returns the tasks that run, and those that ended lately, oldest
-// first.
-func (m *Manager) List() []model.Task {
+// first: the session's, or with "" the server's own (updates and logins).
+func (m *Manager) List(sessionID string) []model.Task {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.prune()
 	out := make([]model.Task, 0, len(m.tasks))
 	for _, t := range m.tasks {
-		out = append(out, t.Snapshot())
+		if s := t.Snapshot(); s.SessionID == sessionID {
+			out = append(out, s)
+		}
 	}
 	return out
 }
@@ -192,10 +211,31 @@ func (t *Task) Snapshot() model.Task {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	s := t.t
+	s.Steps = slices.Clone(t.t.Steps)
 	s.Output = t.screen.Text()
-	s.URL = t.screen.URL()
+	if t.screenURL {
+		s.URL = t.screen.URL()
+	}
 	s.Input = t.input != nil
 	return s
+}
+
+// Step adds a step to the task's list, or replaces the one with its id.
+func (t *Task) Step(st model.TaskStep) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if i := slices.IndexFunc(t.t.Steps, func(s model.TaskStep) bool { return s.ID == st.ID }); i >= 0 {
+		t.t.Steps[i] = st
+	} else {
+		t.t.Steps = append(t.t.Steps, st)
+	}
+}
+
+// SetURL sets the task's url, for a task started with StartForSession.
+func (t *Task) SetURL(url string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.t.URL = url
 }
 
 // Println adds a line of rad's own to the output.

@@ -456,6 +456,46 @@ public struct ServerInfo: Codable, Hashable, Sendable {
     public var drafts: Bool?
     /// The server forks sessions (`session.fork`).
     public var forks: Bool?
+    /// The server commits a session's changes, pushes them and opens pull
+    /// requests (`git.commitPreview`, `git.commit`).
+    public var commit: Bool?
+}
+
+/// What `git.commit` would commit in a session, and a message for it
+/// (`git.commitPreview`).
+public struct CommitPreview: Codable, Hashable, Sendable {
+    /// Checked out where the agent works; nil: a detached HEAD.
+    public var branch: String?
+    /// Everything uncommitted, untracked files included.
+    public var files: [FileStat]
+    /// The system agent's message for the files, or rad's; empty without files.
+    public var message: String
+    /// Where a push goes; nil: nowhere.
+    public var remote: String?
+    /// The branch a pull request goes into; nil: the repository's default.
+    public var base: String?
+    /// The branch's commits its remote branch lacks (before the first push:
+    /// that `base` lacks).
+    public var ahead: Int
+
+    public init(branch: String? = nil, files: [FileStat] = [], message: String = "", remote: String? = nil, base: String? = nil, ahead: Int = 0) {
+        self.branch = branch
+        self.files = files
+        self.message = message
+        self.remote = remote
+        self.base = base
+        self.ahead = ahead
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        branch = try c.decodeIfPresent(String.self, forKey: .branch)
+        files = try c.decodeIfPresent([FileStat].self, forKey: .files) ?? []
+        message = try c.decodeIfPresent(String.self, forKey: .message) ?? ""
+        remote = try c.decodeIfPresent(String.self, forKey: .remote)
+        base = try c.decodeIfPresent(String.self, forKey: .base)
+        ahead = try c.decodeIfPresent(Int.self, forKey: .ahead) ?? 0
+    }
 }
 
 /// A text frame on a terminal socket. The shell's output and the user's
@@ -532,11 +572,12 @@ public struct UpdateInfo: Codable, Hashable, Sendable {
     public var installable: Bool { available && !(via ?? "").isEmpty }
 }
 
-/// A maintenance job on the server: updating rad or an agent, or signing an
-/// agent in. Clients poll it (`task.get`) while it runs.
+/// A job on the server: updating rad or an agent, signing an agent in, or
+/// committing a session's changes. Clients poll it (`task.get`) while it
+/// runs.
 public struct ServerTask: Codable, Hashable, Identifiable, Sendable {
     public enum Kind: String, Codable, Sendable {
-        case updateServer = "update_server", updateAgent = "update_agent", login, unknown
+        case updateServer = "update_server", updateAgent = "update_agent", login, commit, unknown
         public init(from decoder: Decoder) throws {
             self = Kind(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
         }
@@ -549,13 +590,36 @@ public struct ServerTask: Codable, Hashable, Identifiable, Sendable {
         }
     }
 
+    /// One step of a task, such as a commit's push.
+    public struct Step: Codable, Hashable, Identifiable, Sendable {
+        public enum Status: String, Codable, Sendable {
+            /// `pending` also stands for a status this app doesn't know.
+            case pending, running, succeeded, skipped, failed
+            public init(from decoder: Decoder) throws {
+                self = Status(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .pending
+            }
+        }
+
+        /// `commit`, `push` or `pull_request` for a commit.
+        public var id: String
+        public var title: String
+        public var status: Status
+        /// What it did, or does now, or why it failed.
+        public var detail: String?
+    }
+
     public var id: String
     public var kind: Kind
     public var harness: String?
+    /// The session, for a commit.
+    public var sessionId: String?
     public var status: Status
+    /// What it does, in order, as it gets there.
+    public var steps: [Step]?
     /// What the command printed, as a terminal shows it, without colours.
     public var output: String
-    /// The last web address in the output, such as a sign-in page.
+    /// The last web address in the output, such as a sign-in page; for a
+    /// commit, the pull request.
     public var url: String?
     /// It takes typed lines now (`task.input`), such as a code to paste.
     public var input: Bool?

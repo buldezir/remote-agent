@@ -376,6 +376,7 @@ struct ServerSettingsView: View {
         switch t.kind {
         case .updateServer: return "Updating rad"
         case .login: return "Signing In to \(name)"
+        case .commit: return "Committing"
         case .updateAgent, .unknown: return "Updating \(name)"
         }
     }
@@ -471,6 +472,7 @@ struct ServerTaskView: View {
         switch task.kind {
         case .updateServer: "rad \(task.version ?? "") is running."
         case .login: "Signed in."
+        case .commit: "Done."
         case .updateAgent, .unknown:
             if let v = task.version { "\(agentName ?? task.harness ?? "") \(v)" } else { "Updated." }
         }

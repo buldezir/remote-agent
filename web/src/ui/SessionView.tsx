@@ -10,6 +10,7 @@ import {
   Folder,
   GitBranch,
   GitFork,
+  GitPullRequestArrow,
   Mic,
   OctagonX,
   OctagonAlert,
@@ -26,6 +27,7 @@ import { contextFraction, modelName, type BackgroundTask, type HarnessInfo, type
 import { Attachments } from "../store/attachments";
 import { useObserved } from "../store/observable";
 import type { SessionStore } from "../store/sessionStore";
+import { CommitSheet } from "./CommitSheet";
 import { ContextGauge, HarnessIcon } from "./components";
 import { useConnection } from "./context";
 import { DiffView } from "./DiffView";
@@ -63,6 +65,7 @@ export function SessionView({
   useObserved(store);
   const [error, setError] = useState<string>();
   const [showDiff, setShowDiff] = useState(false);
+  const [showCommit, setShowCommit] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const placement = useTerminalPlacement();
   const attachments = useMemo(() => new Attachments(connection), [connection]);
@@ -153,6 +156,12 @@ export function SessionView({
   // in the terminal, Ctrl+J and Ctrl+` are the shell's. Hiding it gives
   // the keyboard back to the prompt.
   const canTerminal = !!connection.info?.terminal && !!session && !session.archived;
+  // rad commits in git projects, while the agent isn't working.
+  const canCommit = !!connection.info?.commit && !!project?.isGitRepo && !!session && !session.archived;
+  const openCommit = () => {
+    setShowDiff(false);
+    setShowCommit(true);
+  };
   // A turn has to have ended for a fork to go on from it.
   const canFork = !!connection.info?.forks && !!session && !!onFork && store.sortedTurns.some((t) => t.status !== "running");
   const composerField = useRef<HTMLTextAreaElement>(null);
@@ -194,6 +203,7 @@ export function SessionView({
     project?.isGitRepo && { label: "Changes", icon: FileDiff, onSelect: () => setShowDiff(true) },
     canTerminal && { label: showTerminal ? "Hide Terminal" : "Terminal", icon: SquareTerminal, onSelect: () => setShowTerminal(!showTerminal) },
     canFork && { label: "Fork…", icon: GitFork, onSelect: () => onFork(session) },
+    canCommit && { label: "Commit…", icon: GitPullRequestArrow, disabled: store.isRunning, onSelect: openCommit },
     harness?.commands?.length
       ? {
           section: "Commands",
@@ -212,7 +222,14 @@ export function SessionView({
     session && {
       section: project?.name ?? "",
       items: [
-        ...(project?.isGitRepo ? [{ label: session.workspace.branch ?? "Detached HEAD", icon: GitBranch }] : []),
+        ...(project?.isGitRepo
+          ? [
+              // The branch opens the commit sheet, as Commit… does.
+              canCommit
+                ? { label: session.workspace.branch ?? "Detached HEAD", icon: GitBranch, detail: "Commit…", disabled: store.isRunning, onSelect: openCommit }
+                : { label: session.workspace.branch ?? "Detached HEAD", icon: GitBranch },
+            ]
+          : []),
         ...(session.workspace.kind === "worktree" ? [{ label: "Worktree", icon: Copy }] : []),
         {
           label: <span className="mono small">{session.workspace.path}</span>,
@@ -315,7 +332,15 @@ export function SessionView({
           />
           {terminal === "over" && panel()}
         </div>
-        {showDiff && <DiffView store={store} canRevert={session?.workspace.kind === "worktree"} onClose={() => setShowDiff(false)} />}
+        {showDiff && (
+          <DiffView
+            store={store}
+            canRevert={session?.workspace.kind === "worktree"}
+            onCommit={canCommit ? openCommit : undefined}
+            onClose={() => setShowDiff(false)}
+          />
+        )}
+        {showCommit && session && <CommitSheet session={session} onClose={() => setShowCommit(false)} />}
         <ErrorAlert error={error ?? attachments.error} onClose={() => (error ? setError(undefined) : attachments.clearError())} />
       </div>
       {(terminal === "below" || terminal === "right") && <DockedTerminal placement={terminal} panel={panel} />}

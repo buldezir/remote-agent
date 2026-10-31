@@ -21,6 +21,7 @@ object Icons {
     @DrawableRes val checkboxOn = R.drawable.sym_check_box_fill // checkmark.square.fill
     @DrawableRes val checkboxOff = R.drawable.sym_check_box_outline_blank // square
     @DrawableRes val completed = R.drawable.sym_check_circle_fill // checkmark.circle.fill
+    @DrawableRes val commit = R.drawable.sym_commit // arrow.triangle.pull
     @DrawableRes val chevronRight = R.drawable.sym_chevron_right // chevron.right
     @DrawableRes val circle = R.drawable.sym_circle // circle
     @DrawableRes val close = R.drawable.sym_close // xmark
@@ -79,6 +80,7 @@ object Icons {
     @DrawableRes val share = R.drawable.sym_share // square.and.arrow.up
     @DrawableRes val stop = R.drawable.sym_stop_fill // stop.fill
     @DrawableRes val stopped = R.drawable.sym_stop_circle // stop.circle
+    @DrawableRes val skipped = R.drawable.sym_do_not_disturb_on // minus.circle
     @DrawableRes val terminal = R.drawable.sym_terminal // terminal
     @DrawableRes val fake = R.drawable.sym_theater_comedy // theatermasks
     @DrawableRes val revert = R.drawable.sym_undo // arrow.uturn.backward
