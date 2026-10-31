@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -180,7 +181,9 @@ func TestCommitPushAndPullRequest(t *testing.T) {
 		t.Fatal("left changes uncommitted")
 	}
 	for _, want := range []string{"$ git add -A", "$ git commit -F -", "$ git push --set-upstream origin ra/feature",
-		"$ gh pr create --head ra/feature --title 'Fake: Edit the files' --body-file - --base main", "https://github.com/test/repo/pull/12"} {
+		"$ gh pr create --head ra/feature --title 'Fake: Edit the files' --body-file - --base main",
+		// gh's stderr, then its stdout, as it wrote them.
+		"Creating pull request into main in test/repo\nhttps://github.com/test/repo/pull/12"} {
 		if !strings.Contains(task.Output, want) {
 			t.Errorf("output lacks %q:\n%s", want, task.Output)
 		}
@@ -485,6 +488,45 @@ func TestPlainPullRequest(t *testing.T) {
 	}
 	if title, _ := plainPullRequest("", "ra/x", nil); title != "ra/x" {
 		t.Fatalf("no commits: %q", title)
+	}
+}
+
+// What a command prints to stdout and stderr shows in the order it wrote
+// it, as gh's "Creating pull request…" before the address. Without a task
+// to show it in, it returns its stdout alone, for gh's JSON.
+func TestRunCommandKeepsTheOrder(t *testing.T) {
+	script := `i=0; while [ $i -lt 200 ]; do echo "out $i"; echo "err $i" >&2; i=$((i+1)); done`
+	var shown strings.Builder
+	out, err := runCommand(bg, t.TempDir(), "", &shown, "/bin/sh", "-c", script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want, wantOut strings.Builder
+	for i := range 200 {
+		fmt.Fprintf(&want, "out %d\nerr %d\n", i, i)
+		fmt.Fprintf(&wantOut, "out %d\n", i)
+	}
+	if shown.String() != want.String() {
+		t.Fatalf("shown out of order:\n%s", shown.String())
+	}
+	if out != want.String() {
+		t.Fatalf("returned %q", out)
+	}
+
+	out, err = runCommand(bg, t.TempDir(), "", nil, "/bin/sh", "-c", script)
+	if err != nil || out != wantOut.String() {
+		t.Fatalf("without a task: %q, %v", out, err)
+	}
+
+	// An error says the last line it printed, from either.
+	shown.Reset()
+	_, err = runCommand(bg, t.TempDir(), "", &shown, "/bin/sh", "-c", `echo "To origin" >&2; echo "! [rejected] main -> main (fetch first)" >&2; echo done; exit 1`)
+	if err == nil || err.Error() != "sh -c failed: done" || shown.String() != "To origin\n! [rejected] main -> main (fetch first)\ndone\n" {
+		t.Fatalf("error %v, shown %q", err, shown.String())
+	}
+	_, err = runCommand(bg, t.TempDir(), "", nil, "/bin/sh", "-c", `echo "! [rejected]" >&2; echo done; exit 1`)
+	if err == nil || err.Error() != "sh -c failed: ! [rejected]" {
+		t.Fatalf("error without a task %v", err)
 	}
 }
 

@@ -317,7 +317,8 @@ func (r *commitRun) fail(id string, err error) error {
 }
 
 // exec runs a command in the session's folder, showing it and what it
-// prints in the task, with stdin as its input. It returns its stdout.
+// prints in the task, with stdin as its input. It returns what it printed,
+// stderr too.
 func (r *commitRun) exec(ctx context.Context, stdin, name string, args ...string) (string, error) {
 	r.p.Println("$ %s", commandLine(name, args))
 	return runCommand(ctx, r.place.dir, stdin, r.p, name, args...)
@@ -440,8 +441,8 @@ func (r *commitRun) pullRequest(ctx context.Context) error {
 	if err != nil {
 		// Opened meanwhile, from elsewhere.
 		var ce *commandError
-		if errors.As(err, &ce) && strings.Contains(ce.stderr, "already exists") {
-			if url := lastURL(ce.stderr); url != "" {
+		if errors.As(err, &ce) && strings.Contains(ce.output, "already exists") {
+			if url := lastURL(ce.output); url != "" {
 				r.foundOpen(prNumber(url), url, "")
 				return nil
 			}
@@ -539,12 +540,12 @@ var commandEnv = []string{"GIT_TERMINAL_PROMPT=0", "GIT_EDITOR=true", "GH_PROMPT
 type commandError struct {
 	what   string // such as "git push"
 	err    error
-	stderr string
+	output string // its stderr, or all it printed where that was shown
 }
 
 func (e *commandError) Error() string {
 	line := ""
-	for _, l := range strings.Split(strings.TrimSpace(e.stderr), "\n") {
+	for _, l := range strings.Split(strings.TrimSpace(e.output), "\n") {
 		if l = strings.TrimSpace(l); l != "" {
 			line = l // the last one says most
 		}
@@ -559,8 +560,10 @@ func (e *commandError) Unwrap() error { return e.err }
 
 // runCommand runs a command in dir, without a terminal, so that nothing it
 // starts (ssh, a credential helper) can ask, and with stdin as its input.
-// What it prints also goes to shown, unless that's nil. It returns its
-// stdout.
+// It returns its stdout. What it prints also goes to shown, unless that's
+// nil, through one pipe for stdout and stderr, which keeps the order it
+// wrote in: two are copied apart, and gh's "Creating pull request…" could
+// show after the address it prints. It then returns both, as shown.
 func runCommand(ctx context.Context, dir, stdin string, shown io.Writer, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
@@ -572,7 +575,9 @@ func runCommand(ctx context.Context, dir, stdin string, shown io.Writer, name st
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if shown != nil {
-		cmd.Stdout, cmd.Stderr = io.MultiWriter(&stdout, shown), io.MultiWriter(&stderr, shown)
+		// The same writer for both, which exec gives one pipe.
+		w := io.MultiWriter(&stdout, shown)
+		cmd.Stdout, cmd.Stderr = w, w
 	}
 	if err := cmd.Run(); err != nil {
 		if ctx.Err() != nil {
@@ -585,7 +590,11 @@ func runCommand(ctx context.Context, dir, stdin string, shown io.Writer, name st
 				what += " " + args[1]
 			}
 		}
-		return stdout.String(), &commandError{what: what, err: err, stderr: stderr.String()}
+		output := stderr.String()
+		if shown != nil {
+			output = stdout.String()
+		}
+		return stdout.String(), &commandError{what: what, err: err, output: output}
 	}
 	return stdout.String(), nil
 }
