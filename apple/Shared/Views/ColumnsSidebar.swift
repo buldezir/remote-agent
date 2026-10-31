@@ -100,11 +100,12 @@ struct SessionListColumn: View {
     @Binding var selection: SessionRoute?
     var searchFocused: FocusState<Bool>.Binding
 
-    /// Over the list, as Mail's: in the column's toolbar on the Mac, and in
-    /// its navigation bar on iPad, which would otherwise put it over the session.
-    private var searchPlacement: SearchFieldPlacement {
+    /// Over the list, as Mail's: in its navigation bar on iPad, which would
+    /// otherwise put it over the session. The Mac's toolbar puts it there
+    /// whatever the placement, so the list has the app's own field.
+    private var searchPlacement: SearchFieldPlacement? {
         #if os(macOS)
-        .automatic
+        nil
         #else
         .navigationBarDrawer(displayMode: .always)
         #endif

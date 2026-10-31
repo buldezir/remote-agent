@@ -76,7 +76,8 @@ private struct SidebarList: ViewModifier {
 struct SearchableSessions<Content: View>: View {
     @Environment(ServerStore.self) private var store
     @Environment(SessionSearch.self) private var search
-    let placement: SearchFieldPlacement
+    /// Where SwiftUI puts the field; nil: the app's own field, atop the list.
+    let placement: SearchFieldPlacement?
     /// The session open beside the list. The iPhone's Inbox has none.
     let selection: SessionRoute?
     let focused: FocusState<Bool>.Binding
@@ -84,7 +85,7 @@ struct SearchableSessions<Content: View>: View {
     let background: Color
     let content: Content
 
-    init(placement: SearchFieldPlacement, selection: SessionRoute?, focused: FocusState<Bool>.Binding,
+    init(placement: SearchFieldPlacement?, selection: SessionRoute?, focused: FocusState<Bool>.Binding,
          background: Color = Palette.mantle, @ViewBuilder content: () -> Content) {
         self.placement = placement
         self.selection = selection
@@ -102,14 +103,77 @@ struct SearchableSessions<Content: View>: View {
                 content
             }
         }
-        .searchable(text: $search.query, placement: placement, prompt: Text("Search sessions"))
-        .searchFocused(focused)
+        .modifier(SearchField(query: $search.query, placement: placement, focused: focused))
         // A server that connects, or comes back, is searched too.
         .onChange(of: searchingServers) { _, _ in search.refresh() }
     }
 
     private var searchingServers: [String] {
         store.connections.filter { $0.state == .connected && $0.searches }.map(\.server.id)
+    }
+}
+
+/// SwiftUI's search field where it has a place for one, else the app's own
+/// atop the list.
+private struct SearchField: ViewModifier {
+    @Binding var query: String
+    let placement: SearchFieldPlacement?
+    let focused: FocusState<Bool>.Binding
+
+    func body(content: Content) -> some View {
+        if let placement {
+            content
+                .searchable(text: $query, placement: placement, prompt: Text("Search sessions"))
+                .searchFocused(focused)
+        } else {
+            // Above the list, not in a bar of its scroll view, which would
+            // make the field anew, out of focus, as the results take the
+            // list's place.
+            VStack(spacing: 0) {
+                SessionSearchField(query: $query, focused: focused)
+                content
+            }
+        }
+    }
+}
+
+/// A search field drawn as the system's, for the Mac's Columns layout: there
+/// `.searchable` puts the session list's field over the window's last
+/// column, the session, whatever its placement.
+private struct SessionSearchField: View {
+    @Binding var query: String
+    let focused: FocusState<Bool>.Binding
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(Palette.subtext)
+                .accessibilityHidden(true)
+            TextField("Search sessions", text: $query, prompt: Text("Search sessions").foregroundStyle(Palette.overlay))
+                .textFieldStyle(.plain)
+                .plainTextInput()
+                .foregroundStyle(Palette.text)
+                .focused(focused)
+                // As the system's field: Esc empties it.
+                .onKeyPress(.escape) {
+                    guard !query.isEmpty else { return .ignored }
+                    query = ""
+                    return .handled
+                }
+            if !query.isEmpty {
+                Button("Clear", systemImage: "xmark.circle.fill") { query = "" }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(Palette.overlay)
+            }
+        }
+        .scaledFont(.body)
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .padding(.horizontal, 10)
+        .padding(.top, 2)
+        .padding(.bottom, 8)
     }
 }
 
