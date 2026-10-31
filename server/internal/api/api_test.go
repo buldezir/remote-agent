@@ -41,7 +41,8 @@ type testServer struct {
 	root string
 }
 
-func startServer(t *testing.T) *testServer {
+// startServer starts rad with the fake agent, and any others given.
+func startServer(t *testing.T, others ...harness.Harness) *testServer {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "rad.db"))
 	if err != nil {
@@ -52,7 +53,7 @@ func startServer(t *testing.T) *testServer {
 	st.OnCommit(hub.Publish)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	imgs := images.New(t.TempDir())
-	orch := orchestrator.New(st, harness.NewRegistry(fake.Harness{}), orchestrator.Options{WorktreesDir: t.TempDir(), Images: imgs, Log: log})
+	orch := orchestrator.New(st, harness.NewRegistry(append([]harness.Harness{fake.Harness{}}, others...)...), orchestrator.Options{WorktreesDir: t.TempDir(), Images: imgs, Log: log})
 	t.Cleanup(orch.Shutdown)
 	root := t.TempDir()
 	srv := api.NewServer(st, hub, orch, fsbrowse.New([]string{root}), imgs, "srv-1", "test-host", log)

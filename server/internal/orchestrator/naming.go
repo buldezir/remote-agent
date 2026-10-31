@@ -34,19 +34,33 @@ func (o *Orchestrator) Settings(ctx context.Context) (model.ServerSettings, erro
 // SetSettings checks and saves them.
 func (o *Orchestrator) SetSettings(ctx context.Context, s model.ServerSettings) (model.ServerSettings, error) {
 	if a := s.SystemAgent; a != nil {
-		a.Harness, a.Model, a.Effort = strings.TrimSpace(a.Harness), strings.TrimSpace(a.Model), strings.TrimSpace(a.Effort)
-		h, ok := o.reg.Get(a.Harness)
-		if !ok {
-			return s, errorf(CodeInvalid, "unknown harness %q", a.Harness)
+		h, err := o.settingsAgent(ctx, a)
+		if err != nil {
+			return s, err
 		}
 		if _, ok := h.(harness.OneShotter); !ok {
 			return s, errorf(CodeInvalid, "%s can't be the system agent", a.Harness)
 		}
-		if info := o.reg.Info(ctx, h, false); !info.Installed {
-			return s, errorf(CodeUnavailable, "%s is not installed on this machine", info.Name)
+	}
+	if a := s.DefaultAgent; a != nil {
+		if _, err := o.settingsAgent(ctx, a); err != nil {
+			return s, err
 		}
 	}
 	return s, o.st.SetSettings(ctx, s)
+}
+
+// settingsAgent trims a setting's agent, and finds it installed.
+func (o *Orchestrator) settingsAgent(ctx context.Context, a *model.AgentSpec) (harness.Harness, error) {
+	a.Harness, a.Model, a.Effort = strings.TrimSpace(a.Harness), strings.TrimSpace(a.Model), strings.TrimSpace(a.Effort)
+	h, ok := o.reg.Get(a.Harness)
+	if !ok {
+		return nil, errorf(CodeInvalid, "unknown harness %q", a.Harness)
+	}
+	if info := o.reg.Info(ctx, h, false); !info.Installed {
+		return nil, errorf(CodeUnavailable, "%s is not installed on this machine", info.Name)
+	}
+	return h, nil
 }
 
 // provisionalBranch is a worktree's branch until the system agent names it.
@@ -111,7 +125,7 @@ type names struct {
 }
 
 // askNames has the system agent name the session.
-func (o *Orchestrator) askNames(ctx context.Context, agent model.SystemAgent, projectName, text string, branch bool) (names, error) {
+func (o *Orchestrator) askNames(ctx context.Context, agent model.AgentSpec, projectName, text string, branch bool) (names, error) {
 	reply, err := o.oneShot(ctx, agent, namingPrompt(projectName, text, branch))
 	if err != nil {
 		return names{}, err
@@ -120,7 +134,7 @@ func (o *Orchestrator) askNames(ctx context.Context, agent model.SystemAgent, pr
 }
 
 // oneShot runs the system agent once, in an empty folder of its own.
-func (o *Orchestrator) oneShot(ctx context.Context, agent model.SystemAgent, prompt string) (string, error) {
+func (o *Orchestrator) oneShot(ctx context.Context, agent model.AgentSpec, prompt string) (string, error) {
 	h, ok := o.reg.Get(agent.Harness)
 	if !ok {
 		return "", fmt.Errorf("unknown harness %q", agent.Harness)

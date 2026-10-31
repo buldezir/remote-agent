@@ -334,8 +334,9 @@ export function effortsForModel(h: HarnessInfo, model: string | undefined): Choi
   return h.models?.find((m) => m.id === model)?.efforts ?? h.efforts ?? [];
 }
 
-/** The agent, and its model, that names sessions and their worktree branches. */
-export interface SystemAgent {
+/** An agent with a model and an effort: the system agent, or the one new
+ *  sessions start with. Model and effort absent: the agent's, the model's default. */
+export interface AgentSpec {
   harness: string;
   model?: string;
   effort?: string;
@@ -343,8 +344,12 @@ export interface SystemAgent {
 
 /** The settings clients change on a server (`server.settings`). */
 export interface ServerSettings {
-  /** Absent: none, and a session's title is its prompt's first line. */
-  systemAgent?: SystemAgent;
+  /** Names sessions and their worktree branches. Absent: none, and a
+   *  session's title is its prompt's first line. */
+  systemAgent?: AgentSpec;
+  /** The agent, model and effort new sessions start with. Absent: each
+   *  client starts with the agent it used last. */
+  defaultAgent?: AgentSpec;
 }
 
 /** What `server.checkUpdate` found out about rad's releases. */

@@ -11,6 +11,9 @@ struct NewSessionView: View {
     @AppStorage("lastProject") private var lastProject = ""
     @State private var projectID = ""
     @State private var harnessID = ""
+    /// The server's agent, model and effort for new sessions; nil: the agent
+    /// used last, with its options.
+    @State private var defaultAgent: AgentSpec?
     @State private var model = ""
     @State private var customModel = ""
     @State private var effort = ""
@@ -208,11 +211,19 @@ struct NewSessionView: View {
                 }
             }
             .task {
+                // None from an older rad, or one that isn't connected.
+                async let settings = try? connection.settings()
                 if connection.harnesses == nil { await connection.refreshHarnesses() }
                 if projectID.isEmpty, connection.projects[lastProject] != nil { projectID = lastProject }
+                defaultAgent = await settings?.defaultAgent
+                // Unless the user chose one meanwhile.
                 if harnessID.isEmpty {
-                    harnessID = connection.harness(lastHarness)?.usable == true ? lastHarness
-                        : (connection.harnesses?.first(where: \.usable)?.id ?? "")
+                    if let id = defaultAgent?.harness, connection.harness(id)?.usable == true {
+                        harnessID = id
+                    } else {
+                        harnessID = connection.harness(lastHarness)?.usable == true ? lastHarness
+                            : (connection.harnesses?.first(where: \.usable)?.id ?? "")
+                    }
                 }
             }
             .onChange(of: harnessID) { _, _ in restoreChoices() }
@@ -258,7 +269,8 @@ struct NewSessionView: View {
     private var chosenModel: String? { harness?.modelID(model, custom: customModel) }
 
     /// Starts from the model, effort and permission mode last used with this
-    /// agent, if it still offers them.
+    /// agent, if it still offers them; for the server's default agent, from
+    /// the default's model and effort.
     private func restoreChoices() {
         model = ""
         customModel = ""
@@ -266,11 +278,13 @@ struct NewSessionView: View {
         mode = harness?.defaultMode ?? harness?.modes?.first?.id ?? ""
         guard let harness else { return }
         let defaults = UserDefaults.standard
-        if let m = defaults.string(forKey: "lastModel." + harness.id), let choice = harness.modelChoice(m) {
+        let byDefault = defaultAgent?.harness == harness.id
+        let startModel = byDefault ? defaultAgent?.model : defaults.string(forKey: "lastModel." + harness.id)
+        let startEffort = byDefault ? defaultAgent?.effort : defaults.string(forKey: "lastEffort." + harness.id)
+        if let m = startModel, let choice = harness.modelChoice(m) {
             (model, customModel) = choice
         }
-        if let e = defaults.string(forKey: "lastEffort." + harness.id),
-           harness.efforts(forModel: chosenModel).contains(where: { $0.id == e }) {
+        if let e = startEffort, harness.efforts(forModel: chosenModel).contains(where: { $0.id == e }) {
             effort = e
         }
         if let m = defaults.string(forKey: "lastMode." + harness.id),

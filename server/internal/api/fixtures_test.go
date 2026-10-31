@@ -132,7 +132,8 @@ func fixtures() map[string]any {
 			serverInfo: serverInfo{ServerID: "srv1", Name: "studio", ProtocolVersion: model.ProtocolVersion, Version: "0.4.0"},
 			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true, Forks: true, Commit: true, Search: true, Rename: true}},
 		"response_server_settings.json": response{ID: json.RawMessage("8"), Result: model.ServerSettings{
-			SystemAgent: &model.SystemAgent{Harness: "claude", Model: "haiku", Effort: "low"}}},
+			SystemAgent:  &model.AgentSpec{Harness: "claude", Model: "haiku", Effort: "low"},
+			DefaultAgent: &model.AgentSpec{Harness: "codex", Model: "gpt-5.5", Effort: "high"}}},
 		"response_check_update.json": response{ID: json.RawMessage("9"), Result: model.UpdateInfo{
 			Current: "0.11.0", Latest: "0.12.0", URL: "https://github.com/buldezir/remote-agent/releases/tag/v0.12.0",
 			Available: true, Via: "app", Busy: []string{"Fix the tests"}}},

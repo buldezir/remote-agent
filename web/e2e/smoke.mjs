@@ -851,7 +851,9 @@ const fakeMenu = async (item) => {
   await page.getByRole("menuitem", { name: item, exact: true }).click();
 };
 const closeTask = () => page.getByRole("button", { name: "Done" }).last().click();
-const systemAgent = page.getByLabel(/^Agent/);
+// A section's rows: New Sessions and System Agent both have an Agent and a Model.
+const settingsSection = (name) => page.locator(`xpath=//h4[normalize-space()="${name}"]/following-sibling::section[1]`);
+const systemAgent = settingsSection("System Agent").getByLabel(/^Agent/);
 await openServerSettings();
 await page.getByText("rad dev is a development build, which doesn't update itself.").waitFor();
 await page.locator(".harness-row", { hasText: fake }).getByText("Ready").waitFor();
@@ -876,7 +878,7 @@ await page.locator(".task-status", { hasText: "Signed in." }).waitFor();
 await shot("server-task-signed-in");
 await closeTask();
 await systemAgent.selectOption({ label: fake });
-await page.getByLabel(/^Model/).waitFor();
+await settingsSection("System Agent").getByLabel(/^Model/).waitFor();
 await page.getByRole("button", { name: "Done" }).click();
 await page.getByRole("button", { name: "New session", exact: true }).first().click();
 await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
@@ -885,10 +887,30 @@ await page.getByPlaceholder("What should the agent do?").fill("tidy up the readm
 await page.getByRole("button", { name: "Start", exact: true }).click();
 await page.locator(".session-heading h1", { hasText: "Named: tidy up the readme" }).waitFor();
 await shot("named-session");
-// Back to no system agent.
+
+step("server settings: new sessions start with the default agent");
+const defaultAgent = settingsSection("New Sessions");
 await openServerSettings();
+await defaultAgent.getByLabel(/^Agent/).selectOption({ label: fake });
+await defaultAgent.getByLabel(/^Model/).selectOption({ label: "Echo" });
+await defaultAgent.getByLabel(/^Effort/).selectOption({ label: "High" });
+await shot("server-settings-default-agent");
+await page.getByRole("button", { name: "Done" }).click();
+await page.getByRole("button", { name: "New session", exact: true }).first().click();
+await page.locator(".harness-row[aria-pressed=true]", { hasText: "Fake" }).waitFor();
+// The default's model and effort, not the ones last used with it.
+await page.waitForFunction(() => {
+  const value = (label) => [...document.querySelectorAll(".form-row")].find((r) => r.firstElementChild?.textContent === label)?.querySelector("select")?.value;
+  return value("Model") === "echo" && value("Effort") === "high";
+});
+await shot("new-session-default-agent");
+await page.getByRole("button", { name: "Cancel" }).click();
+// Back to Last Used, and to no system agent.
+await openServerSettings();
+await defaultAgent.getByLabel(/^Agent/).selectOption({ label: "Last Used" });
+await defaultAgent.getByLabel(/^Model/).waitFor({ state: "detached" });
 await systemAgent.selectOption({ label: "None" });
-await page.getByLabel(/^Model/).waitFor({ state: "detached" });
+await settingsSection("System Agent").getByLabel(/^Model/).waitFor({ state: "detached" });
 await page.getByRole("button", { name: "Done" }).click();
 
 step("remove server");

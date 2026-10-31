@@ -180,6 +180,7 @@ describe("fixtures", () => {
   it("server management", () => {
     const settings: ServerSettings = load("response_server_settings.json").result;
     expect(settings.systemAgent).toEqual({ harness: "claude", model: "haiku", effort: "low" });
+    expect(settings.defaultAgent).toEqual({ harness: "codex", model: "gpt-5.5", effort: "high" });
 
     const update: UpdateInfo = load("response_check_update.json").result;
     expect(update).toMatchObject({ current: "0.11.0", latest: "0.12.0", available: true, via: "app" });

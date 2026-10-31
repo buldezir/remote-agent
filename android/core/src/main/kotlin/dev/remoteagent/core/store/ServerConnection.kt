@@ -582,7 +582,7 @@ class ServerConnection(
 
     suspend fun settings(): ServerSettings = client.call("server.settings")
 
-    /** Replaces the settings, all of them: a null `systemAgent` unsets it. Returns what the server kept. */
+    /** Replaces the settings, all of them: a null `systemAgent` or `defaultAgent` unsets it. Returns what the server kept. */
     suspend fun setSettings(settings: ServerSettings): ServerSettings =
         client.call("server.setSettings", WireCoding.json.encodeToJsonElement(settings))
 

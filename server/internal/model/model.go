@@ -412,10 +412,9 @@ type HarnessInfo struct {
 	Caps        HarnessCaps `json:"caps"`
 }
 
-// SystemAgent is the agent, and its model, that does rad's own small jobs:
-// naming sessions and their worktree branches. Its calls run without tools
-// and leave no conversation behind.
-type SystemAgent struct {
+// AgentSpec is an agent with a model and an effort: the system agent, or
+// the one new sessions start with.
+type AgentSpec struct {
 	Harness string `json:"harness"`
 	Model   string `json:"model,omitempty"`  // empty: the harness's default
 	Effort  string `json:"effort,omitempty"` // empty: the model's default
@@ -424,9 +423,16 @@ type SystemAgent struct {
 // ServerSettings are the settings clients change (server.setSettings), as
 // opposed to the config file's.
 type ServerSettings struct {
-	// SystemAgent names sessions and worktree branches from the first
-	// prompt; nil: the title is the prompt's first line.
-	SystemAgent *SystemAgent `json:"systemAgent,omitempty"`
+	// SystemAgent does rad's own small jobs: it names sessions and worktree
+	// branches from the first prompt, and writes commit messages. Its calls
+	// run without tools and leave no conversation behind. Nil: the title is
+	// the prompt's first line.
+	SystemAgent *AgentSpec `json:"systemAgent,omitempty"`
+	// DefaultAgent is the one new sessions start with: the clients' new
+	// session forms, and the sessions agents start with rad's MCP tools
+	// without naming one. Nil: each client starts with the one it used
+	// last, and an agent's sessions with its own.
+	DefaultAgent *AgentSpec `json:"defaultAgent,omitempty"`
 }
 
 // UpdateInfo is what server.checkUpdate finds out about rad's releases.

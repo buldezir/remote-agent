@@ -1,6 +1,6 @@
 import { ChevronRight, Ellipsis, RefreshCw, TriangleAlert, UserRound } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { effortsForModel, installable, type HarnessInfo, type ServerSettings, type ServerTask, type SystemAgent, type UpdateInfo } from "../protocol/models";
+import { effortsForModel, installable, type AgentSpec, type HarnessInfo, type ServerSettings, type ServerTask, type UpdateInfo } from "../protocol/models";
 import { RPCError } from "../protocol/rpc";
 import { useObserved } from "../store/observable";
 import { ServerTasks, type ServerTaskProgress } from "../store/serverTask";
@@ -20,7 +20,8 @@ function tooOld(e: unknown): boolean {
 }
 
 /** A server's own settings, as the apps' Server Settings: rad's version and
- *  updates, the agents installed there, and the system agent. */
+ *  updates, the agents installed there, the agent new sessions start with,
+ *  and the system agent. */
 export function ServerSettingsView({ onClose }: { onClose: () => void }) {
   const connection = useConnection();
   useObserved(connection);
@@ -35,9 +36,10 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
   const [updateTooOld, setUpdateTooOld] = useState(false);
   const [settings, setSettings] = useState<ServerSettings>();
   const [settingsError, setSettingsError] = useState<string>();
-  /** rad doesn't have server.settings: no system agent. */
+  /** rad doesn't have server.settings: no default or system agent. */
   const [settingsTooOld, setSettingsTooOld] = useState(false);
-  const [saveError, setSaveError] = useState<string>();
+  /** A change that failed, beside the section it was made in. */
+  const [saveError, setSaveError] = useState<{ field: AgentField; message: string }>();
   /** A task that couldn't start, beside the section it was started from. */
   const [startError, setStartError] = useState<{ section: "rad" | "agents"; message: string }>();
   const [starting, setStarting] = useState<string>();
@@ -129,8 +131,9 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
 
   const updateServer = () => void begin("rad", "rad", () => connection.updateServer());
 
-  /** Saves the whole settings; a failure puts back what the server has. */
-  const save = async (next: ServerSettings) => {
+  /** Saves the whole settings, changed in `field`; a failure puts back what
+   *  the server has. */
+  const save = async (field: AgentField, next: ServerSettings) => {
     const n = ++saves.current;
     setSettings(next);
     setSaveError(undefined);
@@ -140,13 +143,35 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
       if (live.current && n === saves.current) setSettings(s);
     } catch (e) {
       if (live.current && n === saves.current) {
-        setSaveError((e as Error).message);
+        setSaveError({ field, message: (e as Error).message });
         setSettings(confirmed.current);
       }
     }
   };
 
   const harnesses = connection.harnesses;
+  /** An agent's rows, or the settings' loading state in their place. */
+  const agentRows = (field: AgentField, offered: HarnessInfo[], none: string) =>
+    settings ? (
+      <AgentSpecRows
+        settings={settings}
+        field={field}
+        harnesses={harnesses ?? []}
+        offered={offered}
+        none={none}
+        disabled={!connected}
+        onChange={(s) => void save(field, s)}
+      />
+    ) : settingsError ? (
+      <div className="form-row c-red">
+        <TriangleAlert size={15} /> Couldn't load the settings: {settingsError}
+      </div>
+    ) : (
+      <div className="form-row hint">
+        <Spinner /> Loading…
+      </div>
+    );
+
   const serverTask = tasks.active("update_server");
   const shownTask = tasks.get(openTask);
 
@@ -243,28 +268,24 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
         )}
         {startError?.section === "agents" && <p className="form-footer c-red">{startError.message}</p>}
 
-        {/* An older rad has no settings, and no system agent. */}
+        {/* An older rad has no settings: no default agent, and no system agent. */}
         {!settingsTooOld && (
           <>
+            <h4 className="form-header">New Sessions</h4>
+            <section className="form-section">{agentRows("defaultAgent", harnesses ?? [], "Last Used")}</section>
+            <p className="form-footer">
+              New sessions start with this agent, model and effort, on every device, and so do the sessions agents start with rad's tools unless they choose
+              their own. With Last Used, each device starts with the agent it used last.
+            </p>
+            {saveError?.field === "defaultAgent" && <p className="form-footer c-red">{saveError.message}</p>}
+
             <h4 className="form-header">System Agent</h4>
-            <section className="form-section">
-              {settings ? (
-                <SystemAgentRows settings={settings} harnesses={harnesses ?? []} disabled={!connected} onChange={(s) => void save(s)} />
-              ) : settingsError ? (
-                <div className="form-row c-red">
-                  <TriangleAlert size={15} /> Couldn't load the settings: {settingsError}
-                </div>
-              ) : (
-                <div className="form-row hint">
-                  <Spinner /> Loading…
-                </div>
-              )}
-            </section>
+            <section className="form-section">{agentRows("systemAgent", (harnesses ?? []).filter((h) => h.caps.oneShot), "None")}</section>
             <p className="form-footer">
               Names new sessions and their worktree branches from the first prompt, in a call without tools that leaves no history with the agent. A small,
               fast model is best. With None, a session's title is its prompt's first line.
             </p>
-            {saveError && <p className="form-footer c-red">{saveError}</p>}
+            {saveError?.field === "systemAgent" && <p className="form-footer c-red">{saveError.message}</p>}
           </>
         )}
       </div>
@@ -403,31 +424,41 @@ function AgentRow({
   );
 }
 
-/** The agent, model and effort that name sessions. */
-function SystemAgentRows({
+/** The settings that name an agent, with its model and effort. */
+type AgentField = "systemAgent" | "defaultAgent";
+
+/** The agent, model and effort in one of the settings: `offered` are the
+ *  agents to choose from, `none` the choice of none. A change sends the
+ *  settings with only that one changed, since the server replaces them all. */
+function AgentSpecRows({
   settings,
+  field,
   harnesses,
+  offered,
+  none,
   disabled,
   onChange,
 }: {
   settings: ServerSettings;
+  field: AgentField;
   harnesses: HarnessInfo[];
+  offered: HarnessInfo[];
+  none: string;
   disabled: boolean;
   onChange: (s: ServerSettings) => void;
 }) {
-  const agent = settings.systemAgent;
-  const offered = harnesses.filter((h) => h.caps.oneShot);
+  const agent = settings[field];
   const harness = agent && harnesses.find((h) => h.id === agent.harness);
   const models = harness?.models ?? [];
   const efforts = harness ? effortsForModel(harness, agent?.model) : [];
-  const set = (a: SystemAgent | undefined) => onChange(a ? { ...settings, systemAgent: a } : { ...settings, systemAgent: undefined });
+  const set = (a: AgentSpec | undefined) => onChange({ ...settings, [field]: a });
 
   return (
     <>
       <label className="form-row">
         <span>Agent</span>
         <select value={agent?.harness ?? ""} disabled={disabled} onChange={(e) => set(e.target.value ? { harness: e.target.value } : undefined)}>
-          <option value="">None</option>
+          <option value="">{none}</option>
           {offered.map((h) => (
             <option key={h.id} value={h.id}>
               {h.name}

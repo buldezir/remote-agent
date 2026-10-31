@@ -152,7 +152,8 @@ struct FixtureTests {
     @Test func serverManagement() throws {
         let dec = WireCoding.decoder()
         let settings = try dec.decode(Response<ServerSettings>.self, from: load("response_server_settings.json"))
-        #expect(settings.result?.systemAgent == SystemAgent(harness: "claude", model: "haiku", effort: "low"))
+        #expect(settings.result?.systemAgent == AgentSpec(harness: "claude", model: "haiku", effort: "low"))
+        #expect(settings.result?.defaultAgent == AgentSpec(harness: "codex", model: "gpt-5.5", effort: "high"))
 
         let update = try #require(try dec.decode(Response<UpdateInfo>.self, from: load("response_check_update.json")).result)
         #expect(update.current == "0.11.0" && update.latest == "0.12.0" && update.available && update.via == "app")

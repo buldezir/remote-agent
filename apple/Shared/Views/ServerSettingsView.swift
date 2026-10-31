@@ -2,7 +2,8 @@ import RAKit
 import SwiftUI
 
 /// A server's own settings, from its menu: updating rad and the agents,
-/// signing an agent in again, and the system agent that names sessions.
+/// signing an agent in again, the agent new sessions start with, and the
+/// system agent that names sessions.
 struct ServerSettingsView: View {
     let connection: ServerConnection
     @Environment(\.dismiss) private var dismiss
@@ -13,6 +14,8 @@ struct ServerSettingsView: View {
     @State private var checking = false
     @State private var settings: ServerSettings?
     @State private var settingsError: String?
+    /// The setting `settingsError` is about; nil: loading them failed.
+    @State private var failedSetting: AgentSetting?
     /// The server's rad has no update, or no settings, to manage: it's older.
     @State private var updateUnsupported = false
     @State private var settingsUnsupported = false
@@ -29,7 +32,10 @@ struct ServerSettingsView: View {
                 Group {
                     radSection
                     agentsSection
-                    if !settingsUnsupported { systemAgentSection }
+                    if !settingsUnsupported {
+                        newSessionsSection
+                        systemAgentSection
+                    }
                     if let actionError {
                         Section { Label(actionError, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red) }
                     }
@@ -216,22 +222,45 @@ struct ServerSettingsView: View {
         .buttonStyle(.borderless)
     }
 
-    // MARK: System agent
+    // MARK: Agent settings
+
+    /// One of the settings that name an agent, with its model and effort.
+    private typealias AgentSetting = WritableKeyPath<ServerSettings, AgentSpec?>
+
+    private var newSessionsSection: some View {
+        agentSection(\.defaultAgent, agents: connection.harnesses ?? [], none: "Last Used",
+                     header: "New Sessions",
+                     footer: "New sessions start with this agent, model and effort, on every device, and so do the sessions agents start with rad's tools unless they choose their own. With Last Used, each device starts with the agent it used last.")
+    }
 
     private var systemAgentSection: some View {
+        agentSection(\.systemAgent, agents: oneShotAgents, none: "None",
+                     header: "System Agent",
+                     footer: "Names new sessions and their worktree branches from the first prompt, in a call without tools that leaves no history with the agent. A small, fast model is best. With None, a session's title is its prompt's first line.")
+    }
+
+    private var oneShotAgents: [HarnessInfo] {
+        (connection.harnesses ?? []).filter { $0.caps.oneShot == true }
+    }
+
+    /// A setting's section: the agent, from `agents` or `none`, and once one
+    /// is chosen, its model and effort.
+    private func agentSection(_ setting: AgentSetting, agents: [HarnessInfo], none: LocalizedStringKey,
+                              header: LocalizedStringKey, footer: LocalizedStringKey) -> some View {
         Section {
             if let settings {
-                Picker("Agent", selection: agentBinding) {
-                    Text("None").tag("")
-                    ForEach(oneShotAgents) { Text($0.name).tag($0.id) }
-                    if let id = settings.systemAgent?.harness, !oneShotAgents.contains(where: { $0.id == id }) {
+                let agent = settings[keyPath: setting]
+                Picker("Agent", selection: agentBinding(setting)) {
+                    Text(none).tag("")
+                    ForEach(agents) { Text($0.name).tag($0.id) }
+                    if let id = agent?.harness, !agents.contains(where: { $0.id == id }) {
                         Text(id).tag(id)
                     }
                 }
-                if let agent = settings.systemAgent {
+                if let agent {
                     let h = connection.harness(agent.harness)
                     let models = h?.models ?? []
-                    Picker("Model", selection: binding(\.model)) {
+                    Picker("Model", selection: binding(setting, \.model)) {
                         Text("Default").tag("")
                         ForEach(models) { Text($0.name).tag($0.id) }
                         if let m = agent.model, !m.isEmpty, !models.contains(where: { $0.id == m }) {
@@ -240,7 +269,7 @@ struct ServerSettingsView: View {
                     }
                     let efforts = h?.efforts(forModel: agent.model) ?? []
                     if !efforts.isEmpty {
-                        Picker("Effort", selection: binding(\.effort)) {
+                        Picker("Effort", selection: binding(setting, \.effort)) {
                             Text("Default").tag("")
                             ForEach(efforts) { Text($0.name).tag($0.id) }
                             if let e = agent.effort, !e.isEmpty, !efforts.contains(where: { $0.id == e }) {
@@ -252,55 +281,54 @@ struct ServerSettingsView: View {
             } else if settingsError == nil {
                 HStack { ProgressView().controlSize(.small); Text("Loading…").foregroundStyle(.secondary) }
             }
-            if let settingsError {
+            if let settingsError, failedSetting == nil || failedSetting == setting {
                 Label(settingsError, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red)
             }
         } header: {
-            Text("System Agent").formHeaderFont()
+            Text(header).formHeaderFont()
         } footer: {
-            Text("Names new sessions and their worktree branches from the first prompt, in a call without tools that leaves no history with the agent. A small, fast model is best. With None, a session's title is its prompt's first line.")
-                .formFooterFont()
+            Text(footer).formFooterFont()
         }
     }
 
-    private var oneShotAgents: [HarnessInfo] {
-        (connection.harnesses ?? []).filter { $0.caps.oneShot == true }
-    }
-
     /// Choosing another agent starts it on its default model.
-    private var agentBinding: Binding<String> {
+    private func agentBinding(_ setting: AgentSetting) -> Binding<String> {
         Binding {
-            settings?.systemAgent?.harness ?? ""
+            settings?[keyPath: setting]?.harness ?? ""
         } set: { id in
-            guard id != (settings?.systemAgent?.harness ?? "") else { return }
-            save(ServerSettings(systemAgent: id.isEmpty ? nil : SystemAgent(harness: id)))
+            guard id != (settings?[keyPath: setting]?.harness ?? "") else { return }
+            save(setting, id.isEmpty ? nil : AgentSpec(harness: id))
         }
     }
 
     /// The model or the effort, "" for the default. A new model starts on its
     /// default effort.
-    private func binding(_ field: WritableKeyPath<SystemAgent, String?>) -> Binding<String> {
+    private func binding(_ setting: AgentSetting, _ field: WritableKeyPath<AgentSpec, String?>) -> Binding<String> {
         Binding {
-            settings?.systemAgent?[keyPath: field] ?? ""
+            settings?[keyPath: setting]?[keyPath: field] ?? ""
         } set: { value in
-            guard var agent = settings?.systemAgent, value != (agent[keyPath: field] ?? "") else { return }
+            guard var agent = settings?[keyPath: setting], value != (agent[keyPath: field] ?? "") else { return }
             agent[keyPath: field] = value.isEmpty ? nil : value
-            if field == \SystemAgent.model { agent.effort = nil }
-            save(ServerSettings(systemAgent: agent))
+            if field == \AgentSpec.model { agent.effort = nil }
+            save(setting, agent)
         }
     }
 
-    /// Shows the new settings at once, then the server's answer.
-    private func save(_ new: ServerSettings) {
-        let old = settings
+    /// Changes one setting, keeping the others, since the server replaces
+    /// them all. Shows it at once, then the server's answer.
+    private func save(_ setting: AgentSetting, _ agent: AgentSpec?) {
+        guard var new = settings else { return }
+        let old = new[keyPath: setting]
+        new[keyPath: setting] = agent
         settings = new
         settingsError = nil
         Task {
             do {
                 settings = try await connection.setSettings(new)
             } catch {
-                settings = old
+                settings?[keyPath: setting] = old
                 settingsError = error.localizedDescription
+                failedSetting = setting
             }
         }
     }
@@ -319,6 +347,7 @@ struct ServerSettingsView: View {
             settingsUnsupported = true
         } catch {
             settingsError = "Couldn't load the settings: \(error.localizedDescription)"
+            failedSetting = nil
         }
         // Tasks still running from before, here or on another device.
         if let tasks = try? await connection.tasks() {

@@ -629,10 +629,13 @@ public struct TerminalMessage: Codable, Hashable, Sendable {
     }
 }
 
-/// The agent, and its model, that names sessions and their worktree branches.
-public struct SystemAgent: Codable, Hashable, Sendable {
+/// An agent with a model and an effort: the system agent, or the one new
+/// sessions start with.
+public struct AgentSpec: Codable, Hashable, Sendable {
     public var harness: String
+    /// nil: the agent's default.
     public var model: String?
+    /// nil: the model's default.
     public var effort: String?
 
     public init(harness: String, model: String? = nil, effort: String? = nil) {
@@ -643,11 +646,19 @@ public struct SystemAgent: Codable, Hashable, Sendable {
 }
 
 /// The settings clients change on a server (`server.settings`).
+/// `server.setSettings` replaces them all, so a change starts from the ones
+/// the server gave.
 public struct ServerSettings: Codable, Hashable, Sendable {
-    public var systemAgent: SystemAgent?
+    /// Names sessions and their worktree branches, and writes commit
+    /// messages; nil: none.
+    public var systemAgent: AgentSpec?
+    /// New sessions start with it, on every device; nil: each device starts
+    /// with the agent it used last.
+    public var defaultAgent: AgentSpec?
 
-    public init(systemAgent: SystemAgent? = nil) {
+    public init(systemAgent: AgentSpec? = nil, defaultAgent: AgentSpec? = nil) {
         self.systemAgent = systemAgent
+        self.defaultAgent = defaultAgent
     }
 }
 

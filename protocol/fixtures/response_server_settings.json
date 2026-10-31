@@ -5,6 +5,11 @@
       "harness": "claude",
       "model": "haiku",
       "effort": "low"
+    },
+    "defaultAgent": {
+      "harness": "codex",
+      "model": "gpt-5.5",
+      "effort": "high"
     }
   }
 }

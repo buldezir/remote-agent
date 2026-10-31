@@ -470,7 +470,7 @@ func TestSettings(t *testing.T) {
 	if err != nil || got.SystemAgent != nil {
 		t.Fatalf("fresh settings = %+v, %v", got, err)
 	}
-	want := model.ServerSettings{SystemAgent: &model.SystemAgent{Harness: "claude", Model: "haiku"}}
+	want := model.ServerSettings{SystemAgent: &model.AgentSpec{Harness: "claude", Model: "haiku"}}
 	if err := st.SetSettings(ctx, want); err != nil {
 		t.Fatal(err)
 	}

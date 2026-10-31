@@ -452,6 +452,128 @@ func TestClosingTheFormKeepsADraft(t *testing.T) {
 	}
 }
 
+// The new session form starts with the server's default agent, with its
+// model and effort over the ones ra last used with it, and the
+// permissions ra last used.
+func TestNewSessionStartsWithTheServersDefault(t *testing.T) {
+	u := startUIWith(t, 120, 36, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		addProject(t, rpc, r)
+		if err := rpc.Call(context.Background(), "server.setSettings", map[string]any{
+			"defaultAgent": map[string]string{"harness": "fake", "model": "echo", "effort": "high"}}, nil); err != nil {
+			t.Fatal(err)
+		}
+		state := State{LastHarness: "fake", LastModel: map[string]string{"fake": ""}, LastEffort: map[string]string{"fake": "low"},
+			LastMode: map[string]string{"fake": "auto"}}
+		if err := saveJSON(filepath.Join(dir, "state.json"), state); err != nil {
+			t.Fatal(err)
+		}
+	})
+	u.key("ctrl+n")
+	s := u.waitFor("Effort       High")
+	for _, want := range []string{"Fake (scripted)", "Model        Echo", "Permissions  Auto"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in\n%s", want, s)
+		}
+	}
+	u.key("hello")
+	u.key("enter")
+	u.waitFor("Echo: hello")
+	ss, err := u.rad.Store.Sessions(context.Background())
+	if err != nil || len(ss) != 1 {
+		t.Fatalf("sessions %v %v", ss, err)
+	}
+	if s := ss[0]; s.Harness != "fake" || s.Model != "echo" || s.Effort != "high" || s.Mode != "auto" {
+		t.Errorf("started with %s %q %q %q", s.Harness, s.Model, s.Effort, s.Mode)
+	}
+}
+
+// Server Settings' New Sessions and System Agent each change their own
+// setting, and keep the other, since server.setSettings replaces them all.
+func TestServerSettingsChooseTheDefaultAgent(t *testing.T) {
+	u := startUIWith(t, 120, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		if err := rpc.Call(context.Background(), "server.setSettings", map[string]any{
+			"systemAgent": map[string]string{"harness": "fake", "model": "echo"}}, nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	// saved waits until rad has the settings.
+	saved := func(def, sys *model.AgentSpec) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			s, err := u.rad.Store.Settings(context.Background())
+			if err == nil && reflect.DeepEqual(s.DefaultAgent, def) && reflect.DeepEqual(s.SystemAgent, sys) {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("settings %+v %+v, %v", s.DefaultAgent, s.SystemAgent, err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	choose := func(label string) {
+		t.Helper()
+		u.key("enter")
+		u.menuTo(label)
+		u.key("enter")
+	}
+	u.key("ctrl+p")
+	u.menuTo("Server Settings…")
+	u.key("enter")
+	s := u.waitFor("Last Used")
+	for _, want := range []string{"NEW SESSIONS", "SYSTEM AGENT", "New sessions start with it, on every device"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in\n%s", want, s)
+		}
+	}
+	// Down past rad and the agent to New Sessions' agent, model and effort.
+	u.key("down")
+	u.key("down")
+	choose("Fake (scripted)")
+	saved(&model.AgentSpec{Harness: "fake"}, &model.AgentSpec{Harness: "fake", Model: "echo"})
+	u.key("down")
+	choose("Echo")
+	saved(&model.AgentSpec{Harness: "fake", Model: "echo"}, &model.AgentSpec{Harness: "fake", Model: "echo"})
+	u.key("down")
+	choose("High")
+	def := &model.AgentSpec{Harness: "fake", Model: "echo", Effort: "high"}
+	saved(def, &model.AgentSpec{Harness: "fake", Model: "echo"})
+	s = u.waitFor("High")
+	if !strings.Contains(s, "Effort    High") {
+		t.Errorf("New Sessions' effort:\n%s", s)
+	}
+	// The system agent's effort keeps New Sessions'.
+	for range 3 {
+		u.key("down")
+	}
+	choose("Low")
+	saved(def, &model.AgentSpec{Harness: "fake", Model: "echo", Effort: "low"})
+	// Last Used: no default, and the system agent stays.
+	for range 5 {
+		u.key("up")
+	}
+	choose("Last Used")
+	saved(nil, &model.AgentSpec{Harness: "fake", Model: "echo", Effort: "low"})
+
+	// On a short screen the chosen row stays in view, above the hints.
+	u.p.Send(tea.WindowSizeMsg{Width: 120, Height: 18})
+	for range 5 {
+		u.key("down")
+	}
+	s = u.waitFor("SYSTEM AGENT")
+	for _, want := range []string{"▌ Effort    Low", "enter act"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the short screen lacks %q:\n%s", want, s)
+		}
+	}
+	for range 7 {
+		u.key("up")
+	}
+	if s = u.waitFor("▌ rad"); !strings.Contains(s, "AGENTS") || strings.Contains(s, "SYSTEM AGENT") {
+		t.Errorf("the short screen's top:\n%s", s)
+	}
+}
+
 // A new session starts in the project ra was started in, the innermost
 // if projects nest.
 func TestProjectAtTheWorkingFolder(t *testing.T) {

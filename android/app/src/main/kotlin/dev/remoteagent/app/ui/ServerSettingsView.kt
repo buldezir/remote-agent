@@ -45,10 +45,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.remoteagent.core.net.RpcError
+import dev.remoteagent.core.protocol.AgentSpec
 import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ServerSettings
 import dev.remoteagent.core.protocol.ServerTask
-import dev.remoteagent.core.protocol.SystemAgent
 import dev.remoteagent.core.protocol.UpdateInfo
 import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.ServerTaskProgress
@@ -57,7 +57,8 @@ import kotlinx.coroutines.launch
 
 /**
  * A server's settings, as a sheet: rad's version and its updates, the agents
- * on the server, which it updates and signs in, and the system agent. Opened
+ * on the server, which it updates and signs in, the agent new sessions start
+ * with, and the system agent. Opened
  * from the server's menus ("Server Settings…"). The tasks it starts, or
  * finds running, are followed while it is open (ServerTaskProgress) and shown
  * in TaskSheet. Mirrors apple/Shared/Views/ServerSettingsView.swift.
@@ -78,7 +79,9 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
     // The server's settings, and the ones shown: another while a change is on its way.
     var saved by remember { mutableStateOf<ServerSettings?>(null) }
     var chosen by remember { mutableStateOf<ServerSettings?>(null) }
+    // Why the settings couldn't be loaded, and a change that failed, beside the section it was made in.
     var settingsError by remember { mutableStateOf<String?>(null) }
+    var saveError by remember { mutableStateOf<Pair<AgentField, String?>?>(null) }
     var agentsError by remember { mutableStateOf<String?>(null) }
     // What is starting a task: RAD, or an agent's id.
     var starting by remember { mutableStateOf<String?>(null) }
@@ -168,9 +171,9 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
 
     fun updateRad() = start(RAD, { radError = it }) { connection.updateServer() }
 
-    fun save(new: ServerSettings) {
+    fun save(field: AgentField, new: ServerSettings) {
         chosen = new
-        settingsError = null
+        saveError = null
         scope.launch {
             try {
                 val kept = connection.setSettings(new)
@@ -179,7 +182,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                settingsError = e.message
+                saveError = field to e.message
                 chosen = saved
             }
         }
@@ -269,19 +272,29 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
                     }
                 }
 
-                if (!settingsUnsupported) FormSection(
-                    "System Agent",
-                    footer = footer(
-                        "Names new sessions and their worktree branches from the first prompt, in a call without tools that leaves no history " +
-                            "with the agent. A small, fast model is best. With None, a session's title is its prompt's first line.",
-                        settingsError,
-                    ),
-                ) {
-                    val current = chosen
-                    if (current == null) {
-                        if (settingsError == null) ProgressRow("Loading…") else Text("Unavailable", style = Type.body, color = palette.subtext, modifier = Modifier.padding(12.dp))
-                    } else {
-                        SystemAgentRows(current, harnesses ?: emptyList(), ::save)
+                // An older rad has no settings: no default agent, and no system agent.
+                if (!settingsUnsupported) {
+                    val all = harnesses ?: emptyList()
+                    fun sectionError(field: AgentField) = settingsError ?: saveError?.takeIf { it.first == field }?.second
+                    FormSection(
+                        "New Sessions",
+                        footer = footer(
+                            "New sessions start with this agent, model and effort, on every device, and so do the sessions agents start " +
+                                "with rad's tools unless they choose their own. With Last Used, each device starts with the agent it used last.",
+                            sectionError(AgentField.DEFAULT),
+                        ),
+                    ) {
+                        AgentSpecRows(chosen, settingsError, AgentField.DEFAULT, all, offered = all, none = "Last Used", save = ::save)
+                    }
+                    FormSection(
+                        "System Agent",
+                        footer = footer(
+                            "Names new sessions and their worktree branches from the first prompt, in a call without tools that leaves no history " +
+                                "with the agent. A small, fast model is best. With None, a session's title is its prompt's first line.",
+                            sectionError(AgentField.SYSTEM),
+                        ),
+                    ) {
+                        AgentSpecRows(chosen, settingsError, AgentField.SYSTEM, all, offered = all.filter { it.caps.oneShot }, none = "None", save = ::save)
                     }
                 }
             }
@@ -338,40 +351,87 @@ private fun footer(text: String, error: String?): AnnotatedString {
 }
 
 /**
- * The system agent: one of the agents that take one-shot calls, and its
- * model and effort. Each change saves the whole settings.
+ * The settings that name an agent, with its model and effort: how to read one,
+ * and to set it in the settings with the others as they are, since
+ * `server.setSettings` replaces them all. `tag` starts its rows' test tags.
+ */
+internal enum class AgentField(val tag: String) {
+    /** The one new sessions start with. */
+    DEFAULT("default"),
+    /** The system agent. */
+    SYSTEM("system");
+
+    fun get(s: ServerSettings): AgentSpec? = when (this) {
+        DEFAULT -> s.defaultAgent
+        SYSTEM -> s.systemAgent
+    }
+
+    fun set(s: ServerSettings, agent: AgentSpec?): ServerSettings = when (this) {
+        DEFAULT -> s.copy(defaultAgent = agent)
+        SYSTEM -> s.copy(systemAgent = agent)
+    }
+}
+
+/** A saved choice the server no longer offers, to show as it is. */
+private fun unlisted(id: String?, offered: List<Pair<String, String>>, label: (String) -> String) =
+    if (id != null && offered.none { it.first == id }) listOf(id to label(id)) else emptyList()
+
+/**
+ * The agents to choose from for a setting, as ids and names: `none` first,
+ * with the id "", then the ones `offered`, then the one `chosen` if they
+ * don't include it.
+ */
+internal fun agentOptions(none: String, offered: List<HarnessInfo>, chosen: String?, harnesses: List<HarnessInfo>): List<Pair<String, String>> {
+    val listed = offered.map { it.id to it.name }
+    return listOf("" to none) + listed + unlisted(chosen, listed) { id -> harnesses.firstOrNull { it.id == id }?.name ?: id }
+}
+
+/**
+ * The agent a setting names, from the ones `offered` (`none` labels the
+ * choice of none), and its model and effort; while the settings load, or when
+ * they couldn't be, a row says so. Each change saves the whole settings, with
+ * only this one changed.
  */
 @Composable
-private fun SystemAgentRows(settings: ServerSettings, harnesses: List<HarnessInfo>, save: (ServerSettings) -> Unit) {
-    val agent = settings.systemAgent
-    val oneShot = harnesses.filter { it.caps.oneShot }
-    // A saved choice the server no longer offers shows as it is.
-    fun kept(id: String?, offered: List<Pair<String, String>>, label: (String) -> String) =
-        if (id != null && offered.none { it.first == id }) listOf(id to label(id)) else emptyList()
+private fun AgentSpecRows(
+    settings: ServerSettings?,
+    loadError: String?,
+    field: AgentField,
+    harnesses: List<HarnessInfo>,
+    offered: List<HarnessInfo>,
+    none: String,
+    save: (AgentField, ServerSettings) -> Unit,
+) {
+    if (settings == null) {
+        if (loadError == null) ProgressRow("Loading…") else Text("Unavailable", style = Type.body, color = palette.subtext, modifier = Modifier.padding(12.dp))
+        return
+    }
+    val agent = field.get(settings)
+    fun set(new: AgentSpec?) = save(field, field.set(settings, new))
 
-    val agents = listOf("" to "None") + oneShot.map { it.id to it.name }.let { it + kept(agent?.harness, it) { id -> harnesses.firstOrNull { h -> h.id == id }?.name ?: id } }
-    PickerRow("Agent", agents.firstOrNull { it.first == (agent?.harness ?: "") }?.second ?: "None", agents, tag = "system-agent") { id ->
-        if (id != (agent?.harness ?: "")) save(settings.copy(systemAgent = if (id.isEmpty()) null else SystemAgent(id)))
+    val agents = agentOptions(none, offered, agent?.harness, harnesses)
+    PickerRow("Agent", agents.firstOrNull { it.first == (agent?.harness ?: "") }?.second ?: none, agents, tag = "${field.tag}-agent") { id ->
+        if (id != (agent?.harness ?: "")) set(if (id.isEmpty()) null else AgentSpec(id))
     }
     if (agent == null) return
     val h = harnesses.firstOrNull { it.id == agent.harness }
 
     val models = (h?.models ?: emptyList()).map { it.id to it.name }
-    val modelOptions = listOf("" to "Default") + models + kept(agent.model, models) { it }
+    val modelOptions = listOf("" to "Default") + models + unlisted(agent.model, models) { it }
     FormDivider()
-    PickerRow("Model", modelOptions.firstOrNull { it.first == (agent.model ?: "") }?.second ?: "Default", modelOptions, tag = "system-model") { m ->
+    PickerRow("Model", modelOptions.firstOrNull { it.first == (agent.model ?: "") }?.second ?: "Default", modelOptions, tag = "${field.tag}-model") { m ->
         val model = m.ifEmpty { null }
         // Models support different efforts.
         val effort = agent.effort?.takeIf { e -> h?.efforts(model)?.any { it.id == e } == true }
-        save(settings.copy(systemAgent = agent.copy(model = model, effort = effort)))
+        set(agent.copy(model = model, effort = effort))
     }
 
     val efforts = (h?.efforts(agent.model) ?: emptyList()).map { it.id to it.name }
     if (efforts.isEmpty()) return
-    val effortOptions = listOf("" to "Default") + efforts + kept(agent.effort, efforts) { it }
+    val effortOptions = listOf("" to "Default") + efforts + unlisted(agent.effort, efforts) { it }
     FormDivider()
-    PickerRow("Effort", effortOptions.firstOrNull { it.first == (agent.effort ?: "") }?.second ?: "Default", effortOptions, tag = "system-effort") { e ->
-        save(settings.copy(systemAgent = agent.copy(effort = e.ifEmpty { null })))
+    PickerRow("Effort", effortOptions.firstOrNull { it.first == (agent.effort ?: "") }?.second ?: "Default", effortOptions, tag = "${field.tag}-effort") { e ->
+        set(agent.copy(effort = e.ifEmpty { null }))
     }
 }
 

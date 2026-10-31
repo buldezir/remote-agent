@@ -15,10 +15,14 @@ import (
 
 // newSession is the new session form, as NewSessionView: a project, an
 // agent with its model, effort and permissions, a worktree, and the first
-// prompt, or none, or a draft. It remembers what each agent was last
-// started with.
+// prompt, or none, or a draft. It starts with the server's default agent,
+// model and effort, else what each agent was last started with, which it
+// remembers.
 type newSession struct {
 	agentChoice
+	// def is the server's default for new sessions, once server.settings
+	// answered: nil without one, or from an older rad.
+	def       *model.AgentSpec
 	projectID string
 	worktree  bool
 	branch    textinput.Model
@@ -51,6 +55,12 @@ var fieldLabels = map[int]string{
 	fieldMode: "Permissions", fieldWorktree: "Workspace", fieldBranch: "Branch", fieldBase: "Based on", fieldImport: "Or",
 }
 
+// defaultAgentMsg brings the server's default agent to the form that asked.
+type defaultAgentMsg struct {
+	ns  *newSession
+	def *model.AgentSpec
+}
+
 type branchesMsg struct {
 	ns      *newSession
 	project string
@@ -76,7 +86,7 @@ func newNewSession(m *Model, projectID string) *newSession {
 		}
 	}
 	ns.projectID = projectID
-	ns.setHarness(m, m.state.LastHarness, true)
+	ns.setHarness(m, ns.firstHarness(m), true)
 	if ns.projectID == "" {
 		ns.field = fieldProject
 	} else {
@@ -90,7 +100,18 @@ func newNewSession(m *Model, projectID string) *newSession {
 	return ns
 }
 
-func (ns *newSession) init(m *Model) tea.Cmd { return nil }
+// init asks rad for its default agent. An error, such as an older rad's
+// method_not_found, means none.
+func (ns *newSession) init(m *Model) tea.Cmd {
+	conn := m.conn
+	return func() tea.Msg {
+		s, err := conn.Settings(context.Background())
+		if err != nil {
+			return defaultAgentMsg{ns: ns}
+		}
+		return defaultAgentMsg{ns: ns, def: s.DefaultAgent}
+	}
+}
 
 // projectAt is the project that holds dir, the innermost if they nest.
 func projectAt(ps map[string]*model.Project, dir string) string {
@@ -111,7 +132,9 @@ func projectAt(ps map[string]*model.Project, dir string) string {
 func usable(h *model.HarnessInfo) bool { return h != nil && h.Installed && h.AuthOK }
 
 // setHarness chooses an agent, falling back to Claude Code, then to the
-// first usable one, and restores what it was last started with.
+// first usable one. The server's default agent starts with the default's
+// model and effort, another with what it was last started with; either
+// with the permissions it was last started with.
 func (ns *newSession) setHarness(m *Model, id string, fallback bool) {
 	if !usable(m.conn.Harness(id)) && fallback {
 		id = ""
@@ -132,11 +155,15 @@ func (ns *newSession) setHarness(m *Model, id string, fallback bool) {
 	if h == nil {
 		return
 	}
-	if v := m.state.LastModel[id]; v != "" && (h.Caps.FreeModel || choiceIndex(h.Models, v) >= 0) {
-		ns.model = v
+	mdl, effort := m.state.LastModel[id], m.state.LastEffort[id]
+	if d := ns.def; d != nil && d.Harness == id {
+		mdl, effort = d.Model, d.Effort
 	}
-	if v := m.state.LastEffort[id]; v != "" && choiceIndex(ns.efforts(m), v) >= 0 {
-		ns.effort = v
+	if mdl != "" && (h.Caps.FreeModel || choiceIndex(h.Models, mdl) >= 0) {
+		ns.model = mdl
+	}
+	if effort != "" && choiceIndex(ns.efforts(m), effort) >= 0 {
+		ns.effort = effort
 	}
 	if v := m.state.LastMode[id]; v != "" && choiceIndex(h.Modes, v) >= 0 {
 		ns.mode = v
@@ -156,8 +183,17 @@ func choiceIndex(cs []model.Choice, id string) int {
 // not have when the form opens.
 func (ns *newSession) ensureHarness(m *Model) {
 	if ns.harness == "" && !ns.chose && len(m.conn.Harnesses) > 0 {
-		ns.setHarness(m, m.state.LastHarness, true)
+		ns.setHarness(m, ns.firstHarness(m), true)
 	}
+}
+
+// firstHarness is the agent the form starts with: the server's default
+// while it's installed and signed in, else the one last used.
+func (ns *newSession) firstHarness(m *Model) string {
+	if d := ns.def; d != nil && usable(m.conn.Harness(d.Harness)) {
+		return d.Harness
+	}
+	return m.state.LastHarness
 }
 
 func (ns *newSession) project(m *Model) *model.Project { return m.conn.Projects[ns.projectID] }
@@ -229,6 +265,16 @@ func (ns *newSession) animating() bool { return ns.busy || ns.prompt.uploading()
 
 func (ns *newSession) message(m *Model, msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
+	case defaultAgentMsg:
+		if msg.ns != ns {
+			return nil
+		}
+		ns.def = msg.def
+		// Unless the user chose an agent meanwhile.
+		if d := ns.def; d != nil && !ns.chose && usable(m.conn.Harness(d.Harness)) {
+			ns.setHarness(m, d.Harness, false)
+		}
+		return nil
 	case branchesMsg:
 		if msg.ns == ns && msg.project == ns.projectID && msg.err == nil {
 			b := msg.b
@@ -605,7 +651,12 @@ func (a *agentChoice) efforts(m *Model) []model.Choice {
 	if h == nil {
 		return nil
 	}
-	if i := choiceIndex(h.Models, a.model); i >= 0 && len(h.Models[i].Efforts) > 0 {
+	return modelEfforts(h, a.model)
+}
+
+// modelEfforts are the model's efforts, if it lists them, else the agent's.
+func modelEfforts(h *model.HarnessInfo, modelID string) []model.Choice {
+	if i := choiceIndex(h.Models, modelID); i >= 0 && len(h.Models[i].Efforts) > 0 {
 		return h.Models[i].Efforts
 	}
 	return h.Efforts

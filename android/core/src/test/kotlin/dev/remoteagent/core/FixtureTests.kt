@@ -3,6 +3,7 @@ package dev.remoteagent.core
 import dev.remoteagent.core.net.PairResult
 import dev.remoteagent.core.net.RpcClient
 import dev.remoteagent.core.net.ServerMessage
+import dev.remoteagent.core.protocol.AgentSpec
 import dev.remoteagent.core.protocol.Approval
 import dev.remoteagent.core.protocol.BackgroundTask
 import dev.remoteagent.core.protocol.CommitPreview
@@ -24,7 +25,6 @@ import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.SlashCommand
 import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.SubscribeResult
-import dev.remoteagent.core.protocol.SystemAgent
 import dev.remoteagent.core.protocol.TerminalMessage
 import dev.remoteagent.core.protocol.UpdateInfo
 import dev.remoteagent.core.protocol.WireCoding
@@ -236,8 +236,9 @@ class FixtureTests {
         assertTrue(!h[1].caps.import)
 
         val settings = result<ServerSettings>("response_server_settings.json")
-        assertEquals(SystemAgent("claude", "haiku", "low"), settings.systemAgent)
-        // What a client sends: the whole settings, and none without a system agent, which unsets it.
+        assertEquals(AgentSpec("claude", "haiku", "low"), settings.systemAgent)
+        assertEquals(AgentSpec("codex", "gpt-5.5", "high"), settings.defaultAgent)
+        // What a client sends: the whole settings, and none without an agent, which unsets it.
         assertEquals("{}", WireCoding.json.encodeToString(ServerSettings.serializer(), ServerSettings()))
         assertEquals(
             WireCoding.json.parseToJsonElement(fixture("response_server_settings.json")).jsonObject.getValue("result"),

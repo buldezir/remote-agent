@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.remoteagent.app.platform.AppSettings.Keys
+import dev.remoteagent.core.protocol.AgentSpec
 import dev.remoteagent.core.protocol.FSListing
 import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.Project
@@ -56,16 +57,18 @@ import dev.remoteagent.core.store.NewSession
 import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.sortedProjects
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import java.io.File
 
 private const val CUSTOM = "__custom"
 
 /**
- * "New session", in `projectId` when given, else in the project used last.
- * `onCreated` gets the new session, or one picked up from the agent's own
- * (Continue a terminal session…), and whether it started empty, without a
- * prompt. Mirrors apple/Shared/Views/NewSessionView.swift.
+ * "New session", in `projectId` when given, else in the project used last,
+ * with the server's default agent, else the one used last. `onCreated` gets
+ * the new session, or one picked up from the agent's own (Continue a
+ * terminal session…), and whether it started empty, without a prompt.
+ * Mirrors apple/Shared/Views/NewSessionView.swift.
  */
 @Composable
 fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, onDismiss: () -> Unit, onCreated: (Session, empty: Boolean) -> Unit) {
@@ -92,6 +95,9 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     var browsing by remember { mutableStateOf(false) }
     // The agent's sessions from outside Remote Agent, to pick one up instead.
     var importing by rememberSaveable { mutableStateOf(false) }
+    // The agent, model and effort the server starts new sessions with
+    // (`defaultAgent`), asked for as the form opens; null: none.
+    var serverDefault by remember { mutableStateOf<AgentSpec?>(null) }
     val attachments = rememberAttachments(connection) { error = it }
 
     val project = projects[projectID]
@@ -99,9 +105,16 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     val chosenModel = chosenModel(harness, model, customModel)
 
     // Starts from the model, effort and permission mode last used with this
-    // agent, if it still offers them.
+    // agent, if it still offers them; with the server's default agent, from
+    // the default's model and effort instead.
     suspend fun restoreChoices(h: HarnessInfo) {
-        val c = AgentChoices.of(h, settings.get(Keys.lastModel(h.id)), settings.get(Keys.lastEffort(h.id)), settings.get(Keys.lastMode(h.id)))
+        val d = serverDefault?.takeIf { it.harness == h.id }
+        val c = AgentChoices.of(
+            h,
+            if (d != null) d.model else settings.get(Keys.lastModel(h.id)),
+            if (d != null) d.effort else settings.get(Keys.lastEffort(h.id)),
+            settings.get(Keys.lastMode(h.id)),
+        )
         model = c.model
         customModel = c.customModel
         effort = c.effort
@@ -109,14 +122,15 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     }
 
     LaunchedEffect(Unit) {
+        // An older rad has no settings, and a failure leaves the form as without a default.
+        val fetched = async { runCatching { connection.settings() }.getOrNull()?.defaultAgent }
         if (connection.harnesses.value == null) connection.refreshHarnesses()
         val lastProject = settings.get(Keys.lastProject) ?: ""
         if (projectID.isEmpty() && connection.projects.value[lastProject] != null) projectID = lastProject
-        if (harnessID.isEmpty()) {
-            val last = settings.get(Keys.lastHarness) ?: "claude"
-            val list = connection.harnesses.value
-            harnessID = if (list?.firstOrNull { it.id == last }?.usable == true) last else list?.firstOrNull { it.usable }?.id ?: ""
-        }
+        // Before the agent, so that its choices start from the default. An
+        // agent picked meanwhile stays.
+        serverDefault = fetched.await()
+        if (harnessID.isEmpty()) harnessID = startingHarness(connection.harnesses.value, serverDefault, settings.get(Keys.lastHarness))
     }
     var restoredFor by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(harnessID, harness != null) {
@@ -358,6 +372,21 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     }
 }
 
+/**
+ * The agent a new session starts with: the server's default while it's
+ * installed and signed in, else the one used last (Claude Code at first)
+ * while it is, else the first that is; "" for none.
+ */
+internal fun startingHarness(harnesses: List<HarnessInfo>?, defaultAgent: AgentSpec?, last: String?): String {
+    fun usable(id: String) = harnesses?.any { it.id == id && it.usable } == true
+    val previous = last ?: "claude"
+    return when {
+        defaultAgent != null && usable(defaultAgent.harness) -> defaultAgent.harness
+        usable(previous) -> previous
+        else -> harnesses?.firstOrNull { it.usable }?.id ?: ""
+    }
+}
+
 /** The model id to request: the one picked, or the one typed for Custom…; null for the agent's default. */
 internal fun chosenModel(harness: HarnessInfo?, model: String, customModel: String): String? =
     (if (model == CUSTOM || harness?.models.isNullOrEmpty()) customModel else model).ifEmpty { null }
@@ -365,8 +394,9 @@ internal fun chosenModel(harness: HarnessInfo?, model: String, customModel: Stri
 /**
  * The model, effort and permission mode to start from with an agent, as the
  * Options section holds them: the ones given where the agent still offers
- * them, else its defaults. New Session gives the ones last used with the
- * agent, Fork Session the source session's.
+ * them, else its defaults. New Session gives the server's default model and
+ * effort with the default agent, else the ones last used with the agent, and
+ * the mode last used; Fork Session the source session's.
  */
 internal data class AgentChoices(val model: String = "", val customModel: String = "", val effort: String = "", val mode: String = "") {
     companion object {

@@ -10,7 +10,7 @@ import (
 
 func (e *env) setSystemAgent(harness string) {
 	e.t.Helper()
-	if _, err := e.o.SetSettings(bg, model.ServerSettings{SystemAgent: &model.SystemAgent{Harness: harness, Model: "echo"}}); err != nil {
+	if _, err := e.o.SetSettings(bg, model.ServerSettings{SystemAgent: &model.AgentSpec{Harness: harness, Model: "echo"}}); err != nil {
 		e.t.Fatal(err)
 	}
 }
@@ -185,15 +185,27 @@ func TestNamingArchivedSession(t *testing.T) {
 
 func TestSetSettings(t *testing.T) {
 	e := newEnv(t, false)
-	if _, err := e.o.SetSettings(bg, model.ServerSettings{SystemAgent: &model.SystemAgent{Harness: "nope"}}); err == nil {
+	if _, err := e.o.SetSettings(bg, model.ServerSettings{SystemAgent: &model.AgentSpec{Harness: "nope"}}); err == nil {
 		t.Fatal("unknown harness accepted")
 	}
-	got, err := e.o.SetSettings(bg, model.ServerSettings{SystemAgent: &model.SystemAgent{Harness: " fake ", Model: " echo "}})
-	if err != nil || *got.SystemAgent != (model.SystemAgent{Harness: "fake", Model: "echo"}) {
+	got, err := e.o.SetSettings(bg, model.ServerSettings{SystemAgent: &model.AgentSpec{Harness: " fake ", Model: " echo "}})
+	if err != nil || *got.SystemAgent != (model.AgentSpec{Harness: "fake", Model: "echo"}) {
 		t.Fatalf("set %+v, %v", got.SystemAgent, err)
 	}
 	if s, _ := e.o.Settings(bg); s.SystemAgent == nil || s.SystemAgent.Model != "echo" {
 		t.Fatalf("stored %+v", s.SystemAgent)
+	}
+
+	if _, err := e.o.SetSettings(bg, model.ServerSettings{DefaultAgent: &model.AgentSpec{Harness: "nope"}}); err == nil {
+		t.Fatal("unknown default agent accepted")
+	}
+	got, err = e.o.SetSettings(bg, model.ServerSettings{DefaultAgent: &model.AgentSpec{Harness: "fake ", Model: "echo", Effort: " high"}})
+	if err != nil || got.SystemAgent != nil || *got.DefaultAgent != (model.AgentSpec{Harness: "fake", Model: "echo", Effort: "high"}) {
+		t.Fatalf("set %+v, %v", got, err)
+	}
+	// It replaces them all: the system agent is gone.
+	if s, _ := e.o.Settings(bg); s.SystemAgent != nil || s.DefaultAgent == nil || s.DefaultAgent.Effort != "high" {
+		t.Fatalf("stored %+v", s)
 	}
 }
 

@@ -105,9 +105,9 @@ func (s *Server) mcpServer() *mcp.Server {
 	}
 	session := str("A session's id, from list_sessions (a unique start of it will do).")
 	agentProps := map[string]any{
-		"agent":    str("An agent's id from list_agents. Default: your own agent."),
-		"model":    str("A model id of the agent, from list_agents. Default: the agent's."),
-		"effort":   str("A reasoning effort of the model, from list_agents. Default: the model's."),
+		"agent":    str("An agent's id from list_agents. Default: the user's default for new sessions (list_agents' default), else your own agent."),
+		"model":    str("A model id of the agent, from list_agents. Default: the user's default with that agent, else the agent's."),
+		"effort":   str("A reasoning effort of the model, from list_agents. Default: the user's default with that model, else the model's."),
 		"mode":     str("A permission mode of the agent, from list_agents. Default: your own mode with your own agent, else the agent's default; those are the only ones you can choose."),
 		"worktree": map[string]any{"type": "boolean", "description": "In a git project, work on a branch of its own in a separate checkout, so as not to touch the project folder. Default: no; a fork works where the session it forks does."},
 		"branch":   str("With worktree, the branch's name. Default: one named after the request."),
@@ -127,8 +127,9 @@ func (s *Server) mcpServer() *mcp.Server {
 			Description: "Lists the projects on this machine that sessions work in: their ids, names and folders.",
 			Input:       object(nil, map[string]any{}), Call: s.toolListProjects},
 		{Name: "list_agents", Title: "List agents", ReadOnly: true,
-			Description: "Lists the coding agents installed and signed in on this machine, with their models, reasoning efforts and permission modes.",
-			Input:       object(nil, map[string]any{}), Call: s.toolListAgents},
+			Description: "Lists the coding agents installed and signed in on this machine, with their models, reasoning efforts and permission modes, " +
+				"and the agent, model and effort the user chose for new sessions, if any.",
+			Input: object(nil, map[string]any{}), Call: s.toolListAgents},
 		{Name: "list_sessions", Title: "List sessions", ReadOnly: true,
 			Description: "Lists the sessions on this machine, newest first: their ids, titles, agents and statuses.",
 			Input: object(nil, map[string]any{
@@ -207,14 +208,28 @@ type agentSummary struct {
 	Steers      bool           `json:"steers,omitempty"` // takes send_prompt's steer
 }
 
+// defaultSummary is the agent, model and effort sessions start with when
+// start_session names none.
+type defaultSummary struct {
+	Agent  string `json:"agent"`
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+}
+
 func (s *Server) toolListAgents(ctx context.Context, _ json.RawMessage) (any, error) {
 	out := []agentSummary{}
+	def := s.defaultAgent(ctx)
+	res := map[string]any{}
 	for _, h := range s.orch.Registry().Installed(ctx, false) {
 		if h.AuthOK {
 			out = append(out, agentSummary{h.ID, h.Name, h.Models, h.Efforts, h.Modes, h.DefaultMode, h.Caps.Steer})
+			if def != nil && def.Harness == h.ID {
+				res["default"] = defaultSummary{def.Harness, def.Model, def.Effort}
+			}
 		}
 	}
-	return map[string]any{"agents": out}, nil
+	res["agents"] = out
+	return res, nil
 }
 
 type sessionSummary struct {
@@ -358,57 +373,80 @@ type agentArgs struct {
 	Branch   string `json:"branch"`
 }
 
-// agent resolves the agent, model and mode a session started by the caller
-// gets. An agent can't give one a mode that asks less than its own: with its
-// own agent, its own mode, else the agent's default. A device chooses any.
-func (s *Server) agent(ctx context.Context, a agentArgs) (string, string, error) {
+// agent resolves the agent, model, effort and mode a session started by the
+// caller gets. Without an agent, it's the one the user chose for new
+// sessions, with that one's model and effort, when it's signed in; else the
+// caller's own agent, else Claude Code. An agent can't give one a mode that
+// asks less than its own: with its own agent, its own mode, else the
+// agent's default. A device chooses any.
+func (s *Server) agent(ctx context.Context, a agentArgs) (agentArgs, error) {
 	who := callerOf(ctx)
 	var own *model.Session
 	if who.session != "" {
 		sess, err := s.st.Session(ctx, who.session)
 		if err != nil {
-			return "", "", err
+			return a, err
 		}
 		own = sess
 		if depth := len(s.orch.Lineage(own.ID)); depth >= maxDepth-1 {
-			return "", "", fmt.Errorf("sessions started by agents can start others only %d deep", maxDepth)
+			return a, fmt.Errorf("sessions started by agents can start others only %d deep", maxDepth)
 		}
 	}
-	id := a.Agent
-	if id == "" && own != nil {
-		id = own.Harness
-	}
 	infos := s.orch.Registry().Installed(ctx, false)
-	if id == "" {
+	signedIn := func(id string) bool {
+		return slices.ContainsFunc(infos, func(h model.HarnessInfo) bool { return h.ID == id && h.AuthOK })
+	}
+	def := s.defaultAgent(ctx)
+	if a.Agent == "" && def != nil && signedIn(def.Harness) {
+		a.Agent = def.Harness
+	}
+	if a.Agent == "" && own != nil {
+		a.Agent = own.Harness
+	}
+	if a.Agent == "" {
 		for _, h := range infos {
-			if h.AuthOK && (id == "" || h.ID == "claude") {
-				id = h.ID
+			if h.AuthOK && (a.Agent == "" || h.ID == "claude") {
+				a.Agent = h.ID
 			}
 		}
 	}
-	i := slices.IndexFunc(infos, func(h model.HarnessInfo) bool { return h.ID == id })
+	i := slices.IndexFunc(infos, func(h model.HarnessInfo) bool { return h.ID == a.Agent })
 	if i < 0 {
-		return "", "", fmt.Errorf("no agent %q: list_agents lists them", id)
+		return a, fmt.Errorf("no agent %q: list_agents lists them", a.Agent)
 	}
 	info := infos[i]
 	if !info.AuthOK {
-		return "", "", fmt.Errorf("%s isn't signed in on this machine", info.Name)
+		return a, fmt.Errorf("%s isn't signed in on this machine", info.Name)
+	}
+	// As the clients' new session forms start with the default agent.
+	if def != nil && a.Agent == def.Harness && (a.Model == "" || a.Model == def.Model) {
+		a.Model = def.Model
+		a.Effort = cmpOr(a.Effort, def.Effort)
 	}
 	if own == nil {
-		return id, a.Mode, nil
+		return a, nil
 	}
 	allowed := []string{info.DefaultMode}
-	if id == own.Harness && own.Mode != "" {
+	if a.Agent == own.Harness && own.Mode != "" {
 		allowed = append(allowed, own.Mode)
 	}
-	mode := a.Mode
-	if mode == "" {
-		mode = allowed[len(allowed)-1]
+	if a.Mode == "" {
+		a.Mode = allowed[len(allowed)-1]
 	}
-	if !slices.Contains(allowed, mode) {
-		return "", "", fmt.Errorf("mode %q asks the user less than you may: choose %s", mode, strings.Join(slices.Compact(allowed), " or "))
+	if !slices.Contains(allowed, a.Mode) {
+		return a, fmt.Errorf("mode %q asks the user less than you may: choose %s", a.Mode, strings.Join(slices.Compact(allowed), " or "))
 	}
-	return id, mode, nil
+	return a, nil
+}
+
+// defaultAgent is the one the user chose for new sessions, if any.
+func (s *Server) defaultAgent(ctx context.Context) *model.AgentSpec {
+	settings, err := s.orch.Settings(ctx)
+	if err != nil {
+		s.log.Warn("reading the settings", "err", err)
+		return nil
+	}
+	return settings.DefaultAgent
 }
 
 func (s *Server) toolStartSession(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -428,7 +466,7 @@ func (s *Server) toolStartSession(ctx context.Context, raw json.RawMessage) (any
 	if err != nil {
 		return nil, err
 	}
-	agent, mode, err := s.agent(ctx, p.agentArgs)
+	a, err := s.agent(ctx, p.agentArgs)
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +475,7 @@ func (s *Server) toolStartSession(ctx context.Context, raw json.RawMessage) (any
 		ws = orchestrator.WorkspaceParams{Kind: model.WorkspaceWorktree, Branch: p.Branch}
 	}
 	sess, err := s.orch.CreateSession(ctx, orchestrator.CreateSessionParams{CommandID: store.NewID(), ProjectID: proj.ID,
-		Harness: agent, Model: p.Model, Effort: p.Effort, Mode: mode, Workspace: ws, Prompt: p.Prompt, Title: p.Title,
+		Harness: a.Agent, Model: a.Model, Effort: a.Effort, Mode: a.Mode, Workspace: ws, Prompt: p.Prompt, Title: p.Title,
 		StartedBy: callerOf(ctx).session})
 	if err != nil {
 		return nil, err
@@ -651,15 +689,15 @@ func (s *Server) toolForkSession(ctx context.Context, raw json.RawMessage) (any,
 	if args.Agent == "" && callerOf(ctx).session == "" {
 		args.Agent = src.Harness
 	}
-	agent, mode, err := s.agent(ctx, args)
+	a, err := s.agent(ctx, args)
 	if err != nil {
 		return nil, err
 	}
-	if agent == src.Harness && p.Model == "" && p.Effort == "" {
-		p.Model, p.Effort = src.Model, src.Effort // as the session it forks
+	if a.Agent == src.Harness && p.Model == "" && p.Effort == "" {
+		a.Model, a.Effort = src.Model, src.Effort // as the session it forks
 	}
-	fp := orchestrator.ForkParams{CommandID: store.NewID(), SessionID: src.ID, Turn: p.Turn, Harness: agent, Model: p.Model,
-		Effort: p.Effort, Mode: mode, Prompt: p.Prompt, StartedBy: callerOf(ctx).session}
+	fp := orchestrator.ForkParams{CommandID: store.NewID(), SessionID: src.ID, Turn: p.Turn, Harness: a.Agent, Model: a.Model,
+		Effort: a.Effort, Mode: a.Mode, Prompt: p.Prompt, StartedBy: callerOf(ctx).session}
 	switch {
 	case p.Worktree == nil:
 		// As the session it forks.

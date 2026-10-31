@@ -89,7 +89,7 @@ TerminalMessage {
 | Tool | Arguments | Does |
 |---|---|---|
 | `list_projects` | — | the projects |
-| `list_agents` | — | the installed, signed-in agents, with their models, efforts and modes |
+| `list_agents` | — | the installed, signed-in agents, with their models, efforts and modes, and `default`: the server's `defaultAgent` (below), when it's one of them |
 | `list_sessions` | `project?`, `archived?` | the sessions, newest first |
 | `start_session` | `project`, `prompt`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `title?` | `session.create`; a folder under `roots` becomes a project |
 | `send_prompt` | `session`, `prompt`, `steer?` | `session.prompt` (`steer`: into the running turn, as below); `list_agents` says `steers` for agents that take it |
@@ -98,6 +98,8 @@ TerminalMessage {
 | `stop_session` | `session` | `session.interrupt` |
 | `rename_session` | `session`, `title` | `session.rename` (empty: rad names it again) |
 | `fork_session` | `session`, `turn?`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `prompt?` | `session.fork` |
+
+Without `agent`, a session gets the server's `defaultAgent` while it's signed in, else the calling agent's own, else Claude Code; with the default agent and no `model` (or the default's), the default's model and effort fill in what the call leaves out. A fork that a device asks for keeps its source's agent, and a fork with its source's agent its model and effort.
 
 `session` is an id or a unique start of one (six characters or more). A session's agent can't send to, wait for or stop its own session; it may rename it. The sessions it starts or forks get its own mode with its own agent, or else the agent's default mode: no other mode, so that it can't start one that asks the user less than it does. They begin with a `notice` ("Started by the agent of “…”."), and may start sessions in turn, three deep at most. Approvals and questions of the sessions it starts go to the user, as any session's do; no tool answers them. A device's tools have none of these limits.
 
@@ -248,7 +250,7 @@ Approval {
 | `harness.update` | `{harness}` | `Task` (runs the agent's own updater; `caps.update`) |
 | `harness.login` | `{harness}` | `Task` (signs the agent in again; `caps.login`) |
 | `server.settings` | — | `ServerSettings` |
-| `server.setSettings` | `ServerSettings` | `ServerSettings` (replaces them all; `invalid` for an agent that can't be the system agent) |
+| `server.setSettings` | `ServerSettings` | `ServerSettings` (replaces them all, so clients send the ones they got back with their change; `invalid` for an unknown agent, or one that can't be the system agent) |
 | `server.checkUpdate` | `{refresh?}` | `UpdateInfo` (`refresh` looks again rather than use the answer of the last 10 minutes) |
 | `server.update` | — | `Task` (`unavailable` when rad can't update, `conflict` when it is up to date) |
 | `task.list` | `{sessionId?}` | `{tasks: [Task]}`, running and lately ended, oldest first: the server's own (updates and sign-ins), or with `sessionId` that session's (commits) |
@@ -310,7 +312,11 @@ ImportableSession {
   active?                                      // written in the last minute: it may still run in a terminal
 }
 
-ServerSettings { systemAgent?: { harness, model?, effort? } }   // absent: none
+ServerSettings {
+  systemAgent?: AgentSpec,                     // names sessions and writes commit messages; absent: none
+  defaultAgent?: AgentSpec                     // new sessions start with it; absent: each client's last used
+}
+AgentSpec { harness, model?, effort? }         // model, effort absent: the harness's, the model's default
 
 UpdateInfo {
   current, latest?, url?,                      // latest absent: the lookup failed (reason)
@@ -399,3 +405,4 @@ FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", addit
 - **Updating an agent.** `harness.update` runs the agent's own updater (`claude update`, `codex update`, `pi update`, `cursor-agent update`, `opencode upgrade`); `version` is the version afterwards.
 - **Updating rad.** `server.update` installs the latest release. With `via: "rad"`, rad downloads it as `rad update` does, then restarts as the new version in the same process: the socket closes, and the client reconnects to find the new `version` in `server.info`. With `via: "app"`, rad runs under the Remote Agent Server app, which updates itself and its rad, then opens again. The task succeeds when the install starts; the restart interrupts the sessions in `busy`, so clients ask first.
 - **The system agent.** With `systemAgent` set, rad has that agent and model name each new session from its first prompt: its title, unless `session.create` gave one or the user renamed it meanwhile, and its worktree's branch (`ra/<words>`), unless it gave one. The session starts at once with names made from the prompt, and its `session.upserted` brings the new ones a few seconds later. The calls run without tools, in an empty folder, and leave no session or history with the agent (`claude -p --no-session-persistence --safe-mode`, `codex exec --ephemeral`, `pi --print --no-session`). An agent can be the system agent when `caps.oneShot`.
+- **The default agent.** `defaultAgent` is the agent, model and effort new sessions start with, on every device. Clients' new session forms ask for `server.settings` as they open, and start with it while it is installed and signed in, and its model and effort (absent: "Default") when the user picks that agent again; with another agent, or without a default, they start with the one they last used, as they remember it themselves. `session.create` itself is unchanged: clients send what the form shows. The MCP tools start sessions with it too (see "MCP"). Any installed agent can be the default; the permission mode isn't part of it.

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"remote-agent/internal/harness/fake"
 	"remote-agent/internal/model"
 )
 
@@ -75,6 +76,7 @@ type mcpSession struct {
 	ID         string            `json:"id"`
 	Title      string            `json:"title"`
 	Agent      string            `json:"agent"`
+	Model      string            `json:"model"`
 	Mode       string            `json:"mode"`
 	Status     string            `json:"status"`
 	Worktree   bool              `json:"worktree"`
@@ -263,5 +265,80 @@ func TestMCPAgentLimits(t *testing.T) {
 	}
 	if resp, _ := s.request(t, "POST", "/v1/mcp", tok, []byte(`{"jsonrpc":"2.0","id":1,"method":"ping"}`)); resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("archived session's token = %d", resp.StatusCode)
+	}
+}
+
+// otherAgent is a second scripted agent, the fake one under another id.
+type otherAgent struct{ fake.Harness }
+
+func (otherAgent) ID() string { return "other" }
+
+func (o otherAgent) Probe(ctx context.Context) model.HarnessInfo {
+	info := o.Harness.Probe(ctx)
+	info.ID, info.Name = "other", "Other"
+	return info
+}
+
+func TestMCPDefaultAgent(t *testing.T) {
+	s := startServer(t, otherAgent{})
+	ctx := context.Background()
+	dev := s.mcp(t, s.token(t))
+	dir := filepath.Join(s.root, "app")
+	os.MkdirAll(dir, 0o755)
+	// Without a default: Claude Code if it's there, else the first agent.
+	var first mcpSession
+	if dev.ok("start_session", map[string]any{"project": dir, "prompt": "hello"}, &first); first.Agent != "fake" {
+		t.Errorf("without a default = %+v", first)
+	}
+
+	if _, err := s.orch.SetSettings(ctx, model.ServerSettings{DefaultAgent: &model.AgentSpec{Harness: "other", Model: "echo", Effort: "high"}}); err != nil {
+		t.Fatal(err)
+	}
+	var agents struct {
+		Default struct{ Agent, Model, Effort string } `json:"default"`
+	}
+	if dev.ok("list_agents", nil, &agents); agents.Default.Agent != "other" || agents.Default.Model != "echo" || agents.Default.Effort != "high" {
+		t.Errorf("list_agents' default = %+v", agents.Default)
+	}
+	effort := func(id string) string {
+		sess, err := s.st.Session(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return sess.Effort
+	}
+	for _, c := range []struct {
+		args                 map[string]any
+		agent, model, effort string
+	}{
+		{map[string]any{}, "other", "echo", "high"},
+		{map[string]any{"agent": "other", "effort": "low"}, "other", "echo", "low"},
+		{map[string]any{"agent": "other", "model": "echo"}, "other", "echo", "high"},
+		{map[string]any{"agent": "other", "model": "custom"}, "other", "custom", ""},
+		{map[string]any{"agent": "fake"}, "fake", "", ""},
+	} {
+		args := map[string]any{"project": dir, "prompt": "hello"}
+		for k, v := range c.args {
+			args[k] = v
+		}
+		var got mcpSession
+		dev.ok("start_session", args, &got)
+		if got.Agent != c.agent || got.Model != c.model || effort(got.ID) != c.effort {
+			t.Errorf("start_session(%v) = %s %q %q, want %s %q %q", c.args, got.Agent, got.Model, effort(got.ID), c.agent, c.model, c.effort)
+		}
+	}
+
+	// It wins over an agent's own, with that agent's default mode.
+	dev.ok("wait_for_session", map[string]any{"session": first.ID}, nil)
+	var child mcpSession
+	s.mcp(t, s.orch.AgentToken(first.ID)).ok("start_session", map[string]any{"project": dir, "prompt": "help me"}, &child)
+	if child.Agent != "other" || child.Model != "echo" || child.Mode != "ask" || effort(child.ID) != "high" {
+		t.Errorf("child = %+v, effort %q", child, effort(child.ID))
+	}
+	// A fork with its source's agent goes on with the source's model.
+	var fork mcpSession
+	dev.ok("fork_session", map[string]any{"session": first.ID}, &fork)
+	if fork.Agent != "fake" || fork.Model != "" {
+		t.Errorf("fork = %+v", fork)
 	}
 }

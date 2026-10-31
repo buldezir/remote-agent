@@ -612,7 +612,7 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
     return this.client.call("server.settings");
   }
 
-  /** Replaces the server's settings (leave `systemAgent` out to unset it);
+  /** Replaces all the server's settings (leave one out to unset it);
    *  returns them as the server keeps them. */
   setSettings(s: ServerSettings): Promise<ServerSettings> {
     return this.client.call("server.setSettings", s);

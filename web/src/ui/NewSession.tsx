@@ -1,6 +1,6 @@
 import { Check, ChevronLeft, ChevronRight, Folder, FolderGit2, FolderPlus, ImagePlus, Save, SquareTerminal, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { effortsForModel, usable, type Choice, type FSListing, type HarnessInfo, type Session } from "../protocol/models";
+import { effortsForModel, usable, type AgentSpec, type Choice, type FSListing, type HarnessInfo, type Session } from "../protocol/models";
 import { Attachments } from "../store/attachments";
 import { useObserved } from "../store/observable";
 import { storage } from "../store/storage";
@@ -11,6 +11,42 @@ import { ImportSession } from "./ImportSession";
 import { Modal, Spinner } from "./primitives";
 
 export const custom = "__custom";
+
+/** The agent a new session starts with: the server's default while it's
+ *  installed and signed in, else the one used last (Claude Code at first)
+ *  while it is, else the first that is; "" for none. */
+export function startingHarness(harnesses: HarnessInfo[], defaultAgent: AgentSpec | null, last: string | null): string {
+  const ok = (id: string | undefined) => harnesses.some((h) => h.id === id && usable(h));
+  if (defaultAgent && ok(defaultAgent.harness)) return defaultAgent.harness;
+  if (ok(last ?? "claude")) return last ?? "claude";
+  return harnesses.find(usable)?.id ?? "";
+}
+
+/** The form's model, custom model and effort for an agent, from the ones
+ *  chosen before (the server's default, or the last used): the model if the
+ *  agent still offers it, or takes any (`caps.freeModel`), and the effort if
+ *  that model offers it; else the defaults, "". */
+export function startingOptions(
+  harness: HarnessInfo,
+  model: string | null | undefined,
+  effort: string | null | undefined,
+): { model: string; customModel: string; effort: string } {
+  const models = harness.models ?? [];
+  const o = { model: "", customModel: "", effort: "" };
+  let restored: string | undefined;
+  if (model) {
+    if (models.some((x) => x.id === model)) {
+      o.model = model;
+      restored = model;
+    } else if (harness.caps.freeModel) {
+      o.model = models.length ? custom : "";
+      o.customModel = model;
+      restored = model;
+    }
+  }
+  if (effort && effortsForModel(harness, restored).some((x) => x.id === effort)) o.effort = effort;
+  return o;
+}
 
 /** Starts in `projectID` when given, else in the project used last.
  *  `onCreated` gets the new session, and whether it started empty, without
@@ -47,6 +83,8 @@ export function NewSession({
   const [browsing, setBrowsing] = useState(false);
   /** The list of the agent's own sessions in the project, to pick one up. */
   const [importing, setImporting] = useState(false);
+  /** The server's default agent: undefined until it answers, null for none. */
+  const [defaultAgent, setDefaultAgent] = useState<AgentSpec | null>();
 
   const project = connection.projects.get(projectID);
   const harness = connection.harness(harnessID);
@@ -55,7 +93,20 @@ export function NewSession({
   /** The model id to request; undefined for the harness default. */
   const chosenModel = (model === custom || !harness?.models?.length ? customModel : model) || undefined;
 
-  // Start from the last project and agent.
+  // An older rad has no settings, and a failure leaves the form as without
+  // a default.
+  useEffect(() => {
+    let live = true;
+    connection.settings().then(
+      (s) => live && setDefaultAgent(s.defaultAgent ?? null),
+      () => live && setDefaultAgent(null),
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  // Start from the last project.
   useEffect(() => {
     if (!harnesses) {
       void connection.refreshHarnesses();
@@ -63,39 +114,36 @@ export function NewSession({
     }
     const lastProject = storage.get("lastProject") ?? "";
     if (!projectID && connection.projects.has(lastProject)) setProjectID(lastProject);
-    if (!harnessID) {
-      const last = storage.get("lastHarness") ?? "claude";
-      const h = connection.harness(last);
-      setHarnessID(h && usable(h) ? last : (harnesses.find(usable)?.id ?? ""));
-    }
   }, [harnesses]);
 
+  // And from the server's default agent, else the last one, once both are
+  // known; an agent picked meanwhile stays.
+  useEffect(() => {
+    if (!harnesses || defaultAgent === undefined || harnessID) return;
+    setHarnessID(startingHarness(harnesses, defaultAgent, storage.get("lastHarness")));
+  }, [harnesses, defaultAgent]);
+
+  /** The server's default, when it's this agent. */
+  const ownDefault = defaultAgent && defaultAgent.harness === harnessID ? defaultAgent : undefined;
+
   // Starts from the model, effort and permission mode last used with this
-  // agent, if it still offers them.
+  // agent, if it still offers them; with the server's default agent, from
+  // the default's model and effort instead.
   useEffect(() => {
     setModel("");
     setCustomModel("");
     setEffort("");
     setMode(harness?.defaultMode ?? harness?.modes?.[0]?.id ?? "");
     if (!harness) return;
-    const models = harness.models ?? [];
-    const m = storage.get("lastModel." + harness.id);
-    let restored: string | undefined;
-    if (m) {
-      if (models.some((x) => x.id === m)) {
-        setModel(m);
-        restored = m;
-      } else if (harness.caps.freeModel) {
-        setModel(models.length ? custom : "");
-        setCustomModel(m);
-        restored = m;
-      }
-    }
-    const e = storage.get("lastEffort." + harness.id);
-    if (e && effortsForModel(harness, restored).some((x) => x.id === e)) setEffort(e);
+    const o = ownDefault
+      ? startingOptions(harness, ownDefault.model, ownDefault.effort)
+      : startingOptions(harness, storage.get("lastModel." + harness.id), storage.get("lastEffort." + harness.id));
+    setModel(o.model);
+    setCustomModel(o.customModel);
+    setEffort(o.effort);
     const md = storage.get("lastMode." + harness.id);
     if (md && harness.modes?.some((x) => x.id === md)) setMode(md);
-  }, [harnessID, !!harness]);
+  }, [harnessID, !!harness, ownDefault]);
 
   // Models support different effort levels.
   useEffect(() => {

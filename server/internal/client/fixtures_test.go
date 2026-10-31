@@ -117,7 +117,8 @@ func TestFixtures(t *testing.T) {
 	if u := fixture[resultFrame[model.UpdateInfo]](t, "response_check_update.json").Result; u.Current == "" {
 		t.Errorf("server.checkUpdate: %+v", u)
 	}
-	if s := fixture[resultFrame[model.ServerSettings]](t, "response_server_settings.json").Result; s.SystemAgent == nil || s.SystemAgent.Harness == "" {
+	if s := fixture[resultFrame[model.ServerSettings]](t, "response_server_settings.json").Result; s.SystemAgent == nil || s.SystemAgent.Harness == "" ||
+		s.DefaultAgent == nil || *s.DefaultAgent != (model.AgentSpec{Harness: "codex", Model: "gpt-5.5", Effort: "high"}) {
 		t.Errorf("server.settings: %+v", s)
 	}
 	if s := fixture[resultFrame[model.Session]](t, "response_session.json").Result; s.ID == "" || s.ForkedFrom == nil || s.ForkedFrom.SessionID != "s0" || s.ForkedFrom.Turn != 3 || !s.CustomTitle {

@@ -577,11 +577,11 @@ data class SearchResult(
 data class SnippetPart(val text: String, val match: Boolean = false)
 
 /**
- * The agent, and its model, that does rad's own small jobs: naming new
- * sessions and their worktree branches from the first prompt.
+ * An agent with a model and an effort: the system agent, or the one new
+ * sessions start with.
  */
 @Serializable
-data class SystemAgent(
+data class AgentSpec(
     val harness: String,
     /** Null: the harness's default. */
     val model: String? = null,
@@ -592,8 +592,14 @@ data class SystemAgent(
 /** The settings clients change (`server.settings`, `server.setSettings`). */
 @Serializable
 data class ServerSettings(
-    /** Null: none, and a session's title is its prompt's first line. */
-    val systemAgent: SystemAgent? = null,
+    /**
+     * Does rad's own small jobs: names new sessions and their worktree
+     * branches from the first prompt, and writes commit messages. Null: none,
+     * and a session's title is its prompt's first line.
+     */
+    val systemAgent: AgentSpec? = null,
+    /** The agent, model and effort new sessions start with. Null: each client starts with the agent it used last. */
+    val defaultAgent: AgentSpec? = null,
 )
 
 /** What `server.checkUpdate` found out about rad's releases. */
