@@ -112,6 +112,7 @@ struct SessionView: View {
         #if os(macOS)
         .focusedSceneValue(\.sessionFind, SessionFindCommands(
             open: openFind, next: { stepFind(1) }, previous: { stepFind(-1) }, canStep: findShown && !matches.isEmpty))
+        .focusedSceneValue(\.sessionMenu, sessionMenu)
         .safeAreaInset(edge: .top, spacing: 0) {
             if inlineTitle, let s = session { titleHeader(s) }
         }
@@ -321,6 +322,17 @@ struct SessionView: View {
     private var canCommit: Bool {
         connection.commits && project?.isGitRepo == true && session?.archived == false
     }
+
+    #if os(macOS)
+    /// The Session menu: as the ⋯ menu, which hides what the session can't do.
+    private var sessionMenu: SessionMenuCommands {
+        SessionMenuCommands(
+            rename: connection.renames ? session.map { s in { renaming = SessionRequest(session: s, connection: connection) } } : nil,
+            changes: project?.isGitRepo == true ? { showDiff = true } : nil,
+            commit: canCommit && !store.isRunning ? { showCommit = true } : nil,
+            fork: canFork ? { showFork = true } : nil)
+    }
+    #endif
 
     /// The server forks, and a turn ended to fork after. Archived sessions too.
     private var canFork: Bool {

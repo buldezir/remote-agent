@@ -128,4 +128,6 @@ extension FocusedValues {
     @Entry var searchSessions: Binding<Bool>?
     /// The open session's find bar.
     @Entry var sessionFind: SessionFindCommands?
+    /// What the Session menu does to the open session.
+    @Entry var sessionMenu: SessionMenuCommands?
 }

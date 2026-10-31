@@ -8,6 +8,7 @@ struct AppCommands: Commands {
     @FocusedValue(\.pairServer) private var pairServer
     @FocusedValue(\.searchSessions) private var searchSessions
     @FocusedValue(\.sessionFind) private var sessionFind
+    @FocusedValue(\.sessionMenu) private var session
     @AppStorage(SidebarLayout.key) private var layout = SidebarLayout.inbox
 
     var body: some Commands {
@@ -44,6 +45,20 @@ struct AppCommands: Commands {
                     .keyboardShortcut("g", modifiers: [.command, .shift])
                     .disabled(sessionFind?.canStep != true)
             }
+        }
+        // The open session's ⋯ menu, as Mail's Message menu has what its
+        // toolbar does. Commit… takes Xcode's shortcut.
+        CommandMenu("Session") {
+            Button("Rename…") { session?.rename?() }
+                .disabled(session?.rename == nil)
+            Divider()
+            Button("Changes") { session?.changes?() }
+                .disabled(session?.changes == nil)
+            Button("Commit…") { session?.commit?() }
+                .keyboardShortcut("c", modifiers: [.command, .option])
+                .disabled(session?.commit == nil)
+            Button("Fork…") { session?.fork?() }
+                .disabled(session?.fork == nil)
         }
         SidebarCommands()
         // The sidebar's layouts, as Finder's View menu has "as Icons" and "as List".
