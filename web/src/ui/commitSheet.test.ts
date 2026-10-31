@@ -24,5 +24,8 @@ describe("committing", () => {
     expect(commitButtonLabel("pullRequest", true)).toBe("Commit, Push & Open PR");
     expect(commitButtonLabel("push", false)).toBe("Push");
     expect(commitButtonLabel("pullRequest", false)).toBe("Push & Open PR");
+    // A phone has room for less beside the title.
+    expect(commitButtonLabel("pullRequest", true, true)).toBe("Commit & Open PR");
+    expect(commitButtonLabel("push", true, true)).toBe("Commit & Push");
   });
 });

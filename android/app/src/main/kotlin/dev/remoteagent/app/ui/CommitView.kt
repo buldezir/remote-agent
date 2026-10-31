@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -167,17 +166,27 @@ fun CommitDialog(connection: ServerConnection, sessionID: String, onDismiss: () 
             CommitProgressScreen(p, onDismiss)
             return@FullScreenDialog
         }
+        val pv = preview
+        val current = pv?.let { choice ?: CommitScope.initial(null, it) }
         Screen(
             title = { Text("Commit", style = Type.headline) },
             onBack = onDismiss, backIcon = Icons.close, backLabel = "Cancel", background = palette.mantle,
+            // Where the other sheets have theirs, so that it's there without
+            // scrolling past the files, saying how far it goes.
+            actions = {
+                if (starting) {
+                    CircularProgressIndicator(Modifier.size(24.dp).padding(end = 4.dp), color = palette.subtext, strokeWidth = 2.dp)
+                } else if (pv != null && current != null) {
+                    val enabled = current.enabled(pv)
+                    TextButton(::start, enabled = enabled, modifier = Modifier.testTag("commit-start")) {
+                        Text(current.action(pv.files.isNotEmpty()), color = if (enabled) palette.accent else palette.overlay, style = Type.headline, maxLines = 1)
+                    }
+                }
+            },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).formWidth()) {
-                val pv = preview
                 when {
-                    pv != null -> CommitForm(
-                        pv, message, { message = it }, choice ?: CommitScope.initial(null, pv), { choice = it },
-                        starting = starting, onStart = ::start,
-                    )
+                    pv != null && current != null -> CommitForm(pv, message, { message = it }, current, { choice = it })
                     loadError != null -> FormSection {
                         Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(painterResource(Icons.warning), null, tint = palette.red, modifier = Modifier.size(18.dp))
@@ -207,8 +216,6 @@ private fun CommitForm(
     onMessage: (String) -> Unit,
     choice: CommitScope,
     onChoice: (CommitScope) -> Unit,
-    starting: Boolean,
-    onStart: () -> Unit,
 ) {
     val files = preview.files
     FormSection("Branch") {
@@ -264,23 +271,6 @@ private fun CommitForm(
                 )
                 Text(s.label, style = Type.body, color = if (enabled) palette.text else palette.overlay)
             }
-        }
-    }
-
-    val enabled = choice.enabled(preview) && !starting
-    Button(
-        onStart, enabled = enabled,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = palette.accent, contentColor = palette.onAccent,
-            disabledContainerColor = palette.surface0, disabledContentColor = palette.overlay,
-        ),
-        shape = RoundedCornerShape(Metrics.Corner.card),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = Metrics.margin, vertical = 12.dp).heightIn(min = 48.dp).testTag("commit-start"),
-    ) {
-        if (starting) {
-            CircularProgressIndicator(Modifier.size(18.dp), color = palette.onAccent, strokeWidth = 2.dp)
-        } else {
-            Text(choice.action(files.isNotEmpty()), style = Type.headline)
         }
     }
 }

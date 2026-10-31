@@ -985,6 +985,20 @@ func TestCommitsPushesAndOpensAPullRequest(t *testing.T) {
 			t.Errorf("the form lacks %q:\n%s", want, s)
 		}
 	}
+	// On a short screen the files give way first, then the message, and the
+	// choice, the button and the hints stay.
+	u.p.Send(tea.WindowSizeMsg{Width: 120, Height: 16})
+	s = u.screen()
+	for _, want := range []string{"CHANGES  1 file", "MESSAGE", "Then         Commit & push", "Commit & Push", "ctrl+s commit & push"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the short form lacks %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "A notes.txt") {
+		t.Errorf("the short form has room for the file:\n%s", s)
+	}
+	u.p.Send(tea.WindowSizeMsg{Width: 120, Height: 44})
+	u.waitFor("A notes.txt")
 	// The message is the system agent's, to edit: a word more.
 	u.key("end")
 	u.key(" today")

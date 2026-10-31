@@ -1094,10 +1094,11 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
 .commit-message { min-height: 96px; }
 .commit-scope { text-align: left; }
 .commit-scope:disabled { color: var(--subtext); }
-.commit-actions {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 16px;
+.commit-start { white-space: nowrap; }
+.commit-start .narrow-label { display: none; }
+@media (max-width: 600px) {
+  .commit-start .wide-label { display: none; }
+  .commit-start .narrow-label { display: inline; }
 }
 .commit-steps { margin-top: 0; }
 .commit-step { align-items: flex-start; }

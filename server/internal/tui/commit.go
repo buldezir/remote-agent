@@ -76,6 +76,8 @@ func (v *sessionView) commit(m *Model) tea.Cmd {
 	f := &commitForm{src: v.store.Session, text: newComposer(m), tasks: client.NewServerTasks(m.q, m.conn)}
 	f.text.ta.Placeholder = "Commit message (empty: rad writes one)"
 	f.text.ta.MaxHeight = 8
+	// The form shows less of it on a short screen; it still takes all.
+	f.text.ta.MaxContentHeight = 1000
 	m.push(f)
 	return f.look(m)
 }
@@ -467,30 +469,40 @@ func (f *commitForm) formLines(m *Model, inner, height int) []string {
 		lines = append(lines, m.st.Subtext.Render(truncate("Pull request into "+into, inner)))
 	}
 	lines = append(lines, "")
+	tail := []string{"", labelRow(m, "Then", m.st.Text.Render(f.scope.Choice()), f.field == commitFieldScope, inner)}
+	if why := f.scope.Unavailable(*p); why != "" {
+		tail = append(tail, "  "+m.st.Yellow.Render(truncate(why, inner-2)))
+	}
+	tail = append(tail, "", formButton(m, f.scope.Action(len(p.Files) > 0), f.field == commitFieldStart, f.starting))
 	if len(p.Files) == 0 {
 		lines = append(lines, m.st.Text.Render("Nothing to commit."))
 		if p.Ahead > 0 {
 			lines = append(lines, m.st.Subtext.Render(plural(p.Ahead, "commit", "commits")+" to push."))
 		}
-	} else {
-		lines = append(lines, m.st.Header.Render("CHANGES")+m.st.Faint.Render("  "+plural(len(p.Files), "file", "files")))
-		room := min(8, max(3, height-30))
-		for i, file := range p.Files {
-			if i == room && len(p.Files) > room+1 {
-				lines = append(lines, m.st.Faint.Render(fmt.Sprintf("  …and %d more", len(p.Files)-room)))
-				break
-			}
-			lines = append(lines, fileLine(m, file, inner))
-		}
-		lines = append(lines, "", m.st.Header.Render("MESSAGE"))
-		lines = append(lines, f.text.view(m, nil, inner, f.field == commitFieldMessage)...)
+		return append(lines, tail...)
 	}
-	lines = append(lines, "", labelRow(m, "Then", m.st.Text.Render(f.scope.Choice()), f.field == commitFieldScope, inner))
-	if why := f.scope.Unavailable(*p); why != "" {
-		lines = append(lines, "  "+m.st.Yellow.Render(truncate(why, inner-2)))
+	// The choice and the button show however short the screen: the files
+	// give way first, then the message. Its box, the session's title and
+	// the hints take 5 lines, and the headers 3.
+	free := height - 5 - len(lines) - len(tail) - 3
+	f.text.ta.MaxHeight = max(1, min(8, free-2)) // and its rule, and a file
+	message := f.text.view(m, nil, inner, f.field == commitFieldMessage)
+	room := min(8, free-len(message))
+	lines = append(lines, m.st.Header.Render("CHANGES")+m.st.Faint.Render("  "+plural(len(p.Files), "file", "files")))
+	shown := len(p.Files)
+	if shown > room {
+		shown = max(0, room-1) // and a line for the rest
 	}
-	lines = append(lines, "", formButton(m, f.scope.Action(len(p.Files) > 0), f.field == commitFieldStart, f.starting))
-	return lines
+	for _, file := range p.Files[:shown] {
+		lines = append(lines, fileLine(m, file, inner))
+	}
+	// Without room for any, the header has the count.
+	if shown > 0 && shown < len(p.Files) {
+		lines = append(lines, m.st.Faint.Render(fmt.Sprintf("  …and %d more", len(p.Files)-shown)))
+	}
+	lines = append(lines, "", m.st.Header.Render("MESSAGE"))
+	lines = append(lines, message...)
+	return append(lines, tail...)
 }
 
 // fileLine is a changed file: its status's letter, its path, and its

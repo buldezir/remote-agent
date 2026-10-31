@@ -47,15 +47,16 @@ export function commitScope(preview: CommitPreview, chosen: CommitScope | undefi
   return s;
 }
 
-/** The button's label: what it will do. */
-export function commitButtonLabel(scope: CommitScope, hasFiles: boolean): string {
+/** The button's label: what it will do. A phone's bar has no room for the
+ *  whole of the longest beside the title; opening a pull request pushes. */
+export function commitButtonLabel(scope: CommitScope, hasFiles: boolean, narrow = false): string {
   switch (scope) {
     case "commit":
       return "Commit";
     case "push":
       return hasFiles ? "Commit & Push" : "Push";
     case "pullRequest":
-      return hasFiles ? "Commit, Push & Open PR" : "Push & Open PR";
+      return hasFiles ? (narrow ? "Commit & Open PR" : "Commit, Push & Open PR") : "Push & Open PR";
   }
 }
 
@@ -137,16 +138,35 @@ export function CommitSheet({ session, onClose }: { session: Session; onClose: (
 
   if (progress) return <CommitProgress progress={progress} onClose={onClose} />;
 
+  const current = preview && commitScope(preview, scope);
+  const hasFiles = !!preview?.files.length;
+  const canStart = !!current && (hasFiles || current !== "commit") && !starting;
   return (
-    <Modal title="Commit" onClose={onClose}>
-      {preview ? (
+    <Modal
+      title="Commit"
+      onClose={onClose}
+      // Where the other sheets have theirs, so that it's there without
+      // scrolling past the files, saying how far it goes.
+      trailing={
+        current &&
+        (starting ? (
+          <Spinner />
+        ) : (
+          <button className="link strong commit-start" disabled={!canStart} onClick={() => void start()}>
+            <span className="wide-label">{commitButtonLabel(current, hasFiles)}</span>
+            <span className="narrow-label">{commitButtonLabel(current, hasFiles, true)}</span>
+          </button>
+        ))
+      }
+    >
+      {preview && current ? (
         <CommitForm
           preview={preview}
           message={message}
           setMessage={setMessage}
-          scope={commitScope(preview, scope)}
+          scope={current}
           setScope={setScope}
-          starting={starting}
+          canStart={canStart}
           error={error}
           onStart={() => void start()}
         />
@@ -178,7 +198,7 @@ function CommitForm({
   setMessage,
   scope,
   setScope,
-  starting,
+  canStart,
   error,
   onStart,
 }: {
@@ -187,14 +207,13 @@ function CommitForm({
   setMessage: (s: string) => void;
   scope: CommitScope;
   setScope: (s: CommitScope) => void;
-  starting: boolean;
+  canStart: boolean;
   error: string | undefined;
   onStart: () => void;
 }) {
   const files = preview.files;
   const hasFiles = files.length > 0;
   const canPush = !!preview.remote && !!preview.branch;
-  const canStart = (hasFiles || scope !== "commit") && !starting;
   const adds = files.reduce((n, f) => n + f.additions, 0);
   const dels = files.reduce((n, f) => n + f.deletions, 0);
 
@@ -291,12 +310,6 @@ function CommitForm({
           <TriangleAlert size={15} /> {error}
         </div>
       )}
-      <div className="commit-actions">
-        <button className="button prominent" disabled={!canStart} onClick={onStart}>
-          {starting && <Spinner size={15} />}
-          {commitButtonLabel(scope, hasFiles)}
-        </button>
-      </div>
     </div>
   );
 }

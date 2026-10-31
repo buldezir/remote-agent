@@ -12,6 +12,9 @@ struct CommitView: View {
     let sessionID: String
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    #endif
     /// How far the last commit went, which the next one starts at.
     @AppStorage("commitScope") private var savedScope = ""
 
@@ -84,8 +87,18 @@ struct CommitView: View {
         switch scope {
         case .commit: return "Commit"
         case .push: return files ? "Commit & Push" : "Push"
-        case .pullRequest: return files ? "Commit, Push & Open PR" : "Push & Open PR"
+        case .pullRequest: return files ? (narrow ? "Commit & Open PR" : "Commit, Push & Open PR") : "Push & Open PR"
         }
+    }
+
+    /// A phone's navigation bar, where the whole of the longest title would
+    /// squeeze the sheet's own to a letter. Opening a pull request pushes.
+    private var narrow: Bool {
+        #if os(iOS)
+        sizeClass == .compact
+        #else
+        false
+        #endif
     }
 
     private var canStart: Bool {
@@ -173,22 +186,6 @@ struct CommitView: View {
         if let startError {
             Section { Label(startError, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red) }
         }
-
-        #if os(iOS)
-        // A title this long would crowd the navigation bar on a phone.
-        Section {
-            Button {
-                Task { await start() }
-            } label: {
-                HStack {
-                    Spacer()
-                    if starting { ProgressView() } else { Text(actionTitle).fontWeight(.semibold) }
-                    Spacer()
-                }
-            }
-            .disabled(!canStart)
-        }
-        #endif
     }
 
     // MARK: After
@@ -265,7 +262,8 @@ struct CommitView: View {
             ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
         } else {
             ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            #if os(macOS)
+            // Where the other sheets have theirs, so that it's there without
+            // scrolling past the files, saying how far it goes.
             ToolbarItem(placement: .confirmationAction) {
                 if starting {
                     ProgressView().controlSize(.small)
@@ -274,7 +272,6 @@ struct CommitView: View {
                         .disabled(!canStart)
                 }
             }
-            #endif
         }
     }
 
