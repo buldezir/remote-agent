@@ -55,4 +55,15 @@ struct TranscriptFindTests {
         #expect(TranscriptFind.searchText(try #require(byID["i2"])) == "")
         #expect(TranscriptFind.searchText(try #require(byID["i11"])) == "")
     }
+
+    /// The heights an iPad Pro 13" gave: a short reply above the composer,
+    /// and six replies.
+    @Test func scrollsToAnItemOnlyWhenTheTranscriptOverflows() {
+        #expect(!TranscriptFind.scrollsToItem(contentHeight: 516, visibleHeight: 1219))
+        #expect(!TranscriptFind.scrollsToItem(contentHeight: 1219, visibleHeight: 1219))
+        #expect(TranscriptFind.scrollsToItem(contentHeight: 1220, visibleHeight: 1219))
+        #expect(TranscriptFind.scrollsToItem(contentHeight: 2646, visibleHeight: 1219))
+        // Not laid out yet.
+        #expect(!TranscriptFind.scrollsToItem(contentHeight: 0, visibleHeight: 0))
+    }
 }

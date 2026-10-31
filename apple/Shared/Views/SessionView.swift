@@ -43,6 +43,9 @@ struct SessionView: View {
     @State private var dictation = Dictation()
     @State private var attachments = Attachments()
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
+    /// How tall the transcript is, and the room it has, as the scroll view
+    /// last laid it out.
+    @State private var heights = TranscriptHeights()
     @FocusState private var composerFocused: Bool
     /// The find bar over the transcript, its query and the match it's on.
     @State private var findShown = false
@@ -264,6 +267,11 @@ struct SessionView: View {
         }
         .background(Palette.base)
         .scrollPosition($scrollPosition)
+        .onScrollGeometryChange(for: TranscriptHeights.Value.self) { geometry in
+            TranscriptHeights.Value(content: geometry.contentSize.height, visible: geometry.containerSize.height)
+        } action: { _, value in
+            heights.value = value
+        }
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -403,12 +411,13 @@ struct SessionView: View {
 
     /// Scrolls an item to the middle, and again a moment later: a lazy stack
     /// places the rows it hasn't laid out yet by estimate, and the first
-    /// jump can stop short.
+    /// jump can stop short. Not while the whole transcript fits, where the
+    /// item shows already (`TranscriptFind.scrollsToItem`).
     private func scrollTo(_ id: String) {
-        scrollPosition.scrollTo(id: id, anchor: .center)
+        if heights.scrolls { scrollPosition.scrollTo(id: id, anchor: .center) }
         Task {
             try? await Task.sleep(for: .milliseconds(150))
-            if id == currentMatch(findMatches) || id == flashing {
+            if heights.scrolls, id == currentMatch(findMatches) || id == flashing {
                 scrollPosition.scrollTo(id: id, anchor: .center)
             }
         }
@@ -1067,6 +1076,24 @@ struct SessionView: View {
     private func run(_ f: () async throws -> Void) async {
         do { try await f() } catch { self.error = error.localizedDescription }
     }
+}
+
+/// A transcript's height and the room it has in view, which the scroll view
+/// reports as it lays it out. A reference that the view reads when it
+/// scrolls to an item, not state: a lazy stack reports several heights a
+/// frame as it places its rows, and state set from them would draw the view
+/// again each time, which SwiftUI takes for a cycle and stops reporting,
+/// with the last height wrong.
+private final class TranscriptHeights {
+    struct Value: Equatable {
+        var content = 0.0
+        var visible = 0.0
+    }
+
+    var value = Value()
+
+    /// The transcript is taller than its room: `TranscriptFind.scrollsToItem`.
+    var scrolls: Bool { TranscriptFind.scrollsToItem(contentHeight: value.content, visibleHeight: value.visible) }
 }
 
 #if os(macOS)

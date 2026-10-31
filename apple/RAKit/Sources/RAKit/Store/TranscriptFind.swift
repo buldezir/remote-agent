@@ -65,4 +65,14 @@ public enum TranscriptFind {
     public static func contains(_ text: String, _ query: String) -> Bool {
         !query.isEmpty && text.range(of: query, options: .caseInsensitive) != nil
     }
+
+    /// Whether the transcript scrolls to show an item, for find or a search
+    /// result: only when its content is taller than the room it has in view.
+    /// One that fits shows whole, the item with it, at the foot of the view.
+    /// SwiftUI puts it there with a top inset that scrolling to an item counts
+    /// twice: it would scroll the transcript down past the composer, out of
+    /// view, until it was dragged.
+    public static func scrollsToItem(contentHeight: Double, visibleHeight: Double) -> Bool {
+        contentHeight > visibleHeight
+    }
 }
