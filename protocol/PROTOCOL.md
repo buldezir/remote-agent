@@ -169,6 +169,7 @@ Session {
   backgroundTasks?: [{ id, kind: "command"|"agent"|"other", description }],
                                      // what the agent left running (a command it watches, a subagent), while its
                                      // process runs; absent: none
+  forkedFrom?: { sessionId, turn },  // the session this one is a fork of, and the turn it continues after (session.fork)
   createdAt, updatedAt
 }
 
@@ -177,7 +178,9 @@ Turn {
   status: "running"|"completed"|"interrupted"|"failed",
   checkpointBefore?, checkpointAfter?,   // git commit shas (git projects only)
   usage?: { inputTokens?, outputTokens?, cacheReadTokens?, cacheWriteTokens?, costUsd? },
-  error?, startedAt, endedAt?
+  error?,
+  forkPoint?,                        // where the agent's own conversation stood at the turn's end, for forks; rad's, clients ignore it
+  startedAt, endedAt?
 }
 
 Item {
@@ -218,7 +221,7 @@ Approval {
 
 | method | params | result |
 |---|---|---|
-| `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId, terminal?, drafts?}` (`terminal`: `GET /v1/terminal` is there; `drafts`: it keeps drafts, see below) |
+| `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId, terminal?, drafts?, forks?}` (`terminal`: `GET /v1/terminal` is there; `drafts`: it keeps drafts; `forks`: it has `session.fork`; see below) |
 | `device.unpair` | — | `{}` (revokes the calling device's token) |
 | `harness.list` | `{refresh?}` | `{harnesses: [HarnessInfo]}`, only the ones installed on the server |
 | `harness.update` | `{harness}` | `Task` (runs the agent's own updater; `caps.update`) |
@@ -237,6 +240,7 @@ Approval {
 | `project.remove` | `{id}` | `{}` (`conflict` if it has unarchived sessions) |
 | `session.list` | — | `{sessions}` |
 | `session.create` | `{commandId, projectId, harness, model?, effort?, mode?, workspace: {kind, branch?, baseRef?}, prompt?, images?, title?, draft?}` | `Session` (`draft`: keep the prompt as the session's draft, see below) |
+| `session.fork` | `{commandId, sessionId, turn?, harness?, model?, effort?, mode?, workspace?: {kind, branch?}, prompt?, images?, title?, draft?}` | `Session` (see below) |
 | `session.commands` | `{sessionId}` | `{commands: [{name, description?, kind?, scope?}]}` |
 | `session.prompt` | `{commandId, sessionId, text, images?}` | `Item` (the user message; `queued` if a turn is running) |
 | `session.saveDraft` | `{sessionId, text, images?}` | `Session` (see below) |
@@ -296,6 +300,10 @@ FileStat { path, oldPath?, status: "added"|"modified"|"deleted"|"renamed", addit
 - **Unread sessions.** rad marks a session `unread` when a turn ends (completed, failed or interrupted, including by a restart) and when the agent asks for an answer. A client calls `session.markRead` while it shows the session, in a window in front, so that every device stops marking it; it keeps the session's `updatedAt`. Reading a session that isn't unread changes nothing. Archiving a session reads it. Older servers answer `method_not_found`, which clients ignore.
 - **Drafts.** A prompt can wait in a session, unsent, for any device to send later: `session.create` with `draft: true` keeps its prompt and images as the session's `draft` and starts no turn, and `session.saveDraft` keeps one in an existing session, replacing the one it had. Clients show it at the foot of the transcript, apart from the composer. A draft names the session as a first prompt does: its title, and with the system agent its worktree's branch, when the session still has the default title "New session". `session.sendDraft` sends it as `session.prompt` would, and the `session.upserted` that removes the draft comes with the user message's `item.upserted`. Saving no text and no images removes the draft; a session that never had a prompt then gets the default title back, so that its next draft or prompt names it. Prompts sent meanwhile leave the draft as it is. Archived sessions take no drafts (`conflict`). Servers that keep drafts say `drafts: true` in `server.info`; clients offer drafts only then, since an older server would ignore `draft` in `session.create` and start the session with the prompt.
 - **The agent's own worktree.** An agent may move into a worktree it makes itself, as Claude Code does with its EnterWorktree tool (in `.claude/worktrees/<name>`, on the branch `worktree-<name>`), and back out with ExitWorktree. rad follows it there: the session's `agentPath` is that folder, and its `branch`, its turns' checkpoints and diffs, `git.revert` and a new terminal are that folder's. The turn in which it moves starts its changes over in the new folder, and `git.sessionDiff` shows the changes since the move. Back in `path`, `agentPath` goes away. A folder that no longer exists counts as `path`. The agent still starts in `path`, and Claude Code goes back to its worktree when it resumes.
+- **Forks.** `session.fork` makes a new session that continues `sessionId` after `turn` (absent: the last turn that ended; `conflict` while that turn runs, `invalid` before any turn). The fork starts with a copy of the session's transcript and turns up to and including that turn, with new ids, followed by a `notice` ("Forked from “…” after turn n."), and `forkedFrom` names its source; its next turn is `n + 1`. The source is left as it is, archived ones included.
+  - **Agent.** `harness` defaults to the source's, and so does `mode` with the source's harness, else that harness's default. Absent `model` and `effort` are the harness's defaults, as in `session.create`: clients start their pickers at the source's and send them. The same agent, where it can, copies its own conversation, cut after the turn, when the fork first starts it (Claude Code's `--fork-session` with `--resume-session-at`, Codex's `thread/fork` with `lastTurnId`). Any other agent, or one that can't fork, starts afresh, and its first prompt brings the conversation before it as a transcript: the first request, and as much of the rest as fits, latest first. If the copy fails, a `notice` says so and the transcript goes instead.
+  - **Workspace.** `workspace.kind` defaults to the source's. `worktree` checks out a new branch (`branch`, or one rad names as for a new session) at the commit the turn's last checkpoint was taken on, with the files as they were after the turn (`invalid` outside git, or for a turn without a checkpoint). `root` works in the project folder as it is now. The fork's copied turns keep their diffs.
+  - `prompt`, `images`, `title` and `draft` work as in `session.create`. The title defaults to the source's with " (fork)"; with the system agent, a prompt names it. Servers that fork say `forks: true` in `server.info`; older ones answer `method_not_found`.
 - **Deleting a session.** `session.delete` works on archived and unarchived sessions. It stops the agent and the session's shell, and deletes the session, its turns, its transcript and its checkpoints; `removeWorktree` deletes its worktree too, and the branch is kept either way. Images stay, since other sessions may show them. The session's stream then holds only a `session.removed` event, the next in its seq, which reaches its subscribers; later commands on the session are `not_found`.
 - **Queued prompts.** A prompt sent while a turn runs waits as a `queued` user message, and the next turn starts with it once the turn ends. Interrupting the turn cancels every queued prompt. `session.sendNow` sends one of them at once instead: rad interrupts the turn and starts the next turn with that prompt, ahead of the others, which stay queued behind it. `session.cancelQueued` takes one of them out of the queue, `cancelled`, and leaves the turn and the other prompts as they are. A prompt no longer queued (it started, or was cancelled) is left as it is. Older servers answer `method_not_found`, which clients show as a reason to update rad.
 - **Images in prompts.** `images` lists ids from `POST /v1/images`. A prompt needs text, images or both. An unknown id is `invalid`.

@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"remote-agent/internal/config"
 	"remote-agent/internal/harness"
 	"remote-agent/internal/harness/proc"
@@ -36,6 +38,10 @@ func New(cmd config.Command) *Harness {
 }
 
 func (*Harness) SupportsCommands() bool { return true }
+
+// SupportsFork: Claude Code forks a session with --fork-session, cut at a
+// message with --resume-session-at.
+func (*Harness) SupportsFork() bool { return true }
 
 func (h *Harness) ID() string { return "claude" }
 
@@ -146,7 +152,14 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		extra = append(extra, "--append-system-prompt", o.Instructions)
 	}
 	nativeID := o.ResumeID
-	if nativeID != "" {
+	if o.Fork {
+		// A new id each time: an attempt that never got a prompt leaves nothing.
+		nativeID = uuid.NewString()
+		extra = append(extra, "--resume", o.ResumeID, "--fork-session", "--session-id", nativeID)
+		if o.ForkAt != "" {
+			extra = append(extra, "--resume-session-at", o.ForkAt)
+		}
+	} else if nativeID != "" {
 		extra = append(extra, "--resume", nativeID)
 	} else {
 		nativeID = o.SessionID
@@ -365,7 +378,7 @@ type frame struct {
 	ToolUseID string `json:"tool_use_id"`
 	Status    string `json:"status"`
 
-	// system/compact_boundary
+	// the frame's message, such as an assistant message or a compact_boundary
 	UUID            string `json:"uuid"`
 	CompactMetadata *struct {
 		PostTokens int64 `json:"post_tokens"`

@@ -20,6 +20,8 @@ export interface ServerActions {
   newSession: (c: ServerConnection, projectID?: string) => void;
   archive: (c: ServerConnection, s: Session) => void;
   delete: (c: ServerConnection, s: Session) => void;
+  /** A new session that goes on from one of the session's turns. */
+  fork: (c: ServerConnection, s: Session) => void;
   rename: (s: SavedServer) => void;
   remove: (s: SavedServer) => void;
   /** The server's own settings: rad's updates, its agents, the system agent. */

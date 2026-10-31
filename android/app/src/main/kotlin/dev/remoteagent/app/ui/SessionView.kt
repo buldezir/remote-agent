@@ -107,12 +107,19 @@ val LocalConnection = staticCompositionLocalOf<ServerConnection> { error("no Ser
 
 /**
  * A session's transcript and composer. With `focusPrompt`, a session just
- * started empty, the prompt takes the keyboard. Mirrors apple/Shared/Views/SessionView.swift.
+ * started empty, the prompt takes the keyboard. `onForked` opens a fork made
+ * from its menu, as a new session opens. Mirrors apple/Shared/Views/SessionView.swift.
  */
 @Composable
-fun SessionView(connection: ServerConnection, store: SessionStore, focusPrompt: Boolean = false, onBack: () -> Unit) {
+fun SessionView(
+    connection: ServerConnection,
+    store: SessionStore,
+    focusPrompt: Boolean = false,
+    onBack: () -> Unit,
+    onForked: (Session, empty: Boolean) -> Unit,
+) {
     CompositionLocalProvider(LocalConnection provides connection) {
-        SessionScreen(connection, store, focusPrompt, onBack)
+        SessionScreen(connection, store, focusPrompt, onBack, onForked)
     }
 }
 
@@ -145,7 +152,13 @@ private fun rememberDraft(store: SessionStore): MutableState<String> = remember(
 }
 
 @Composable
-private fun SessionScreen(connection: ServerConnection, store: SessionStore, focusPrompt: Boolean, onBack: () -> Unit) {
+private fun SessionScreen(
+    connection: ServerConnection,
+    store: SessionStore,
+    focusPrompt: Boolean,
+    onBack: () -> Unit,
+    onForked: (Session, empty: Boolean) -> Unit,
+) {
     val context = LocalContext.current
     val uiScope = rememberCoroutineScope()
     val storeSession by store.session.collectAsStateWithLifecycle()
@@ -192,6 +205,9 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, foc
     var menu by remember { mutableStateOf(false) }
     var showDiff by rememberSaveable { mutableStateOf(false) }
     var showTerminal by rememberSaveable { mutableStateOf(false) }
+    var showFork by rememberSaveable { mutableStateOf(false) }
+    // A fork continues after a turn that ended, archived sessions' too.
+    val canFork = info?.forks == true && session != null && turns.values.any { it.status != TurnStatus.RUNNING }
     val listState = rememberLazyListState()
     val settings = LocalSettings.current
     val placementSetting by settings.state(Keys.terminalPlacement, TerminalPlacement.OVER.name)
@@ -389,6 +405,7 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, foc
                     onMode = { m -> run { store.setMode(m) } },
                     onChanges = { showDiff = true },
                     onTerminal = { showTerminal = !showTerminal },
+                    onFork = if (canFork) ({ showFork = true }) else null,
                     onCommand = ::send,
                     onCopyPath = { path -> Platform.copy(context, path, "Path") },
                     onForceStop = { run { store.interrupt(force = true) } },
@@ -506,6 +523,12 @@ private fun SessionScreen(connection: ServerConnection, store: SessionStore, foc
     if (showDiff && session != null) {
         DiffDialog(store, canRevert = session.workspace.kind == Workspace.Kind.WORKTREE, onDismiss = { showDiff = false })
     }
+    if (showFork && session != null) {
+        ForkSessionDialog(connection, store, onDismiss = { showFork = false }, onForked = { forked, empty ->
+            showFork = false
+            onForked(forked, empty)
+        })
+    }
 }
 
 /** What the agent left running after its turn: it reports back in a turn of its own. */
@@ -571,6 +594,8 @@ private fun SessionMenu(
     onMode: (String) -> Unit,
     onChanges: () -> Unit,
     onTerminal: () -> Unit,
+    // Null: the server or the session can't fork.
+    onFork: (() -> Unit)?,
     onCommand: (SlashCommand) -> Unit,
     onCopyPath: (String) -> Unit,
     onForceStop: () -> Unit,
@@ -586,6 +611,7 @@ private fun SessionMenu(
         }
         if (isGitRepo) MenuItem("Changes", Icons.changes) { onDismiss(); onChanges() }
         if (terminal) MenuItem(if (showTerminal) "Hide Terminal" else "Terminal", Icons.terminal) { onDismiss(); onTerminal() }
+        if (onFork != null) MenuItem("Fork…", Icons.fork) { onDismiss(); onFork() }
         val commands = harness?.commands
         if (!commands.isNullOrEmpty()) {
             HorizontalDivider(color = palette.surface0)

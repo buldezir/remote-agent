@@ -8,6 +8,7 @@ import dev.remoteagent.core.protocol.BackgroundTask
 import dev.remoteagent.core.protocol.Diff
 import dev.remoteagent.core.protocol.FSListing
 import dev.remoteagent.core.protocol.FileStat
+import dev.remoteagent.core.protocol.ForkedFrom
 import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.ItemKind
@@ -159,6 +160,7 @@ class FixtureTests {
         assertEquals(listOf("b1", "a1"), s.backgroundTasks.map { it.id })
         assertEquals(listOf(BackgroundTask.Kind.COMMAND, BackgroundTask.Kind.AGENT), s.backgroundTasks.map { it.kind })
         assertEquals(listOf("Watch the release run", "Explore the protocol"), s.backgroundTasks.map { it.description })
+        assertEquals(ForkedFrom("s0", 3), s.forkedFrom)
 
         val p = WireCoding.json.decodeFromString(PairResult.serializer(), fixture("http_pair_response.json"))
         assertEquals("0123abcd", p.token)
@@ -166,6 +168,7 @@ class FixtureTests {
         val info = result<ServerInfo>("response_server_info.json")
         assertEquals(true, info.terminal)
         assertEquals(true, info.drafts)
+        assertEquals(true, info.forks)
         assertEquals("dev1", info.deviceId)
     }
 

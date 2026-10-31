@@ -42,6 +42,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.remoteagent.app.platform.AppSettings.Keys
@@ -90,28 +92,16 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
 
     val project = projects[projectID]
     val harness = harnesses?.firstOrNull { it.id == harnessID }
-    // The model id to request; null for the harness default.
-    val chosenModel = (if (model == CUSTOM || harness?.models.isNullOrEmpty()) customModel else model).ifEmpty { null }
+    val chosenModel = chosenModel(harness, model, customModel)
 
     // Starts from the model, effort and permission mode last used with this
     // agent, if it still offers them.
-    suspend fun restoreChoices(h: HarnessInfo?) {
-        model = ""
-        customModel = ""
-        effort = ""
-        mode = h?.defaultMode ?: h?.modes?.firstOrNull()?.id ?: ""
-        h ?: return
-        val models = h.models ?: emptyList()
-        settings.get(Keys.lastModel(h.id))?.takeIf { it.isNotEmpty() }?.let { m ->
-            if (models.any { it.id == m }) model = m
-            else if (h.caps.freeModel) {
-                model = if (models.isEmpty()) "" else CUSTOM
-                customModel = m
-            }
-        }
-        val chosen = (if (model == CUSTOM || models.isEmpty()) customModel else model).ifEmpty { null }
-        settings.get(Keys.lastEffort(h.id))?.takeIf { e -> h.efforts(chosen).any { it.id == e } }?.let { effort = it }
-        settings.get(Keys.lastMode(h.id))?.takeIf { m -> h.modes?.any { it.id == m } == true }?.let { mode = it }
+    suspend fun restoreChoices(h: HarnessInfo) {
+        val c = AgentChoices.of(h, settings.get(Keys.lastModel(h.id)), settings.get(Keys.lastEffort(h.id)), settings.get(Keys.lastMode(h.id)))
+        model = c.model
+        customModel = c.customModel
+        effort = c.effort
+        mode = c.mode
     }
 
     LaunchedEffect(Unit) {
@@ -250,53 +240,13 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                     }
                 }
 
-                FormSection("Agent") {
-                    val list = harnesses
-                    when {
-                        list == null -> Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(Modifier.size(18.dp), color = palette.subtext, strokeWidth = 2.dp)
-                            Text("Checking installed agents…", color = palette.subtext, style = Type.body)
-                        }
-                        list.isEmpty() -> Text(
-                            "No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.",
-                            color = palette.subtext, style = Type.body, modifier = Modifier.padding(12.dp),
-                        )
-                        else -> list.forEachIndexed { i, h ->
-                            if (i > 0) FormDivider()
-                            HarnessChoiceRow(h, h.id == harnessID) { harnessID = h.id }
-                        }
-                    }
-                }
+                AgentSection(harnesses, harnessID) { harnessID = it }
 
                 if (harness != null) {
-                    FormSection("Options") {
-                        var first = true
-                        fun divider() = if (first) { first = false; false } else true
-                        val models = harness.models ?: emptyList()
-                        if (models.isNotEmpty()) {
-                            divider()
-                            val options = listOf("" to "Default") + models.map { it.id to it.name } + (if (harness.caps.freeModel) listOf(CUSTOM to "Custom…") else emptyList())
-                            PickerRow("Model", options.firstOrNull { it.first == model }?.second ?: "Default", options) { model = it }
-                        }
-                        if (model == CUSTOM || (harness.caps.freeModel && models.isEmpty())) {
-                            if (divider()) FormDivider()
-                            FormTextField(customModel, { customModel = it }, "Model id",
-                                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, capitalization = KeyboardCapitalization.None))
-                        }
-                        val efforts = harness.efforts(chosenModel)
-                        if (efforts.isNotEmpty()) {
-                            if (divider()) FormDivider()
-                            val options = listOf("" to "Default") + efforts.map { it.id to it.name }
-                            PickerRow("Effort", options.firstOrNull { it.first == effort }?.second ?: "Default", options) { effort = it }
-                            efforts.firstOrNull { it.id == effort }?.description?.takeIf { it.isNotEmpty() }?.let { FormNote(it) }
-                        }
-                        val modes = harness.modes ?: emptyList()
-                        if (modes.isNotEmpty()) {
-                            if (divider()) FormDivider()
-                            PickerRow("Permissions", modes.firstOrNull { it.id == mode }?.name ?: mode, modes.map { it.id to it.name }) { mode = it }
-                            modes.firstOrNull { it.id == mode }?.description?.takeIf { it.isNotEmpty() }?.let { FormNote(it) }
-                        }
-                    }
+                    OptionsSection(
+                        harness, model = model, customModel = customModel, effort = effort, mode = mode,
+                        onModel = { model = it }, onCustomModel = { customModel = it }, onEffort = { effort = it }, onMode = { mode = it },
+                    )
                 }
 
                 if (project?.isGitRepo == true) {
@@ -348,14 +298,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                     }
                 }
 
-                error?.let {
-                    FormSection {
-                        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(painterResource(Icons.warning), null, tint = palette.red, modifier = Modifier.size(18.dp))
-                            Text(it, color = palette.red, style = Type.subheadline)
-                        }
-                    }
-                }
+                error?.let { FormError(it) }
             }
         }
     }
@@ -376,7 +319,116 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     }
 }
 
-/** A row that opens a menu of choices, as a Picker in a Form. */
+/** The model id to request: the one picked, or the one typed for Custom…; null for the agent's default. */
+internal fun chosenModel(harness: HarnessInfo?, model: String, customModel: String): String? =
+    (if (model == CUSTOM || harness?.models.isNullOrEmpty()) customModel else model).ifEmpty { null }
+
+/**
+ * The model, effort and permission mode to start from with an agent, as the
+ * Options section holds them: the ones given where the agent still offers
+ * them, else its defaults. New Session gives the ones last used with the
+ * agent, Fork Session the source session's.
+ */
+internal data class AgentChoices(val model: String = "", val customModel: String = "", val effort: String = "", val mode: String = "") {
+    companion object {
+        fun of(h: HarnessInfo, model: String?, effort: String?, mode: String?): AgentChoices {
+            val models = h.models ?: emptyList()
+            var picked = ""
+            var custom = ""
+            model?.takeIf { it.isNotEmpty() }?.let { m ->
+                if (models.any { it.id == m }) picked = m
+                else if (h.caps.freeModel) {
+                    picked = if (models.isEmpty()) "" else CUSTOM
+                    custom = m
+                }
+            }
+            val chosen = chosenModel(h, picked, custom)
+            return AgentChoices(
+                model = picked,
+                customModel = custom,
+                effort = effort?.takeIf { e -> h.efforts(chosen).any { it.id == e } } ?: "",
+                mode = mode?.takeIf { m -> h.modes?.any { it.id == m } == true } ?: h.defaultMode ?: h.modes?.firstOrNull()?.id ?: "",
+            )
+        }
+    }
+}
+
+/** The agents on the server, to choose one; the ones not installed or signed in can't be. */
+@Composable
+internal fun AgentSection(harnesses: List<HarnessInfo>?, selected: String, onSelect: (String) -> Unit) {
+    FormSection("Agent") {
+        when {
+            harnesses == null -> Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(18.dp), color = palette.subtext, strokeWidth = 2.dp)
+                Text("Checking installed agents…", color = palette.subtext, style = Type.body)
+            }
+            harnesses.isEmpty() -> Text(
+                "No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.",
+                color = palette.subtext, style = Type.body, modifier = Modifier.padding(12.dp),
+            )
+            else -> harnesses.forEachIndexed { i, h ->
+                if (i > 0) FormDivider()
+                HarnessChoiceRow(h, h.id == selected) { onSelect(h.id) }
+            }
+        }
+    }
+}
+
+/** The agent's model, effort and permission mode, as far as it offers them. */
+@Composable
+internal fun OptionsSection(
+    harness: HarnessInfo,
+    model: String,
+    customModel: String,
+    effort: String,
+    mode: String,
+    onModel: (String) -> Unit,
+    onCustomModel: (String) -> Unit,
+    onEffort: (String) -> Unit,
+    onMode: (String) -> Unit,
+) {
+    FormSection("Options") {
+        var first = true
+        fun divider() = if (first) { first = false; false } else true
+        val models = harness.models ?: emptyList()
+        if (models.isNotEmpty()) {
+            divider()
+            val options = listOf("" to "Default") + models.map { it.id to it.name } + (if (harness.caps.freeModel) listOf(CUSTOM to "Custom…") else emptyList())
+            PickerRow("Model", options.firstOrNull { it.first == model }?.second ?: "Default", options, onSelect = onModel)
+        }
+        if (model == CUSTOM || (harness.caps.freeModel && models.isEmpty())) {
+            if (divider()) FormDivider()
+            FormTextField(customModel, onCustomModel, "Model id",
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, capitalization = KeyboardCapitalization.None))
+        }
+        val efforts = harness.efforts(chosenModel(harness, model, customModel))
+        if (efforts.isNotEmpty()) {
+            if (divider()) FormDivider()
+            val options = listOf("" to "Default") + efforts.map { it.id to it.name }
+            PickerRow("Effort", options.firstOrNull { it.first == effort }?.second ?: "Default", options, onSelect = onEffort)
+            efforts.firstOrNull { it.id == effort }?.description?.takeIf { it.isNotEmpty() }?.let { FormNote(it) }
+        }
+        val modes = harness.modes ?: emptyList()
+        if (modes.isNotEmpty()) {
+            if (divider()) FormDivider()
+            PickerRow("Permissions", modes.firstOrNull { it.id == mode }?.name ?: mode, modes.map { it.id to it.name }, onSelect = onMode)
+            modes.firstOrNull { it.id == mode }?.description?.takeIf { it.isNotEmpty() }?.let { FormNote(it) }
+        }
+    }
+}
+
+/** Why the form's request failed, at its foot. */
+@Composable
+internal fun FormError(message: String) {
+    FormSection {
+        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(Icons.warning), null, tint = palette.red, modifier = Modifier.size(18.dp))
+            Text(message, color = palette.red, style = Type.subheadline)
+        }
+    }
+}
+
+/** A row that opens a menu of choices, as a Picker in a Form. A long value is cut short. */
 @Composable
 fun PickerRow(title: String, value: String, options: List<Pair<String, String>>, tag: String? = null, onSelect: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
@@ -386,8 +438,11 @@ fun PickerRow(title: String, value: String, options: List<Pair<String, String>>,
                 .then(if (tag != null) Modifier.testTag(tag) else Modifier),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(title, style = Type.body, color = palette.text, modifier = Modifier.weight(1f))
-            Text(value, style = Type.body, color = palette.subtext, maxLines = 1)
+            Text(title, style = Type.body, color = palette.text)
+            Text(
+                value, style = Type.body, color = palette.subtext, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f).padding(start = 12.dp),
+            )
             Icon(painterResource(Icons.switcher), null, Modifier.size(18.dp).padding(start = 2.dp), tint = palette.subtext)
         }
         DropdownMenu(open, { open = false }, containerColor = palette.mantle, modifier = Modifier.align(Alignment.TopEnd)) {

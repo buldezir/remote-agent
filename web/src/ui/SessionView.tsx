@@ -9,6 +9,7 @@ import {
   FoldVertical,
   Folder,
   GitBranch,
+  GitFork,
   Mic,
   OctagonX,
   OctagonAlert,
@@ -41,17 +42,20 @@ const TerminalPanel = lazy(() => import("./TerminalPanel"));
 
 /** A session's messages and prompt. `onDeleted` is called once the session
  *  is deleted, here or on another device. With `focusPrompt`, a session just
- *  started empty, the prompt takes the keyboard. */
+ *  started empty, the prompt takes the keyboard. `onFork` asks for a fork of
+ *  the session. */
 export function SessionView({
   sessionID,
   focusPrompt = false,
   onBack,
   onDeleted,
+  onFork,
 }: {
   sessionID: string;
   focusPrompt?: boolean;
   onBack?: () => void;
   onDeleted?: () => void;
+  onFork?: (s: Session) => void;
 }) {
   const connection = useConnection();
   useObserved(connection);
@@ -149,6 +153,8 @@ export function SessionView({
   // in the terminal, Ctrl+J and Ctrl+` are the shell's. Hiding it gives
   // the keyboard back to the prompt.
   const canTerminal = !!connection.info?.terminal && !!session && !session.archived;
+  // A turn has to have ended for a fork to go on from it.
+  const canFork = !!connection.info?.forks && !!session && !!onFork && store.sortedTurns.some((t) => t.status !== "running");
   const composerField = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (!canTerminal) return;
@@ -187,6 +193,7 @@ export function SessionView({
       : null,
     project?.isGitRepo && { label: "Changes", icon: FileDiff, onSelect: () => setShowDiff(true) },
     canTerminal && { label: showTerminal ? "Hide Terminal" : "Terminal", icon: SquareTerminal, onSelect: () => setShowTerminal(!showTerminal) },
+    canFork && { label: "Fork…", icon: GitFork, onSelect: () => onFork(session) },
     harness?.commands?.length
       ? {
           section: "Commands",

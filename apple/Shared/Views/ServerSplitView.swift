@@ -213,8 +213,12 @@ struct ServerSplitView: View {
             if let route, let connection = connection(route), !openSessionGone {
                 // A new identity per session, so the attachments and the subscription don't carry over.
                 SessionView(connection: connection, store: connection.sessionStore(route.sessionID),
-                            focusesPrompt: route == startedEmpty)
-                    .id(route)
+                            focusesPrompt: route == startedEmpty) { fork, empty in
+                    let next = SessionRoute(serverID: route.serverID, sessionID: fork.id)
+                    startedEmpty = empty ? next : nil
+                    selection.wrappedValue = next
+                }
+                .id(route)
             } else {
                 placeholder
                     #if os(macOS)

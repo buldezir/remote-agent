@@ -12,6 +12,7 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac, an And
   - approve or deny tool calls
   - answer the agent's questions
   - review per-turn git diffs and revert them
+  - fork a session after any of its turns, with the same agent or another, in a worktree with the files as they were then
   - update rad and the agents, and sign an agent in again, without going to the computer
   - get a notification on the Mac when a session needs you or finishes
   - see which sessions finished while you were away, marked unread until you open them
@@ -286,6 +287,9 @@ ra
 - **Questions and plans:** Claude's `AskUserQuestion` and `ExitPlanMode` show up as choice and plan cards.
 - **Changes:** rad snapshots the workspace before and after every turn into hidden git refs (`refs/ra/cp/…`), without touching your index or HEAD. You can view each turn's diff or the whole session's.
 - **Revert:** in worktree sessions you can revert to before any turn. The agent is told about it on the next prompt.
+- **Fork:** a session's ⋯ menu has *Fork…*, which starts a new session that goes on after one of its turns, the last one unless you pick another. The fork starts with the transcript up to that turn; the original stays as it is.
+  - **Agent:** the same agent picks up its own conversation, cut after that turn: Claude Code and Codex copy it themselves. Pick another agent, or one that can't copy its conversation (Pi, ACP agents), and it gets the conversation as a transcript with the fork's first prompt.
+  - **Files:** in a git project, *Isolated git worktree* gives the fork its own branch with the files as they were after that turn, uncommitted changes included. Without it, the fork works in the project folder as it is now.
 - **Commands:** a session's ⋯ menu runs slash commands. For now there is `/compact`, which has the agent summarize the conversation so far to free up context, for Claude Code, Codex and Pi. The transcript marks it with *Context compacted*, and the context gauge drops.
   - Typing `/compact` as a prompt does the same, and `/compact <instructions>` tells Claude Code or Pi what the summary should keep; Codex takes no instructions for it.
   - Claude Code runs it itself. rad runs it with Codex's and Pi's own compaction, since they don't take `/compact` in a prompt.
@@ -437,7 +441,7 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 - `enter worktree [name]`: moves into a git worktree of its own, `.claude/worktrees/<name>` on the branch `worktree-<name>`, as Claude Code's EnterWorktree does, so the session's branch and changes follow it there; `exit worktree` moves back
 - `/compact`: marks the transcript with *Context compacted* and reports less context in use
 
-It also says how many images came with a prompt. `rad debug run --image shot.png "…"` attaches one from the command line.
+It also says how many images came with a prompt, and a fork's first reply says which conversation it was forked from. `rad debug run --image shot.png "…"` attaches one from the command line.
 
 In Server Settings, Fake's **Update** prints a progress line and finishes in a second, and its **Sign In** shows a link and asks for a code: any code signs it in. As the system agent, it names a session "Named: " and the prompt's first words.
 

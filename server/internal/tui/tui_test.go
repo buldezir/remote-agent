@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -34,6 +35,12 @@ type ui struct {
 }
 
 type probeMsg struct{ ch chan string }
+
+// inspectMsg runs f on the program's goroutine, where the model's state is.
+type inspectMsg struct {
+	f    func(*Model)
+	done chan struct{}
+}
 
 func startUI(t *testing.T, width, height int) *ui {
 	return startUIWith(t, width, height, nil)
@@ -68,6 +75,11 @@ func startUIWith(t *testing.T, width, height int, setup func(rpc *client.RPCClie
 		tea.WithFilter(func(model tea.Model, msg tea.Msg) tea.Msg {
 			if pr, ok := msg.(probeMsg); ok {
 				pr.ch <- ansi.Strip(model.(*Model).render())
+				return nil
+			}
+			if in, ok := msg.(inspectMsg); ok {
+				in.f(model.(*Model))
+				close(in.done)
 				return nil
 			}
 			if reflect.TypeOf(msg).String() == "tea.setClipboardMsg" {
@@ -121,6 +133,71 @@ func (u *ui) waitFor(text string) string {
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
+}
+
+func (u *ui) inspect(f func(*Model)) {
+	u.t.Helper()
+	done := make(chan struct{})
+	u.p.Send(inspectMsg{f, done})
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		u.t.Fatal("the interface didn't answer")
+	}
+}
+
+// menuTo moves the open menu's cursor down to the item labelled label.
+func (u *ui) menuTo(label string) {
+	u.t.Helper()
+	for range 40 {
+		on := ""
+		u.inspect(func(m *Model) {
+			if mn, ok := m.topOverlay().(*menu); ok && mn.selectable(mn.cursor) {
+				on = mn.items[mn.cursor].label
+			}
+		})
+		if on == label {
+			return
+		}
+		u.key("down")
+	}
+	u.t.Fatalf("no %q in the menu:\n%s", label, u.screen())
+}
+
+// turnsEnded waits until the session has n turns, and all of them ended.
+func (u *ui) turnsEnded(sessionID string, n int) {
+	u.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		turns, err := u.rad.Store.Turns(context.Background(), sessionID)
+		ended := err == nil && len(turns) == n
+		for _, t := range turns {
+			ended = ended && t.Status != model.TurnRunning
+		}
+		if ended {
+			return
+		}
+		if time.Now().After(deadline) {
+			u.t.Fatalf("turns %+v, %v", turns, err)
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+}
+
+// forkOf is the session rad forked from sessionID.
+func (u *ui) forkOf(sessionID string) *model.Session {
+	u.t.Helper()
+	ss, err := u.rad.Store.Sessions(context.Background())
+	if err != nil {
+		u.t.Fatal(err)
+	}
+	for _, s := range ss {
+		if s.ForkedFrom != nil && s.ForkedFrom.SessionID == sessionID {
+			return s
+		}
+	}
+	u.t.Fatalf("no fork of %s", sessionID)
+	return nil
 }
 
 var keyCodes = map[string]rune{
@@ -622,4 +699,155 @@ func TestSelectingCopiesTheMessagesAlone(t *testing.T) {
 		t.Fatal("nothing was copied")
 	}
 	u.waitFor("Copied.")
+}
+
+// A session forks from its actions menu, after the turn chosen in the
+// form, and the fork opens.
+func TestForksASessionAfterATurn(t *testing.T) {
+	var src string
+	u := startUIWith(t, 120, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		ctx := context.Background()
+		var p model.Project
+		if err := rpc.Call(ctx, "project.add", map[string]any{"path": r.Root}, &p); err != nil {
+			t.Fatal(err)
+		}
+		var s model.Session
+		if err := rpc.Call(ctx, "session.create", map[string]any{"commandId": "c1", "projectId": p.ID, "harness": "fake", "workspace": map[string]any{"kind": "root"}}, &s); err != nil {
+			t.Fatal(err)
+		}
+		src = s.ID
+		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: s.ID}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	u.waitFor("No prompts yet")
+	// Before a turn has ended there's nothing to fork from.
+	u.key("ctrl+p")
+	if s := u.waitFor("Delete…"); strings.Contains(s, "Fork…") {
+		t.Errorf("Fork offered before a turn:\n%s", s)
+	}
+	u.key("esc")
+	u.key("first thing")
+	u.key("enter")
+	u.waitFor("Echo: first thing")
+	u.key("second thing")
+	u.key("enter")
+	u.waitFor("Echo: second thing")
+	u.turnsEnded(src, 2)
+
+	u.key("ctrl+p")
+	u.menuTo("Fork…")
+	u.key("enter")
+	s := u.waitFor("Fork Session")
+	for _, want := range []string{"After turn", "Turn 2  second thing", "Fake (scripted)", "enter fork", "the fork opens with the conversation"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in\n%s", want, s)
+		}
+	}
+	// Up to the turn, at the top, and the one before.
+	for range 8 {
+		u.key("up")
+	}
+	u.key("enter")
+	u.waitFor("After Turn")
+	u.key("down")
+	u.key("enter")
+	u.waitFor("Turn 1  first thing")
+	// Another effort than the session's.
+	u.key("down")
+	u.key("down")
+	u.key("down")
+	u.key("right")
+	u.waitFor("Low")
+	for !strings.Contains(u.screen(), "enter fork") {
+		u.key("tab")
+	}
+	u.key("third thing")
+	u.key("enter")
+	// The fork opens, with the first turn and its own prompt.
+	if s = u.waitFor("Echo: third thing"); !strings.Contains(s, "after turn 1.") {
+		t.Errorf("not the fork after turn 1:\n%s", s)
+	}
+	f := u.forkOf(src)
+	if f.ForkedFrom.Turn != 1 || f.Harness != "fake" || f.Effort != "low" || f.Workspace.Kind != model.WorkspaceRoot {
+		t.Errorf("fork %+v", f)
+	}
+	u.inspect(func(m *Model) {
+		if m.sess == nil || m.sess.store.ID != f.ID || m.focus != focusComposer || len(m.overlays) > 0 {
+			t.Errorf("the fork isn't open with its prompt focused")
+		}
+	})
+	items, err := u.rad.Store.Items(context.Background(), f.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied := false
+	for _, it := range items {
+		if strings.Contains(it.Text, "second thing") {
+			t.Errorf("the fork has turn 2: %+v", it)
+		}
+		// The agent copied its conversation as it stood after turn 1.
+		copied = copied || strings.HasPrefix(it.Text, "Forked fake-"+src+" at fake-"+src+"#1.")
+	}
+	if !copied {
+		t.Errorf("the agent didn't fork its conversation: %+v", items)
+	}
+}
+
+// A worktree session's fork gets a worktree of its own, unless the switch
+// is turned off.
+func TestForksAWorktreeSession(t *testing.T) {
+	var src string
+	u := startUIWith(t, 120, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		for _, args := range [][]string{
+			{"init", "-q", "-b", "main"},
+			{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "init"},
+		} {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = r.Root
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Skipf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		ctx := context.Background()
+		var p model.Project
+		if err := rpc.Call(ctx, "project.add", map[string]any{"path": r.Root}, &p); err != nil {
+			t.Fatal(err)
+		}
+		var s model.Session
+		if err := rpc.Call(ctx, "session.create", map[string]any{"commandId": "c1", "projectId": p.ID, "harness": "fake",
+			"workspace": map[string]any{"kind": "worktree"}, "prompt": "hello"}, &s); err != nil {
+			t.Fatal(err)
+		}
+		src = s.ID
+		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: s.ID}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	u.waitFor("Echo: hello")
+	u.turnsEnded(src, 1)
+	u.key("ctrl+p")
+	u.menuTo("Fork…")
+	u.key("enter")
+	u.waitFor("Fork Session")
+	// Up from the prompt to the branch, under the switch, which is on.
+	u.key("up")
+	s := u.waitFor("own branch, with the files as they were")
+	if !strings.Contains(s, "◉ Isolated git worktree") {
+		t.Errorf("the worktree switch is off:\n%s", s)
+	}
+	u.key("up")
+	u.key("space")
+	u.waitFor("in the project folder, as it is now")
+	u.key("space")
+	u.key("down")
+	u.key("ra/forked")
+	u.key("enter")
+	u.waitFor("enter fork")
+	u.key("enter")
+	u.waitFor("after turn 1.")
+	f := u.forkOf(src)
+	if f.Workspace.Kind != model.WorkspaceWorktree || f.Workspace.Branch != "ra/forked" {
+		t.Errorf("fork %+v", f)
+	}
 }

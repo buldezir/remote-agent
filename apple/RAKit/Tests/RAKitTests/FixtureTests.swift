@@ -106,6 +106,8 @@ struct FixtureTests {
         #expect(s.result?.isUnread == true)
         #expect(s.result?.draft?.text == "Then update the changelog")
         #expect(s.result?.draft?.images?.map(\.mimeType) == ["image/jpeg"])
+        #expect(s.result?.forkedFrom?.sessionId == "s0")
+        #expect(s.result?.forkedFrom?.turn == 3)
 
         let p = try dec.decode(PairResult.self, from: load("http_pair_response.json"))
         #expect(p.token == "0123abcd")
@@ -113,6 +115,7 @@ struct FixtureTests {
         let info = try dec.decode(Response<ServerInfo>.self, from: load("response_server_info.json"))
         #expect(info.result?.terminal == true)
         #expect(info.result?.drafts == true)
+        #expect(info.result?.forks == true)
         #expect(info.result?.deviceId == "dev1")
     }
 

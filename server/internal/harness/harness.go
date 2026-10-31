@@ -25,9 +25,14 @@ type OpenOptions struct {
 	Effort    string // reasoning effort; empty for the harness default
 	Mode      string
 	ResumeID  string // native session/thread id to resume; empty for a fresh session
-	Log       *slog.Logger
-	DiagPath  string     // file to append raw protocol frames to (NDJSON); empty disables
-	Images    ImageStore // keeps images from agent output; nil drops them
+	// Fork opens a copy of ResumeID's conversation, up to and including the
+	// turn that ended at ForkAt (its TurnEnded.ForkPoint), as a conversation
+	// of its own with a new native id (Forker).
+	Fork     bool
+	ForkAt   string
+	Log      *slog.Logger
+	DiagPath string     // file to append raw protocol frames to (NDJSON); empty disables
+	Images   ImageStore // keeps images from agent output; nil drops them
 	// Instructions are added to the agent's system prompt, or put before the
 	// first prompt of a session where there is none to add to.
 	Instructions string
@@ -122,6 +127,9 @@ type TurnEnded struct {
 	Status model.TurnStatus
 	Usage  *model.Usage
 	Error  string
+	// ForkPoint is where the conversation stands after the turn, in the
+	// agent's own terms, for OpenOptions.ForkAt; empty where it can't fork.
+	ForkPoint string
 }
 
 // NativeID reports the harness's own session/thread id once known.
@@ -194,6 +202,13 @@ type Harness interface {
 	ID() string
 	Probe(ctx context.Context) model.HarnessInfo
 	Open(ctx context.Context, o OpenOptions) (Runtime, error)
+}
+
+// Forker is implemented by harnesses whose agent copies a conversation into
+// a new one, cut after a turn: OpenOptions.Fork. Agents of other harnesses
+// get a fork's conversation as text.
+type Forker interface {
+	SupportsFork() bool
 }
 
 // OneShotter is implemented by harnesses that can be the system agent,

@@ -434,6 +434,7 @@ func (r *runtime) endTurn(status string, turnErr *struct {
 }) {
 	r.mu.Lock()
 	interrupted := r.interrupting
+	turnID := r.turnID
 	r.inTurn, r.interrupting, r.turnID = false, false, ""
 	var cancelled []string
 	for id := range r.requests {
@@ -444,7 +445,7 @@ func (r *runtime) endTurn(status string, turnErr *struct {
 	for _, id := range cancelled {
 		r.emit(harness.ApprovalCancelled{ID: id})
 	}
-	ev := harness.TurnEnded{Status: model.TurnCompleted}
+	ev := harness.TurnEnded{Status: model.TurnCompleted, ForkPoint: turnID}
 	switch {
 	case status == "interrupted" || interrupted:
 		ev.Status = model.TurnInterrupted

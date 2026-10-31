@@ -43,6 +43,7 @@ type actor struct {
 	rtGen           int
 	runtimeNativeID string
 	runtimePrompted bool
+	rtHandoff       bool // the runtime is a fork's fresh conversation, which the first prompt brings the transcript to
 	archiving       bool
 
 	turn      *model.Turn
@@ -272,16 +273,26 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 		return err
 	}
 	in := q.input
-	// The note waits out a /compact for the next prompt: Codex compacts
+	// The notes wait out a /compact for the next prompt: Codex compacts
 	// without the prompt's text, and Claude and Pi take it as instructions
 	// for the summary.
-	if _, compact := in.Command(harness.Compact.Name); a.note != "" && !compact {
-		if strings.HasPrefix(strings.TrimSpace(in.Text), "/") || strings.HasPrefix(strings.TrimSpace(in.Text), "$") {
-			in.Text = strings.TrimSpace(in.Text) + "\n\n" + a.note
-		} else {
-			in.Text = strings.TrimSuffix(a.note+"\n\n"+in.Text, "\n\n")
+	if _, compact := in.Command(harness.Compact.Name); !compact {
+		var notes []string
+		if a.rtHandoff {
+			notes = append(notes, a.handoff(ctx, q.item.ID))
+			a.rtHandoff = false
 		}
-		a.note = ""
+		if a.note != "" {
+			notes = append(notes, a.note)
+			a.note = ""
+		}
+		if note := strings.Join(notes, "\n\n"); note != "" {
+			if strings.HasPrefix(strings.TrimSpace(in.Text), "/") || strings.HasPrefix(strings.TrimSpace(in.Text), "$") {
+				in.Text = strings.TrimSpace(in.Text) + "\n\n" + note
+			} else {
+				in.Text = strings.TrimSuffix(note+"\n\n"+in.Text, "\n\n")
+			}
+		}
 	}
 	if err := a.rt.Prompt(ctx, in); err != nil {
 		a.endTurn(ctx, harness.TurnEnded{Status: model.TurnFailed, Error: err.Error()})
@@ -340,19 +351,27 @@ func (a *actor) open(ctx context.Context) error {
 	opts := a.openOptions()
 	rt, err := h.Open(ctx, opts)
 	if err != nil && opts.ResumeID != "" && ctx.Err() == nil {
-		a.o.log.Warn("resume failed; starting a fresh conversation", "session", a.sess.ID, "err", err)
-		opts.ResumeID = ""
+		fork := opts.Fork
+		if fork {
+			a.o.log.Warn("fork failed; the conversation goes to the agent as text", "session", a.sess.ID, "err", err)
+		} else {
+			a.o.log.Warn("resume failed; starting a fresh conversation", "session", a.sess.ID, "err", err)
+		}
+		opts.ResumeID, opts.Fork, opts.ForkAt = "", false, ""
 		rt, err = h.Open(ctx, opts)
 		if err == nil {
 			n := a.newItem(model.ItemNotice, model.ItemCompleted)
 			n.Text = "Could not resume the previous conversation; started a new one."
+			if fork {
+				n.Text = "Could not copy the conversation into the fork; the agent gets it as text with the next prompt."
+			}
 			a.write(ctx, func(w *store.W) error { return a.putItem(w, n) })
 		}
 	}
 	if err != nil {
 		return err
 	}
-	a.attachRuntime(rt)
+	a.attachRuntime(rt, opts)
 	return nil
 }
 
@@ -368,14 +387,19 @@ func (a *actor) openOptions() harness.OpenOptions {
 	if a.o.opt.LogsDir != "" {
 		opts.DiagPath = filepath.Join(a.o.opt.LogsDir, a.sess.ID+".ndjson")
 	}
+	if a.pendingFork() {
+		a.forkOptions(&opts)
+	}
 	return opts
 }
 
-func (a *actor) attachRuntime(rt harness.Runtime) {
+// attachRuntime makes rt, opened with opts, the session's runtime.
+func (a *actor) attachRuntime(rt harness.Runtime, opts harness.OpenOptions) {
 	a.rtGen++
 	a.rt = rt
 	a.runtimeNativeID = rt.NativeID()
 	a.runtimePrompted = false
+	a.rtHandoff = a.pendingFork() && !opts.Fork
 	a.keyToID = map[string]string{}
 	go a.loop(a.rtGen, rt)
 }
@@ -674,7 +698,7 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 		ev.Status = model.TurnCompleted
 	}
 	now := time.Now().UTC()
-	turn.Status, turn.Usage, turn.Error, turn.EndedAt = ev.Status, ev.Usage, ev.Error, &now
+	turn.Status, turn.Usage, turn.Error, turn.EndedAt, turn.ForkPoint = ev.Status, ev.Usage, ev.Error, &now, ev.ForkPoint
 	turn.CheckpointAfter = a.checkpoint(ctx, turn.N, "after")
 	a.refreshBranch(ctx)
 	if ev.Error != "" {

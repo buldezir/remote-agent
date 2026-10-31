@@ -82,6 +82,8 @@ data class Session(
     val context: ContextUsage? = null,
     val modelInfo: ModelInfo? = null,
     val backgroundTasks: List<BackgroundTask> = emptyList(),
+    /** The session this one is a fork of (`ServerConnection.fork`); null: none. */
+    val forkedFrom: ForkedFrom? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
 ) {
@@ -95,6 +97,10 @@ data class Session(
         return harness?.models?.firstOrNull { it.id == id }?.name ?: id
     }
 }
+
+/** The session a fork continues, and the turn it continues after. */
+@Serializable
+data class ForkedFrom(val sessionId: String, val turn: Int)
 
 /**
  * A prompt kept in a session, unsent, to send later from any device with
@@ -476,6 +482,8 @@ data class ServerInfo(
      * `NewSession.draft` and start the session with the prompt.
      */
     val drafts: Boolean? = null,
+    /** The server forks sessions (`session.fork`); an older one answers `method_not_found`. */
+    val forks: Boolean? = null,
 )
 
 /**

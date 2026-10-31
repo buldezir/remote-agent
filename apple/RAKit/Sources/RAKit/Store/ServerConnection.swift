@@ -435,6 +435,51 @@ public final class ServerConnection {
         return s
     }
 
+    /// A session that continues another after one of its turns. What is left
+    /// nil is the source's: its last turn that ended, its agent, model,
+    /// effort, mode and kind of workspace. Only for a server whose
+    /// `info.forks` is true.
+    public struct ForkSession: Encodable, Sendable {
+        public var commandId = UUID().uuidString
+        public var sessionId: String
+        public var turn: Int?
+        public var harness: String?
+        public var model: String?
+        public var effort: String?
+        public var mode: String?
+        /// A worktree starts with the files as they were after the turn, the
+        /// project folder as it is. `baseRef` isn't taken.
+        public var workspace: NewSession.WorkspaceParams?
+        public var prompt: String?
+        /// Ids of uploaded images (`uploadImage`) that go with the prompt.
+        public var images: [String]?
+        public var title: String?
+        public var draft: Bool?
+
+        public init(sessionId: String, turn: Int? = nil, harness: String? = nil, model: String? = nil,
+                    effort: String? = nil, mode: String? = nil, workspace: NewSession.WorkspaceParams? = nil,
+                    prompt: String = "", images: [ImageRef] = [], title: String? = nil, draft: Bool = false) {
+            self.sessionId = sessionId
+            self.turn = turn
+            self.harness = harness
+            self.model = model
+            self.effort = effort
+            self.mode = mode
+            self.workspace = workspace
+            self.prompt = prompt.isEmpty ? nil : prompt
+            self.images = images.isEmpty ? nil : images.map(\.id)
+            self.title = title
+            self.draft = draft ? true : nil
+        }
+    }
+
+    /// Forks a session (`session.fork`), as `createSession` creates one.
+    public func fork(_ p: ForkSession) async throws -> Session {
+        let s: Session = try await deliver("session.fork", p, timeout: 90)
+        sessions[s.id] = s
+        return s
+    }
+
     /// Keeps a prompt in the session to send later, from any device, in place
     /// of the draft it had; no text and no images remove it. The session the
     /// server returns goes into the index at once, so the views change before

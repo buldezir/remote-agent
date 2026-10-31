@@ -158,6 +158,46 @@ func TestRadPairsConnectsAndRunsAPrompt(t *testing.T) {
 	eventually(t, q, "the index's session", func() bool { return c.Sessions[s.ID] != nil && c.Sessions[s.ID].Status == model.SessionIdle })
 }
 
+func TestRadForksASession(t *testing.T) {
+	r := startRad(t)
+	c, q, _ := r.connect(t)
+	if !c.Info.Forks {
+		t.Fatalf("info %+v", c.Info)
+	}
+	p := r.project(t, c, q)
+	var src model.Session
+	if err := run(t, q, func() (err error) {
+		src, err = c.CreateSession(context.Background(), NewSession{ProjectID: p.ID, Harness: "fake", Workspace: NewWorkspace{Kind: model.WorkspaceRoot}, Prompt: "hello there"})
+		return
+	}); err != nil {
+		t.Fatal(err)
+	}
+	srcStore := c.SessionStore(src.ID)
+	srcStore.Activate()
+	eventually(t, q, "the turn's end", func() bool {
+		turns := srcStore.SortedTurns()
+		return len(turns) == 1 && turns[0].Status == model.TurnCompleted
+	})
+	var s model.Session
+	if err := run(t, q, func() (err error) {
+		s, err = c.Fork(context.Background(), ForkSession{SessionID: src.ID, Turn: 1, Prompt: "and then"})
+		return
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if s.ForkedFrom == nil || s.ForkedFrom.SessionID != src.ID || s.ForkedFrom.Turn != 1 || s.Harness != "fake" || c.Sessions[s.ID] == nil {
+		t.Fatalf("fork %+v", s)
+	}
+	store := c.SessionStore(s.ID)
+	store.Activate()
+	eventually(t, q, "the fork's reply", func() bool {
+		return store.Session != nil && store.Session.Status == model.SessionIdle && strings.Contains(lastText(store, model.ItemAssistantMessage), "Echo: and then")
+	})
+	if turns := store.SortedTurns(); len(turns) != 2 || turns[1].N != 2 {
+		t.Fatalf("turns %+v", turns)
+	}
+}
+
 func TestRadApprovalsAndQuestions(t *testing.T) {
 	r := startRad(t)
 	c, q, _ := r.connect(t)

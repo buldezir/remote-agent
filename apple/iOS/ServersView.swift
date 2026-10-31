@@ -49,8 +49,18 @@ struct ServersView: View {
             .navigationDestination(for: SessionRoute.self) { route in
                 if let server = store.servers.first(where: { $0.id == route.serverID }) {
                     let connection = store.connection(for: server)
-                    SessionView(connection: connection, store: connection.sessionStore(route.sessionID), focusesPrompt: route == startedEmpty)
-                        .toolbar(.hidden, for: .tabBar)
+                    SessionView(connection: connection, store: connection.sessionStore(route.sessionID),
+                                focusesPrompt: route == startedEmpty) { fork, empty in
+                        // In the source's place, so that Back goes to the list.
+                        let next = SessionRoute(serverID: route.serverID, sessionID: fork.id)
+                        startedEmpty = empty ? next : nil
+                        if !path.isEmpty { path.removeLast() }
+                        path.append(next)
+                    }
+                    // A view of its own for a session in another's place,
+                    // which subscribes to it.
+                    .id(route)
+                    .toolbar(.hidden, for: .tabBar)
                 }
             }
             .toolbar {

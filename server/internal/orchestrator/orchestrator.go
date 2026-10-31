@@ -371,7 +371,7 @@ func (o *Orchestrator) Commands(ctx context.Context, sessionID string) ([]model.
 			}
 			return nil, errorf(CodeConflict, "session changed while discovering skills; try again")
 		}
-		a.attachRuntime(candidate)
+		a.attachRuntime(candidate, opts)
 		rt, gen = a.rt, a.rtGen
 		a.mu.Unlock()
 	}

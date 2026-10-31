@@ -46,8 +46,17 @@ export interface Session {
   context?: ContextUsage;
   modelInfo?: ModelInfo;
   backgroundTasks?: BackgroundTask[];
+  /** The session this one is a fork of (`session.fork`). */
+  forkedFrom?: ForkedFrom;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The session and turn a fork continues from: it has that session's
+ *  transcript up to and including the turn. */
+export interface ForkedFrom {
+  sessionId: string;
+  turn: number;
 }
 
 /** A prompt kept in a session, unsent: the transcript shows it at its foot,
@@ -403,6 +412,8 @@ export interface ServerInfo {
    *  `session.create`'s `draft`). An older one would start a session
    *  created as a draft with its prompt, so clients offer drafts only then. */
   drafts?: boolean;
+  /** The server forks sessions (`session.fork`). */
+  forks?: boolean;
 }
 
 /** A text frame on a terminal socket. The shell's output and the user's

@@ -99,9 +99,18 @@ type Session struct {
 	ModelInfo *ModelInfo    `json:"modelInfo,omitempty"`
 	// BackgroundTasks lists what the agent left running, while its process runs.
 	BackgroundTasks []BackgroundTask `json:"backgroundTasks,omitempty"`
-	ItemCount       int64            `json:"-"`
-	CreatedAt       time.Time        `json:"createdAt"`
-	UpdatedAt       time.Time        `json:"updatedAt"`
+	// ForkedFrom: the session this one is a fork of (session.fork).
+	ForkedFrom *ForkedFrom `json:"forkedFrom,omitempty"`
+	ItemCount  int64       `json:"-"`
+	CreatedAt  time.Time   `json:"createdAt"`
+	UpdatedAt  time.Time   `json:"updatedAt"`
+}
+
+// ForkedFrom names the session and turn a fork continues from: it has that
+// session's transcript up to and including the turn.
+type ForkedFrom struct {
+	SessionID string `json:"sessionId"`
+	Turn      int    `json:"turn"`
 }
 
 // Draft is a prompt the user saved in a session to send later: from any
@@ -137,8 +146,11 @@ type Turn struct {
 	CheckpointAfter  string     `json:"checkpointAfter,omitempty"`
 	Usage            *Usage     `json:"usage,omitempty"`
 	Error            string     `json:"error,omitempty"`
-	StartedAt        time.Time  `json:"startedAt"`
-	EndedAt          *time.Time `json:"endedAt,omitempty"`
+	// ForkPoint is where the agent's own conversation stood when the turn
+	// ended, for a fork made after it (rad's; clients needn't read it).
+	ForkPoint string     `json:"forkPoint,omitempty"`
+	StartedAt time.Time  `json:"startedAt"`
+	EndedAt   *time.Time `json:"endedAt,omitempty"`
 }
 
 type ItemKind string

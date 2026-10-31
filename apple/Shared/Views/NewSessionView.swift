@@ -79,60 +79,15 @@ struct NewSessionView: View {
                     }
 
                     Section {
-                        if let harnesses = connection.harnesses {
-                            ForEach(harnesses) { h in
-                                Button {
-                                    harnessID = h.id
-                                } label: {
-                                    HarnessChoiceRow(harness: h, selected: h.id == harnessID)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(!h.usable)
-                                .accessibilityAddTraits(h.id == harnessID ? .isSelected : [])
-                            }
-                            if harnesses.isEmpty {
-                                Text("No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.")
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else {
-                            HStack { ProgressView(); Text("Checking installed agents…").foregroundStyle(.secondary) }
-                        }
+                        HarnessChoiceRows(connection: connection, harnessID: $harnessID)
                     } header: {
                         Text("Agent").formHeaderFont()
                     }
 
                     if let harness {
                         Section {
-                            if let models = harness.models, !models.isEmpty {
-                                Picker("Model", selection: $model) {
-                                    Text("Default").tag("")
-                                    ForEach(models) { m in Text(m.name).tag(m.id) }
-                                    if harness.caps.freeModel { Text("Custom…").tag("__custom") }
-                                }
-                            }
-                            if model == "__custom" || (harness.caps.freeModel && (harness.models ?? []).isEmpty) {
-                                TextField("Model id", text: $customModel)
-                                    .plainTextInput()
-                            }
-                            let efforts = harness.efforts(forModel: chosenModel)
-                            if !efforts.isEmpty {
-                                Picker("Effort", selection: $effort) {
-                                    Text("Default").tag("")
-                                    ForEach(efforts) { e in Text(e.name).tag(e.id) }
-                                }
-                                if let d = efforts.first(where: { $0.id == effort })?.description, !d.isEmpty {
-                                    Text(d).scaledFont(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            if let modes = harness.modes, !modes.isEmpty {
-                                Picker("Permissions", selection: $mode) {
-                                    ForEach(modes) { m in Text(m.name).tag(m.id) }
-                                }
-                                if let d = modes.first(where: { $0.id == mode })?.description {
-                                    Text(d).scaledFont(.caption).foregroundStyle(.secondary)
-                                }
-                            }
+                            HarnessOptionRows(harness: harness, model: $model, customModel: $customModel,
+                                              effort: $effort, mode: $mode)
                         } header: {
                             Text("Options").formHeaderFont()
                         }
@@ -279,10 +234,7 @@ struct NewSessionView: View {
     }
 
     /// The model id to request; nil for the harness default.
-    private var chosenModel: String? {
-        let m = model == "__custom" || (harness?.models ?? []).isEmpty ? customModel : model
-        return m.isEmpty ? nil : m
-    }
+    private var chosenModel: String? { harness?.modelID(model, custom: customModel) }
 
     /// Starts from the model, effort and permission mode last used with this
     /// agent, if it still offers them.
@@ -293,14 +245,8 @@ struct NewSessionView: View {
         mode = harness?.defaultMode ?? harness?.modes?.first?.id ?? ""
         guard let harness else { return }
         let defaults = UserDefaults.standard
-        let models = harness.models ?? []
-        if let m = defaults.string(forKey: "lastModel." + harness.id), !m.isEmpty {
-            if models.contains(where: { $0.id == m }) {
-                model = m
-            } else if harness.caps.freeModel {
-                model = models.isEmpty ? "" : "__custom"
-                customModel = m
-            }
+        if let m = defaults.string(forKey: "lastModel." + harness.id), let choice = harness.modelChoice(m) {
+            (model, customModel) = choice
         }
         if let e = defaults.string(forKey: "lastEffort." + harness.id),
            harness.efforts(forModel: chosenModel).contains(where: { $0.id == e }) {
@@ -339,6 +285,96 @@ struct NewSessionView: View {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+}
+
+/// The agents on the server, as a form's rows, the chosen one ticked. The
+/// ones that aren't installed or signed in can't be chosen.
+struct HarnessChoiceRows: View {
+    let connection: ServerConnection
+    @Binding var harnessID: String
+
+    var body: some View {
+        if let harnesses = connection.harnesses {
+            ForEach(harnesses) { h in
+                Button {
+                    harnessID = h.id
+                } label: {
+                    HarnessChoiceRow(harness: h, selected: h.id == harnessID)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!h.usable)
+                .accessibilityAddTraits(h.id == harnessID ? .isSelected : [])
+            }
+            if harnesses.isEmpty {
+                Text("No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.")
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            HStack { ProgressView(); Text("Checking installed agents…").foregroundStyle(.secondary) }
+        }
+    }
+}
+
+/// An agent's model, effort and permissions pickers, as a form's rows. The
+/// model is `model`, a model's id, "" for the agent's default or "__custom"
+/// for `customModel`, an id of the user's own (`HarnessInfo.modelID`).
+struct HarnessOptionRows: View {
+    let harness: HarnessInfo
+    @Binding var model: String
+    @Binding var customModel: String
+    @Binding var effort: String
+    @Binding var mode: String
+
+    var body: some View {
+        if let models = harness.models, !models.isEmpty {
+            Picker("Model", selection: $model) {
+                Text("Default").tag("")
+                ForEach(models) { m in Text(m.name).tag(m.id) }
+                if harness.caps.freeModel { Text("Custom…").tag("__custom") }
+            }
+        }
+        if model == "__custom" || (harness.caps.freeModel && (harness.models ?? []).isEmpty) {
+            TextField("Model id", text: $customModel)
+                .plainTextInput()
+        }
+        let efforts = harness.efforts(forModel: harness.modelID(model, custom: customModel))
+        if !efforts.isEmpty {
+            Picker("Effort", selection: $effort) {
+                Text("Default").tag("")
+                ForEach(efforts) { e in Text(e.name).tag(e.id) }
+            }
+            if let d = efforts.first(where: { $0.id == effort })?.description, !d.isEmpty {
+                Text(d).scaledFont(.caption).foregroundStyle(.secondary)
+            }
+        }
+        if let modes = harness.modes, !modes.isEmpty {
+            Picker("Permissions", selection: $mode) {
+                ForEach(modes) { m in Text(m.name).tag(m.id) }
+            }
+            if let d = modes.first(where: { $0.id == mode })?.description {
+                Text(d).scaledFont(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+extension HarnessInfo {
+    /// The model id that `HarnessOptionRows` shows chosen; nil for the agent's default.
+    func modelID(_ model: String, custom: String) -> String? {
+        let m = model == "__custom" || (models ?? []).isEmpty ? custom : model
+        return m.isEmpty ? nil : m
+    }
+
+    /// What `HarnessOptionRows` shows for a model id, if the agent still
+    /// offers it: one of its models, or one of the user's own.
+    func modelChoice(_ id: String) -> (model: String, custom: String)? {
+        guard !id.isEmpty else { return nil }
+        let models = models ?? []
+        if models.contains(where: { $0.id == id }) { return (id, "") }
+        guard caps.freeModel else { return nil }
+        return (models.isEmpty ? "" : "__custom", id)
     }
 }
 

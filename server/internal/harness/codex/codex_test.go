@@ -106,6 +106,10 @@ func TestReplayShellCommandWithApproval(t *testing.T) {
 	if end.Status != model.TurnCompleted || end.Error != "" {
 		t.Errorf("turn end = %+v", end)
 	}
+	// A fork after the turn goes through it.
+	if end.ForkPoint != "01a11df1-ff10-75d3-baed-536d1128d96b" {
+		t.Errorf("fork point = %q", end.ForkPoint)
+	}
 	if u := end.Usage; u == nil || u.InputTokens != 29281 || u.OutputTokens != 129 || u.CacheReadTokens != 25600 {
 		t.Errorf("usage = %+v", end.Usage)
 	}
@@ -150,6 +154,47 @@ func TestReplayCompact(t *testing.T) {
 	if turn.End.Status != model.TurnCompleted {
 		t.Errorf("end = %+v", turn.End)
 	}
+}
+
+// TestReplayFork replays a fork's first turn: Codex copied the thread it
+// was given into a new one, through the given turn, and goes on from there.
+func TestReplayFork(t *testing.T) {
+	root := t.TempDir()
+	cwd := filepath.Join(root, "codex-fork/ws")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe, env := replaytest.Command(t, "testdata/fork.ndjson", root)
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, err := New(config.Command{Command: exe, Env: env}).Open(context.Background(), harness.OpenOptions{SessionID: "local", Cwd: cwd,
+		Mode: "auto", Model: "gpt-6-luna", Effort: "low", ResumeID: "01a18f38-e752-7043-a080-f16a53d65767", Fork: true,
+		ForkAt: "01a18f38-e784-7600-93cd-5055c9f7b559", DiagPath: diag})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	_, sent := replaytest.Diag(t, diag)
+	i := slices.IndexFunc(sent, func(f map[string]any) bool { return f["method"] == "thread/fork" })
+	if i < 0 {
+		t.Fatalf("sent %v, want thread/fork", sent)
+	}
+	params := sent[i]["params"].(map[string]any)
+	if params["threadId"] != "01a18f38-e752-7043-a080-f16a53d65767" || params["lastTurnId"] != "01a18f38-e784-7600-93cd-5055c9f7b559" ||
+		params["cwd"] != cwd || params["model"] != "gpt-6-luna" {
+		t.Errorf("thread/fork params = %v", params)
+	}
+	if rt.NativeID() != "01a18f39-1b91-74d1-9c80-56fe029f7d2a" {
+		t.Errorf("NativeID() = %q, want the new thread's", rt.NativeID())
+	}
+
+	turn := replaytest.RunTurn(t, rt, "Without using any tools: list every request I have made to you in this conversation, in one short sentence.", nil)
+	msgs := turn.ItemsOf(model.ItemAssistantMessage)
+	if len(msgs) != 1 || msgs[0].Text != "You asked me to create `note.txt` containing `alpha`, then to list every request in this conversation without using tools." {
+		t.Errorf("reply = %+v", msgs)
+	}
+	if turn.End.Status != model.TurnCompleted || turn.End.ForkPoint != "01a18f39-1bc6-7383-827b-2e95baa725d9" {
+		t.Errorf("end = %+v", turn.End)
+	}
+	replaytest.CloseClean(t, rt)
 }
 
 func TestSplitAnswer(t *testing.T) {

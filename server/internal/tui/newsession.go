@@ -18,11 +18,8 @@ import (
 // prompt, or none, or a draft. It remembers what each agent was last
 // started with.
 type newSession struct {
+	agentChoice
 	projectID string
-	harness   string
-	model     string // "": the agent's default
-	effort    string
-	mode      string
 	worktree  bool
 	branch    textinput.Model
 	base      string
@@ -30,12 +27,13 @@ type newSession struct {
 	prompt    composer
 	field     int
 	busy      bool
-	chose     bool // an agent was chosen here
 	leaving   bool // closing, once its prompt is kept as a draft
 }
 
+// The rows of the new session and fork forms.
 const (
-	fieldProject = iota
+	fieldTurn = iota // the fork's
+	fieldProject
 	fieldAgent
 	fieldModel
 	fieldEffort
@@ -46,6 +44,11 @@ const (
 	fieldPrompt
 	fieldStart
 )
+
+var fieldLabels = map[int]string{
+	fieldTurn: "After turn", fieldProject: "Project", fieldAgent: "Agent", fieldModel: "Model", fieldEffort: "Effort",
+	fieldMode: "Permissions", fieldWorktree: "Workspace", fieldBranch: "Branch", fieldBase: "Based on",
+}
 
 type branchesMsg struct {
 	ns      *newSession
@@ -58,10 +61,7 @@ func newNewSession(m *Model, projectID string) *newSession {
 	ns := &newSession{prompt: newComposer(m)}
 	ns.prompt.ta.Placeholder = "First prompt (optional)"
 	ns.prompt.ta.MaxHeight = 8
-	ns.branch = textinput.New()
-	ns.branch.Placeholder = "auto"
-	ns.branch.Prompt = ""
-	styleInput(&ns.branch, m)
+	ns.branch = newBranchInput(m)
 	if projectID == "" {
 		projectID = projectAt(m.conn.Projects, m.cwd)
 	}
@@ -151,8 +151,6 @@ func choiceIndex(cs []model.Choice, id string) int {
 	return -1
 }
 
-func (ns *newSession) h(m *Model) *model.HarnessInfo { return m.conn.Harness(ns.harness) }
-
 // ensureHarness chooses the agent once rad has listed them, which it may
 // not have when the form opens.
 func (ns *newSession) ensureHarness(m *Model) {
@@ -161,34 +159,14 @@ func (ns *newSession) ensureHarness(m *Model) {
 	}
 }
 
-// efforts are the chosen model's, if it lists them, else the agent's.
-func (ns *newSession) efforts(m *Model) []model.Choice {
-	h := ns.h(m)
-	if h == nil {
-		return nil
-	}
-	if i := choiceIndex(h.Models, ns.model); i >= 0 && len(h.Models[i].Efforts) > 0 {
-		return h.Models[i].Efforts
-	}
-	return h.Efforts
-}
-
 func (ns *newSession) project(m *Model) *model.Project { return m.conn.Projects[ns.projectID] }
+
+// pick chooses the agent the form's menu or arrows went to.
+func (ns *newSession) pick(m *Model, id string) { ns.setHarness(m, id, false) }
 
 // fields are the rows shown, by what the agent and the project offer.
 func (ns *newSession) fields(m *Model) []int {
-	f := []int{fieldProject, fieldAgent}
-	if h := ns.h(m); h != nil {
-		if len(h.Models) > 0 || h.Caps.FreeModel {
-			f = append(f, fieldModel)
-		}
-		if len(ns.efforts(m)) > 0 {
-			f = append(f, fieldEffort)
-		}
-		if len(h.Modes) > 0 {
-			f = append(f, fieldMode)
-		}
-	}
+	f := append([]int{fieldProject, fieldAgent}, ns.optionFields(m)...)
 	if p := ns.project(m); p != nil && p.IsGitRepo {
 		f = append(f, fieldWorktree)
 		if ns.worktree {
@@ -210,16 +188,19 @@ func (ns *newSession) focusField() {
 }
 
 func (ns *newSession) move(m *Model, d int) {
-	fields := ns.fields(m)
+	ns.field = stepField(ns.fields(m), ns.field, d)
+	ns.focusField()
+}
+
+// stepField is the row d rows from cur, among fields.
+func stepField(fields []int, cur, d int) int {
 	i := 0
 	for j, f := range fields {
-		if f == ns.field {
+		if f == cur {
 			i = j
 		}
 	}
-	i = max(0, min(len(fields)-1, i+d))
-	ns.field = fields[i]
-	ns.focusField()
+	return fields[max(0, min(len(fields)-1, i+d))]
 }
 
 func (ns *newSession) hints() [][2]string {
@@ -334,7 +315,7 @@ func (ns *newSession) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 	case "down":
 		ns.move(m, 1)
 	case "left", "right":
-		ns.cycle(m, map[bool]int{true: -1, false: 1}[key == "left"])
+		return ns.cycle(m, map[bool]int{true: -1, false: 1}[key == "left"])
 	case "enter", "space":
 		return ns.choose(m)
 	}
@@ -342,29 +323,12 @@ func (ns *newSession) update(m *Model, k tea.KeyPressMsg) tea.Cmd {
 }
 
 // cycle steps a field's value without opening its menu.
-func (ns *newSession) cycle(m *Model, d int) {
-	h := ns.h(m)
-	step := func(cs []model.Choice, cur string, withDefault bool) string {
-		ids := []string{}
-		if withDefault {
-			ids = append(ids, "")
-		}
-		for _, c := range cs {
-			ids = append(ids, c.ID)
-		}
-		i := 0
-		for j, id := range ids {
-			if id == cur {
-				i = j
-			}
-		}
-		return ids[(i+d+len(ids))%len(ids)]
-	}
+func (ns *newSession) cycle(m *Model, d int) tea.Cmd {
 	switch ns.field {
 	case fieldProject:
 		ps := m.conn.SortedProjects()
 		if len(ps) == 0 {
-			return
+			return nil
 		}
 		i := 0
 		for j, p := range ps {
@@ -373,37 +337,12 @@ func (ns *newSession) cycle(m *Model, d int) {
 			}
 		}
 		ns.setProject(m, ps[(i+d+len(ps))%len(ps)].ID)
-	case fieldAgent:
-		var cs []model.Choice
-		for _, hi := range m.conn.Harnesses {
-			if usable(&hi) {
-				cs = append(cs, model.Choice{ID: hi.ID})
-			}
-		}
-		if len(cs) > 0 {
-			ns.chose = true
-			ns.setHarness(m, step(cs, ns.harness, false), false)
-		}
-	case fieldModel:
-		if h != nil {
-			ns.model = step(h.Models, ns.model, true)
-			ns.fixEffort(m)
-		}
-	case fieldEffort:
-		ns.effort = step(ns.efforts(m), ns.effort, true)
-	case fieldMode:
-		if h != nil {
-			ns.mode = step(h.Modes, ns.mode, true)
-		}
 	case fieldWorktree:
-		ns.toggleWorktree(m)
+		return ns.toggleWorktree(m)
+	default:
+		ns.cycleOption(m, ns.field, d, ns.pick)
 	}
-}
-
-func (ns *newSession) fixEffort(m *Model) {
-	if ns.effort != "" && choiceIndex(ns.efforts(m), ns.effort) < 0 {
-		ns.effort = ""
-	}
+	return nil
 }
 
 func (ns *newSession) setProject(m *Model, id string) {
@@ -429,7 +368,6 @@ func (ns *newSession) toggleWorktree(m *Model) tea.Cmd {
 }
 
 func (ns *newSession) choose(m *Model) tea.Cmd {
-	h := ns.h(m)
 	switch ns.field {
 	case fieldProject:
 		var items []menuItem
@@ -448,68 +386,8 @@ func (ns *newSession) choose(m *Model) tea.Cmd {
 		mn := newMenu("Project", items)
 		mn.width = 60
 		m.push(mn)
-	case fieldAgent:
-		var items []menuItem
-		for _, hi := range m.conn.Harnesses {
-			id := hi.ID
-			detail := hi.Version
-			if !hi.Installed {
-				detail = "Not installed"
-			} else if !hi.AuthOK {
-				detail = "Not signed in"
-				if hi.Hint != "" {
-					detail = hi.Hint
-				}
-			}
-			items = append(items, menuItem{label: hi.Name, detail: detail, checked: id == ns.harness, disabled: !usable(&hi), run: func(m *Model) tea.Cmd {
-				ns.chose = true
-				ns.setHarness(m, id, false)
-				return nil
-			}})
-		}
-		if len(items) == 0 {
-			items = append(items, menuItem{label: "No agents are installed on this computer.", disabled: true})
-		}
-		m.push(newMenu("Agent", items))
-	case fieldModel:
-		if h == nil {
-			return nil
-		}
-		items := []menuItem{{label: "Default", checked: ns.model == "", run: func(m *Model) tea.Cmd { ns.model = ""; ns.fixEffort(m); return nil }}}
-		for _, c := range h.Models {
-			id := c.ID
-			items = append(items, menuItem{label: c.Name, detail: c.Description, checked: id == ns.model, run: func(m *Model) tea.Cmd { ns.model = id; ns.fixEffort(m); return nil }})
-		}
-		if h.Caps.FreeModel {
-			custom := ns.model != "" && choiceIndex(h.Models, ns.model) < 0
-			items = append(items, menuItem{label: "Custom…", checked: custom, run: func(m *Model) tea.Cmd {
-				m.push(newInput(m, "Model", "The model's id, as the agent takes it.", ns.model, func(m *Model, v string) tea.Cmd {
-					ns.model = strings.TrimSpace(v)
-					ns.fixEffort(m)
-					return nil
-				}))
-				return nil
-			}})
-		}
-		m.push(newMenu("Model", items))
-	case fieldEffort:
-		items := []menuItem{{label: "Default", checked: ns.effort == "", run: func(m *Model) tea.Cmd { ns.effort = ""; return nil }}}
-		for _, c := range ns.efforts(m) {
-			id := c.ID
-			items = append(items, menuItem{label: c.Name, detail: c.Description, checked: id == ns.effort, run: func(m *Model) tea.Cmd { ns.effort = id; return nil }})
-		}
-		m.push(newMenu("Effort", items))
-	case fieldMode:
-		if h == nil {
-			return nil
-		}
-		var items []menuItem
-		for _, c := range h.Modes {
-			id := c.ID
-			checked := id == ns.mode || (ns.mode == "" && id == h.DefaultMode)
-			items = append(items, menuItem{label: c.Name, detail: c.Description, checked: checked, run: func(m *Model) tea.Cmd { ns.mode = id; return nil }})
-		}
-		m.push(newMenu("Permissions", items))
+	case fieldAgent, fieldModel, fieldEffort, fieldMode:
+		ns.chooseOption(m, ns.field, ns.pick)
 	case fieldWorktree:
 		return ns.toggleWorktree(m)
 	case fieldBase:
@@ -641,7 +519,6 @@ func (ns *newSession) view(m *Model, width, height int) string {
 	ns.ensureHarness(m)
 	w := min(76, width-4)
 	inner := w - 4
-	h := ns.h(m)
 	value := func(f int) string {
 		switch f {
 		case fieldProject:
@@ -649,38 +526,8 @@ func (ns *newSession) view(m *Model, width, height int) string {
 				return p.Name + m.st.Faint.Render("  "+p.Path)
 			}
 			return m.st.Faint.Render("Choose…")
-		case fieldAgent:
-			if h != nil {
-				return h.Name + m.st.Faint.Render("  "+h.Version)
-			}
-			return m.st.Faint.Render("Choose…")
-		case fieldModel:
-			if ns.model == "" {
-				return "Default"
-			}
-			if i := choiceIndex(h.Models, ns.model); i >= 0 {
-				return h.Models[i].Name
-			}
-			return ns.model
-		case fieldEffort:
-			if i := choiceIndex(ns.efforts(m), ns.effort); i >= 0 {
-				return ns.efforts(m)[i].Name
-			}
-			return "Default"
-		case fieldMode:
-			id := ns.mode
-			if id == "" {
-				id = h.DefaultMode
-			}
-			if i := choiceIndex(h.Modes, id); i >= 0 {
-				return h.Modes[i].Name
-			}
-			return "Default"
 		case fieldWorktree:
-			if ns.worktree {
-				return m.st.Accent.Render("◉") + " Isolated git worktree"
-			}
-			return m.st.Faint.Render("○") + " Isolated git worktree"
+			return worktreeValue(m, ns.worktree)
 		case fieldBranch:
 			ns.branch.SetWidth(inner - 16)
 			return ns.branch.View()
@@ -690,9 +537,8 @@ func (ns *newSession) view(m *Model, width, height int) string {
 			}
 			return ns.base
 		}
-		return ""
+		return ns.optionValue(m, f)
 	}
-	labels := map[int]string{fieldProject: "Project", fieldAgent: "Agent", fieldModel: "Model", fieldEffort: "Effort", fieldMode: "Permissions", fieldWorktree: "Workspace", fieldBranch: "Branch", fieldBase: "Based on"}
 	var lines []string
 	for _, f := range ns.fields(m) {
 		switch f {
@@ -704,34 +550,265 @@ func (ns *newSession) view(m *Model, width, height int) string {
 			continue
 		case fieldStart:
 			lines = append(lines, "")
-			start := m.st.Button.Render("Start")
-			if ns.field == fieldStart {
-				start = m.st.ButtonOn.Render("Start")
-			}
-			if ns.busy {
-				start += " " + m.st.Accent.Render(m.spinner())
-			}
 			hint := ""
 			if m.conn.Info != nil && m.conn.Info.Drafts {
 				hint = m.st.Faint.Render("ctrl+s saves the prompt as a draft")
 			}
-			lines = append(lines, spread(start, hint, inner))
+			lines = append(lines, spread(formButton(m, "Start", ns.field == fieldStart, ns.busy), hint, inner))
 			continue
 		}
-		label := pad(labels[f], 13)
-		marker := "  "
-		if f == ns.field {
-			label = m.st.AccentBold.Render(label)
-			marker = m.st.Accent.Render("▌ ")
-		} else {
-			label = m.st.Subtext.Render(label)
-		}
-		lines = append(lines, truncate(marker+label+value(f), inner))
+		lines = append(lines, formRow(m, f, value(f), f == ns.field, inner))
 	}
 	if ns.worktree && ns.field >= fieldWorktree && ns.field <= fieldBase {
 		lines = append(lines, "", m.st.Faint.Render(truncate("The agent works on its own branch, in a folder of its own.", inner)))
 	}
 	return box(m, "New Session", lines, w)
+}
+
+// The pieces the new session and fork forms share.
+
+// agentChoice is the agent a form starts, with its model, effort and
+// permissions ("": the agent's default), and their rows.
+type agentChoice struct {
+	harness string
+	model   string
+	effort  string
+	mode    string
+	chose   bool // an agent was chosen in the form
+}
+
+func (a *agentChoice) h(m *Model) *model.HarnessInfo { return m.conn.Harness(a.harness) }
+
+// efforts are the chosen model's, if it lists them, else the agent's.
+func (a *agentChoice) efforts(m *Model) []model.Choice {
+	h := a.h(m)
+	if h == nil {
+		return nil
+	}
+	if i := choiceIndex(h.Models, a.model); i >= 0 && len(h.Models[i].Efforts) > 0 {
+		return h.Models[i].Efforts
+	}
+	return h.Efforts
+}
+
+func (a *agentChoice) fixEffort(m *Model) {
+	if a.effort != "" && choiceIndex(a.efforts(m), a.effort) < 0 {
+		a.effort = ""
+	}
+}
+
+// optionFields are the rows of what the agent offers: its models, efforts
+// and permissions.
+func (a *agentChoice) optionFields(m *Model) []int {
+	h := a.h(m)
+	if h == nil {
+		return nil
+	}
+	var f []int
+	if len(h.Models) > 0 || h.Caps.FreeModel {
+		f = append(f, fieldModel)
+	}
+	if len(a.efforts(m)) > 0 {
+		f = append(f, fieldEffort)
+	}
+	if len(h.Modes) > 0 {
+		f = append(f, fieldMode)
+	}
+	return f
+}
+
+// stepChoice is the choice d steps from cur, "" being the default.
+func stepChoice(cs []model.Choice, cur string, withDefault bool, d int) string {
+	ids := []string{}
+	if withDefault {
+		ids = append(ids, "")
+	}
+	for _, c := range cs {
+		ids = append(ids, c.ID)
+	}
+	i := 0
+	for j, id := range ids {
+		if id == cur {
+			i = j
+		}
+	}
+	return ids[(i+d+len(ids))%len(ids)]
+}
+
+// cycleOption steps the agent, or one of its options, without opening its
+// menu. pick sets the agent stepped to.
+func (a *agentChoice) cycleOption(m *Model, field, d int, pick func(*Model, string)) {
+	h := a.h(m)
+	switch field {
+	case fieldAgent:
+		var cs []model.Choice
+		for _, hi := range m.conn.Harnesses {
+			if usable(&hi) {
+				cs = append(cs, model.Choice{ID: hi.ID})
+			}
+		}
+		if len(cs) > 0 {
+			a.chose = true
+			pick(m, stepChoice(cs, a.harness, false, d))
+		}
+	case fieldModel:
+		if h != nil {
+			a.model = stepChoice(h.Models, a.model, true, d)
+			a.fixEffort(m)
+		}
+	case fieldEffort:
+		a.effort = stepChoice(a.efforts(m), a.effort, true, d)
+	case fieldMode:
+		if h != nil {
+			a.mode = stepChoice(h.Modes, a.mode, true, d)
+		}
+	}
+}
+
+// chooseOption opens the menu of the agents, or of one of the agent's
+// options. pick sets the agent chosen.
+func (a *agentChoice) chooseOption(m *Model, field int, pick func(*Model, string)) {
+	h := a.h(m)
+	switch field {
+	case fieldAgent:
+		var items []menuItem
+		for _, hi := range m.conn.Harnesses {
+			id := hi.ID
+			detail := hi.Version
+			if !hi.Installed {
+				detail = "Not installed"
+			} else if !hi.AuthOK {
+				detail = "Not signed in"
+				if hi.Hint != "" {
+					detail = hi.Hint
+				}
+			}
+			items = append(items, menuItem{label: hi.Name, detail: detail, checked: id == a.harness, disabled: !usable(&hi), run: func(m *Model) tea.Cmd {
+				a.chose = true
+				pick(m, id)
+				return nil
+			}})
+		}
+		if len(items) == 0 {
+			items = append(items, menuItem{label: "No agents are installed on this computer.", disabled: true})
+		}
+		m.push(newMenu("Agent", items))
+	case fieldModel:
+		if h == nil {
+			return
+		}
+		items := []menuItem{{label: "Default", checked: a.model == "", run: func(m *Model) tea.Cmd { a.model = ""; a.fixEffort(m); return nil }}}
+		for _, c := range h.Models {
+			id := c.ID
+			items = append(items, menuItem{label: c.Name, detail: c.Description, checked: id == a.model, run: func(m *Model) tea.Cmd { a.model = id; a.fixEffort(m); return nil }})
+		}
+		if h.Caps.FreeModel {
+			custom := a.model != "" && choiceIndex(h.Models, a.model) < 0
+			items = append(items, menuItem{label: "Custom…", checked: custom, run: func(m *Model) tea.Cmd {
+				m.push(newInput(m, "Model", "The model's id, as the agent takes it.", a.model, func(m *Model, v string) tea.Cmd {
+					a.model = strings.TrimSpace(v)
+					a.fixEffort(m)
+					return nil
+				}))
+				return nil
+			}})
+		}
+		m.push(newMenu("Model", items))
+	case fieldEffort:
+		items := []menuItem{{label: "Default", checked: a.effort == "", run: func(m *Model) tea.Cmd { a.effort = ""; return nil }}}
+		for _, c := range a.efforts(m) {
+			id := c.ID
+			items = append(items, menuItem{label: c.Name, detail: c.Description, checked: id == a.effort, run: func(m *Model) tea.Cmd { a.effort = id; return nil }})
+		}
+		m.push(newMenu("Effort", items))
+	case fieldMode:
+		if h == nil {
+			return
+		}
+		var items []menuItem
+		for _, c := range h.Modes {
+			id := c.ID
+			checked := id == a.mode || (a.mode == "" && id == h.DefaultMode)
+			items = append(items, menuItem{label: c.Name, detail: c.Description, checked: checked, run: func(m *Model) tea.Cmd { a.mode = id; return nil }})
+		}
+		m.push(newMenu("Permissions", items))
+	}
+}
+
+// optionValue is the agent's row's value, or one of its options'.
+func (a *agentChoice) optionValue(m *Model, field int) string {
+	h := a.h(m)
+	switch field {
+	case fieldAgent:
+		if h != nil {
+			return h.Name + m.st.Faint.Render("  "+h.Version)
+		}
+		return m.st.Faint.Render("Choose…")
+	case fieldModel:
+		if a.model == "" {
+			return "Default"
+		}
+		if i := choiceIndex(h.Models, a.model); i >= 0 {
+			return h.Models[i].Name
+		}
+		return a.model
+	case fieldEffort:
+		if i := choiceIndex(a.efforts(m), a.effort); i >= 0 {
+			return a.efforts(m)[i].Name
+		}
+		return "Default"
+	case fieldMode:
+		id := a.mode
+		if id == "" {
+			id = h.DefaultMode
+		}
+		if i := choiceIndex(h.Modes, id); i >= 0 {
+			return h.Modes[i].Name
+		}
+		return "Default"
+	}
+	return ""
+}
+
+func newBranchInput(m *Model) textinput.Model {
+	in := textinput.New()
+	in.Placeholder = "auto"
+	in.Prompt = ""
+	styleInput(&in, m)
+	return in
+}
+
+func worktreeValue(m *Model, on bool) string {
+	if on {
+		return m.st.Accent.Render("◉") + " Isolated git worktree"
+	}
+	return m.st.Faint.Render("○") + " Isolated git worktree"
+}
+
+// formRow is a row of a form: its label, marked while it's the one chosen,
+// and its value.
+func formRow(m *Model, field int, value string, chosen bool, inner int) string {
+	label := pad(fieldLabels[field], 13)
+	marker := "  "
+	if chosen {
+		label = m.st.AccentBold.Render(label)
+		marker = m.st.Accent.Render("▌ ")
+	} else {
+		label = m.st.Subtext.Render(label)
+	}
+	return truncate(marker+label+value, inner)
+}
+
+// formButton is a form's button, with a spinner while it works.
+func formButton(m *Model, label string, chosen, busy bool) string {
+	b := m.st.Button.Render(label)
+	if chosen {
+		b = m.st.ButtonOn.Render(label)
+	}
+	if busy {
+		b += " " + m.st.Accent.Render(m.spinner())
+	}
+	return b
 }
 
 // folderBrowser browses the folders under rad's roots for a project.

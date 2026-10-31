@@ -252,7 +252,11 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
                             // Deleted, here or on another device: back to the list it
                             // was opened from, or on a tablet, none selected.
                             if (isDeleted(connection, session)) LaunchedEffect(key) { backStack.remove(key) }
-                            SessionView(connection, session, focusPrompt = key == startedEmpty, onBack = { if (backStack.size > 1) backStack.removeLastOrNull() })
+                            SessionView(
+                                connection, session, focusPrompt = key == startedEmpty,
+                                onBack = { if (backStack.size > 1) backStack.removeLastOrNull() },
+                                onForked = { forked, empty -> startedSession(SessionKey(key.serverId, forked.id), empty) },
+                            )
                         }
                     }
                     entry<SettingsKey> { SettingsView(onBack = { if (backStack.size > 1) backStack.removeLastOrNull() }) }

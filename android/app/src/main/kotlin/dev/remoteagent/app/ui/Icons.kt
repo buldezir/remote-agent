@@ -43,6 +43,7 @@ object Icons {
     @DrawableRes val newSession = R.drawable.sym_edit_square // square.and.pencil
     @DrawableRes val expand = R.drawable.sym_expand_more // chevron.down
     @DrawableRes val folder = R.drawable.sym_folder // folder
+    @DrawableRes val fork = R.drawable.sym_fork_right // arrow.triangle.branch
     @DrawableRes val forget = R.drawable.sym_folder_off // folder.badge.minus
     @DrawableRes val dictating = R.drawable.sym_graphic_eq // waveform
     @DrawableRes val toolThink = R.drawable.sym_group // person.2

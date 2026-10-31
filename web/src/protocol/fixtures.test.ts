@@ -46,6 +46,7 @@ describe("fixtures", () => {
     expect(session.draft?.images).toHaveLength(1);
     expect(session.workspace.kind).toBe("worktree");
     expect(session.workspace.agentPath).toBe("/w/s1/.claude/worktrees/fix");
+    expect(session.forkedFrom).toEqual({ sessionId: "s0", turn: 3 });
     expect(events[1].turn?.usage?.costUsd).toBe(0.0123);
     const items = events.flatMap((e) => (e.item ? [e.item] : []));
     expect(items).toHaveLength(11);
@@ -142,6 +143,7 @@ describe("fixtures", () => {
     const info: ServerInfo = load("response_server_info.json").result;
     expect(info.terminal).toBe(true);
     expect(info.drafts).toBe(true);
+    expect(info.forks).toBe(true);
     expect(info.deviceId).toBe("dev1");
   });
 

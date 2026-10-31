@@ -1,6 +1,6 @@
 import { Check, ChevronLeft, ChevronRight, Folder, FolderGit2, FolderPlus, ImagePlus, Save, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { effortsForModel, usable, type FSListing, type HarnessInfo, type Session } from "../protocol/models";
+import { effortsForModel, usable, type Choice, type FSListing, type HarnessInfo, type Session } from "../protocol/models";
 import { Attachments } from "../store/attachments";
 import { useObserved } from "../store/observable";
 import { storage } from "../store/storage";
@@ -9,7 +9,7 @@ import { useConnection } from "./context";
 import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./images";
 import { Modal, Spinner } from "./primitives";
 
-const custom = "__custom";
+export const custom = "__custom";
 
 /** Starts in `projectID` when given, else in the project used last.
  *  `onCreated` gets the new session, and whether it started empty, without
@@ -250,66 +250,18 @@ export function NewSession({
         </section>
 
         {harness && (
-          <>
-            <h4 className="form-header">Options</h4>
-            <section className="form-section">
-              {!!harness.models?.length && (
-                <label className="form-row">
-                  <span>Model</span>
-                  <select value={model} onChange={(e) => setModel(e.target.value)}>
-                    <option value="">Default</option>
-                    {harness.models.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                    {harness.caps.freeModel && <option value={custom}>Custom…</option>}
-                  </select>
-                </label>
-              )}
-              {(model === custom || (harness.caps.freeModel && !harness.models?.length)) && (
-                <label className="form-row">
-                  <span>Model id</span>
-                  <input className="text-field" value={customModel} onChange={(e) => setCustomModel(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-                </label>
-              )}
-              {efforts.length > 0 && (
-                <>
-                  <label className="form-row">
-                    <span>Effort</span>
-                    <select value={effort} onChange={(e) => setEffort(e.target.value)}>
-                      <option value="">Default</option>
-                      {efforts.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {efforts.find((e) => e.id === effort)?.description && (
-                    <div className="form-row small hint">{efforts.find((e) => e.id === effort)?.description}</div>
-                  )}
-                </>
-              )}
-              {!!harness.modes?.length && (
-                <>
-                  <label className="form-row">
-                    <span>Permissions</span>
-                    <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                      {harness.modes.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {harness.modes.find((m) => m.id === mode)?.description && (
-                    <div className="form-row small hint">{harness.modes.find((m) => m.id === mode)?.description}</div>
-                  )}
-                </>
-              )}
-            </section>
-          </>
+          <AgentOptions
+            harness={harness}
+            model={model}
+            setModel={setModel}
+            customModel={customModel}
+            setCustomModel={setCustomModel}
+            effort={effort}
+            setEffort={setEffort}
+            efforts={efforts}
+            mode={mode}
+            setMode={setMode}
+          />
         )}
 
         {project?.isGitRepo && (
@@ -401,7 +353,97 @@ export function NewSession({
   );
 }
 
-function HarnessChoiceRow({ harness, selected, onSelect }: { harness: HarnessInfo; selected: boolean; onSelect: () => void }) {
+/** The chosen agent's model, effort and permission mode, as New Session and
+ *  Fork Session pick them. `model` is a model id, "" for the default, or
+ *  `custom` for `customModel`. */
+export function AgentOptions({
+  harness,
+  model,
+  setModel,
+  customModel,
+  setCustomModel,
+  effort,
+  setEffort,
+  efforts,
+  mode,
+  setMode,
+}: {
+  harness: HarnessInfo;
+  model: string;
+  setModel: (m: string) => void;
+  customModel: string;
+  setCustomModel: (m: string) => void;
+  effort: string;
+  setEffort: (e: string) => void;
+  efforts: Choice[];
+  mode: string;
+  setMode: (m: string) => void;
+}) {
+  return (
+    <>
+      <h4 className="form-header">Options</h4>
+      <section className="form-section">
+        {!!harness.models?.length && (
+          <label className="form-row">
+            <span>Model</span>
+            <select value={model} onChange={(e) => setModel(e.target.value)}>
+              <option value="">Default</option>
+              {harness.models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+              {harness.caps.freeModel && <option value={custom}>Custom…</option>}
+            </select>
+          </label>
+        )}
+        {(model === custom || (harness.caps.freeModel && !harness.models?.length)) && (
+          <label className="form-row">
+            <span>Model id</span>
+            <input className="text-field" value={customModel} onChange={(e) => setCustomModel(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+          </label>
+        )}
+        {efforts.length > 0 && (
+          <>
+            <label className="form-row">
+              <span>Effort</span>
+              <select value={effort} onChange={(e) => setEffort(e.target.value)}>
+                <option value="">Default</option>
+                {efforts.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {efforts.find((e) => e.id === effort)?.description && (
+              <div className="form-row small hint">{efforts.find((e) => e.id === effort)?.description}</div>
+            )}
+          </>
+        )}
+        {!!harness.modes?.length && (
+          <>
+            <label className="form-row">
+              <span>Permissions</span>
+              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                {harness.modes.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {harness.modes.find((m) => m.id === mode)?.description && (
+              <div className="form-row small hint">{harness.modes.find((m) => m.id === mode)?.description}</div>
+            )}
+          </>
+        )}
+      </section>
+    </>
+  );
+}
+
+export function HarnessChoiceRow({ harness, selected, onSelect }: { harness: HarnessInfo; selected: boolean; onSelect: () => void }) {
   const ok = usable(harness);
   return (
     <button className="form-row harness-row" disabled={!ok} onClick={onSelect} aria-pressed={selected} style={{ opacity: ok ? 1 : 0.5 }}>

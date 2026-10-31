@@ -99,6 +99,26 @@ struct ConnectionTests {
         #expect(started["draft"] == nil)
     }
 
+    @Test func forkLeavesOutWhatIsUnset() throws {
+        func json(_ p: ServerConnection.ForkSession) throws -> JSONValue {
+            try JSONDecoder().decode(JSONValue.self, from: WireCoding.encoder().encode(p))
+        }
+        let plain = try json(.init(sessionId: "s"))
+        #expect(plain["sessionId"] == .string("s"))
+        #expect(plain["commandId"] != nil)
+        for key in ["turn", "harness", "model", "effort", "mode", "workspace", "prompt", "images", "title", "draft"] {
+            #expect(plain[key] == nil)
+        }
+        let full = try json(.init(sessionId: "s", turn: 2, harness: "codex",
+                                  workspace: .init(kind: .worktree, branch: "ra/try"), prompt: "again"))
+        #expect(full["turn"] == .number(2))
+        #expect(full["harness"] == .string("codex"))
+        #expect(full["workspace"]?["kind"] == .string("worktree"))
+        #expect(full["workspace"]?["branch"] == .string("ra/try"))
+        #expect(full["workspace"]?["baseRef"] == nil)
+        #expect(full["prompt"] == .string("again"))
+    }
+
     @Test func savesADraftIntoTheIndexAtOnce() async throws {
         let server = try TestServer(index: [session("s")])
         let connection = try await connect(to: server)

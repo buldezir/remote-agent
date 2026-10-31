@@ -122,7 +122,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	o := c.s.orch
 	switch method {
 	case "server.info":
-		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true}, nil
+		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true, Forks: true}, nil
 
 	case "device.unpair":
 		// The phone forgets this server: revoke its own token. The socket is
@@ -213,6 +213,9 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "session.create":
 		return call(raw, func(p orchestrator.CreateSessionParams) (any, error) { return o.CreateSession(ctx, p) })
+
+	case "session.fork":
+		return call(raw, func(p orchestrator.ForkParams) (any, error) { return o.Fork(ctx, p) })
 
 	case "session.commands":
 		return call(raw, func(p sessionParams) (any, error) {

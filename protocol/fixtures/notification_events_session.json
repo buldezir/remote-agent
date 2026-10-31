@@ -59,6 +59,10 @@
               "description": "Explore the protocol"
             }
           ],
+          "forkedFrom": {
+            "sessionId": "s0",
+            "turn": 3
+          },
           "createdAt": "2026-10-09T12:00:00Z",
           "updatedAt": "2026-10-09T12:00:05Z"
         },
@@ -81,6 +85,7 @@
             "cacheReadTokens": 5,
             "costUsd": 0.0123
           },
+          "forkPoint": "msg-1",
           "startedAt": "2026-10-09T12:00:00Z",
           "endedAt": "2026-10-09T12:00:05Z"
         },

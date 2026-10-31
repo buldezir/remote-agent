@@ -11,6 +11,7 @@ import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.WireCoding
 import dev.remoteagent.core.protocol.Workspace
 import dev.remoteagent.core.store.ConnectionState
+import dev.remoteagent.core.store.ForkSession
 import dev.remoteagent.core.store.ImageCache
 import dev.remoteagent.core.store.NewSession
 import dev.remoteagent.core.store.SavedServer
@@ -281,6 +282,7 @@ class ServerConnectionTests {
             subscribed(2)
         }
         "session.create" -> session("s2", draft = params["draft"]?.let { params.getValue("prompt").jsonPrimitive.content })
+        "session.fork" -> session("s3")
         "session.saveDraft" -> session("s1", updatedAt = "2026-10-09T13:00:00Z", draft = params.getValue("text").jsonPrimitive.content.ifEmpty { null })
         else -> JsonObject(emptyMap())
     }
@@ -330,6 +332,38 @@ class ServerConnectionTests {
         // An older rad would start the session with it, so it's left out.
         withContext(dispatcher) { c.createSession(new("now", draft = null)) }
         assertFalse("draft" in (rad.nextCall("session.create")["params"] as JsonObject))
+        withContext(dispatcher) { c.stop() }
+    }
+
+    @Test
+    fun forkSendsOnlyWhatWasChosen() = runBlocking {
+        rad.answer = ::answerDrafts
+        server.upgrade(rad)
+        val c = connect()
+        withTimeout(5.seconds) { c.indexSynced.first { it } }
+
+        // Nothing chosen: rad takes the source's turn, agent, options and workspace.
+        val s = withContext(dispatcher) { c.fork(ForkSession(commandId = "c1", sessionId = "s1")) }
+        assertEquals(params("commandId" to "c1", "sessionId" to "s1"), rad.nextCall("session.fork")["params"])
+        // In the lists at once, without waiting for the event.
+        assertEquals("s3", s.id)
+        assertTrue("s3" in c.sessions.value)
+
+        withContext(dispatcher) {
+            c.fork(
+                ForkSession(
+                    commandId = "c2", sessionId = "s1", turn = 2, harness = "fake", mode = "ask",
+                    workspace = NewSession.WorkspaceParams(Workspace.Kind.WORKTREE, branch = "try-again"), prompt = "again",
+                ),
+            )
+        }
+        assertEquals(
+            params(
+                "commandId" to "c2", "sessionId" to "s1", "turn" to 2, "harness" to "fake", "mode" to "ask",
+                "workspace" to params("kind" to "worktree", "branch" to "try-again"), "prompt" to "again",
+            ),
+            rad.nextCall("session.fork")["params"],
+        )
         withContext(dispatcher) { c.stop() }
     }
 

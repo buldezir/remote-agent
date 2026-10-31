@@ -136,6 +136,10 @@ func TestReplayWriteWithApproval(t *testing.T) {
 	if end.Status != model.TurnCompleted || end.Error != "" {
 		t.Errorf("turn end = %+v", end)
 	}
+	// A fork after the turn cuts the conversation at its last message.
+	if end.ForkPoint != "4cd29579-a17e-458a-b48c-9dda682c406c" {
+		t.Errorf("fork point = %q", end.ForkPoint)
+	}
 	if end.Usage == nil || end.Usage.CostUSD <= 0 || end.Usage.InputTokens != 4 || end.Usage.OutputTokens != 312 ||
 		end.Usage.CacheReadTokens != 33571 || end.Usage.CacheWriteTokens != 37647 {
 		t.Errorf("usage = %+v", end.Usage)
@@ -305,6 +309,38 @@ func TestReplayCompact(t *testing.T) {
 	if turn.End.Status != model.TurnCompleted {
 		t.Errorf("end = %+v", turn.End)
 	}
+}
+
+// TestReplayFork replays a fork's first turn: Claude copied the session it
+// resumes into a new one, cut at a message, and goes on from there.
+func TestReplayFork(t *testing.T) {
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, _ := openReplay(t, "testdata/fork.ndjson", "claude-fork/ws", harness.OpenOptions{SessionID: "local-fork", Mode: "acceptEdits",
+		ResumeID: "01a18f38-5a9b-77f7-8859-3ff3504beb48", Fork: true, ForkAt: "6726a61d-a552-4770-b474-ea88bad4296d", DiagPath: diag})
+	native := rt.NativeID()
+	if native == "local-fork" || native == "01a18f38-5a9b-77f7-8859-3ff3504beb48" || len(native) != 36 {
+		t.Errorf("native id = %q, want a new one", native)
+	}
+	command, _ := replaytest.Diag(t, diag)
+	want := `"--resume" "01a18f38-5a9b-77f7-8859-3ff3504beb48" "--fork-session" "--session-id" "` + native +
+		`" "--resume-session-at" "6726a61d-a552-4770-b474-ea88bad4296d"`
+	if !strings.Contains(command, want) {
+		t.Errorf("command = %s, want %s", command, want)
+	}
+
+	turn := replaytest.RunTurn(t, rt, "Without using any tools: list every request I have made to you in this conversation, in one short sentence.", nil)
+	msgs := turn.ItemsOf(model.ItemAssistantMessage)
+	if len(msgs) != 1 || !strings.HasPrefix(msgs[0].Text, "You asked me to create `note.txt`") {
+		t.Errorf("reply = %+v", msgs)
+	}
+	if turn.End.Status != model.TurnCompleted || turn.End.ForkPoint != "897687db-f76e-48ec-abcd-09002094fc26" {
+		t.Errorf("end = %+v", turn.End)
+	}
+	// The recording was made with the id rad chose, which Claude reports back.
+	if rt.NativeID() != "14b3bc8a-284e-42b4-a1ed-a49673064f8f" {
+		t.Errorf("NativeID() = %q", rt.NativeID())
+	}
+	replaytest.CloseClean(t, rt)
 }
 
 func TestReplayBackgroundTask(t *testing.T) {

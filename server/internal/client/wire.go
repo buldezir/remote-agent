@@ -19,6 +19,8 @@ type ServerInfo struct {
 	// Drafts: the server keeps drafts (session.saveDraft, sendDraft and
 	// session.create's draft).
 	Drafts bool `json:"drafts,omitempty"`
+	// Forks: the server forks sessions (session.fork).
+	Forks bool `json:"forks,omitempty"`
 }
 
 // PairResult is what POST /v1/pair returns.
@@ -70,6 +72,26 @@ type NewWorkspace struct {
 	Kind    model.WorkspaceKind `json:"kind"`
 	Branch  string              `json:"branch,omitempty"`
 	BaseRef string              `json:"baseRef,omitempty"`
+}
+
+// ForkSession is session.fork's params, less the commandId: a session that
+// goes on from SessionID after turn Turn. What's left empty is the
+// source's, and with another Harness, that harness's defaults. Only when
+// the server forks (ServerInfo.Forks).
+type ForkSession struct {
+	SessionID string
+	Turn      int // 0: the last turn that ended
+	Harness   string
+	Model     string
+	Effort    string
+	Mode      string
+	// Workspace: nil keeps the source's kind. A worktree starts with the
+	// files as they were after the turn, so BaseRef is left out.
+	Workspace *NewWorkspace
+	Prompt    string
+	Images    []model.ImageRef
+	Title     string
+	Draft     bool
 }
 
 // Notification params.

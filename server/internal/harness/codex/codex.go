@@ -32,6 +32,10 @@ func New(cmd config.Command) *Harness {
 
 func (*Harness) SupportsCommands() bool { return true }
 
+// SupportsFork: Codex forks a thread with thread/fork, through a turn with
+// lastTurnId.
+func (*Harness) SupportsFork() bool { return true }
+
 func (h *Harness) ID() string { return "codex" }
 
 // Modes are presets over (approvalPolicy, sandbox), like Codex's /approvals.
@@ -193,6 +197,12 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		method = "thread/resume"
 		params["threadId"] = o.ResumeID
 		params["excludeTurns"] = true
+	}
+	if o.Fork {
+		method = "thread/fork"
+		if o.ForkAt != "" {
+			params["lastTurnId"] = o.ForkAt
+		}
 	}
 	if err := r.conn.Call(ictx, method, params, &res); err != nil {
 		return fail(fmt.Errorf("%s: %w", method, err))

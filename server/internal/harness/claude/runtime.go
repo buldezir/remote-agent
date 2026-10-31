@@ -51,6 +51,7 @@ type runtime struct {
 	approvals    map[string]*pending
 	interrupting bool
 	inTurn       bool
+	forkPoint    string // the turn's last message of the main agent, for --resume-session-at
 
 	// Streaming state per agent (main agent is "", subagents are keyed by
 	// their Task tool_use id), since parallel subagents interleave events.
@@ -127,6 +128,7 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	}
 	r.inTurn = true
 	r.interrupting = false
+	r.forkPoint = ""
 	r.mu.Unlock()
 	err = r.conn.p.WriteJSON(map[string]any{
 		"type":               "user",
@@ -370,7 +372,7 @@ func (r *runtime) onInit() {
 	r.mu.Lock()
 	own := !r.inTurn
 	if own {
-		r.inTurn, r.interrupting = true, false
+		r.inTurn, r.interrupting, r.forkPoint = true, false, ""
 	}
 	r.mu.Unlock()
 	notices := r.notices
@@ -574,6 +576,11 @@ func (r *runtime) onAssistant(f frame) {
 	if r.finals == nil {
 		r.finals = map[string]map[string]int{}
 	}
+	if f.ParentToolUseID == "" && f.UUID != "" {
+		r.mu.Lock()
+		r.forkPoint = f.UUID
+		r.mu.Unlock()
+	}
 	// Subagents have their own context; synthetic messages have no usage.
 	if u := m.Usage; u != nil && f.ParentToolUseID == "" && m.Model != "<synthetic>" {
 		used := u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens
@@ -760,6 +767,7 @@ func (r *runtime) keepImage(sourceType, data string) (model.ImageRef, bool) {
 func (r *runtime) onResult(f frame) {
 	r.mu.Lock()
 	interrupted := r.interrupting
+	forkPoint := r.forkPoint
 	r.inTurn, r.interrupting = false, false
 	pendingIDs := make([]string, 0, len(r.approvals))
 	for id := range r.approvals {
@@ -786,7 +794,7 @@ func (r *runtime) onResult(f frame) {
 			r.emit(harness.ContextUsage{Used: r.ctxUsed, Window: w})
 		}
 	}
-	ev := harness.TurnEnded{Status: model.TurnCompleted}
+	ev := harness.TurnEnded{Status: model.TurnCompleted, ForkPoint: forkPoint}
 	if f.Usage != nil {
 		ev.Usage = &model.Usage{
 			InputTokens: f.Usage.InputTokens, OutputTokens: f.Usage.OutputTokens,

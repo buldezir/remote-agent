@@ -701,6 +701,39 @@ func (c *ServerConnection) CreateSession(ctx context.Context, p NewSession) (mod
 	return s, nil
 }
 
+// Fork makes a session that goes on from another after one of its turns,
+// as CreateSession makes one: sent again after a drop, with the same
+// commandId.
+func (c *ServerConnection) Fork(ctx context.Context, p ForkSession) (model.Session, error) {
+	params := map[string]any{"commandId": uuid.NewString(), "sessionId": p.SessionID}
+	if p.Turn > 0 {
+		params["turn"] = p.Turn
+	}
+	for k, v := range map[string]string{"harness": p.Harness, "model": p.Model, "effort": p.Effort, "mode": p.Mode, "prompt": p.Prompt, "title": p.Title} {
+		if v != "" {
+			params[k] = v
+		}
+	}
+	if p.Workspace != nil {
+		params["workspace"] = p.Workspace
+	}
+	if ids := imageIDs(p.Images); ids != nil {
+		params["images"] = ids
+	}
+	if p.Draft {
+		params["draft"] = true
+	}
+	var s model.Session
+	if err := c.Deliver(ctx, "session.fork", params, &s, 90*time.Second); err != nil {
+		return s, err
+	}
+	c.d.Post(func() {
+		c.Sessions[s.ID] = &s
+		c.Version++
+	})
+	return s, nil
+}
+
 // SaveDraft keeps a prompt in the session, unsent, for any device to send
 // later, in place of the draft it had; no text and no images remove it.
 // Saving it twice does no harm, so it is sent again after a drop, as

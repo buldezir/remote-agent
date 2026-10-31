@@ -6,6 +6,9 @@ struct SessionView: View {
     @Bindable var store: SessionStore
     /// The prompt takes the keyboard: the session was just started empty.
     var focusesPrompt = false
+    /// Opens a fork of the session, as a new session opens: with whether it
+    /// opened without a prompt.
+    var onForked: (Session, _ empty: Bool) -> Void
     @State private var commands: [SlashCommand] = []
     @State private var commandIndex = 0
     @State private var commandsDismissed = false
@@ -16,6 +19,7 @@ struct SessionView: View {
     @State private var savingDraft = false
     @State private var error: String?
     @State private var showDiff = false
+    @State private var showFork = false
     @State private var showTerminal = false
     @State private var terminalFocused = false
     @State private var height: CGFloat = 0
@@ -102,6 +106,12 @@ struct SessionView: View {
             }
             .presentationSizing(.page)
             .appStyle()
+        }
+        .sheet(isPresented: $showFork) {
+            if let s = session {
+                ForkSessionView(connection: connection, store: store, source: s, onForked: onForked)
+                    .appStyle()
+            }
         }
         .inspector(isPresented: terminalShown(.right)) {
             // The Mac builds a hidden inspector's content too; it would connect.
@@ -238,6 +248,11 @@ struct SessionView: View {
 
     private var canOpenTerminal: Bool {
         connection.info?.terminal == true && session?.archived == false
+    }
+
+    /// The server forks, and a turn ended to fork after. Archived sessions too.
+    private var canFork: Bool {
+        connection.info?.forks == true && session != nil && store.turns.values.contains { $0.status != .running }
     }
 
     /// ⌘J and ⌘` show and hide the terminal. Hiding it gives the keyboard
@@ -699,6 +714,9 @@ struct SessionView: View {
                     Button(showTerminal ? "Hide Terminal" : "Terminal", systemImage: "apple.terminal") {
                         showTerminal.toggle()
                     }
+                }
+                if canFork {
+                    Button("Fork…", systemImage: "arrow.triangle.branch") { showFork = true }
                 }
                 if let commands = harness?.commands, !commands.isEmpty {
                     Section("Commands") {

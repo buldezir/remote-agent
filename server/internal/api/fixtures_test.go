@@ -35,9 +35,10 @@ func fixtures() map[string]any {
 			{ID: "b1", Kind: model.BackgroundCommand, Description: "Watch the release run"},
 			{ID: "a1", Kind: model.BackgroundAgent, Description: "Explore the protocol"},
 		},
+		ForkedFrom: &model.ForkedFrom{SessionID: "s0", Turn: 3},
 	}
 	turn := &model.Turn{ID: "t1", SessionID: "s1", N: 1, Status: model.TurnCompleted, CheckpointBefore: "aaa", CheckpointAfter: "bbb",
-		Usage: &model.Usage{InputTokens: 10, OutputTokens: 20, CacheReadTokens: 5, CostUSD: 0.0123}, StartedAt: t0, EndedAt: &t1}
+		Usage: &model.Usage{InputTokens: 10, OutputTokens: 20, CacheReadTokens: 5, CostUSD: 0.0123}, ForkPoint: "msg-1", StartedAt: t0, EndedAt: &t1}
 	item := func(id string, order int64, kind model.ItemKind, st model.ItemStatus) *model.Item {
 		return &model.Item{ID: id, SessionID: "s1", TurnID: "t1", Order: order, Kind: kind, Status: st, CreatedAt: t0, UpdatedAt: t1}
 	}
@@ -127,7 +128,7 @@ func fixtures() map[string]any {
 		"response_session.json": response{ID: json.RawMessage("6"), Result: sess},
 		"response_server_info.json": response{ID: json.RawMessage("1"), Result: serverInfoResult{
 			serverInfo: serverInfo{ServerID: "srv1", Name: "studio", ProtocolVersion: model.ProtocolVersion, Version: "0.4.0"},
-			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true}},
+			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true, Forks: true}},
 		"response_server_settings.json": response{ID: json.RawMessage("8"), Result: model.ServerSettings{
 			SystemAgent: &model.SystemAgent{Harness: "claude", Model: "haiku", Effort: "low"}}},
 		"response_check_update.json": response{ID: json.RawMessage("9"), Result: model.UpdateInfo{

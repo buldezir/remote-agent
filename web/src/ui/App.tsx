@@ -9,6 +9,7 @@ import type { SavedServer, ServerStore } from "../store/serverStore";
 import { AddServer } from "./AddServer";
 import { ConnectionDot } from "./components";
 import { ConnectionContext, ServerStoreContext, useServerStore } from "./context";
+import { ForkSession } from "./ForkSession";
 import { NewSession } from "./NewSession";
 import { Confirm, Empty, Menu } from "./primitives";
 import { navigate, useRoute, useWide, type Route, type Tab } from "./router";
@@ -41,6 +42,7 @@ type Sheet =
   | { kind: "settings" }
   | { kind: "server"; connection: ServerConnection }
   | { kind: "archive"; connection: ServerConnection; session: Session }
+  | { kind: "fork"; connection: ServerConnection; session: Session }
   | { kind: "delete"; connection: ServerConnection; session: Session }
   | { kind: "remove"; server: SavedServer }
   | { kind: "rename"; server: SavedServer };
@@ -129,6 +131,15 @@ function Root() {
     newSession: (c, projectID) => setSheet({ kind: "new", connection: c, projectID }),
     archive: (c, s) => setSheet({ kind: "archive", connection: c, session: s }),
     delete: (c, s) => setSheet({ kind: "delete", connection: c, session: s }),
+    fork: (c, s) => setSheet({ kind: "fork", connection: c, session: s }),
+  };
+
+  // A new session or fork opens, in a narrow window in the tab it was
+  // started from. One that starts empty has the keyboard.
+  const opened = (c: ServerConnection, s: Session, empty: boolean) => {
+    const serverID = c.server.id;
+    setStartedEmpty(empty ? `${serverID} ${s.id}` : undefined);
+    navigate({ serverID, sessionID: s.id, tab: wide ? undefined : route.tab });
   };
 
   let page;
@@ -145,6 +156,7 @@ function Root() {
           focusPrompt={focusPrompt}
           onBack={() => navigate(back)}
           onDeleted={() => navigate(back, true)}
+          onFork={(s) => actions.fork(connection, s)}
         />
       </ConnectionContext.Provider>
     );
@@ -196,13 +208,13 @@ function Root() {
           <NewSession
             projectID={sheet.projectID}
             onClose={() => setSheet(undefined)}
-            onCreated={(s, empty) => {
-              const serverID = sheet.connection.server.id;
-              setStartedEmpty(empty ? `${serverID} ${s.id}` : undefined);
-              // In a narrow window, in the tab it was started from.
-              navigate({ serverID, sessionID: s.id, tab: wide ? undefined : route.tab });
-            }}
+            onCreated={(s, empty) => opened(sheet.connection, s, empty)}
           />
+        </ConnectionContext.Provider>
+      )}
+      {sheet?.kind === "fork" && (
+        <ConnectionContext.Provider value={sheet.connection}>
+          <ForkSession session={sheet.session} onClose={() => setSheet(undefined)} onForked={(s, empty) => opened(sheet.connection, s, empty)} />
         </ConnectionContext.Provider>
       )}
       {sheet?.kind === "settings" && <SettingsView onClose={() => setSheet(undefined)} />}
@@ -317,7 +329,12 @@ function Split({
       {connection && route.sessionID && !gone ? (
         <ConnectionContext.Provider value={connection}>
           {/* A new identity per session, so the draft and the subscription don't carry over. */}
-          <SessionView key={connection.server.id + route.sessionID} sessionID={route.sessionID} focusPrompt={focusPrompt} />
+          <SessionView
+            key={connection.server.id + route.sessionID}
+            sessionID={route.sessionID}
+            focusPrompt={focusPrompt}
+            onFork={(s) => actions.fork(connection, s)}
+          />
         </ConnectionContext.Provider>
       ) : store.servers.length === 0 ? (
         <NoServers onPair={actions.pair} />

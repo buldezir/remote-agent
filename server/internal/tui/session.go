@@ -673,6 +673,9 @@ func (v *sessionView) actions(m *Model) overlay {
 			return nil
 		}})
 	}
+	if v.canFork(m) {
+		items = append(items, menuItem{label: "Fork…", run: v.fork})
+	}
 	if v.store.IsRunning() {
 		items = append(items, menuItem{label: "Stop", hint: "ctrl+x", run: func(m *Model) tea.Cmd { return v.interrupt(m, false) }})
 		items = append(items, menuItem{label: "Force Stop Agent", danger: true, detail: "Kills the agent's process.", run: func(m *Model) tea.Cmd { return v.interrupt(m, true) }})

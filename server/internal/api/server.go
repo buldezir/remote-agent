@@ -136,6 +136,7 @@ type serverInfoResult struct {
 	DeviceID string   `json:"deviceId"`
 	Terminal bool     `json:"terminal,omitempty"` // GET /v1/terminal is there
 	Drafts   bool     `json:"drafts"`             // session.saveDraft and sendDraft, and session.create's draft
+	Forks    bool     `json:"forks,omitempty"`    // session.fork
 }
 
 func (s *Server) info() serverInfo {

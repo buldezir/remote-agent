@@ -77,8 +77,14 @@ struct ServerHomeView: View {
                 await connection.refreshHarnesses(force: true)
             }
             .navigationDestination(item: $openSession) { id in
-                SessionView(connection: connection, store: connection.sessionStore(id), focusesPrompt: id == startedEmpty)
-                    .toolbar(.hidden, for: .tabBar)
+                SessionView(connection: connection, store: connection.sessionStore(id), focusesPrompt: id == startedEmpty) { fork, empty in
+                    startedEmpty = empty ? fork.id : nil
+                    openSession = fork.id
+                }
+                // A fork takes the source's place: a view of its own, which
+                // subscribes to it.
+                .id(id)
+                .toolbar(.hidden, for: .tabBar)
             }
             .onChange(of: openSession) { _, id in
                 // Only when it first opens.

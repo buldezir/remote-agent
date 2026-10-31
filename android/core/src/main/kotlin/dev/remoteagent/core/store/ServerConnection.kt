@@ -478,6 +478,17 @@ class ServerConnection(
     }
 
     /**
+     * A new session that continues `p.sessionId` after one of its turns, with
+     * its transcript up to there. Only for a server whose `info.forks` is true.
+     */
+    suspend fun fork(p: ForkSession): Session {
+        val forked = deliver("session.fork", WireCoding.json.encodeToJsonElement(p), 90.seconds)
+        val s: Session = WireCoding.json.decodeFromJsonElement(forked)
+        _sessions.value += s.id to s
+        return s
+    }
+
+    /**
      * Keeps a prompt in the session, unsent, for any device to send later
      * (`SessionStore.sendDraft`), replacing the one it had; no text and no
      * images removes it. The session changes here at once, without waiting
@@ -594,6 +605,29 @@ data class NewSession(
     @Serializable
     data class WorkspaceParams(val kind: Workspace.Kind, val branch: String? = null, val baseRef: String? = null)
 }
+
+/**
+ * `session.fork`'s params. What is null isn't sent, and rad takes the
+ * source's: its agent with its model, effort and mode (another agent's
+ * defaults with another agent), and its kind of workspace.
+ */
+@Serializable
+data class ForkSession(
+    val commandId: String = UUID.randomUUID().toString(),
+    val sessionId: String,
+    /** The turn to continue after; null: the last one that ended. */
+    val turn: Int? = null,
+    val harness: String? = null,
+    val model: String? = null,
+    val effort: String? = null,
+    val mode: String? = null,
+    /** A worktree starts with the files as they were after the turn; `baseRef` isn't taken. */
+    val workspace: NewSession.WorkspaceParams? = null,
+    val prompt: String? = null,
+    val images: List<String>? = null,
+    val title: String? = null,
+    val draft: Boolean? = null,
+)
 
 // Derived
 

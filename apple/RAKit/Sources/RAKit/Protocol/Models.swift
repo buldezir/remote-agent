@@ -50,8 +50,16 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
     public var context: ContextUsage?
     public var modelInfo: ModelInfo?
     public var backgroundTasks: [BackgroundTask]?
+    /// The session this one is a fork of (`ServerConnection.fork`). Absent: none.
+    public var forkedFrom: ForkedFrom?
     public var createdAt: Date
     public var updatedAt: Date
+}
+
+/// The session a fork continues, and the turn it continues after.
+public struct ForkedFrom: Codable, Hashable, Sendable {
+    public var sessionId: String
+    public var turn: Int
 }
 
 extension Session {
@@ -444,6 +452,8 @@ public struct ServerInfo: Codable, Hashable, Sendable {
     /// The server keeps drafts (`Session.draft`). An older one would start a
     /// session created as a draft with its prompt.
     public var drafts: Bool?
+    /// The server forks sessions (`session.fork`).
+    public var forks: Bool?
 }
 
 /// A text frame on a terminal socket. The shell's output and the user's

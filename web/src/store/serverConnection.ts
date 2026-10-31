@@ -44,6 +44,20 @@ export interface NewSession {
   draft?: boolean;
 }
 
+/** `session.fork`'s request: what is left out is the session's, or with
+ *  another harness, that harness's defaults. */
+export interface ForkParams {
+  sessionId: string;
+  /** The turn to continue after; absent: the last one that ended. */
+  turn?: number;
+  harness?: string;
+  model?: string;
+  effort?: string;
+  mode?: string;
+  workspace?: { kind: "root" | "worktree"; branch?: string };
+  prompt?: string;
+}
+
 /** A live connection to one server: keeps the index (projects and sessions)
  *  in sync, owns per-session stores, and reconnects with backoff. It stays
  *  `connecting` while it tries, and gives up after `maxAttempts` failures in
@@ -479,6 +493,15 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
 
   async createSession(p: NewSession): Promise<Session> {
     const s = await this.deliver<Session>("session.create", { commandId: crypto.randomUUID(), ...p, draft: p.draft || undefined }, 90);
+    this.sessions.set(s.id, s);
+    this.changed();
+    return s;
+  }
+
+  /** A new session that continues another after one of its turns, as
+   *  `createSession` makes one. */
+  async fork(p: ForkParams): Promise<Session> {
+    const s = await this.deliver<Session>("session.fork", { commandId: crypto.randomUUID(), ...p }, 90);
     this.sessions.set(s.id, s);
     this.changed();
     return s;

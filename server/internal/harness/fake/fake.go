@@ -24,7 +24,8 @@
 // "/compact" stands in for an agent's compaction: a notice, and less context
 // in use.
 //
-// The reply counts the images attached to the prompt.
+// The reply counts the images attached to the prompt. A fork's first reply
+// names the conversation and the point it was forked from.
 package fake
 
 import (
@@ -53,6 +54,8 @@ type Harness struct{}
 
 func (Harness) SupportsCommands() bool { return true }
 
+func (Harness) SupportsFork() bool { return true }
+
 func (Harness) ID() string { return "fake" }
 
 func (Harness) Probe(context.Context) model.HarnessInfo {
@@ -69,7 +72,7 @@ func (Harness) Probe(context.Context) model.HarnessInfo {
 
 func (Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runtime, error) {
 	id := o.ResumeID
-	if id == "" {
+	if id == "" || o.Fork {
 		id = "fake-" + o.SessionID
 	}
 	r := &runtime{opts: o, id: id, events: make(chan harness.Event, 256), mode: o.Mode, approvals: map[string]chan harness.Response{},
@@ -173,7 +176,8 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 			window = 200000
 		}
 		r.emit(harness.ContextUsage{Used: int64(30000 * n), Window: window})
-		r.emit(harness.TurnEnded{Status: st, Error: errMsg, Usage: &model.Usage{InputTokens: int64(len(text)), OutputTokens: 42}})
+		r.emit(harness.TurnEnded{Status: st, Error: errMsg, Usage: &model.Usage{InputTokens: int64(len(text)), OutputTokens: 42},
+			ForkPoint: fmt.Sprintf("%s#%d", r.id, n)})
 	}
 	delay := 30 * time.Millisecond
 	if strings.Contains(text, "slow") {
@@ -286,6 +290,9 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 	reply := "Echo: " + text
 	if images > 0 {
 		reply = fmt.Sprintf("Echo (%d image(s)): %s", images, text)
+	}
+	if r.opts.Fork && n == 1 {
+		reply = fmt.Sprintf("Forked %s at %s. %s", r.opts.ResumeID, r.opts.ForkAt, reply)
 	}
 	msg := model.Item{ID: key("msg"), Kind: model.ItemAssistantMessage, Status: model.ItemInProgress}
 	words := strings.Fields(reply)

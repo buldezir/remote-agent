@@ -10,6 +10,7 @@
     ],
     "deviceId": "dev1",
     "terminal": true,
-    "drafts": true
+    "drafts": true,
+    "forks": true
   }
 }
