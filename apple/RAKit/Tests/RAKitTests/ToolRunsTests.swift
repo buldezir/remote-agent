@@ -95,6 +95,25 @@ struct ToolRunsTests {
         #expect(!ToolRuns.runs(transcript, turns: ended)[1].live)
     }
 
+    @Test func aPromptQueuedMidRunWaitsAfterIt() {
+        // Sent while the agent works, before it calls more tools: the run
+        // goes on past it, live, and the prompt shows after it.
+        var items = transcript
+        items.insert(item("q", .userMessage, turn: nil, status: .queued), at: items.count - 1)
+        let runs = ToolRuns.runs(items, turns: turns)
+        #expect(runs[1].items.map(\.id) == ["i", "j", "k"])
+        #expect(runs[1].live)
+        #expect(ids(ToolRuns.rows(items, turns: turns)).suffix(6) == ["u2", "tools:i open", "i", "j", "k", "q"])
+        #expect(ids(ToolRuns.rows(items, turns: turns, expanded: ["tools:i": false])).suffix(3) == ["u2", "tools:i shut", "q"])
+        // After one call, which doesn't fold, it stays where it is.
+        let queued = item("q", .userMessage, turn: nil, status: .queued)
+        #expect(ids(ToolRuns.rows([tool("a", .execute), queued, item("m", .assistantMessage)], turns: turns)) == ["a", "q", "m"])
+        #expect(ids(ToolRuns.rows([tool("a", .execute), queued, tool("b", .read)], turns: turns)) == ["tools:a shut", "q"])
+        // Steered into the turn, it's conversation: the run ends before it.
+        items[items.count - 2] = item("q", .userMessage, turn: "t2")
+        #expect(ids(ToolRuns.rows(items, turns: turns)).suffix(4) == ["u2", "tools:i shut", "q", "k"])
+    }
+
     @Test func callsThatNeedAttentionStandAlone() {
         var shot = tool("s", .other)
         shot.images = [ImageRef(id: "img", mimeType: "image/png", size: 1)]

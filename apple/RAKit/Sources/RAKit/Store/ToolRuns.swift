@@ -12,7 +12,9 @@ import Foundation
 /// for approval, failed, or shows images stands on its own, between runs. A
 /// run is live while its turn runs and nothing has come after it: it shows
 /// open, unless the user shut it, so that the user can watch the agent work,
-/// and folds once the agent replies or the turn ends.
+/// and folds once the agent replies or the turn ends. A prompt queued while
+/// the agent works isn't conversation yet: it doesn't end the run it was
+/// sent during, and waits after it.
 public enum ToolRuns {
     /// The fewest tool calls that fold: one on its own stays as it is.
     public static let minimum = 2
@@ -129,15 +131,28 @@ public enum ToolRuns {
                 i += 1
                 continue
             }
-            var j = i
-            while j + 1 < items.count, folds(items[j + 1]), items[j + 1].turnId == first.turnId { j += 1 }
-            let run = Array(items[i...j])
+            // The run's last item is j; k looks past the prompts queued meanwhile.
+            var j = i, k = i
+            while k + 1 < items.count {
+                let next = items[k + 1]
+                if next.status == .queued {
+                    k += 1
+                } else if folds(next), next.turnId == first.turnId {
+                    k += 1
+                    j = k
+                } else {
+                    break
+                }
+            }
+            let span = items[i...j]
+            let run = span.filter { $0.status != .queued }
             if run.filter({ $0.kind == .toolCall }).count >= minimum {
                 let running = first.turnId.flatMap { turns[$0] }?.status == .running
                 out.append(.run(Run(id: "tools:" + first.id, items: run,
                                     live: running && lastOfTurn[first.turnId ?? ""] == j)))
+                out += span.filter { $0.status == .queued }.map(Segment.item)
             } else {
-                out += run.map(Segment.item)
+                out += span.map(Segment.item)
             }
             i = j + 1
         }

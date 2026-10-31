@@ -102,6 +102,25 @@ describe("ToolRuns", () => {
     expect(toolRuns(transcript, ended)[1].live).toBe(false);
   });
 
+  it("shows a prompt queued mid-run after the run", () => {
+    // Sent while the agent works, before it calls more tools: the run goes
+    // on past it, live, and the prompt shows after it.
+    const items = [...transcript];
+    items.splice(items.length - 1, 0, item("q", "user_message", undefined, "queued"));
+    const runs = toolRuns(items, turns);
+    expect(runs[1].items.map((it) => it.id)).toEqual(["i", "j", "k"]);
+    expect(runs[1].live).toBe(true);
+    expect(ids(transcriptRows(items, turns)).slice(-6)).toEqual(["u2", "tools:i open", "i", "j", "k", "q"]);
+    expect(ids(transcriptRows(items, turns, new Map([["tools:i", false]]))).slice(-3)).toEqual(["u2", "tools:i shut", "q"]);
+    // After one call, which doesn't fold, it stays where it is.
+    const queued = item("q", "user_message", undefined, "queued");
+    expect(ids(transcriptRows([tool("a", "execute"), queued, item("m", "assistant_message")], turns))).toEqual(["a", "q", "m"]);
+    expect(ids(transcriptRows([tool("a", "execute"), queued, tool("b", "read")], turns))).toEqual(["tools:a shut", "q"]);
+    // Steered into the turn, it's conversation: the run ends before it.
+    items[items.length - 2] = item("q", "user_message", "t2");
+    expect(ids(transcriptRows(items, turns)).slice(-4)).toEqual(["u2", "tools:i shut", "q", "k"]);
+  });
+
   it("leaves calls that need attention on their own", () => {
     const shot = { ...tool("s", "other"), images: [{ id: "img", mimeType: "image/png", size: 1 }] };
     const items = [tool("a", "execute"), tool("b", "edit", { status: "pending" }), tool("c", "execute"), shot, tool("d", "read"), item("r", "reasoning"), tool("e", "read")];

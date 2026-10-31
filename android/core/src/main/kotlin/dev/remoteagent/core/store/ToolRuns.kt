@@ -19,7 +19,9 @@ import dev.remoteagent.core.protocol.TurnStatus
  * for approval, failed, or shows images stands on its own, between runs. A
  * run is live while its turn runs and nothing has come after it: it shows
  * open, unless the user shut it, so that the user can watch the agent work,
- * and folds once the agent replies or the turn ends.
+ * and folds once the agent replies or the turn ends. A prompt queued while
+ * the agent works isn't conversation yet: it doesn't end the run it was sent
+ * during, and waits after it.
  */
 object ToolRuns {
     /** The fewest tool calls that fold: one on its own stays as it is. */
@@ -133,14 +135,28 @@ object ToolRuns {
                 i++
                 continue
             }
+            // The run's last item is j; k looks past the prompts queued meanwhile.
             var j = i
-            while (j + 1 < items.size && folds(items[j + 1]) && items[j + 1].turnId == first.turnId) j++
-            val run = items.subList(i, j + 1).toList()
+            var k = i
+            while (k + 1 < items.size) {
+                val next = items[k + 1]
+                if (next.status == ItemStatus.QUEUED) {
+                    k++
+                } else if (folds(next) && next.turnId == first.turnId) {
+                    k++
+                    j = k
+                } else {
+                    break
+                }
+            }
+            val span = items.subList(i, j + 1).toList()
+            val run = span.filter { it.status != ItemStatus.QUEUED }
             if (run.count { it.kind == ItemKind.TOOL_CALL } >= MINIMUM) {
                 val running = first.turnId?.let { turns[it] }?.status == TurnStatus.RUNNING
                 out.add(Segment.Many(Run("tools:" + first.id, run, live = running && lastOfTurn[first.turnId ?: ""] == j)))
+                span.filter { it.status == ItemStatus.QUEUED }.forEach { out.add(Segment.One(it)) }
             } else {
-                run.forEach { out.add(Segment.One(it)) }
+                span.forEach { out.add(Segment.One(it)) }
             }
             i = j + 1
         }

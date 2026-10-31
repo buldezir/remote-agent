@@ -103,6 +103,26 @@ class ToolRunsTests {
     }
 
     @Test
+    fun aPromptQueuedMidRunWaitsAfterIt() {
+        // Sent while the agent works, before it calls more tools: the run
+        // goes on past it, live, and the prompt shows after it.
+        val items = transcript.toMutableList()
+        items.add(items.size - 1, item("q", ItemKind.USER_MESSAGE, turn = null, status = ItemStatus.QUEUED))
+        val runs = ToolRuns.runs(items, turns)
+        assertEquals(listOf("i", "j", "k"), runs[1].items.map { it.id })
+        assertTrue(runs[1].live)
+        assertEquals(listOf("u2", "tools:i open", "i", "j", "k", "q"), ids(ToolRuns.rows(items, turns)).takeLast(6))
+        assertEquals(listOf("u2", "tools:i shut", "q"), ids(ToolRuns.rows(items, turns, expanded = mapOf("tools:i" to false))).takeLast(3))
+        // After one call, which doesn't fold, it stays where it is.
+        val queued = item("q", ItemKind.USER_MESSAGE, turn = null, status = ItemStatus.QUEUED)
+        assertEquals(listOf("a", "q", "m"), ids(ToolRuns.rows(listOf(tool("a", ToolKind.EXECUTE), queued, item("m", ItemKind.ASSISTANT_MESSAGE)), turns)))
+        assertEquals(listOf("tools:a shut", "q"), ids(ToolRuns.rows(listOf(tool("a", ToolKind.EXECUTE), queued, tool("b", ToolKind.READ)), turns)))
+        // Steered into the turn, it's conversation: the run ends before it.
+        items[items.size - 2] = item("q", ItemKind.USER_MESSAGE, turn = "t2")
+        assertEquals(listOf("u2", "tools:i shut", "q", "k"), ids(ToolRuns.rows(items, turns)).takeLast(4))
+    }
+
+    @Test
     fun callsThatNeedAttentionStandAlone() {
         val shot = tool("s", ToolKind.OTHER).copy(images = listOf(ImageRef(id = "img", mimeType = "image/png", size = 1)))
         val items = listOf(

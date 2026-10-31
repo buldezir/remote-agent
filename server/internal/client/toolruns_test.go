@@ -148,6 +148,34 @@ func TestToolRunsFoldOnceTheAgentRepliesOrTheTurnEnds(t *testing.T) {
 	}
 }
 
+func TestToolRunsShowAPromptQueuedMidRunAfterIt(t *testing.T) {
+	// Sent while the agent works, before it calls more tools: the run goes
+	// on past it, live, and the prompt shows after it.
+	turns := runTurns()
+	items := runTranscript()
+	items = slices.Insert(items, len(items)-1, runItem("q", model.ItemUserMessage, "", model.ItemQueued))
+	runs := ToolRuns(items, turns)
+	eq(t, itemIDs(runs[1].Items), []string{"i", "j", "k"})
+	if !runs[1].Live {
+		t.Error("not live")
+	}
+	rows := rowIDs(TranscriptRows(items, turns, nil, true))
+	eq(t, rows[len(rows)-6:], []string{"u2", "tools:i open", "i", "j", "k", "q"})
+	rows = rowIDs(TranscriptRows(items, turns, map[string]bool{"tools:i": false}, true))
+	eq(t, rows[len(rows)-3:], []string{"u2", "tools:i shut", "q"})
+	// After one call, which doesn't fold, it stays where it is.
+	done := model.ItemCompleted
+	queued := runItem("q", model.ItemUserMessage, "", model.ItemQueued)
+	eq(t, rowIDs(TranscriptRows([]*model.Item{runTool("a", model.ToolExecute, "t1", done), queued, runItem("m", model.ItemAssistantMessage, "t1", done)}, turns, nil, true)),
+		[]string{"a", "q", "m"})
+	eq(t, rowIDs(TranscriptRows([]*model.Item{runTool("a", model.ToolExecute, "t1", done), queued, runTool("b", model.ToolRead, "t1", done)}, turns, nil, true)),
+		[]string{"tools:a shut", "q"})
+	// Steered into the turn, it's conversation: the run ends before it.
+	items[len(items)-2] = runItem("q", model.ItemUserMessage, "t2", done)
+	rows = rowIDs(TranscriptRows(items, turns, nil, true))
+	eq(t, rows[len(rows)-4:], []string{"u2", "tools:i shut", "q", "k"})
+}
+
 func TestToolRunsLeaveCallsThatNeedAttentionAlone(t *testing.T) {
 	done := model.ItemCompleted
 	shot := runTool("s", model.ToolOther, "t1", done)

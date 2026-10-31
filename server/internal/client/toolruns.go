@@ -21,7 +21,9 @@ import (
 // for approval, failed, or shows images stands on its own, between runs. A
 // run is live while its turn runs and nothing has come after it: it shows
 // open, unless the user shut it, so that the user can watch the agent work,
-// and folds once the agent replies or the turn ends.
+// and folds once the agent replies or the turn ends. A prompt queued while
+// the agent works isn't conversation yet: it doesn't end the run it was sent
+// during, and waits after it.
 
 // ToolRunMinimum is the fewest tool calls that fold: one on its own stays
 // as it is.
@@ -174,13 +176,28 @@ func toolRunSegments(items []*model.Item, turns map[string]*model.Turn) []toolRu
 			i++
 			continue
 		}
+		// The run's last item is j; k looks past the prompts queued meanwhile.
 		j := i
-		for j+1 < len(items) && Folds(items[j+1]) && items[j+1].TurnID == first.TurnID {
-			j++
+		for k := i; k+1 < len(items); {
+			next := items[k+1]
+			if next.Status == model.ItemQueued {
+				k++
+			} else if Folds(next) && next.TurnID == first.TurnID {
+				k++
+				j = k
+			} else {
+				break
+			}
 		}
-		run := items[i : j+1 : j+1]
+		span := items[i : j+1 : j+1]
+		var run, queued []*model.Item
 		tools := 0
-		for _, it := range run {
+		for _, it := range span {
+			if it.Status == model.ItemQueued {
+				queued = append(queued, it)
+				continue
+			}
+			run = append(run, it)
 			if it.Kind == model.ItemToolCall {
 				tools++
 			}
@@ -189,8 +206,11 @@ func toolRunSegments(items []*model.Item, turns map[string]*model.Turn) []toolRu
 			t := turns[first.TurnID]
 			live := first.TurnID != "" && t != nil && t.Status == model.TurnRunning && lastOfTurn[first.TurnID] == j
 			out = append(out, toolRunSegment{run: &ToolRun{ID: "tools:" + first.ID, Items: run, Live: live}})
+			for _, it := range queued {
+				out = append(out, toolRunSegment{item: it})
+			}
 		} else {
-			for _, it := range run {
+			for _, it := range span {
 				out = append(out, toolRunSegment{item: it})
 			}
 		}

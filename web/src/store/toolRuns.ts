@@ -8,7 +8,9 @@
 // for approval, failed, or shows images stands on its own, between runs. A
 // run is live while its turn runs and nothing has come after it: it shows
 // open, unless the user shut it, so that the user can watch the agent work,
-// and folds once the agent replies or the turn ends.
+// and folds once the agent replies or the turn ends. A prompt queued while
+// the agent works isn't conversation yet: it doesn't end the run it was sent
+// during, and waits after it.
 import type { Item, ToolKind, Turn } from "../protocol/models";
 
 /** The fewest tool calls that fold: one on its own stays as it is. */
@@ -94,14 +96,26 @@ function segments(items: Item[], turns: ReadonlyMap<string, Turn>): Segment[] {
       i++;
       continue;
     }
+    // The run's last item is j; k looks past the prompts queued meanwhile.
     let j = i;
-    while (j + 1 < items.length && folds(items[j + 1]) && items[j + 1].turnId === first.turnId) j++;
-    const run = items.slice(i, j + 1);
+    for (let k = i; k + 1 < items.length; ) {
+      const next = items[k + 1];
+      if (next.status === "queued") {
+        k++;
+      } else if (folds(next) && next.turnId === first.turnId) {
+        j = ++k;
+      } else {
+        break;
+      }
+    }
+    const span = items.slice(i, j + 1);
+    const run = span.filter((it) => it.status !== "queued");
     if (run.filter((it) => it.kind === "tool_call").length >= minimumTools) {
       const running = first.turnId !== undefined && turns.get(first.turnId)?.status === "running";
       out.push({ run: { id: "tools:" + first.id, items: run, live: running && lastOfTurn.get(first.turnId ?? "") === j } });
+      out.push(...span.filter((it) => it.status === "queued").map((item) => ({ item })));
     } else {
-      out.push(...run.map((item) => ({ item })));
+      out.push(...span.map((item) => ({ item })));
     }
     i = j + 1;
   }
