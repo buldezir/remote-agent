@@ -8,8 +8,11 @@ struct SessionView: View {
     var focusesPrompt = false
     /// An item to open the session at, from a search result: this view
     /// scrolls to it and flashes it once it's there, then lets it go. Only a
-    /// request for this session counts.
-    var focusItem: Binding<ItemFocus?> = .constant(nil)
+    /// request for this session counts. Nil where nothing opens sessions at
+    /// an item: a `.constant(nil)` would be a new binding each time the view
+    /// is made, never equal to the last, so SwiftUI would draw it again on
+    /// every pass, and hiding the iPhone's tab bar would never settle.
+    var focusItem: Binding<ItemFocus?>?
     /// Opens a fork of the session, as a new session opens: with whether it
     /// opened without a prompt.
     var onForked: (Session, _ empty: Bool) -> Void
@@ -184,7 +187,7 @@ struct SessionView: View {
             findCurrent = findMatches.last
             if let id = findCurrent { scrollTo(id) }
         }
-        .task(id: focusItem.wrappedValue?.id) { await showFocusItem() }
+        .task(id: focusItem?.wrappedValue?.id) { await showFocusItem() }
         .onChange(of: unreadInView, initial: true) { _, unread in
             if unread { connection.markRead(store.sessionID) }
         }
@@ -435,7 +438,7 @@ struct SessionView: View {
     /// transcript is in, the item scrolls to the middle and flashes. An item
     /// that isn't there any more leaves the transcript at its foot.
     private func showFocusItem() async {
-        guard let focus = focusItem.wrappedValue, focus.route == route else { return }
+        guard let focus = focusItem?.wrappedValue, focus.route == route else { return }
         // Once the transcript is as the server has it: a store kept from an
         // earlier visit may not have the item yet.
         while !store.isLive {
@@ -466,7 +469,7 @@ struct SessionView: View {
 
     /// Done with the request, unless another came meanwhile.
     private func letGo(_ focus: ItemFocus) {
-        if focusItem.wrappedValue?.id == focus.id { focusItem.wrappedValue = nil }
+        if focusItem?.wrappedValue?.id == focus.id { focusItem?.wrappedValue = nil }
     }
 
     // MARK: Rows
