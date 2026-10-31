@@ -6,6 +6,9 @@
 # text=…, desc=…, id=<Compose test tag>, contains=….
 
 A="$ANDROID_HOME/platform-tools/adb"
+# A server adb starts runs without mDNS discovery, whose code panics on some
+# networks' traffic in platform-tools 37.0.1 and takes the server down.
+export ADB_MDNS=0
 E2E_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PKG="${PKG:-dev.remoteagent.app.debug}"
 SHOTS="${SHOTS:-$SCRATCH/shots}"

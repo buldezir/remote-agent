@@ -255,7 +255,10 @@ Gradle needs the Android SDK and a JDK. Android Studio's will do; tell Gradle wh
 
 ```bash
 export ANDROID_HOME=~/Library/Android/sdk JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+export ADB_MDNS=0
 ```
+
+`ADB_MDNS=0` turns off the adb server's mDNS discovery. In platform-tools 37.0.1, that code (Rust, `adbmdns_bridge`) panics on some of the mDNS traffic on a busy network, and the server aborts ("libunwind: … invalid compact unwind encoding" in `$TMPDIR/adb.<uid>.log`). The emulator then goes offline and `adb reverse` is lost. The variable takes effect when a server starts, so stop one that runs with mDNS (`adb kill-server`), and check with `adb server-status`: `mdns_backend: MDNS_DISABLED`. `android/e2e/lib.sh` sets it too.
 
 Run the emulator read-only, so tests leave the developer's virtual device as it was, and point it at a scratch rad. `adb reverse` makes the emulator's `127.0.0.1:7499` the host's, so the link `rad pair --print-url` prints works unchanged.
 
@@ -278,7 +281,7 @@ adb logcat -d -s RemoteAgent:D AndroidRuntime:E   # debug builds log sync events
 - **Smoke test:** `android/e2e/smoke.sh` walks the app through the fake harness's keywords, a worktree session with its changes and revert, the terminal and the dark theme, saving screenshots to `$SCRATCH/shots`. It removes the server at the end, which unpairs it.
 - **Tablet:** `adb shell wm size 2560x1600 && adb shell wm density 320` gives an expanded width; `wm size reset` and `wm density reset` undo it.
 - **Release build:** R8 shrinks it. Try it after adding a library or a class made by reflection: sign `assembleRelease` with a scratch keystore and run the smoke test with `PKG=dev.remoteagent.app`.
-- **Cleanup:** remove the scratch server in the app, `adb reverse --remove-all`, `adb emu kill`, then stop the scratch rad. A read-only emulator forgets the app when it stops, without unpairing; revoke leftover devices on the scratch rad with `rad devices revoke`.
+- **Cleanup:** remove the scratch server in the app, `adb reverse --remove-all`, `adb emu kill`, then stop the scratch rad. Stop the adb server (`adb kill-server`), and Gradle's daemon and its Kotlin daemon (`cd android && ./gradlew --stop`): they hold a few GB until they idle out after hours. A read-only emulator forgets the app when it stops, without unpairing; revoke leftover devices on the scratch rad with `rad devices revoke`.
 - **Coverage:** the emulator has no camera or speech models, so scanning a QR code and dictation itself need a phone; the scanner opening and the dictation states and permission prompt can be checked here. Say so when a change depends on them.
 
 ## Mac app
