@@ -32,6 +32,9 @@ type Options struct {
 	Images       *images.Store // nil: prompts can't carry images, and agents' images are dropped
 	IdleTimeout  time.Duration
 	Log          *slog.Logger
+	// MCP is rad's MCP server, without a token, which agents get with their
+	// session's (AgentToken); nil: agents don't get it.
+	MCP *harness.MCPServer
 }
 
 type Orchestrator struct {
@@ -43,6 +46,8 @@ type Orchestrator struct {
 	mu       sync.Mutex
 	actors   map[string]*actor
 	inflight map[string]*sync.Mutex
+	tokens   map[string]string // the MCP token of each session's agent -> the session
+	parents  map[string]string // a session an agent started with rad's tools -> that agent's session
 
 	bg     context.Context // the system agent's calls; cancelled by Shutdown
 	stopBg context.CancelFunc
@@ -58,7 +63,7 @@ func New(st *store.Store, reg *harness.Registry, opt Options) *Orchestrator {
 	}
 	bg, stopBg := context.WithCancel(context.Background())
 	return &Orchestrator{st: st, reg: reg, opt: opt, log: opt.Log, actors: map[string]*actor{}, inflight: map[string]*sync.Mutex{},
-		bg: bg, stopBg: stopBg}
+		tokens: map[string]string{}, parents: map[string]string{}, bg: bg, stopBg: stopBg}
 }
 
 func (o *Orchestrator) Registry() *harness.Registry { return o.reg }
@@ -157,6 +162,9 @@ type CreateSessionParams struct {
 	Images    []string        `json:"images,omitempty"` // attached to the prompt
 	Title     string          `json:"title,omitempty"`
 	Draft     bool            `json:"draft,omitempty"` // keep the prompt as the session's draft rather than send it
+	// StartedBy is the session whose agent started this one with rad's
+	// tools; the transcript begins with a notice that says so.
+	StartedBy string `json:"-"`
 }
 
 func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams) (*model.Session, error) {
@@ -219,14 +227,37 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 		s.Workspace.Branch = gitx.CurrentBranch(ctx, proj.Path)
 	}
 
+	var started *model.Item
+	if p.StartedBy != "" {
+		parent, err := o.st.Session(ctx, p.StartedBy)
+		if err != nil {
+			return nil, errorf(CodeNotFound, "session %s not found", p.StartedBy)
+		}
+		started = &model.Item{ID: store.NewID(), SessionID: s.ID, Order: 1, Kind: model.ItemNotice, Status: model.ItemCompleted,
+			Text: fmt.Sprintf("Started by the agent of “%s”.", parent.Title)}
+		s.ItemCount = 1
+	}
 	_, err = o.st.Write(ctx, func(w *store.W) error {
 		if err := w.PutSession(s); err != nil {
 			return err
+		}
+		if started != nil {
+			if err := w.PutItem(started); err != nil {
+				return err
+			}
+			if err := w.SetItemCount(s.ID, s.ItemCount); err != nil {
+				return err
+			}
 		}
 		return w.PutReceipt(p.CommandID, s)
 	})
 	if err != nil {
 		return nil, err
+	}
+	if p.StartedBy != "" {
+		o.mu.Lock()
+		o.parents[s.ID] = p.StartedBy
+		o.mu.Unlock()
 	}
 	if hasPrompt && draft == nil {
 		cmd := ""
@@ -242,6 +273,51 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 		o.nameSession(s.ID, proj.Name, p.Prompt, p.Title == "", s.Workspace.Kind == model.WorkspaceWorktree && p.Workspace.Branch == "")
 	}
 	return s, nil
+}
+
+// AgentToken is the token the session's agent calls rad's MCP server with.
+// It lasts as long as rad runs, or until the session is archived or deleted.
+func (o *Orchestrator) AgentToken(sessionID string) string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for tok, id := range o.tokens {
+		if id == sessionID {
+			return tok
+		}
+	}
+	tok := store.RandomToken(32)
+	o.tokens[tok] = sessionID
+	return tok
+}
+
+// TokenSession returns the session whose agent has token.
+func (o *Orchestrator) TokenSession(token string) (string, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	id, ok := o.tokens[token]
+	return id, ok && token != ""
+}
+
+// Lineage returns the sessions whose agents started sessionID, one after
+// another with rad's tools, nearest first, as far as this rad has seen.
+func (o *Orchestrator) Lineage(sessionID string) []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var out []string
+	for id := o.parents[sessionID]; id != "" && len(out) < 100; id = o.parents[id] {
+		out = append(out, id)
+	}
+	return out
+}
+
+func (o *Orchestrator) dropToken(sessionID string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for tok, id := range o.tokens {
+		if id == sessionID {
+			delete(o.tokens, tok)
+		}
+	}
 }
 
 func (o *Orchestrator) actor(ctx context.Context, sessionID string) (*actor, error) {
@@ -461,6 +537,7 @@ func (o *Orchestrator) Archive(ctx context.Context, sessionID string, removeWork
 	o.mu.Lock()
 	delete(o.actors, sessionID)
 	o.mu.Unlock()
+	o.dropToken(sessionID)
 	return err
 }
 
@@ -477,7 +554,9 @@ func (o *Orchestrator) Delete(ctx context.Context, sessionID string, removeWorkt
 	// next command loads it afresh.
 	o.mu.Lock()
 	delete(o.actors, sessionID)
+	delete(o.parents, sessionID)
 	o.mu.Unlock()
+	o.dropToken(sessionID)
 	return err
 }
 

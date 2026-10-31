@@ -165,8 +165,17 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		nativeID = o.SessionID
 		extra = append(extra, "--session-id", nativeID)
 	}
+	if o.MCP != nil {
+		// Claude reads the token from its environment, not its arguments.
+		cfg, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{harness.MCPName: map[string]any{
+			"type": "http", "url": o.MCP.URL, "headers": map[string]string{"Authorization": "Bearer ${" + harness.MCPTokenEnv + "}"}}}})
+		extra = append(extra, "--mcp-config", string(cfg))
+	}
 	spec := h.spec(o.Cwd, extra...)
 	spec.DiagPath = o.DiagPath
+	if o.MCP != nil {
+		spec.Env[harness.MCPTokenEnv] = o.MCP.Token
+	}
 	p, err := proc.Start(spec)
 	if err != nil {
 		return nil, err

@@ -214,7 +214,13 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	r.imagePrompts = init.AgentCapabilities.PromptCapabilities.Image
 
 	var setup sessionSetup
-	base := map[string]any{"cwd": o.Cwd, "mcpServers": []any{}}
+	mcpServers := []any{}
+	if o.MCP != nil && len(o.MCP.Command) > 0 {
+		// Every ACP agent starts stdio servers; the token goes in its environment.
+		mcpServers = append(mcpServers, map[string]any{"name": harness.MCPName, "command": o.MCP.Command[0], "args": o.MCP.Command[1:],
+			"env": []map[string]string{{"name": harness.MCPURLEnv, "value": o.MCP.URL}, {"name": harness.MCPTokenEnv, "value": o.MCP.Token}}})
+	}
+	base := map[string]any{"cwd": o.Cwd, "mcpServers": mcpServers}
 	call := func(method string, params map[string]any) error {
 		err := r.conn.Call(ictx, method, params, &setup)
 		if err != nil && isAuthError(err) && len(init.AuthMethods) > 0 {

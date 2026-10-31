@@ -387,6 +387,9 @@ func (a *actor) openOptions() harness.OpenOptions {
 	if a.o.opt.LogsDir != "" {
 		opts.DiagPath = filepath.Join(a.o.opt.LogsDir, a.sess.ID+".ndjson")
 	}
+	if m := a.o.opt.MCP; m != nil {
+		opts.MCP = &harness.MCPServer{URL: m.URL, Token: a.o.AgentToken(a.sess.ID), Command: m.Command}
+	}
 	if a.pendingFork() {
 		a.forkOptions(&opts)
 	}

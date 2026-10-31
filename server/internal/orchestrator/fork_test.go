@@ -228,8 +228,8 @@ func TestHandoffLines(t *testing.T) {
 		{&model.Item{Kind: model.ItemApproval, Approval: &model.Approval{Title: "Unanswered"}}, ""},
 		{&model.Item{Kind: model.ItemNotice, Text: "Context compacted"}, "[Context compacted]"},
 	} {
-		if got := handoffLine(c.item); got != c.want {
-			t.Errorf("handoffLine(%s %q) = %q, want %q", c.item.Kind, c.item.Text, got, c.want)
+		if got := TranscriptLine(c.item); got != c.want {
+			t.Errorf("TranscriptLine(%s %q) = %q, want %q", c.item.Kind, c.item.Text, got, c.want)
 		}
 	}
 }

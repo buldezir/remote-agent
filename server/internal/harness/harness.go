@@ -36,7 +36,27 @@ type OpenOptions struct {
 	// Instructions are added to the agent's system prompt, or put before the
 	// first prompt of a session where there is none to add to.
 	Instructions string
+	// MCP is rad's MCP server, whose tools start and drive other sessions;
+	// nil: the agent doesn't get it.
+	MCP *MCPServer
 }
+
+// MCPServer is how an agent reaches rad's MCP server: over HTTP at URL with
+// the session's Token, which adapters pass in the agent's environment as
+// MCPTokenEnv so that it stays out of its command line, or through Command,
+// a stdio server (`rad mcp`) that reads MCPURLEnv and MCPTokenEnv.
+type MCPServer struct {
+	URL     string
+	Token   string
+	Command []string
+}
+
+// MCPName is the name agents know rad's MCP server by.
+const (
+	MCPName     = "rad"
+	MCPURLEnv   = "RAD_MCP_URL"
+	MCPTokenEnv = "RAD_MCP_TOKEN"
+)
 
 // ImageStore keeps images that agents return (internal/images).
 type ImageStore interface {

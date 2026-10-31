@@ -82,6 +82,24 @@ TerminalMessage {
 }
 ```
 
+## MCP
+
+`/v1/mcp` is rad's [MCP](https://modelcontextprotocol.io) server, for agents rather than clients: its tools start and drive sessions. It speaks Streamable HTTP without streams: each `POST` carries one JSON-RPC message, a request's reply is the body (`application/json`), a notification gets `202`, and `GET` gets `405`. Requests take `Authorization: Bearer <token>`: the token rad gives the agent of a session (in the agent's environment as `RAD_MCP_TOKEN`; it lapses when the session is archived or deleted, or rad restarts), or a device's. A request from a page whose `Origin` isn't in `web_origins` gets `403`.
+
+| Tool | Arguments | Does |
+|---|---|---|
+| `list_projects` | — | the projects |
+| `list_agents` | — | the installed, signed-in agents, with their models, efforts and modes |
+| `list_sessions` | `project?`, `archived?` | the sessions, newest first |
+| `start_session` | `project`, `prompt`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `title?` | `session.create`; a folder under `roots` becomes a project |
+| `send_prompt` | `session`, `prompt` | `session.prompt` |
+| `read_session` | `session`, `turns?` (default 1; 0: all) | the status and transcript, as text |
+| `wait_for_session` | `session`, `timeoutSeconds?` (default 600, at most 3600) | waits until the agent stops working; its status and last reply |
+| `stop_session` | `session` | `session.interrupt` |
+| `fork_session` | `session`, `turn?`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `prompt?` | `session.fork` |
+
+`session` is an id or a unique start of one (six characters or more). A session's agent can't send to, wait for or stop its own session. The sessions it starts or forks get its own mode with its own agent, or else the agent's default mode: no other mode, so that it can't start one that asks the user less than it does. They begin with a `notice` ("Started by the agent of “…”."), and may start sessions in turn, three deep at most. Approvals and questions of the sessions it starts go to the user, as any session's do; no tool answers them. A device's tools have none of these limits.
+
 ## Frames
 
 | Direction | Shape |

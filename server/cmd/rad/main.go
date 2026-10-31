@@ -47,6 +47,8 @@ Usage:
                                  show a QR code to pair a phone (or a web client link)
   rad devices [revoke <id>]      list or revoke paired devices
   rad debug <cmd> ...            CLI client for testing (run "rad debug" for help)
+  rad mcp                        rad's tools for an agent you run yourself, as an MCP server on stdio
+                                 (run "rad mcp help" for how to add it)
   rad install-service [--uninstall]
                                  keep rad running in the background (launchd on macOS, systemd on Linux)
   rad update [--check] [--now]   install the latest release and restart the background service
@@ -87,6 +89,8 @@ func main() {
 		err = devices(os.Args[2:])
 	case "debug":
 		err = debug(os.Args[2:])
+	case "mcp":
+		err = mcpBridge(os.Args[2:])
 	case "install-service", "install-launchagent":
 		err = installService(os.Args[2:])
 	case "update":
@@ -183,9 +187,20 @@ func serve(args []string) error {
 
 	reg := buildRegistry(cfg)
 	imgs := images.New(cfg.ImagesDir())
-	orch := orchestrator.New(st, reg, orchestrator.Options{
+	exe, err := os.Executable()
+	if err == nil {
+		exe, err = filepath.EvalSymlinks(exe)
+	}
+	orchOpts := orchestrator.Options{
 		WorktreesDir: cfg.WorktreesDir(), LogsDir: cfg.LogsDir(), Images: imgs, IdleTimeout: cfg.IdleTimeout.Duration, Log: log,
-	})
+	}
+	if cfg.AgentTools() {
+		orchOpts.MCP = &harness.MCPServer{URL: mcpURL(cfg)}
+		if err == nil {
+			orchOpts.MCP.Command = []string{exe, "mcp"}
+		}
+	}
+	orch := orchestrator.New(st, reg, orchOpts)
 	if err := orch.Recover(ctx); err != nil {
 		return fmt.Errorf("recover: %w", err)
 	}
@@ -202,10 +217,6 @@ func serve(args []string) error {
 	maint := tasks.NewManager(log)
 	srv.Tasks = maint
 	restart := make(chan struct{})
-	exe, err := os.Executable()
-	if err == nil {
-		exe, err = filepath.EvalSymlinks(exe)
-	}
 	if err == nil {
 		srv.Updater = &selfUpdater{
 			client: update.Default(api.Version), st: st, exe: exe, app: app,

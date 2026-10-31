@@ -43,9 +43,16 @@ func openReplay(t *testing.T, transcript, ws string, o harness.OpenOptions) (har
 func TestReplayWriteWithApproval(t *testing.T) {
 	diag := filepath.Join(t.TempDir(), "diag.ndjson")
 	rt, _ := openReplay(t, "testdata/write.ndjson", "claude-rec/ws", harness.OpenOptions{SessionID: "local-session", Mode: "default",
-		Instructions: "Show images as Markdown.", DiagPath: diag})
-	if command, _ := replaytest.Diag(t, diag); !strings.Contains(command, `"--append-system-prompt" "Show images as Markdown."`) {
+		Instructions: "Show images as Markdown.", DiagPath: diag,
+		MCP: &harness.MCPServer{URL: "http://127.0.0.1:7421/v1/mcp", Token: "secret-token"}})
+	command, _ := replaytest.Diag(t, diag)
+	if !strings.Contains(command, `"--append-system-prompt" "Show images as Markdown."`) {
 		t.Errorf("command = %s, want the instructions in the system prompt", command)
+	}
+	// rad's MCP server, with the token from Claude's environment.
+	if !strings.Contains(command, `"--mcp-config" "{\"mcpServers\":{\"rad\":{\"headers\":{\"Authorization\":\"Bearer ${RAD_MCP_TOKEN}\"},\"type\":\"http\",\"url\":\"http://127.0.0.1:7421/v1/mcp\"}}}"`) ||
+		strings.Contains(command, "secret-token") {
+		t.Errorf("command = %s, want rad's MCP server without its token", command)
 	}
 
 	turn := replaytest.RunTurn(t, rt, "Create a file hello.txt containing the word hi. Then reply with one short sentence.",

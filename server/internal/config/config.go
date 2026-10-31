@@ -60,6 +60,7 @@ type Config struct {
 	Roots       DirList            `yaml:"roots,omitempty"`
 	IdleTimeout Duration           `yaml:"idle_timeout,omitempty"`
 	Fake        bool               `yaml:"fake,omitempty"` // expose the scripted "fake" harness
+	MCP         *bool              `yaml:"mcp,omitempty"`  // give agents rad's tools (default: true)
 	ACP         []ACPAgent         `yaml:"acp,omitempty"`
 	Harness     map[string]Command `yaml:"harness,omitempty"`
 
@@ -67,6 +68,10 @@ type Config struct {
 	ConfigPath string `yaml:"-"`
 	DataDir    string `yaml:"-"`
 }
+
+// AgentTools reports whether the agents rad runs get its MCP server, whose
+// tools start and drive other sessions.
+func (c *Config) AgentTools() bool { return c.MCP == nil || *c.MCP }
 
 // DirList is a list of directories. A bare ~ is null in YAML, which would
 // silently drop the entry, so it is rejected.
@@ -118,6 +123,9 @@ lan: false
 roots: [~/projects]
 # Stop idle agent processes after this long (they resume on the next prompt).
 idle_timeout: 30m
+# Agents get rad's tools (an MCP server) to start and drive other sessions;
+# false leaves them out.
+# mcp: true
 
 # Agents that speak the Agent Client Protocol; add any other ACP agent here.
 acp:

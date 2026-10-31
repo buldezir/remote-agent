@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,7 +34,8 @@ func openReplay(t *testing.T, id, transcript, ws string) (*Harness, harness.Runt
 	h := New(config.ACPAgent{ID: id, Command: exe, Args: []string{"acp"}, Env: env})
 	diag := filepath.Join(t.TempDir(), "diag.ndjson")
 	rt, err := h.Open(context.Background(), harness.OpenOptions{SessionID: "local", Cwd: cwd,
-		Instructions: "Show images as Markdown.", DiagPath: diag})
+		Instructions: "Show images as Markdown.", DiagPath: diag,
+		MCP: &harness.MCPServer{URL: "http://127.0.0.1:7421/v1/mcp", Token: "secret-token", Command: []string{"/bin/rad", "mcp"}}})
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -88,6 +90,13 @@ func TestReplayCursor(t *testing.T) {
 	}
 	if len(blocks) != 2 || blocks[0].(map[string]any)["text"] != "Show images as Markdown." || blocks[1].(map[string]any)["text"] != prompt {
 		t.Errorf("first prompt = %v, want the instructions, then the prompt", blocks)
+	}
+	// rad's MCP server, as `rad mcp` with the URL and token in its environment.
+	if i := slices.IndexFunc(sent, func(f map[string]any) bool { return f["method"] == "session/new" }); i < 0 {
+		t.Error("no session/new")
+	} else if servers := sent[i]["params"].(map[string]any)["mcpServers"].([]any); len(servers) != 1 ||
+		fmt.Sprint(servers[0]) != "map[args:[mcp] command:/bin/rad env:[map[name:RAD_MCP_URL value:http://127.0.0.1:7421/v1/mcp] map[name:RAD_MCP_TOKEN value:secret-token]] name:rad]" {
+		t.Errorf("mcpServers = %v", servers)
 	}
 
 	if got := texts(turn.ItemsOf(model.ItemReasoning)); !slices.Equal(got, []string{

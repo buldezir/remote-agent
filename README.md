@@ -13,6 +13,7 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac, an And
   - answer the agent's questions
   - review per-turn git diffs and revert them
   - fork a session after any of its turns, with the same agent or another, in a worktree with the files as they were then
+  - let agents start and drive sessions of their own, with other agents, through rad's MCP tools
   - update rad and the agents, and sign an agent in again, without going to the computer
   - get a notification on the Mac when a session needs you or finishes
   - see which sessions finished while you were away, marked unread until you open them
@@ -290,6 +291,11 @@ ra
 - **Fork:** a session's ⋯ menu has *Fork…*, which starts a new session that goes on after one of its turns, the last one unless you pick another. The fork starts with the transcript up to that turn; the original stays as it is.
   - **Agent:** the same agent picks up its own conversation, cut after that turn: Claude Code and Codex copy it themselves. Pick another agent, or one that can't copy its conversation (Pi, ACP agents), and it gets the conversation as a transcript with the fork's first prompt.
   - **Files:** in a git project, *Isolated git worktree* gives the fork its own branch with the files as they were after that turn, uncommitted changes included. Without it, the fork works in the project folder as it is now.
+- **Agents that start sessions:** the agents rad runs get its MCP tools (`list_projects`, `list_agents`, `list_sessions`, `start_session`, `send_prompt`, `read_session`, `wait_for_session`, `stop_session`, `fork_session`), so you can ask one to hand work to other agents, or to run it in parallel, and to report back. The sessions it starts show up in the apps like any other, beginning with a note of who started them, and their approvals and questions come to you: the agent can't answer them.
+  - **Permissions:** a session an agent starts gets that agent's own permission mode with the same agent, or else the other agent's default mode. An agent can't start one that asks you less than it does. Sessions started this way can start others, three deep at most.
+  - **Which agents:** Claude Code and Codex reach the tools over HTTP, ACP agents through `rad mcp`; Pi has no MCP client. The tool calls show in the session like any other, and the agent may ask you first, as it does for other tools.
+  - **Agents you run yourself:** `claude mcp add rad -- rad mcp` (or `codex mcp add rad -- rad mcp`) gives Claude Code or Codex in a terminal the same tools on the rad that serves this config. `rad mcp` adds itself as a device, "rad mcp", the first time; `rad devices revoke` takes it away. A device's tools start sessions in any mode.
+  - `mcp: false` in the config leaves the tools out.
 - **Commands:** a session's ⋯ menu runs slash commands. For now there is `/compact`, which has the agent summarize the conversation so far to free up context, for Claude Code, Codex and Pi. The transcript marks it with *Context compacted*, and the context gauge drops.
   - Typing `/compact` as a prompt does the same, and `/compact <instructions>` tells Claude Code or Pi what the summary should keep; Codex takes no instructions for it.
   - Claude Code runs it itself. rad runs it with Codex's and Pi's own compaction, since they don't take `/compact` in a prompt.
@@ -337,6 +343,7 @@ rad devices revoke <id-prefix>    revoke one; its open connections close within 
 rad install-service [--uninstall]  run rad in the background (launchd on macOS, systemd on Linux)
 rad update [--check] [--now]      install the latest release over this rad and restart its service
 rad uninstall [--yes]             remove the service, config, data, worktrees and checkpoints
+rad mcp                           rad's MCP tools on stdio, for an agent you run yourself (claude mcp add rad -- rad mcp)
 rad debug run --harness claude --cwd DIR [--mode M] [--model M] [--effort E] [--worktree] [--approve] [--diff] "prompt"
 rad debug prompt <sessionId> "…"  follow-up turn, streamed to the terminal
 rad debug call <method> '{json}'  raw RPC (see protocol/PROTOCOL.md)
@@ -356,6 +363,7 @@ lan: false                      # also put LAN addresses in the pairing link
 # web_origins: ["localhost:*", "127.0.0.1:*"]          # web pages that may use rad (this is the default; [] for none)
 roots: [~/projects]             # what the phone may browse and add as projects ("~" in quotes for home itself)
 idle_timeout: 30m
+# mcp: false                    # leave rad's MCP tools, which start and drive sessions, out of the agents
 acp:                            # any ACP agent can be added here
   - {id: cursor,   name: Cursor,   command: cursor-agent, args: [acp]}
   - {id: opencode, name: OpenCode, command: opencode,     args: [acp]}
@@ -381,6 +389,7 @@ Unknown keys are errors, so a typo stops rad with the line number rather than be
 - Revoking a device closes its live sockets.
 - The phone can browse and add only folders under `roots`.
 - Permission modes are enforced by each agent itself. rad never auto-approves on the agent's behalf.
+- Each session's agent gets a token of its own for rad's MCP tools, which lapses when the session is archived or deleted, or rad restarts. Claude Code and Codex read it from their environment, not their command line. With it, the agent can start and drive sessions, but not answer their approvals, nor start one in a mode that asks less than its own.
 - Pi has no permission modes: it runs tools without asking.
 
 ## Layout

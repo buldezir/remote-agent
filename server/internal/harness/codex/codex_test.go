@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,7 +29,7 @@ func TestReplayShellCommandWithApproval(t *testing.T) {
 	h := New(config.Command{Command: exe, Env: env})
 	diag := filepath.Join(t.TempDir(), "diag.ndjson")
 	rt, err := h.Open(context.Background(), harness.OpenOptions{SessionID: "local", Cwd: cwd, Mode: "untrusted",
-		Instructions: "Show images as Markdown.", DiagPath: diag})
+		Instructions: "Show images as Markdown.", DiagPath: diag, MCP: &harness.MCPServer{URL: "http://127.0.0.1:7421/v1/mcp", Token: "secret-token"}})
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -36,6 +37,9 @@ func TestReplayShellCommandWithApproval(t *testing.T) {
 	if i := slices.IndexFunc(sent, func(f map[string]any) bool { return f["method"] == "thread/start" }); i < 0 ||
 		sent[i]["params"].(map[string]any)["developerInstructions"] != "Show images as Markdown." {
 		t.Errorf("thread/start lacks the instructions: %v", sent)
+	} else if cfg := fmt.Sprint(sent[i]["params"].(map[string]any)["config"]); cfg !=
+		"map[mcp_servers.rad:map[bearer_token_env_var:RAD_MCP_TOKEN tool_timeout_sec:3700 url:http://127.0.0.1:7421/v1/mcp]]" {
+		t.Errorf("config = %s, want rad's MCP server, with its token in the environment", cfg)
 	}
 	const threadID = "01a11df1-fdad-7021-bc6b-dfdb9956398c"
 	if rt.NativeID() != threadID {

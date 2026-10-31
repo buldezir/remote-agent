@@ -42,6 +42,8 @@ type ForkParams struct {
 	Images    []string         `json:"images,omitempty"`
 	Title     string           `json:"title,omitempty"`
 	Draft     bool             `json:"draft,omitempty"`
+	// StartedBy is the session whose agent made the fork with rad's tools.
+	StartedBy string `json:"-"`
 }
 
 const forkSuffix = " (fork)"
@@ -178,6 +180,11 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 	})
 	if err != nil {
 		return nil, err
+	}
+	if p.StartedBy != "" {
+		o.mu.Lock()
+		o.parents[s.ID] = p.StartedBy
+		o.mu.Unlock()
 	}
 	o.log.Info("session forked", "session", s.ID, "from", src.ID, "turn", at.N, "harness", harnessID, "items", len(copied),
 		"worktree", s.Workspace.Kind == model.WorkspaceWorktree, "device", clientOf(ctx))
@@ -361,7 +368,7 @@ func (a *actor) handoff(ctx context.Context, except string) string {
 		if it.ID == except {
 			continue
 		}
-		if e := handoffLine(it); e != "" {
+		if e := TranscriptLine(it); e != "" {
 			if first < 0 && it.Kind == model.ItemUserMessage {
 				first = len(entries)
 			}
@@ -399,9 +406,10 @@ func (a *actor) handoff(ctx context.Context, except string) string {
 	return b.String()
 }
 
-// handoffLine is an item as the transcript of a handoff shows it, or "" for
-// what it leaves out: reasoning, a subagent's work, and prompts that never ran.
-func handoffLine(it *model.Item) string {
+// TranscriptLine is an item as the transcript of a handoff, or of an MCP
+// tool's read, shows it to an agent, or "" for what it leaves out: reasoning,
+// a subagent's work, and prompts that never ran.
+func TranscriptLine(it *model.Item) string {
 	switch it.Kind {
 	case model.ItemUserMessage:
 		if it.TurnID == "" {

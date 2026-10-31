@@ -65,6 +65,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/terminal", s.terminal)
 	mux.HandleFunc("POST /v1/images", s.uploadImage)
 	mux.HandleFunc("GET /v1/images/{id}", s.getImage)
+	mux.HandleFunc("/v1/mcp", s.mcpHandler)
 	return s.cors(mux)
 }
 

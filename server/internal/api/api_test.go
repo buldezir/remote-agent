@@ -36,6 +36,7 @@ import (
 type testServer struct {
 	url  string
 	st   *store.Store
+	orch *orchestrator.Orchestrator
 	root string
 }
 
@@ -63,7 +64,7 @@ func startServer(t *testing.T) *testServer {
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	t.Cleanup(terms.Shutdown) // first: httptest doesn't wait for the terminal sockets' handlers
-	return &testServer{url: ts.URL, st: st, root: root}
+	return &testServer{url: ts.URL, st: st, orch: orch, root: root}
 }
 
 func (s *testServer) pair(t *testing.T, code string) (*http.Response, map[string]any) {

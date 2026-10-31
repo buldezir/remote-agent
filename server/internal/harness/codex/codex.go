@@ -154,6 +154,14 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	}
 	spec := h.spec(o.Cwd)
 	spec.DiagPath = o.DiagPath
+	if o.MCP != nil {
+		// Codex reads the token from its environment, not its arguments.
+		env := map[string]string{harness.MCPTokenEnv: o.MCP.Token}
+		for k, v := range spec.Env {
+			env[k] = v
+		}
+		spec.Env = env
+	}
 	p, err := proc.Start(spec)
 	if err != nil {
 		return nil, err
@@ -184,6 +192,12 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	}
 	if o.Instructions != "" {
 		params["developerInstructions"] = o.Instructions
+	}
+	if o.MCP != nil {
+		// A dotted key adds rad's server to the user's own. Waiting on another
+		// session can take a while.
+		params["config"] = map[string]any{"mcp_servers." + harness.MCPName: map[string]any{
+			"url": o.MCP.URL, "bearer_token_env_var": harness.MCPTokenEnv, "tool_timeout_sec": 3700}}
 	}
 	var res struct {
 		Thread struct {
