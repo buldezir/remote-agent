@@ -39,6 +39,7 @@ func TestReplayUsageLimits(t *testing.T) {
 	if turn.End.Status != model.TurnCompleted || turn.End.Limit != nil {
 		t.Errorf("end = %+v", turn.End)
 	}
+	replaytest.CloseClean(t, rt) // and the player reaches the end
 }
 
 // A request Claude refused for the 5-hour limit fails the turn on it. The
@@ -59,6 +60,7 @@ func TestReplayLimitReached(t *testing.T) {
 		turn.End.Error != "You've hit your limit · resets 7:30am (Europe/Berlin)" {
 		t.Errorf("end = %+v, limit %+v", turn.End, turn.End.Limit)
 	}
+	replaytest.CloseClean(t, rt) // and the player reaches the end
 }
 
 func TestUsageLimitsFromEvent(t *testing.T) {

@@ -161,6 +161,7 @@ func TestReplayCompact(t *testing.T) {
 	if turn.End.Status != model.TurnCompleted {
 		t.Errorf("end = %+v", turn.End)
 	}
+	replaytest.CloseClean(t, rt)
 }
 
 // TestReplayFork replays a fork's first turn: Codex copied the thread it

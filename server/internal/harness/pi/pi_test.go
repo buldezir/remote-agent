@@ -351,6 +351,7 @@ func TestReplayCompact(t *testing.T) {
 	if u := turn.End.Usage; turn.End.Status != model.TurnCompleted || u == nil || u.InputTokens != 5900 || u.OutputTokens != 40 || u.CostUSD != 0.01204 {
 		t.Errorf("end = %+v, usage %+v; want completed with the summary's usage", turn.End, u)
 	}
+	replaytest.CloseClean(t, rt)
 }
 
 func TestReplaySkills(t *testing.T) {
