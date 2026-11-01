@@ -1515,6 +1515,9 @@ func TestDelete(t *testing.T) {
 		t.Errorf("session stream after %d: last %d, %+v", streamSeq, last, evs)
 	}
 	evs, _, _ = e.st.Changes(bg, model.IndexStream, indexSeq)
+	// The usage limits the fake reports as the turn starts are the account's,
+	// and may land after indexSeq.
+	evs = slices.DeleteFunc(evs, func(ev model.Event) bool { return ev.Type == model.EvLimitsUpserted })
 	if len(evs) != 1 || evs[0].Type != model.EvSessionRemoved || evs[0].ID != s.ID {
 		t.Errorf("index events = %+v", evs)
 	}
