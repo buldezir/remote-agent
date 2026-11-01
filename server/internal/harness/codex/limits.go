@@ -79,7 +79,7 @@ func (h *Harness) ReadLimits(ctx context.Context) (model.UsageLimits, error) {
 	defer p.Stop(time.Second)
 	c := jsonrpc.New(p, "", jsonrpc.Handler{})
 	go c.Run()
-	if err := initialize(ctx, c); err != nil {
+	if err := initialize(ctx, c, false); err != nil {
 		return model.UsageLimits{}, err
 	}
 	return callReadLimits(ctx, c)

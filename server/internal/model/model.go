@@ -416,6 +416,20 @@ type HarnessInfo struct {
 	DefaultMode string      `json:"defaultMode,omitempty"`
 	Commands    []Command   `json:"commands,omitempty"` // slash commands the composer suggests besides the session's own
 	Caps        HarnessCaps `json:"caps"`
+
+	// AgentMode is the mode the sessions an agent starts through rad's MCP
+	// tools take when they can't take its own: one that asks, where the
+	// default doesn't. Empty: DefaultMode. rad's alone; clients don't see it.
+	AgentMode string `json:"-"`
+}
+
+// AgentDefaultMode is the mode the sessions agents start take by default
+// (AgentMode).
+func (h HarnessInfo) AgentDefaultMode() string {
+	if h.AgentMode != "" {
+		return h.AgentMode
+	}
+	return h.DefaultMode
 }
 
 // UsageLimits is how much of its plan's usage an agent's account has used,

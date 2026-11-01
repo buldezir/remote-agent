@@ -279,6 +279,56 @@ func (o otherAgent) Probe(ctx context.Context) model.HarnessInfo {
 	return info
 }
 
+// yoloAgent is the fake agent with a default that doesn't ask, as Claude
+// Code's and Codex's Yolo, and an AgentMode that does.
+type yoloAgent struct{ fake.Harness }
+
+func (yoloAgent) ID() string { return "yolo" }
+
+func (o yoloAgent) Probe(ctx context.Context) model.HarnessInfo {
+	info := o.Harness.Probe(ctx)
+	info.ID, info.Name, info.DefaultMode, info.AgentMode = "yolo", "Yolo", "auto", "ask"
+	return info
+}
+
+// The sessions an agent starts take its own mode or the agent's AgentMode,
+// not a default that asks less.
+func TestMCPAgentMode(t *testing.T) {
+	s := startServer(t, yoloAgent{})
+	dev := s.mcp(t, s.token(t))
+	dir := filepath.Join(s.root, "app")
+	os.MkdirAll(dir, 0o755)
+	var agents struct {
+		Agents []struct{ ID, DefaultMode string } `json:"agents"`
+	}
+	dev.ok("list_agents", nil, &agents)
+	for _, a := range agents.Agents {
+		if a.ID == "yolo" && a.DefaultMode != "ask" {
+			t.Errorf("list_agents' default mode = %s, want the one agents may choose", a.DefaultMode)
+		}
+	}
+	start := func(c *mcpClient, args map[string]any) mcpSession {
+		t.Helper()
+		args["project"], args["agent"] = dir, "yolo"
+		var sess mcpSession
+		c.ok("start_session", args, &sess)
+		c.ok("wait_for_session", map[string]any{"session": sess.ID}, nil)
+		return sess
+	}
+	// A device's session gets the default.
+	if top := start(dev, map[string]any{"prompt": "hello"}); top.Mode != "auto" {
+		t.Errorf("device's session = %+v", top)
+	} else if child := start(s.mcp(t, s.orch.AgentToken(top.ID)), map[string]any{"prompt": "help"}); child.Mode != "auto" {
+		t.Errorf("an agent in the default gets its own mode: %+v", child)
+	}
+	asking := start(dev, map[string]any{"prompt": "hello", "mode": "ask"})
+	agent := s.mcp(t, s.orch.AgentToken(asking.ID))
+	if child := start(agent, map[string]any{"prompt": "help"}); child.Mode != "ask" {
+		t.Errorf("an asking agent's child = %+v", child)
+	}
+	agent.fails("start_session", map[string]any{"project": dir, "agent": "yolo", "prompt": "x", "mode": "auto"}, "choose ask")
+}
+
 func TestMCPDefaultAgent(t *testing.T) {
 	s := startServer(t, otherAgent{})
 	ctx := context.Background()

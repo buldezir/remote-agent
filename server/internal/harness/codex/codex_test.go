@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"testing"
+	"time"
 
 	"remote-agent/internal/config"
 	"remote-agent/internal/harness"
@@ -279,5 +280,162 @@ func TestReplaySteer(t *testing.T) {
 		"input": []any{map[string]any{"type": "text", "text": "Also end your reply with the word: banana."}}}
 	if len(steers) != 3 || !reflect.DeepEqual(steers[0], want) {
 		t.Errorf("turn/steer params = %v", steers)
+	}
+}
+
+// Codex takes the approval policy with each turn, so a turn that started
+// asking still asks after the mode changed to Full access. The adapter
+// answers for it: the request waiting as the mode changes, and those after.
+func TestReplayFullAccessMidTurn(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode string
+		switchAt   bool // change to Full access at the approval
+	}{{"switched", "untrusted", true}, {"already full", "full", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			cwd := filepath.Join(root, "codex-rec/ws")
+			if err := os.MkdirAll(cwd, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			exe, env := replaytest.Command(t, "testdata/run.ndjson", root)
+			diag := filepath.Join(t.TempDir(), "diag.ndjson")
+			rt, err := New(config.Command{Command: exe, Env: env}).Open(context.Background(),
+				harness.OpenOptions{SessionID: "local", Cwd: cwd, Mode: tc.mode, DiagPath: diag})
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			if err := rt.Prompt(ctx, harness.Input{Text: "Create hello.txt."}); err != nil {
+				t.Fatal(err)
+			}
+			var asked []string
+			var resolved []harness.ApprovalResolved
+		loop:
+			for {
+				select {
+				case ev := <-rt.Events():
+					switch ev := ev.(type) {
+					case harness.ApprovalEvent:
+						asked = append(asked, ev.ID)
+						if !tc.switchAt {
+							t.Fatalf("asked in Full access: %+v", ev.Approval)
+						}
+						if err := rt.SetMode(ctx, "full"); err != nil {
+							t.Fatal(err)
+						}
+					case harness.ApprovalResolved:
+						resolved = append(resolved, ev)
+					case harness.TurnEnded:
+						if ev.Status != model.TurnCompleted {
+							t.Errorf("turn = %+v", ev)
+						}
+						break loop
+					}
+				case <-ctx.Done():
+					t.Fatal("timed out")
+				}
+			}
+			if tc.switchAt && len(asked) != 1 {
+				t.Fatalf("asked %d times, want once", len(asked))
+			}
+			var want []harness.ApprovalResolved
+			for _, id := range asked {
+				want = append(want, harness.ApprovalResolved{ID: id, OptionID: "allow"})
+			}
+			if !slices.Equal(resolved, want) {
+				t.Errorf("resolved = %v, want %v", resolved, want)
+			}
+			if err := rt.Respond(ctx, "req-1", harness.Response{OptionID: "deny"}); err == nil {
+				t.Error("answered a request twice")
+			}
+			replaytest.CloseClean(t, rt)
+			_, sent := replaytest.Diag(t, diag)
+			var replies []string
+			for _, f := range sent {
+				if f["method"] == nil && f["result"] != nil {
+					replies = append(replies, fmt.Sprint(f["result"]))
+				}
+			}
+			if !slices.Contains(replies, "map[decision:accept]") {
+				t.Errorf("replies = %v, want the command accepted", replies)
+			}
+		})
+	}
+}
+
+// The picker's modes: Yolo, Plan and Auto, Yolo first.
+func TestModes(t *testing.T) {
+	h := New(config.Command{Command: "/nonexistent/codex"})
+	info := h.Probe(context.Background())
+	var ids []string
+	for _, m := range info.Modes {
+		ids = append(ids, m.ID)
+		if _, ok := presets[m.ID]; !ok {
+			t.Errorf("mode %s has no preset", m.ID)
+		}
+	}
+	if !slices.Equal(ids, []string{"full", "plan", "auto"}) || info.DefaultMode != "full" || info.AgentDefaultMode() != "auto" {
+		t.Errorf("modes = %v, default %s, agents' %s", ids, info.DefaultMode, info.AgentDefaultMode())
+	}
+
+	r := &runtime{model: "gpt-6.1-sol", effort: "high"}
+	plan := map[string]any{"mode": "plan", "settings": map[string]any{"model": "gpt-6.1-sol", "reasoning_effort": "high"}}
+	off := map[string]any{"mode": "default", "settings": map[string]any{"model": "gpt-6.1-sol", "reasoning_effort": "high"}}
+	for _, tc := range []struct {
+		mode     string
+		planned  bool
+		approval string
+		reviewer string
+		collab   any
+	}{
+		{"plan", false, "on-request", "user", plan},
+		{"auto", true, "on-request", "auto_review", off}, // the turn after a plan's leaves it
+		{"auto", false, "on-request", "auto_review", nil},
+		{"full", true, "never", "user", off},
+		{"full", false, "never", "user", nil},
+	} {
+		p := r.modeParams(presets[tc.mode], tc.planned)
+		if p["approvalPolicy"] != tc.approval || p["approvalsReviewer"] != tc.reviewer || !reflect.DeepEqual(p["collaborationMode"], tc.collab) {
+			t.Errorf("%s (after plan: %v): %v", tc.mode, tc.planned, p)
+		}
+	}
+}
+
+// Plan mode needs Codex's experimental fields, and the thread starts read-only.
+func TestReplayPlanMode(t *testing.T) {
+	root := t.TempDir()
+	cwd := filepath.Join(root, "codex-rec/ws")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe, env := replaytest.Command(t, "testdata/run.ndjson", root)
+	diag := filepath.Join(t.TempDir(), "diag.ndjson")
+	rt, err := New(config.Command{Command: exe, Env: env}).Open(context.Background(),
+		harness.OpenOptions{SessionID: "local", Cwd: cwd, Mode: "plan", DiagPath: diag})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	replaytest.RunTurn(t, rt, "Plan hello.txt.", func(harness.ApprovalEvent) string { return "allow" })
+	replaytest.CloseClean(t, rt)
+	_, sent := replaytest.Diag(t, diag)
+	params := func(method string) map[string]any {
+		for _, f := range sent {
+			if f["method"] == method {
+				return f["params"].(map[string]any)
+			}
+		}
+		t.Fatalf("no %s in %v", method, sent)
+		return nil
+	}
+	if got := fmt.Sprint(params("initialize")["capabilities"]); got != "map[experimentalApi:true]" {
+		t.Errorf("capabilities = %s", got)
+	}
+	if p := params("thread/start"); p["sandbox"] != "read-only" || p["approvalsReviewer"] != "user" {
+		t.Errorf("thread/start = %v", p)
+	}
+	// The model is the one thread/start answered with.
+	if got := fmt.Sprint(params("turn/start")["collaborationMode"]); got != "map[mode:plan settings:map[model:gpt-5.6-sol]]" {
+		t.Errorf("collaborationMode = %s", got)
 	}
 }

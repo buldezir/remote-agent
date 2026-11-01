@@ -1231,6 +1231,36 @@ func TestAgentMovesToItsOwnWorktree(t *testing.T) {
 	}
 }
 
+// A mode that doesn't ask answers the approval that waits as it changes, as
+// Codex's adapter does when it changes to Full access mid-turn.
+func TestSetModeAllowsPendingApproval(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	s := e.create(CreateSessionParams{Mode: "ask", Prompt: "please write foo.txt now"})
+	ap := e.pendingApproval(s.ID)
+	if err := e.o.SetMode(bg, s.ID, "auto"); err != nil {
+		t.Fatal(err)
+	}
+	if turn := e.waitTurn(s.ID, 1); turn.Status != model.TurnCompleted {
+		t.Errorf("turn = %+v", turn)
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, "foo.txt")); err != nil {
+		t.Error(err)
+	}
+	var got *model.Item
+	for _, it := range e.items(s.ID) {
+		if it.ID == ap.ID {
+			got = it
+		}
+	}
+	if got == nil || got.Status != model.ItemResolved || got.Approval.Decision == nil || got.Approval.Decision.OptionID != "allow" {
+		t.Errorf("approval = %+v", got)
+	}
+	if err := e.o.Respond(bg, s.ID, ap.ID, harness.Response{OptionID: "deny"}, "late"); CodeOf(err) != CodeConflict {
+		t.Errorf("answering it after: %v", err)
+	}
+}
+
 func TestSetModeAndArchive(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, true)

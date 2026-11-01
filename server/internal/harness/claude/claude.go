@@ -45,13 +45,12 @@ func (*Harness) SupportsFork() bool { return true }
 
 func (h *Harness) ID() string { return "claude" }
 
+// Claude Code's other modes (default, acceptEdits, dontAsk) still work for
+// the sessions that have them, but the picker offers only these.
 var modes = []model.Choice{
-	{ID: "default", Name: "Ask", Description: "Ask before edits and commands"},
-	{ID: "acceptEdits", Name: "Accept edits", Description: "Edit files freely; ask before commands"},
+	{ID: "bypassPermissions", Name: "Yolo", Description: "Never ask: edit and run anything"},
 	{ID: "plan", Name: "Plan", Description: "Read-only; propose a plan first"},
 	{ID: "auto", Name: "Auto", Description: "A classifier approves safe actions; ask for the rest"},
-	{ID: "dontAsk", Name: "Don't ask", Description: "Deny anything not pre-approved"},
-	{ID: "bypassPermissions", Name: "Bypass permissions", Description: "Never ask. Dangerous."},
 }
 
 func (h *Harness) baseArgs() []string {
@@ -79,7 +78,7 @@ func (h *Harness) spec(cwd string, extra ...string) proc.Spec {
 
 func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 	info := model.HarnessInfo{
-		ID: "claude", Name: "Claude Code", Protocol: "claude", Modes: modes, DefaultMode: "default",
+		ID: "claude", Name: "Claude Code", Protocol: "claude", Modes: modes, DefaultMode: "bypassPermissions", AgentMode: "auto",
 		Commands: []model.Command{harness.Compact},
 		Caps:     model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, ModelSelect: true, FreeModel: true, Steer: true},
 	}

@@ -592,9 +592,12 @@ func (r *runtime) currentMode() string {
 func (r *runtime) ask(ctx context.Context, id string, a model.Approval) (harness.Response, bool) {
 	ch := make(chan harness.Response, 1)
 	r.mu.Lock()
+	// Together, so that SetMode answers only approvals the orchestrator has.
 	r.approvals[id] = ch
+	if !r.closed {
+		r.events <- harness.ApprovalEvent{ID: id, Approval: a}
+	}
 	r.mu.Unlock()
-	r.emit(harness.ApprovalEvent{ID: id, Approval: a})
 	defer func() {
 		r.mu.Lock()
 		delete(r.approvals, id)
@@ -621,6 +624,7 @@ func (r *runtime) Interrupt(context.Context) error {
 func (r *runtime) Respond(_ context.Context, id string, resp harness.Response) error {
 	r.mu.Lock()
 	ch, ok := r.approvals[id]
+	delete(r.approvals, id)
 	r.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("no pending approval %q", id)
@@ -632,6 +636,19 @@ func (r *runtime) Respond(_ context.Context, id string, resp harness.Response) e
 func (r *runtime) SetMode(_ context.Context, mode string) error {
 	r.mu.Lock()
 	r.mode = mode
+	if mode == "auto" {
+		// Like Codex in Full access: Auto allows the writes waiting for an
+		// answer, as it would have without asking. Questions still wait.
+		for id, ch := range r.approvals {
+			if strings.HasSuffix(id, "-approval") {
+				delete(r.approvals, id)
+				ch <- harness.Response{OptionID: "allow"}
+				if !r.closed {
+					r.events <- harness.ApprovalResolved{ID: id, OptionID: "allow"}
+				}
+			}
+		}
+	}
 	r.mu.Unlock()
 	r.emit(harness.ModeChanged{Mode: mode})
 	return nil

@@ -226,7 +226,7 @@ func (s *Server) toolListAgents(ctx context.Context, _ json.RawMessage) (any, er
 	res := map[string]any{}
 	for _, h := range s.orch.Registry().Installed(ctx, false) {
 		if h.AuthOK {
-			sum := agentSummary{h.ID, h.Name, h.Models, h.Efforts, h.Modes, h.DefaultMode, h.Caps.Steer, nil}
+			sum := agentSummary{h.ID, h.Name, h.Models, h.Efforts, h.Modes, h.AgentDefaultMode(), h.Caps.Steer, nil}
 			if l, ok := limits[h.ID]; ok {
 				sum.Limits = &l
 			}
@@ -434,7 +434,7 @@ func (s *Server) agent(ctx context.Context, a agentArgs) (agentArgs, error) {
 	if own == nil {
 		return a, nil
 	}
-	allowed := []string{info.DefaultMode}
+	allowed := []string{info.AgentDefaultMode()}
 	if a.Agent == own.Harness && own.Mode != "" {
 		allowed = append(allowed, own.Mode)
 	}

@@ -101,7 +101,7 @@ TerminalMessage {
 
 Without `agent`, a session gets the server's `defaultAgent` while it's signed in, else the calling agent's own, else Claude Code; with the default agent and no `model` (or the default's), the default's model and effort fill in what the call leaves out. A fork that a device asks for keeps its source's agent, and a fork with its source's agent its model and effort.
 
-`session` is an id or a unique start of one (six characters or more). A session's agent can't send to, wait for or stop its own session; it may rename it. The sessions it starts or forks get its own mode with its own agent, or else the agent's default mode: no other mode, so that it can't start one that asks the user less than it does. They begin with a `notice` ("Started by the agent of “…”."), and may start sessions in turn, three deep at most. Approvals and questions of the sessions it starts go to the user, as any session's do; no tool answers them. A device's tools have none of these limits.
+`session` is an id or a unique start of one (six characters or more). A session's agent can't send to, wait for or stop its own session; it may rename it. The sessions it starts or forks get its own mode with its own agent, or else the mode the agent's sessions take when an agent starts them (the default mode, but Auto for Claude Code and Codex, whose default, Yolo, never asks): no other mode, so that it can't start one that asks the user less than it does. They begin with a `notice` ("Started by the agent of “…”."), and may start sessions in turn, three deep at most. Approvals and questions of the sessions it starts go to the user, as any session's do; no tool answers them. A device's tools have none of these limits.
 
 ## Frames
 

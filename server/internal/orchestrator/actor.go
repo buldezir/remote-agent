@@ -471,6 +471,8 @@ func (a *actor) handle(gen int, ev harness.Event) {
 		a.onApproval(ctx, gen, ev)
 	case harness.ApprovalCancelled:
 		a.onApprovalCancelled(ctx, ev.ID)
+	case harness.ApprovalResolved:
+		a.onApprovalResolved(ctx, ev)
 	case harness.TurnStarted:
 		a.onTurnStarted(ctx, ev)
 	case harness.TurnEnded:
@@ -631,6 +633,31 @@ func (a *actor) onApprovalCancelled(ctx context.Context, adapterID string) {
 		return
 	}
 	it.Status = model.ItemCancelled
+	a.syncStatus()
+	a.write(ctx, func(w *store.W) error {
+		if err := a.putItem(w, it); err != nil {
+			return err
+		}
+		return a.putSession(w)
+	})
+}
+
+// onApprovalResolved records the answer the adapter gave a pending approval
+// itself, as if the user had chosen that option.
+func (a *actor) onApprovalResolved(ctx context.Context, ev harness.ApprovalResolved) {
+	id := a.approvalItemByAdapterID(ev.ID)
+	if id == "" {
+		return
+	}
+	delete(a.approvals, id)
+	it := a.items[id]
+	if it == nil || it.Approval == nil {
+		return
+	}
+	ap := *it.Approval
+	ap.Decision = &model.Decision{OptionID: ev.OptionID, At: time.Now().UTC()}
+	it.Approval = &ap
+	it.Status = model.ItemResolved
 	a.syncStatus()
 	a.write(ctx, func(w *store.W) error {
 		if err := a.putItem(w, it); err != nil {

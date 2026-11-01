@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,7 @@ type serverRequest struct {
 	method   string
 	params   json.RawMessage
 	question map[string]userInput // question text -> the question (requestUserInput)
+	shown    bool                 // the ApprovalEvent went out (r.mu)
 }
 
 type userInput struct {
@@ -42,6 +44,7 @@ type runtime struct {
 
 	mu           sync.Mutex
 	mode         string
+	planned      bool // the last turn was in plan mode
 	model        string
 	effort       string
 	turnID       string
@@ -115,13 +118,10 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	}
 	r.inTurn, r.interrupting = true, false
 	pr := presets[r.mode]
+	planned := r.planned
 	r.mu.Unlock()
-	params := map[string]any{
-		"threadId":       r.threadID,
-		"input":          input,
-		"approvalPolicy": pr.approval,
-		"sandboxPolicy":  pr.policy,
-	}
+	params := r.modeParams(pr, planned)
+	params["threadId"], params["input"] = r.threadID, input
 	if r.effort != "" {
 		params["effort"] = r.effort
 	}
@@ -140,8 +140,29 @@ func (r *runtime) Prompt(ctx context.Context, in harness.Input) error {
 	}
 	r.mu.Lock()
 	r.turnID = res.Turn.ID
+	r.planned = pr.plan
 	r.mu.Unlock()
 	return nil
+}
+
+// modeParams are turn/start's parameters for a mode, after a turn in plan
+// mode or not.
+func (r *runtime) modeParams(pr preset, planned bool) map[string]any {
+	params := map[string]any{"approvalPolicy": pr.approval, "sandboxPolicy": pr.policy, "approvalsReviewer": pr.reviewer}
+	if pr.plan || planned {
+		// Plan stays on until a turn turns it off, so the turn after a plan's
+		// says "default". Codex brings the mode's own instructions.
+		settings := map[string]any{"model": r.model}
+		if r.effort != "" {
+			settings["reasoning_effort"] = r.effort
+		}
+		mode := "default"
+		if pr.plan {
+			mode = "plan"
+		}
+		params["collaborationMode"] = map[string]any{"mode": mode, "settings": settings}
+	}
+	return params
 }
 
 // Steer adds the prompt to the running turn with turn/steer: Codex reads it
@@ -241,9 +262,38 @@ func (r *runtime) SetMode(ctx context.Context, mode string) error {
 	}
 	r.mu.Lock()
 	r.mode = mode
+	var allowed []string
+	if neverAsks(mode) {
+		for id, req := range r.requests {
+			if req.shown && allowedUnasked(req.method) {
+				allowed = append(allowed, id)
+			}
+		}
+	}
 	r.mu.Unlock()
-	r.emit(harness.ModeChanged{Mode: mode}) // applied from the next turn
+	// Codex takes the policy with each turn, so the running turn keeps its
+	// own and still asks. A mode that never asks answers those requests here,
+	// both those waiting now and those to come (onRequest).
+	slices.Sort(allowed)
+	for _, id := range allowed {
+		r.allow(ctx, id)
+	}
+	r.emit(harness.ModeChanged{Mode: mode})
 	return nil
+}
+
+// neverAsks reports whether a mode allows everything without asking.
+func neverAsks(mode string) bool { return presets[mode].approval == "never" }
+
+// allowedUnasked reports whether a request is a permission that a mode that
+// never asks grants: commands, file changes and sandbox permissions, not
+// the agent's questions.
+func allowedUnasked(method string) bool {
+	switch method {
+	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval":
+		return true
+	}
+	return false
 }
 
 func (r *runtime) Respond(ctx context.Context, approvalID string, resp harness.Response) error {
@@ -254,6 +304,11 @@ func (r *runtime) Respond(ctx context.Context, approvalID string, resp harness.R
 	if req == nil {
 		return fmt.Errorf("no pending approval %s", approvalID)
 	}
+	return r.answer(req, resp)
+}
+
+// answer replies to one of Codex's requests with the option chosen.
+func (r *runtime) answer(req *serverRequest, resp harness.Response) error {
 	switch req.method {
 	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
 		decision := map[string]string{"allow": "accept", "allow_session": "acceptForSession", "deny": "decline"}[resp.OptionID]
@@ -782,6 +837,14 @@ func (r *runtime) onRequest(id json.RawMessage, method string, raw json.RawMessa
 	}
 	json.Unmarshal(raw, &p)
 	req := &serverRequest{id: id, method: method, params: raw}
+	r.mu.Lock()
+	never := neverAsks(r.mode)
+	r.mu.Unlock()
+	if never && allowedUnasked(method) {
+		// The mode changed to Full access during a turn that started asking.
+		r.answer(req, harness.Response{OptionID: "allow"})
+		return
+	}
 	ap := model.Approval{ToolItemID: p.ItemID, Detail: p.Reason}
 	allowSession := model.ApprovalOption{ID: "allow_session", Label: "Allow for session", Kind: model.OptionAllowSession}
 	std := []model.ApprovalOption{
@@ -845,4 +908,21 @@ func (r *runtime) onRequest(id json.RawMessage, method string, raw json.RawMessa
 	r.requests[aid] = req
 	r.mu.Unlock()
 	r.emit(harness.ApprovalEvent{ID: aid, Approval: ap})
+	// SetMode answers only the requests it finds shown, so that ApprovalResolved
+	// follows the ApprovalEvent; one shown as the mode changed is answered here.
+	r.mu.Lock()
+	req.shown = true
+	late := neverAsks(r.mode) && allowedUnasked(method) && r.requests[aid] == req
+	r.mu.Unlock()
+	if late {
+		r.allow(context.Background(), aid)
+	}
+}
+
+// allow answers a pending request with "allow" for the user, unless they
+// answered it first.
+func (r *runtime) allow(ctx context.Context, id string) {
+	if r.Respond(ctx, id, harness.Response{OptionID: "allow"}) == nil {
+		r.emit(harness.ApprovalResolved{ID: id, OptionID: "allow"})
+	}
 }

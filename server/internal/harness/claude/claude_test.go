@@ -625,3 +625,16 @@ func TestReplaySteerLeftUnread(t *testing.T) {
 	}
 	replaytest.CloseClean(t, rt)
 }
+
+// The picker's modes: Yolo, Plan and Auto, Yolo first. Sessions that agents
+// start through rad's MCP tools take Auto, unless they can take the agent's.
+func TestModes(t *testing.T) {
+	info := New(config.Command{Command: "/nonexistent/claude"}).Probe(context.Background())
+	var ids []string
+	for _, m := range info.Modes {
+		ids = append(ids, m.ID)
+	}
+	if !slices.Equal(ids, []string{"bypassPermissions", "plan", "auto"}) || info.DefaultMode != "bypassPermissions" || info.AgentDefaultMode() != "auto" {
+		t.Errorf("modes = %v, default %s, agents' %s", ids, info.DefaultMode, info.AgentDefaultMode())
+	}
+}

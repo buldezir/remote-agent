@@ -38,25 +38,29 @@ func (*Harness) SupportsFork() bool { return true }
 
 func (h *Harness) ID() string { return "codex" }
 
-// Modes are presets over (approvalPolicy, sandbox), like Codex's /approvals.
+// Modes are presets over (approvalPolicy, sandbox, approvalsReviewer), like
+// Codex's /approvals, and Plan is Codex's plan collaboration mode.
 type preset struct {
 	approval string
 	sandbox  string // thread/start form
 	policy   map[string]any
+	reviewer string // who answers approval requests: the user, or Codex's auto_review agent
+	plan     bool
 }
 
 var presets = map[string]preset{
-	"untrusted": {"untrusted", "workspace-write", map[string]any{"type": "workspaceWrite"}},
-	"read-only": {"on-request", "read-only", map[string]any{"type": "readOnly"}},
-	"auto":      {"on-request", "workspace-write", map[string]any{"type": "workspaceWrite"}},
-	"full":      {"never", "danger-full-access", map[string]any{"type": "dangerFullAccess"}},
+	"full": {"never", "danger-full-access", map[string]any{"type": "dangerFullAccess"}, "user", false},
+	"plan": {"on-request", "read-only", map[string]any{"type": "readOnly"}, "user", true},
+	"auto": {"on-request", "workspace-write", map[string]any{"type": "workspaceWrite"}, "auto_review", false},
+	// The picker's earlier modes, for the sessions that have them.
+	"untrusted": {"untrusted", "workspace-write", map[string]any{"type": "workspaceWrite"}, "user", false},
+	"read-only": {"on-request", "read-only", map[string]any{"type": "readOnly"}, "user", false},
 }
 
 var modes = []model.Choice{
-	{ID: "untrusted", Name: "Ask", Description: "Ask before running commands that aren't known-safe"},
-	{ID: "read-only", Name: "Read only", Description: "Read files; ask before any change"},
-	{ID: "auto", Name: "Auto", Description: "Edit and run commands in the workspace; ask to go beyond it"},
-	{ID: "full", Name: "Full access", Description: "No sandbox, never ask. Dangerous."},
+	{ID: "full", Name: "Yolo", Description: "No sandbox, never ask: edit and run anything"},
+	{ID: "plan", Name: "Plan", Description: "Read-only; propose a plan first"},
+	{ID: "auto", Name: "Auto", Description: "Work in the workspace; Codex's reviewer approves going beyond it, or asks"},
 }
 
 func (h *Harness) spec(cwd string) proc.Spec {
@@ -69,11 +73,21 @@ type initializeParams struct {
 		Title   string `json:"title"`
 		Version string `json:"version"`
 	} `json:"clientInfo"`
+	Capabilities *initializeCapabilities `json:"capabilities,omitempty"`
 }
 
-func initialize(ctx context.Context, c *jsonrpc.Conn) error {
+type initializeCapabilities struct {
+	ExperimentalAPI bool `json:"experimentalApi"`
+}
+
+// initialize starts the conversation with app-server. experimental opts into
+// Codex's experimental fields, such as turn/start's collaborationMode.
+func initialize(ctx context.Context, c *jsonrpc.Conn, experimental bool) error {
 	var p initializeParams
 	p.ClientInfo.Name, p.ClientInfo.Title, p.ClientInfo.Version = "remote-agent", "Remote Agent", "0.1"
+	if experimental {
+		p.Capabilities = &initializeCapabilities{ExperimentalAPI: true}
+	}
 	if err := c.Call(ctx, "initialize", p, nil); err != nil {
 		return err
 	}
@@ -82,7 +96,7 @@ func initialize(ctx context.Context, c *jsonrpc.Conn) error {
 
 func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 	info := model.HarnessInfo{
-		ID: "codex", Name: "Codex", Protocol: "codex", Modes: modes, DefaultMode: "auto",
+		ID: "codex", Name: "Codex", Protocol: "codex", Modes: modes, DefaultMode: "full", AgentMode: "auto",
 		Commands: []model.Command{harness.Compact},
 		Caps:     model.HarnessCaps{Resume: true, Interrupt: true, SetMode: true, ModelSelect: true, FreeModel: true, Steer: true},
 	}
@@ -102,7 +116,7 @@ func (h *Harness) Probe(ctx context.Context) model.HarnessInfo {
 	defer p.Stop(time.Second)
 	c := jsonrpc.New(p, "", jsonrpc.Handler{})
 	go c.Run()
-	if err := initialize(ctx, c); err != nil {
+	if err := initialize(ctx, c, false); err != nil {
 		info.Hint = "codex app-server failed: " + err.Error()
 		return info
 	}
@@ -182,11 +196,11 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	}
 	ictx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	if err := initialize(ictx, r.conn); err != nil {
+	if err := initialize(ictx, r.conn, true); err != nil {
 		return fail(err)
 	}
 	pr := presets[mode]
-	params := map[string]any{"cwd": o.Cwd, "approvalPolicy": pr.approval, "sandbox": pr.sandbox}
+	params := map[string]any{"cwd": o.Cwd, "approvalPolicy": pr.approval, "sandbox": pr.sandbox, "approvalsReviewer": pr.reviewer}
 	if o.Model != "" {
 		params["model"] = o.Model
 	}
@@ -203,8 +217,11 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
-		Model           string `json:"model"`
-		ReasoningEffort string `json:"reasoningEffort"`
+		Model             string `json:"model"`
+		ReasoningEffort   string `json:"reasoningEffort"`
+		CollaborationMode *struct {
+			Mode string `json:"mode"`
+		} `json:"collaborationMode"`
 	}
 	method := "thread/start"
 	if o.ResumeID != "" {
@@ -223,6 +240,11 @@ func (h *Harness) Open(ctx context.Context, o harness.OpenOptions) (harness.Runt
 	}
 	r.threadID = res.Thread.ID
 	r.emit(harness.NativeID{ID: r.threadID})
+	if r.model == "" {
+		r.model = res.Model // Plan's collaborationMode names it
+	}
+	// A thread resumed or forked in plan mode stays in it until a turn says.
+	r.planned = res.CollaborationMode != nil && res.CollaborationMode.Mode == "plan"
 	if res.Model != "" {
 		effort := res.ReasoningEffort
 		if o.Effort != "" {

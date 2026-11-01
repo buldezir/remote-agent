@@ -119,9 +119,9 @@ func (in Input) Command(name string) (args string, ok bool) {
 }
 
 // Event is emitted by a Runtime. Implementations: ItemEvent, ApprovalEvent,
-// ApprovalCancelled, TurnStarted, TurnEnded, NativeID, ModeChanged,
-// ContextUsage, ModelInfo, BackgroundTasks, WorkdirChanged, UsageLimits,
-// Exited.
+// ApprovalCancelled, ApprovalResolved, TurnStarted, TurnEnded, NativeID,
+// ModeChanged, ContextUsage, ModelInfo, BackgroundTasks, WorkdirChanged,
+// UsageLimits, Exited.
 type Event interface{ isEvent() }
 
 // ItemEvent carries the full current state of a transcript item. Item.ID and
@@ -138,6 +138,11 @@ type ApprovalEvent struct {
 
 // ApprovalCancelled withdraws a pending approval (e.g. the turn was interrupted).
 type ApprovalCancelled struct{ ID string }
+
+// ApprovalResolved reports a pending approval the adapter answered itself,
+// with one of its options, such as when the mode changed to one that never
+// asks.
+type ApprovalResolved struct{ ID, OptionID string }
 
 // TurnStarted reports a turn the agent began on its own, such as to report
 // on a background task that ended. Turns that Prompt starts don't send it.
@@ -186,6 +191,7 @@ type Exited struct{ Err error }
 func (ItemEvent) isEvent()         {}
 func (ApprovalEvent) isEvent()     {}
 func (ApprovalCancelled) isEvent() {}
+func (ApprovalResolved) isEvent()  {}
 func (TurnStarted) isEvent()       {}
 func (TurnEnded) isEvent()         {}
 func (NativeID) isEvent()          {}

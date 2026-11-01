@@ -282,7 +282,7 @@ ra
 
 - **New session:**
   1. Pick a project folder; you can browse anything under `roots` from the config.
-  2. Pick an agent, a model, an effort and a permission mode. The app remembers what you last started each agent with. Beside Claude Code and Codex, a gauge shows how much of their plan's limits they've used (see [Usage limits](#managing-a-server-from-the-apps)).
+  2. Pick an agent, a model, an effort and a permission mode. Claude Code and Codex offer three: **Yolo**, the default, which never asks; **Plan**, which only reads and proposes a plan; and **Auto**, where a reviewer approves the safe actions (Claude Code's classifier, Codex's `auto_review` agent) and asks you about the rest. The app remembers what you last started each agent with. Beside Claude Code and Codex, a gauge shows how much of their plan's limits they've used (see [Usage limits](#managing-a-server-from-the-apps)).
   3. Optionally choose **Isolated git worktree**, which puts the agent on its own branch in `~/Library/Application Support/remote-agent/worktrees/…`.
   4. Write the first prompt, or leave it empty to open the session and write it there.
 - **Images:** the + beside the prompt attaches photos, image files or the clipboard's image. You can also drop images on the session. The app scales them to 2048 px and strips their metadata before uploading.
@@ -311,7 +311,7 @@ ra
   - It waits until the agent's turn ends, and prompts you send while it commits wait for it. The transcript notes what was committed, pushed and opened, and the agent hears of it with your next prompt.
 - **Agents that start sessions:** the agents rad runs get its MCP tools (`list_projects`, `list_agents`, `list_sessions`, `start_session`, `send_prompt`, `read_session`, `wait_for_session`, `stop_session`, `rename_session`, `fork_session`), so you can ask one to hand work to other agents, or to run it in parallel, and to report back. The sessions it starts show up in the apps like any other, beginning with a note of who started them, and their approvals and questions come to you: the agent can't answer them.
   - **Which agent:** unless the agent names one, a session it starts gets the default agent, model and effort from Server Settings (see [Managing a server from the apps](#managing-a-server-from-the-apps)), and without one, the agent's own.
-  - **Permissions:** a session an agent starts gets that agent's own permission mode with the same agent, or else the other agent's default mode. An agent can't start one that asks you less than it does. Sessions started this way can start others, three deep at most.
+  - **Permissions:** a session an agent starts gets that agent's own permission mode with the same agent, or else the other agent's default mode, which for Claude Code and Codex is Auto, not Yolo. An agent can't start one that asks you less than it does. Sessions started this way can start others, three deep at most.
   - **Which agents:** Claude Code and Codex reach the tools over HTTP, ACP agents through `rad mcp`; Pi has no MCP client. The tool calls show in the session like any other, and the agent may ask you first, as it does for other tools.
   - **Agents you run yourself:** `claude mcp add rad -- rad mcp` (or `codex mcp add rad -- rad mcp`) gives Claude Code or Codex in a terminal the same tools on the rad that serves this config. `rad mcp` adds itself as a device, "rad mcp", the first time; `rad devices revoke` takes it away. A device's tools start sessions in any mode.
   - `mcp: false` in the config leaves the tools out.
@@ -425,7 +425,8 @@ Unknown keys are errors, so a typo stops rad with the line number rather than be
 - Browsers send the origin of the page making a request. rad answers browsers only from the origins in `web_origins`, so another site you visit can't use rad. The apps aren't browsers and aren't affected.
 - Revoking a device closes its live sockets.
 - The phone can browse and add only folders under `roots`.
-- Permission modes are enforced by each agent itself. rad never auto-approves on the agent's behalf.
+- Permission modes are enforced by each agent itself. rad auto-approves only for Codex, when you switch a session to Yolo during a turn: Codex keeps a turn's policy to its end, so rad answers that turn's requests as Yolo would have.
+- New sessions start in Yolo, so agents edit files and run commands without asking. Choose Auto or Plan in the New Session form for a session that should ask.
 - Each session's agent gets a token of its own for rad's MCP tools, which lapses when the session is archived or deleted, or rad restarts. Claude Code and Codex read it from their environment, not their command line. With it, the agent can start and drive sessions, but not answer their approvals, nor start one in a mode that asks less than its own.
 - Pi has no permission modes: it runs tools without asking.
 
