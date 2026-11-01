@@ -25,6 +25,8 @@ struct ServerSplitView: View {
     @State private var deleting: SessionRequest?
     @State private var removing: SavedServer?
     @State private var managing: ServerRequest?
+    @AppStorage("settingsServerID") private var settingsServerID = ""
+    @AppStorage("settingsServerRequest") private var settingsServerRequest = 0
     /// The item a search result opens the session at.
     @State private var itemFocus: ItemFocus?
     /// The search field over the sidebar, or the Columns layout's session list.
@@ -32,8 +34,10 @@ struct ServerSplitView: View {
     @State private var columns = NavigationSplitViewVisibility.automatic
     #if os(macOS)
     @Environment(Notifier.self) private var notifier
+    @Environment(\.openSettings) private var openSettings
     #else
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.showSettings) private var showSettings
     #endif
 
     /// The open session, while its server is still paired.
@@ -115,7 +119,21 @@ struct ServerSplitView: View {
                 archiveOld: { archivingOld = $0 },
                 delete: { deleting = $0 },
                 remove: { removing = $0 },
-                manage: { managing = ServerRequest(connection: $0) },
+                manage: { connection in
+                    #if os(macOS)
+                    settingsServerID = connection.server.id
+                    settingsServerRequest += 1
+                    openSettings()
+                    #else
+                    if sizeClass == .regular {
+                        settingsServerID = connection.server.id
+                        settingsServerRequest += 1
+                        showSettings?.wrappedValue = true
+                    } else {
+                        managing = ServerRequest(connection: connection)
+                    }
+                    #endif
+                },
                 open: { route, itemID in
                     itemFocus = itemID.map { ItemFocus(route: route, itemID: $0) }
                     selection.wrappedValue = route

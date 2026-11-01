@@ -1,28 +1,75 @@
 import { AArrowDown, AArrowUp } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { UserBubble } from "./items/ItemView";
 import { Markdown } from "./Markdown";
 import { notifications, useNotifications } from "./notifications";
-import { Modal } from "./primitives";
+import { Confirm, Modal } from "./primitives";
+import { ConnectionContext, useServerStore } from "./context";
+import { useObserved } from "../store/observable";
+import { ConnectionDot } from "./components";
+import { ServerSettingsView } from "./ServerSettings";
+import { AddServer } from "./AddServer";
+import { useWide } from "./router";
+import type { SavedServer } from "../store/serverStore";
 import { interfaceSizes, messageFonts, messageSizes, settings, terminalPlacements, useSettings, type Appearance, type TerminalPlacement } from "./settings";
 import { sidebarLayouts, type SidebarLayout } from "./sidebarLayout";
 
+export function SettingsView({ onClose, initialServerID }: { onClose: () => void; initialServerID?: string }) {
+  const wide = useWide();
+  const store = useServerStore();
+  useObserved(store);
+  const [section, setSection] = useState(initialServerID ? "servers" : "general");
+  const [selected, setSelected] = useState(initialServerID);
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<SavedServer>();
+  const server = store.server(selected);
+  return <Modal title="Settings" onClose={onClose} wide={wide} leading={<span />} trailing={<button className="link strong" onClick={onClose}>Done</button>}>
+    {wide && <nav className="settings-tabs" aria-label="Settings">
+      <button className={section === "general" ? "selected" : ""} onClick={() => setSection("general")}>General</button>
+      <button className={section === "servers" ? "selected" : ""} onClick={() => setSection("servers")}>Servers</button>
+    </nav>}
+    {wide && section === "servers" ? <div className="settings-servers">
+      <aside aria-label="Saved servers">
+        {store.servers.map(s => <SettingsServerRow key={s.id} server={s} selected={s.id === selected} onSelect={() => setSelected(s.id)} />)}
+        {!store.servers.length && <p className="hint">No saved servers.</p>}
+        <button className="form-row link" onClick={() => setAdding(true)}>Add Server</button>
+      </aside>
+      <section className="settings-server-detail">
+        {server ? <ConnectionContext.Provider value={store.connection(server)}>
+          <SettingsServerDetail key={server.id} server={server} onRemove={() => setRemoving(server)} />
+        </ConnectionContext.Provider> : <p className="hint">Select a server to manage it, or add a server.</p>}
+      </section>
+    </div> : <GeneralSettings />}
+    {adding && <AddServer onClose={() => setAdding(false)} onPaired={s => { setSelected(s.id); setAdding(false); }} />}
+    {removing && <Confirm title={`Remove ${removing.name}?`} message="This device is unpaired from the server. Run rad pair on the computer to add it again." onClose={() => setRemoving(undefined)} actions={[{ label: "Remove", destructive: true, onSelect: () => { store.remove(removing); setSelected(undefined); } }]} />}
+  </Modal>;
+}
+
+function SettingsServerRow({ server, selected, onSelect }: { server: SavedServer; selected: boolean; onSelect: () => void }) {
+  const connection = useServerStore().connection(server);
+  useObserved(connection);
+  useEffect(() => { if (connection.state.kind === "idle") connection.start(); }, [connection]);
+  return <button className={"settings-server-row" + (selected ? " selected" : "")} onClick={onSelect} aria-pressed={selected}>
+    <span><strong>{server.name}</strong><small>{server.urls[0]}</small></span><ConnectionDot state={connection.state} />
+  </button>;
+}
+
+function SettingsServerDetail({ server, onRemove }: { server: SavedServer; onRemove: () => void }) {
+  const connection = useServerStore().connection(server);
+  useObserved(connection);
+  return <>
+    <h3>{server.name}</h3>
+    <div className="settings-server-actions"><button className="link" onClick={() => connection.retry()}>Reconnect</button><button className="link c-red" onClick={onRemove}>Remove Server…</button></div>
+    {connection.state.kind !== "connected" && <p className="hint">{connection.state.kind === "connecting" ? "Connecting…" : "Server offline. Reconnect to manage its settings."}</p>}
+    <ServerSettingsView embedded onClose={() => {}} />
+  </>;
+}
 const codeFonts = ["", "Menlo", "SF Mono", "Monaco", "JetBrains Mono", "Fira Code", "Cascadia Code", "Consolas", "Source Code Pro", "IBM Plex Mono"];
 const otherFont = "__other";
 
-export function SettingsView({ onClose }: { onClose: () => void }) {
+function GeneralSettings() {
   const s = useSettings();
   return (
-    <Modal
-      title="Settings"
-      onClose={onClose}
-      leading={<span />}
-      trailing={
-        <button className="link strong" onClick={onClose}>
-          Done
-        </button>
-      }
-    >
       <div className="form">
         <h4 className="form-header">Appearance</h4>
         <section className="form-section">
@@ -132,7 +179,6 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
           </button>
         </section>
       </div>
-    </Modal>
   );
 }
 

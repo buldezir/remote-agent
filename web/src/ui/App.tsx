@@ -242,7 +242,8 @@ function Root() {
         </ConnectionContext.Provider>
       )}
       {sheet?.kind === "settings" && <SettingsView onClose={() => setSheet(undefined)} />}
-      {sheet?.kind === "server" && (
+      {sheet?.kind === "server" && wide && <SettingsView initialServerID={sheet.connection.server.id} onClose={() => setSheet(undefined)} />}
+      {sheet?.kind === "server" && !wide && (
         <ConnectionContext.Provider value={sheet.connection}>
           <ServerSettingsView onClose={() => setSheet(undefined)} />
         </ConnectionContext.Provider>

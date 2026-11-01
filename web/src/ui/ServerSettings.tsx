@@ -1,5 +1,5 @@
 import { ChevronRight, Ellipsis, RefreshCw, TriangleAlert, UserRound } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   effortsForModel,
   installable,
@@ -32,7 +32,8 @@ function tooOld(e: unknown): boolean {
 /** A server's own settings, as the apps' Server Settings: rad's version and
  *  updates, the agents installed there, the agent new sessions start with,
  *  and the system agent. */
-export function ServerSettingsView({ onClose }: { onClose: () => void }) {
+export function ServerSettingsView({ onClose, embedded = false }: { onClose: () => void; embedded?: boolean }) {
+  const Container = embedded ? EmbeddedSettings : Modal;
   const connection = useConnection();
   useObserved(connection);
   const tasks = useMemo(() => new ServerTasks(connection), [connection]);
@@ -127,6 +128,7 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
 
   /** Starts a task and shows its sheet. */
   const begin = async (section: "rad" | "agents", key: string, start: () => Promise<ServerTask>) => {
+    if (!connected) return;
     setStartError(undefined);
     setStarting(key);
     try {
@@ -186,7 +188,7 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
   const shownTask = tasks.get(openTask);
 
   return (
-    <Modal
+    <Container
       title={
         <span className="title-stack">
           <span>{connection.server.name}</span> <span className="modal-subtitle">Server</span>
@@ -200,7 +202,7 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
         </button>
       }
     >
-      <div className="form">
+      <fieldset className="form server-settings-form" disabled={!connected}>
         <h4 className="form-header">rad</h4>
         <section className="form-section">
           <div className="form-row">
@@ -299,7 +301,7 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
             {saveError?.field === "systemAgent" && <p className="form-footer c-red">{saveError.message}</p>}
           </>
         )}
-      </div>
+      </fieldset>
 
       {confirmUpdate && update && (
         <Confirm
@@ -310,7 +312,7 @@ export function ServerSettingsView({ onClose }: { onClose: () => void }) {
         />
       )}
       {shownTask && <TaskSheet progress={shownTask} onClose={() => setOpenTask(undefined)} />}
-    </Modal>
+    </Container>
   );
 }
 
@@ -522,3 +524,5 @@ function AgentSpecRows({
     </>
   );
 }
+
+function EmbeddedSettings({ children }: { children: React.ReactNode }) { return <Fragment>{children}</Fragment>; }

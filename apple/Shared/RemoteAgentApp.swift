@@ -45,6 +45,7 @@ struct RemoteAgentApp: App {
         #if os(macOS)
         Settings {
             SettingsView()
+                .environment(store)
                 .environment(notifier)
                 .environment(updater)
                 // As tall as the columns, which grow with the text sizes, up
@@ -86,6 +87,7 @@ private struct WindowRoot: View {
     @State private var pendingLink: PairingLink?
     #if os(iOS)
     @State private var showSettings = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
 
     var body: some View {
@@ -108,7 +110,7 @@ private struct WindowRoot: View {
         #if os(iOS)
         .environment(\.showSettings, $showSettings)
         .sheet(isPresented: $showSettings) {
-            NavigationStack { SettingsView() }
+            NavigationStack { SettingsView(wide: sizeClass == .regular) }
                 .appStyle()
         }
         #endif

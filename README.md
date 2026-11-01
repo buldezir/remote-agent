@@ -354,7 +354,7 @@ ra
 
 ## Managing a server from the apps
 
-A server's menu has **Server Settings…**: in the sidebar, a server's ⋯ or right-click menu; on iPhone and Android phones, the ⋯ menu of its list of sessions.
+On Mac and in wide iPad, Android and web windows, **Settings → Servers** lists saved servers and their connection status. Select one to reconnect, remove it, or manage rad and its agents; **Add Server** pairs another computer. The sidebar's **Server Settings…** shortcut opens that server in Settings. On small screens, **Server Settings…** stays in the server's ⋯ menu.
 
 - **rad:** its version, and whether a newer release is out. **Update to …** installs it, and rad restarts: in place, as the same process (so a background service carries on), or, under the Remote Agent Server app, with the app. The apps reconnect by themselves. A restart interrupts the turns that run, so the apps say which sessions are busy and ask first.
   - A development build, or a rad that can't replace its own binary (in a folder that isn't yours, or inside an app bundle without the app), says so instead.

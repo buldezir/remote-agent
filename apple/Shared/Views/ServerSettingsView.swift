@@ -6,6 +6,7 @@ import SwiftUI
 /// system agent that names sessions.
 struct ServerSettingsView: View {
     let connection: ServerConnection
+    var embedded = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
@@ -27,44 +28,53 @@ struct ServerSettingsView: View {
     @State private var actionError: String?
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Group {
-                    radSection
-                    agentsSection
-                    if !settingsUnsupported {
-                        newSessionsSection
-                        systemAgentSection
-                    }
-                    if let actionError {
-                        Section { Label(actionError, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red) }
-                    }
+        Group {
+            if embedded { content } else { NavigationStack { content } }
+        }
+    }
+
+    private var content: some View {
+        Form {
+            Group {
+                radSection
+                agentsSection
+                if !settingsUnsupported {
+                    newSessionsSection
+                    systemAgentSection
                 }
-                .paletteRows()
+                if let actionError {
+                    Section { Label(actionError, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red) }
+                }
             }
-            .compactForm()
-            #if os(macOS)
-            .frame(minWidth: 500, minHeight: 620)
-            #endif
-            .navigationTitle(connection.server.name)
-            .navigationSubtitle("Server")
-            .inlineTitle()
-            .toolbar {
+            .paletteRows()
+        }
+        .compactForm()
+        #if os(macOS)
+        .frame(minWidth: 500, minHeight: 620)
+        #endif
+        .navigationTitle(embedded ? "Settings" : connection.server.name)
+        .navigationSubtitle(embedded ? "" : "Server")
+        .inlineTitle()
+        .toolbar {
+            if !embedded {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
-            // Again when rad comes back as another version, as after an update.
-            .task(id: connection.info?.version) { await load() }
-            .onDisappear { progress.values.forEach { $0.stop() } }
-            .sheet(item: $shown) { p in
-                ServerTaskView(progress: p, title: title(of: p.task), agentName: p.task.harness.flatMap { connection.harness($0)?.name })
-                    .appStyle()
-            }
-            .confirmationDialog(interruptTitle, isPresented: $confirmingUpdate, titleVisibility: .visible) {
-                Button("Update Anyway", role: .destructive) { Task { await startUpdate() } }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Updating restarts rad, which interrupts \(quoted(update?.busy ?? [])).")
-            }
+        }
+        .disabled(connection.state != .connected)
+        // Again when rad comes back as another version, as after an update.
+        .task(id: "\(connection.state == .connected)-\(connection.info?.version ?? "")") {
+            if connection.state == .connected { await load() }
+        }
+        .onDisappear { progress.values.forEach { $0.stop() } }
+        .sheet(item: $shown) { p in
+            ServerTaskView(progress: p, title: title(of: p.task), agentName: p.task.harness.flatMap { connection.harness($0)?.name })
+                .appStyle()
+        }
+        .confirmationDialog(interruptTitle, isPresented: $confirmingUpdate, titleVisibility: .visible) {
+            Button("Update Anyway", role: .destructive) { Task { await startUpdate() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Updating restarts rad, which interrupts \(quoted(update?.busy ?? [])).")
         }
     }
 

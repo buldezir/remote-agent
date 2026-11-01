@@ -39,6 +39,7 @@ fun ServerSplitView(
     onCloseSession: () -> Unit,
     onAdd: () -> Unit,
     onSettings: () -> Unit,
+    onServerSettings: (String) -> Unit,
     onRemoved: (SavedServer) -> Unit,
 ) {
     val settings = LocalSettings.current
@@ -138,7 +139,8 @@ fun ServerSplitView(
     val removed = removing
     RemoveServerDialog(removed, onDismiss = { removing = null }, onRemove = { removed?.let(onRemoved) })
     servers.firstOrNull { it.id == settingsOf }?.let { s ->
-        ServerSettingsDialog(s.connection, onDismiss = { settingsOf = null })
+        if (narrow) ServerSettingsDialog(s.connection, onDismiss = { settingsOf = null })
+        else LaunchedEffect(settingsOf) { settingsOf = null; onServerSettings(s.id) }
     }
     servers.firstOrNull { it.id == newSessionOn }?.let { s ->
         NewSessionDialog(s.connection, newSessionIn, onDismiss = { newSessionOn = null }, onCreated = { session, empty ->

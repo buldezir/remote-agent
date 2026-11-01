@@ -1,13 +1,17 @@
 package dev.remoteagent.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
@@ -16,9 +20,16 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -28,11 +39,88 @@ import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 import dev.remoteagent.app.platform.AppSettings.Keys
 import dev.remoteagent.app.platform.state
+import dev.remoteagent.core.store.ConnectionState
+import dev.remoteagent.core.store.SavedServer
 import kotlin.math.roundToInt
+
+/** Wide settings keep server management in the same screen as app preferences. */
+@Composable
+fun SettingsView(onBack: () -> Unit, initialServerId: String? = null, onRemoved: (SavedServer) -> Unit = {}) {
+    val wide = currentWindowAdaptiveInfoV2().windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)
+    var section by rememberSaveable { mutableStateOf(if (initialServerId == null) "general" else "servers") }
+    var selected by rememberSaveable { mutableStateOf(initialServerId) }
+    var adding by rememberSaveable { mutableStateOf(false) }
+    var removing by remember { mutableStateOf<SavedServer?>(null) }
+    val servers = serverStates()
+    LaunchedEffect(servers.map { it.connection }) {
+        servers.forEach { if (it.state == ConnectionState.Idle) it.connection.start() }
+    }
+    if (!wide) {
+        GeneralSettingsView(onBack)
+    } else {
+        Screen(title = { Text("Settings", style = Type.headline) }, onBack = onBack, background = palette.mantle) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                    ChoiceRowTab("General", section == "general") { section = "general" }
+                    ChoiceRowTab("Servers", section == "servers") { section = "servers" }
+                }
+                if (section == "general") {
+                    GeneralSettingsView(onBack, embedded = true)
+                } else {
+                    Row(Modifier.fillMaxSize()) {
+                        Column(Modifier.width(240.dp).verticalScroll(rememberScrollState())) {
+                            servers.forEach { s ->
+                                Row(Modifier.fillMaxWidth().background(if (s.id == selected) palette.surface0 else palette.mantle)
+                                    .clickable { selected = s.id }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(s.name, style = Type.body, color = palette.text)
+                                        Text(s.server.urls.firstOrNull() ?: "", style = Type.caption, color = palette.subtext)
+                                    }
+                                    ConnectionDot(s.state)
+                                }
+                            }
+                            if (servers.isEmpty()) Text("No saved servers.", style = Type.body, color = palette.subtext, modifier = Modifier.padding(12.dp))
+                            TextButton({ adding = true }) { Text("Add Server", color = palette.accent) }
+                        }
+                        val chosen = servers.firstOrNull { it.id == selected }
+                        if (chosen == null) {
+                            Text("Select a server to manage it, or add a server.", style = Type.body, color = palette.subtext, modifier = Modifier.padding(20.dp))
+                        } else key(chosen.connection) {
+                            Column(Modifier.weight(1f)) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(chosen.name, style = Type.headline, color = palette.text, modifier = Modifier.weight(1f))
+                                    TextButton({ chosen.connection.retry() }) { Text("Reconnect", color = palette.accent) }
+                                    TextButton({ removing = chosen.server }) { Text("Remove Server…", color = palette.red) }
+                                }
+                                if (chosen.state != ConnectionState.Connected) Text("Server offline. Reconnect to manage its settings.", style = Type.body, color = palette.subtext, modifier = Modifier.padding(12.dp))
+                                ServerSettingsDialog(chosen.connection, onDismiss = {}, embedded = true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (adding) AddServerDialog(null, onDismiss = { adding = false }, onPaired = { selected = it.id; adding = false })
+    val removed = removing
+    RemoveServerDialog(removed, onDismiss = { removing = null }, onRemove = { selected = null; removed?.let(onRemoved) })
+}
+
+@Composable
+private fun ChoiceRowTab(title: String, selected: Boolean, onClick: () -> Unit) {
+    TextButton(onClick) { Text(title, style = Type.headline, color = if (selected) palette.accent else palette.subtext) }
+}
+
+/** A page's existing form, without another toolbar when embedded in Settings. */
+@Composable
+fun SettingsPage(embedded: Boolean, title: String, onBack: () -> Unit, content: @Composable (PaddingValues) -> Unit) {
+    if (embedded) Box(Modifier.fillMaxSize()) { content(PaddingValues(0.dp)) }
+    else Screen(title = { Text(title, style = Type.headline) }, onBack = onBack, background = palette.mantle, content = content)
+}
 
 /** The app's settings. Mirrors apple/Shared/Views/SettingsView.swift. */
 @Composable
-fun SettingsView(onBack: () -> Unit) {
+private fun GeneralSettingsView(onBack: () -> Unit, embedded: Boolean = false) {
     val settings = LocalSettings.current
     val appearance by settings.state(Keys.appearance, Appearance.SYSTEM.name)
     val follows by settings.state(Keys.interfaceFollowsSystem, true)
@@ -57,7 +145,7 @@ fun SettingsView(onBack: () -> Unit) {
     val isDefault = appearance == Appearance.SYSTEM.name && follows && messages == TextSize.DEFAULT_MESSAGES &&
         placement == TerminalPlacement.OVER.name && sidebarLayout == SidebarLayout.INBOX && groupToolCalls
 
-    Screen(title = { Text("Settings", style = Type.headline) }, onBack = onBack, background = palette.mantle) { padding ->
+    SettingsPage(embedded, "Settings", onBack) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).formWidth()) {
             FormSection("Appearance", footer = AnnotatedString("Catppuccin Latte when light, Frappé when dark.")) {
                 Appearance.entries.forEachIndexed { i, a ->

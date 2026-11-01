@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +52,7 @@ import dev.remoteagent.core.protocol.ServerSettings
 import dev.remoteagent.core.protocol.ServerTask
 import dev.remoteagent.core.protocol.UpdateInfo
 import dev.remoteagent.core.protocol.UsageLimits
+import dev.remoteagent.core.store.ConnectionState
 import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.ServerTaskProgress
 import kotlinx.coroutines.CancellationException
@@ -65,7 +67,8 @@ import kotlinx.coroutines.launch
  * in TaskSheet. Mirrors apple/Shared/Views/ServerSettingsView.swift.
  */
 @Composable
-fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
+fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit, embedded: Boolean = false) {
+    val connected = connection.state.collectAsStateWithLifecycle().value == ConnectionState.Connected
     val scope = rememberCoroutineScope()
     val server by connection.server.collectAsStateWithLifecycle()
     val info by connection.info.collectAsStateWithLifecycle()
@@ -105,6 +108,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
     }
 
     suspend fun check(refresh: Boolean) {
+        if (!connected) return
         checking = true
         radError = null
         try {
@@ -143,11 +147,13 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
 
     // On open, and again once rad has come back as another version, which
     // may manage itself differently.
-    LaunchedEffect(info?.version) {
+    LaunchedEffect(connected, info?.version) {
+        if (!connected) return@LaunchedEffect
         launch { check(refresh = false) }
         launch { loadSettings() }
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(connected) {
+        if (!connected) return@LaunchedEffect
         // Tasks still running, as one started from another device or before this was closed.
         launch { runCatching { connection.tasks() }.getOrNull()?.filter { it.running }?.forEach { track(it) } }
         // From rad's cache, but newer than the connection's: an agent may have
@@ -156,6 +162,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
     }
 
     fun start(key: String, onError: (String?) -> Unit, call: suspend () -> ServerTask) {
+        if (!connected) return
         starting = key
         onError(null)
         scope.launch {
@@ -174,6 +181,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
     fun updateRad() = start(RAD, { radError = it }) { connection.updateServer() }
 
     fun save(field: AgentField, new: ServerSettings) {
+        if (!connected) return
         chosen = new
         saveError = null
         scope.launch {
@@ -195,11 +203,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
         for (p in tracked) key(p.id) { if (!p.phase.collectAsStateWithLifecycle().value.ended) add(p) }
     }
 
-    FullScreenDialog(onDismiss) {
-        Screen(
-            title = { ScreenTitle(server.name) { Text("Server", style = Type.caption, color = palette.subtext) } },
-            onBack = onDismiss, backIcon = Icons.close, backLabel = "Done", background = palette.mantle,
-        ) { padding ->
+    ServerSettingsContainer(embedded, server.name, onDismiss) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).formWidth().testTag("server-settings")) {
                 val u = update
                 FormSection("rad", footer = if (radTooOld) null else radFooter(u)) {
@@ -227,6 +231,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
                                     colors = ButtonDefaults.buttonColors(containerColor = palette.accent, contentColor = palette.onAccent),
                                     shape = RoundedCornerShape(Metrics.Corner.card),
                                     modifier = Modifier.testTag("update-rad"),
+                                    enabled = connected,
                                 ) { Text("Update to ${u.latest}") }
                                 webURL(u.url)?.let { url -> LinkButton("What's New", url) }
                             }
@@ -240,7 +245,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
                     }
                     radError?.let { ErrorLine(it) }
                     FormDivider()
-                    ActionRow("Check Again", enabled = !checking, Modifier.testTag("check-again")) { scope.launch { check(refresh = true) } }
+                    ActionRow("Check Again", enabled = connected && !checking, Modifier.testTag("check-again")) { scope.launch { check(refresh = true) } }
                 }
 
                 // An older rad offers neither, so there's nothing to explain.
@@ -267,6 +272,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
                                 limits = limits[h.id],
                                 task = running.firstOrNull { it.harness == h.id && it.kind != ServerTask.UPDATE_SERVER },
                                 starting = starting == h.id,
+                                enabled = connected,
                                 onUpdate = { start(h.id, { agentsError = it }) { connection.updateHarness(h.id) } },
                                 onSignIn = { start(h.id, { agentsError = it }) { connection.loginHarness(h.id) } },
                                 onOpen = { shown = it },
@@ -287,7 +293,7 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
                             sectionError(AgentField.DEFAULT),
                         ),
                     ) {
-                        AgentSpecRows(chosen, settingsError, AgentField.DEFAULT, all, offered = all, none = "Last Used", save = ::save)
+                        AgentSpecRows(chosen, settingsError, AgentField.DEFAULT, all, offered = all, none = "Last Used", save = ::save, enabled = connected)
                     }
                     FormSection(
                         "System Agent",
@@ -297,11 +303,10 @@ fun ServerSettingsDialog(connection: ServerConnection, onDismiss: () -> Unit) {
                             sectionError(AgentField.SYSTEM),
                         ),
                     ) {
-                        AgentSpecRows(chosen, settingsError, AgentField.SYSTEM, all, offered = all.filter { it.caps.oneShot }, none = "None", save = ::save)
+                        AgentSpecRows(chosen, settingsError, AgentField.SYSTEM, all, offered = all.filter { it.caps.oneShot }, none = "None", save = ::save, enabled = connected)
                     }
                 }
             }
-        }
     }
 
     if (confirmingUpdate) {
@@ -404,9 +409,14 @@ private fun AgentSpecRows(
     offered: List<HarnessInfo>,
     none: String,
     save: (AgentField, ServerSettings) -> Unit,
+    enabled: Boolean = true,
 ) {
     if (settings == null) {
         if (loadError == null) ProgressRow("Loading…") else Text("Unavailable", style = Type.body, color = palette.subtext, modifier = Modifier.padding(12.dp))
+        return
+    }
+    if (!enabled) {
+        Text("Reconnect to change settings.", style = Type.body, color = palette.subtext, modifier = Modifier.padding(12.dp))
         return
     }
     val agent = field.get(settings)
@@ -449,6 +459,7 @@ private fun AgentRow(
     limits: UsageLimits?,
     task: ServerTaskProgress?,
     starting: Boolean,
+    enabled: Boolean,
     onUpdate: () -> Unit,
     onSignIn: () -> Unit,
     onOpen: (ServerTaskProgress) -> Unit,
@@ -477,6 +488,7 @@ private fun AgentRow(
             CircularProgressIndicator(Modifier.padding(end = 12.dp).size(18.dp), color = palette.subtext, strokeWidth = 2.dp)
             return@Row
         }
+        if (!enabled) return@Row
         if (h.caps.login && !h.authOk) {
             TextButton(onSignIn, modifier = Modifier.testTag("sign-in-${h.id}")) { Text("Sign In", color = palette.accent, style = Type.body) }
         }
@@ -537,5 +549,16 @@ private fun LinkButton(title: String, url: String) {
     val context = LocalContext.current
     TextButton({ runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) } }) {
         Text(title, color = palette.accent, style = Type.body)
+    }
+}
+
+@Composable
+private fun ServerSettingsContainer(embedded: Boolean, name: String, onDismiss: () -> Unit, content: @Composable (PaddingValues) -> Unit) {
+    if (embedded) content(PaddingValues(0.dp)) else FullScreenDialog(onDismiss) {
+        Screen(
+            title = { ScreenTitle(name) { Text("Server", style = Type.caption, color = palette.subtext) } },
+            onBack = onDismiss, backIcon = Icons.close, backLabel = "Done", background = palette.mantle,
+            content = content,
+        )
     }
 }

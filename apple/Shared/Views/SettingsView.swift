@@ -1,7 +1,123 @@
+import RAKit
 import SwiftUI
 
-/// The app's settings. On the Mac, the Settings window (⌘,); on iOS, a sheet.
+/// App preferences and, in a wide window, the saved servers.
 struct SettingsView: View {
+    #if os(macOS)
+    var wide = true
+    #else
+    var wide = false
+    #endif
+    @Environment(ServerStore.self) private var store
+    @AppStorage("settingsServerID") private var selected = ""
+    @AppStorage("settingsServerRequest") private var serverRequest = 0
+    @State private var servers = false
+    @State private var adding = false
+    @State private var removing: SavedServer?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if wide {
+                Picker("Settings", selection: $servers) {
+                    Text("General").tag(false)
+                    Text("Servers").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .padding()
+            }
+            if wide && servers {
+                HStack(spacing: 0) {
+                    VStack {
+                        List {
+                            ForEach(store.servers) { server in
+                                let c = store.connection(for: server)
+                                Button { selected = server.id } label: {
+                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            Text(server.name).scaledFont(.body)
+                                            Text(server.urls.first?.absoluteString ?? "")
+                                                .scaledFont(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        ConnectionDot(state: c.state)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .listRowBackground(selected == server.id ? Palette.surface0 : Palette.mantle)
+                            }
+                        }
+                        .listBackground(Palette.mantle)
+                        Button("Add Server", systemImage: "plus") { adding = true }.padding()
+                    }
+                    .frame(width: 240)
+                    Divider()
+                    if let server = store.servers.first(where: { $0.id == selected }) {
+                        serverDetail(server).id(server.id)
+                    } else {
+                        ContentUnavailableView(store.servers.isEmpty ? "No Servers" : "Select a Server", systemImage: "server.rack",
+                                               description: Text("Add a server to manage it here."))
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .frame(minHeight: 620)
+                #if os(macOS)
+                .frame(width: 840)
+                #endif
+            } else {
+                GeneralSettingsView()
+            }
+        }
+        .background(Palette.mantle)
+        .navigationTitle("Settings")
+        .onAppear { servers = !selected.isEmpty }
+        .onChange(of: selected) { _, value in if !value.isEmpty { servers = true } }
+        .onChange(of: serverRequest) { _, _ in servers = true }
+        .task(id: store.servers.map(\.id)) {
+            for s in store.servers {
+                let c = store.connection(for: s)
+                if c.state == .idle { c.start() }
+            }
+        }
+        .sheet(isPresented: $adding) {
+            AddServerView { server in selected = server.id }.appStyle()
+        }
+        .removeServerDialog($removing) { selected = "" }
+        #if os(iOS)
+        .toolbar {
+            if wide && servers {
+                ToolbarItem(placement: .confirmationAction) { SettingsDoneButton() }
+            }
+        }
+        #endif
+    }
+
+    private func serverDetail(_ server: SavedServer) -> some View {
+        let c = store.connection(for: server)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(server.name).scaledFont(.headline)
+                Spacer()
+                Button("Reconnect") { c.retry() }
+                Button("Remove Server…", role: .destructive) { removing = server }
+            }.padding()
+            if c.state != .connected {
+                Text(ConnectionDot(state: c.state).label).scaledFont(.callout).padding(.horizontal)
+            }
+            ServerSettingsView(connection: c, embedded: true).id(ObjectIdentifier(c))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+#if os(iOS)
+private struct SettingsDoneButton: View {
+    @Environment(\.dismiss) private var dismiss
+    var body: some View { Button("Done") { dismiss() } }
+}
+#endif
+
+/// The app's settings. On the Mac, the Settings window (⌘,); on iOS, a sheet.
+private struct GeneralSettingsView: View {
     @AppStorage(TextSize.interfaceKey) private var interface = TextSize.defaultInterface
     @AppStorage(TextSize.messagesKey) private var messages = TextSize.defaultMessages
     @AppStorage(Appearance.key) private var appearance = Appearance.system

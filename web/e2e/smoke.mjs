@@ -845,7 +845,7 @@ const openServerSettings = async () => {
   await page.locator(".server-header").hover();
   await page.getByRole("button", { name: / actions$/ }).click();
   await page.getByRole("menuitem", { name: "Server Settings…" }).click();
-  await page.locator(".modal-subtitle", { hasText: "Server" }).waitFor();
+  await page.locator(".settings-server-detail").waitFor();
   await page.waitForFunction(() => !document.body.innerText.includes("Checking for updates…"));
 };
 const fakeMenu = async (item) => {

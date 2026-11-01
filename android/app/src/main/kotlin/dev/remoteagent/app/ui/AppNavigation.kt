@@ -99,6 +99,9 @@ data class SessionKey(val serverId: String, val sessionId: String) : NavKey
 @Serializable
 data object SettingsKey : NavKey
 
+@Serializable
+data class ServerSettingsKey(val selectedServerId: String) : NavKey
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun App(app: RemoteAgentApp, pendingLink: MutableStateFlow<PairingLink?>, shortcuts: SharedFlow<Shortcut>) {
@@ -235,6 +238,7 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
         onCloseSession = { if (backStack.lastOrNull() is SessionKey) backStack.removeAt(backStack.lastIndex) },
         onAdd = { showAdd = true },
         onSettings = { backStack.add(SettingsKey) },
+        onServerSettings = { backStack.add(ServerSettingsKey(it)) },
         onRemoved = ::forget,
     )
     val listPane = if (wide) ListDetailSceneStrategy.listPane(detailPlaceholder = { NoSessionSelected(onAdd = { showAdd = true }) }) else emptyMap()
@@ -302,7 +306,8 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
                             )
                         }
                     }
-                    entry<SettingsKey> { SettingsView(onBack = { if (backStack.size > 1) backStack.removeLastOrNull() }) }
+                    entry<SettingsKey> { SettingsView(onBack = { if (backStack.size > 1) backStack.removeLastOrNull() }, onRemoved = ::forget) }
+                    entry<ServerSettingsKey> { key -> SettingsView(onBack = { if (backStack.size > 1) backStack.removeLastOrNull() }, initialServerId = key.selectedServerId, onRemoved = ::forget) }
                 },
             )
         }
