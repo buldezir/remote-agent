@@ -796,7 +796,7 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 	})
 	a.items = carried
 	if slices.Contains(renamesAfter, turn.N) && ev.Status != model.TurnFailed && !a.sess.CustomTitle && !a.sess.Archived && !a.archiving && !a.deleted {
-		a.o.renameFromWork(a.sess.ID, a.projectName())
+		a.o.renameFromWork(a.sess.ID, a.projectName(), "")
 	}
 	if a.rt != nil { // else the agent exited, which cancels the queue
 		a.startNext(ctx)
@@ -1178,7 +1178,8 @@ func (a *actor) saveDraft(ctx context.Context, text string, refs []model.ImageRe
 // rename gives the session the user's title, which rad's naming leaves
 // alone from then on. An empty title gives the session back to rad: the
 // title its first prompt gives, which the system agent, if set, names again
-// (never the branch), or for a fork its source's with " (fork)". Renaming
+// (never the branch): from the work, once a turn ran, else from that prompt.
+// A fork's is its source's with " (fork)". Renaming
 // keeps the session's place in the lists.
 func (a *actor) rename(ctx context.Context, title string) (*model.Session, error) {
 	a.mu.Lock()
@@ -1207,7 +1208,12 @@ func (a *actor) rename(ctx context.Context, title string) (*model.Session, error
 	}
 	a.o.log.Info("session renamed", a.logAttrs("automatic", !custom, "device", clientOf(ctx))...)
 	if first != "" && !a.sess.Archived {
-		a.o.nameSession(a.sess.ID, a.projectName(), first, true, false)
+		if a.lastTurnN > 0 || a.turn != nil {
+			// Named from what the session did, as after its first turns.
+			a.o.renameFromWork(a.sess.ID, a.projectName(), first)
+		} else {
+			a.o.nameSession(a.sess.ID, a.projectName(), first, true, false)
+		}
 	}
 	cp := *a.sess
 	return &cp, nil

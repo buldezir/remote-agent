@@ -99,7 +99,9 @@ var renamesAfter = []int{1, 3}
 // renameFromWork has the system agent, if one is set, name the session again
 // from its prompts, the agent's latest reply and the files it changed: only
 // its title, which it keeps when it still fits, and never one the user chose.
-func (o *Orchestrator) renameFromWork(sessionID, projectName string) {
+// Without work to go on, it names the session from fallback, if given, as
+// the first naming does.
+func (o *Orchestrator) renameFromWork(sessionID, projectName, fallback string) {
 	o.askNames(sessionID, func(ctx context.Context) (string, bool) {
 		s, err := o.st.Session(ctx, sessionID)
 		if err != nil || s.CustomTitle || s.Archived {
@@ -111,6 +113,9 @@ func (o *Orchestrator) renameFromWork(sessionID, projectName string) {
 		}
 		w := workOf(items, Workdir(s.Workspace))
 		if len(w.requests) == 0 || w.reply == "" && len(w.files) == 0 {
+			if strings.TrimSpace(fallback) != "" {
+				return namingPrompt(projectName, fallback, false), true
+			}
 			return "", false // nothing to learn from
 		}
 		return renamingPrompt(projectName, s.Title, w), true

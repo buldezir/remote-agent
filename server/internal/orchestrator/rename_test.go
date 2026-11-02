@@ -34,7 +34,7 @@ func TestRename(t *testing.T) {
 		t.Fatalf("after naming: %q, custom %v, on %q", got.Title, got.CustomTitle, got.Workspace.Branch)
 	}
 	// Later prompts leave it as it is.
-	e.prompt(s.ID, "and b.txt", "")
+	e.prompt(s.ID, "rename it later", "")
 	e.waitTurn(s.ID, 2)
 	if got := e.session(s.ID); got.Title != "Release checklist" {
 		t.Fatalf("after a prompt: %q", got.Title)
@@ -45,13 +45,13 @@ func TestRename(t *testing.T) {
 	}
 
 	// An empty title gives it back to rad: the first prompt's, then the
-	// system agent's, and the branch stays.
+	// system agent's, from the work done, and the branch stays.
 	got = e.rename(s.ID, "")
 	if got.Title != "slow naming please" || got.CustomTitle {
 		t.Fatalf("automatic = %q, custom %v", got.Title, got.CustomTitle)
 	}
 	e.o.naming.Wait()
-	if got := e.session(s.ID); got.Title != "Named: slow naming please" || got.Workspace.Branch != "ra/named-slow-naming-please" {
+	if got := e.session(s.ID); got.Title != "Renamed: Echo: rename it later" || got.Workspace.Branch != "ra/named-slow-naming-please" {
 		t.Fatalf("named again: %q on %q", got.Title, got.Workspace.Branch)
 	}
 	if strings.Contains(e.log.String(), "Release") {
