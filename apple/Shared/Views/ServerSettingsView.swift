@@ -50,7 +50,9 @@ struct ServerSettingsView: View {
         }
         .compactForm()
         #if os(macOS)
-        .frame(minWidth: 500, minHeight: 620)
+        // A sheet of its own. In Settings it takes the room it's given, which
+        // the window the sheet is over may make less.
+        .frame(minWidth: 500, minHeight: embedded ? nil : 620)
         #endif
         .navigationTitle(embedded ? "Settings" : connection.server.name)
         .navigationSubtitle(embedded ? "" : "Server")

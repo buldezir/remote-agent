@@ -155,7 +155,7 @@ private struct AppAppearance: ViewModifier {
 
     // The whole app's rather than `preferredColorScheme`, which leaves an
     // open sheet in the old scheme when set back to nil. This way sheets,
-    // menus and alerts follow too, and the Mac's Settings window.
+    // menus and alerts follow too.
     func body(content: Content) -> some View {
         content.onChange(of: appearance, initial: true) { _, appearance in
             #if os(macOS)

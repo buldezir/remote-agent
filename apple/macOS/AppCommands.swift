@@ -1,9 +1,12 @@
+import AppKit
 import SwiftUI
 
 /// The Mac menu bar. Like Mail, ⌘N makes the app's main thing, a session.
 /// The app has one window, so there is no New Window.
 struct AppCommands: Commands {
     let updater: AppUpdater
+    /// The Settings sheet over the window.
+    @Binding var showSettings: Bool
     @FocusedValue(\.newSession) private var newSession
     @FocusedValue(\.pairServer) private var pairServer
     @FocusedValue(\.searchSessions) private var searchSessions
@@ -17,6 +20,18 @@ struct AppCommands: Commands {
                 Button("Check for Updates…") { updater.checkForUpdates() }
                     .disabled(!updater.canCheck)
             }
+        }
+        // Settings is a sheet over the window, as on iPad. Not over another
+        // sheet: SwiftUI would show it once that one closed.
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                if NSApp.keyWindow?.isSheet == true {
+                    NSSound.beep()
+                } else {
+                    showSettings = true
+                }
+            }
+            .keyboardShortcut(",")
         }
         CommandGroup(replacing: .newItem) {
             Button("New Session") { newSession?.wrappedValue = true }

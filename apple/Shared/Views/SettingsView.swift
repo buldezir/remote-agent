@@ -14,6 +14,11 @@ struct SettingsView: View {
     @State private var servers = false
     @State private var adding = false
     @State private var removing: SavedServer?
+    #if os(macOS)
+    /// The size the sheet's content takes: most of the window it is over.
+    @State private var size: CGSize?
+    @Environment(\.dismiss) private var dismiss
+    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,50 +28,15 @@ struct SettingsView: View {
                     Text("Servers").tag(true)
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 .padding()
             }
-            if wide && servers {
-                HStack(spacing: 0) {
-                    VStack {
-                        List {
-                            ForEach(store.servers) { server in
-                                let c = store.connection(for: server)
-                                Button { selected = server.id } label: {
-                                    HStack {
-                                        VStack(alignment: .leading) {
-                                            Text(server.name).scaledFont(.body)
-                                            Text(server.urls.first?.absoluteString ?? "")
-                                                .scaledFont(.caption).foregroundStyle(.secondary)
-                                        }
-                                        Spacer()
-                                        ConnectionDot(state: c.state)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                                .listRowBackground(selected == server.id ? Palette.surface0 : Palette.mantle)
-                            }
-                        }
-                        .listBackground(Palette.mantle)
-                        Button("Add Server", systemImage: "plus") { adding = true }.padding()
-                    }
-                    .frame(width: 240)
-                    Divider()
-                    if let server = store.servers.first(where: { $0.id == selected }) {
-                        serverDetail(server).id(server.id)
-                    } else {
-                        ContentUnavailableView(store.servers.isEmpty ? "No Servers" : "Select a Server", systemImage: "server.rack",
-                                               description: Text("Add a server to manage it here."))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
-                .frame(minHeight: 620)
-                #if os(macOS)
-                .frame(width: 840)
-                #endif
-            } else {
-                GeneralSettingsView()
-            }
+            tab
         }
+        #if os(macOS)
+        .frame(width: size?.width ?? 840, height: size?.height ?? 620)
+        .background(SheetSize { size = $0 })
+        #endif
         .background(Palette.mantle)
         .navigationTitle("Settings")
         .onAppear { servers = !selected.isEmpty }
@@ -82,13 +52,64 @@ struct SettingsView: View {
             AddServerView { server in selected = server.id }.appStyle()
         }
         .removeServerDialog($removing) { selected = "" }
-        #if os(iOS)
         .toolbar {
+            #if os(macOS)
+            // A sheet over the window; Escape closes it too.
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            }
+            #else
             if wide && servers {
                 ToolbarItem(placement: .confirmationAction) { SettingsDoneButton() }
             }
+            #endif
         }
-        #endif
+    }
+
+    /// The servers, or the general settings.
+    @ViewBuilder private var tab: some View {
+        if wide && servers {
+            HStack(spacing: 0) {
+                VStack {
+                    List {
+                        ForEach(store.servers) { server in
+                            let c = store.connection(for: server)
+                            Button { selected = server.id } label: {
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text(server.name).scaledFont(.body)
+                                        Text(server.urls.first?.absoluteString ?? "")
+                                            .scaledFont(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    ConnectionDot(state: c.state)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(selected == server.id ? Palette.surface0 : Palette.mantle)
+                        }
+                    }
+                    .listBackground(Palette.mantle)
+                    Button("Add Server", systemImage: "plus") { adding = true }.padding()
+                }
+                .frame(width: 240)
+                Divider()
+                if let server = store.servers.first(where: { $0.id == selected }) {
+                    serverDetail(server).id(server.id)
+                } else {
+                    ContentUnavailableView(store.servers.isEmpty ? "No Servers" : "Select a Server", systemImage: "server.rack",
+                                           description: Text("Add a server to manage it here."))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            #if os(macOS)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            #else
+            .frame(minHeight: 620)
+            #endif
+        } else {
+            GeneralSettingsView()
+        }
     }
 
     private func serverDetail(_ server: SavedServer) -> some View {
@@ -116,7 +137,7 @@ private struct SettingsDoneButton: View {
 }
 #endif
 
-/// The app's settings. On the Mac, the Settings window (⌘,); on iOS, a sheet.
+/// The app's settings, in a sheet over the window (⌘, on the Mac).
 private struct GeneralSettingsView: View {
     @AppStorage(TextSize.interfaceKey) private var interface = TextSize.defaultInterface
     @AppStorage(TextSize.messagesKey) private var messages = TextSize.defaultMessages
@@ -136,14 +157,22 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         #if os(macOS)
-        // Two columns, the text beside the rest, so that the window fits a
-        // laptop's screen. A screen too short for them still scrolls.
-        ScreenHeightScrollView {
-            HStack(alignment: .top, spacing: 0) {
-                column { textSections }
-                column { otherSections }
+        // Two columns, the text beside the rest, as wide as the sheet; one
+        // when it's too narrow for two.
+        ScrollView {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 0) {
+                    column { textSections }
+                    column { otherSections }
+                }
+                VStack(spacing: 0) {
+                    column { textSections }
+                    column { otherSections }
+                }
             }
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.mantle)
         .navigationTitle("Settings")
         #else
@@ -167,7 +196,7 @@ private struct GeneralSettingsView: View {
 
     #if os(macOS)
     /// A column of sections: a form of its own, as tall as they are, which
-    /// the window's scroll view scrolls.
+    /// the sheet's scroll view scrolls. Two fit side by side from 760 points.
     private func column(@ViewBuilder _ sections: () -> some View) -> some View {
         Form { sections() }
             .compactForm()
@@ -175,7 +204,7 @@ private struct GeneralSettingsView: View {
             // The form can come out a fraction of a point taller than its
             // sections, which would show a scroller.
             .scrollIndicators(.never)
-            .frame(width: 420)
+            .frame(minWidth: 320, idealWidth: 380, maxWidth: .infinity)
     }
     #endif
 
@@ -492,67 +521,64 @@ private struct UpdatesSection: View {
     }
 }
 
-/// As tall as its content, unless the window's screen has less room, below
-/// the menu bar and above the Dock: then it scrolls.
-private struct ScreenHeightScrollView<Content: View>: View {
-    @ViewBuilder let content: Content
-    @State private var contentHeight: CGFloat?
-    @State private var available = CGFloat.infinity
+/// Reports the size the view behind it takes in a sheet: 90% of the window
+/// the sheet is over, less the sheet's own bars. As the sheet lays out and
+/// when the window resizes.
+private struct SheetSize: NSViewRepresentable {
+    let changed: @MainActor (CGSize) -> Void
 
-    var body: some View {
-        ScrollView {
-            content
-                // Rounded up: a fraction of a point more than the window
-                // would show a scroller.
-                .onGeometryChange(for: CGFloat.self) { $0.size.height.rounded(.up) } action: { contentHeight = $0 }
-        }
-        .scrollBounceBehavior(.basedOnSize)
-        .frame(height: contentHeight.map { min($0, available) })
-        .background(WindowScreen { available = $0 })
-    }
-}
+    func makeNSView(context: Context) -> SizeView { SizeView() }
 
-/// Reports the height a window's content can take on its screen: when the
-/// window opens, moves to another screen, or the screens change.
-private struct WindowScreen: NSViewRepresentable {
-    let changed: @MainActor (CGFloat) -> Void
-
-    func makeNSView(context: Context) -> ScreenView { ScreenView() }
-
-    func updateNSView(_ view: ScreenView, context: Context) {
+    func updateNSView(_ view: SizeView, context: Context) {
         view.changed = changed
     }
 
-    final class ScreenView: NSView {
-        var changed: (@MainActor (CGFloat) -> Void)?
+    final class SizeView: NSView {
+        var changed: (@MainActor (CGSize) -> Void)?
 
         override func viewDidMoveToWindow() {
             NotificationCenter.default.removeObserver(self)
             guard let window else { return }
-            NotificationCenter.default.addObserver(self, selector: #selector(report),
-                                                   name: NSWindow.didChangeScreenNotification, object: window)
-            NotificationCenter.default.addObserver(self, selector: #selector(report),
-                                                   name: NSApplication.didChangeScreenParametersNotification, object: nil)
+            for w in Set([window, parent(of: window) ?? window]) {
+                NotificationCenter.default.addObserver(self, selector: #selector(report),
+                                                       name: NSWindow.didResizeNotification, object: w)
+            }
+            report()
+        }
+
+        /// The window the sheet is over. The sheet lays out before AppKit
+        /// attaches it, while that window is still the main one.
+        private func parent(of sheet: NSWindow) -> NSWindow? {
+            sheet.sheetParent ?? NSApp.mainWindow.flatMap { $0 === sheet ? nil : $0 }
+        }
+
+        // Once laid out, the bars around it are known.
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
             report()
         }
 
         @objc private func report() {
-            guard let window, let screen = window.screen, let changed else { return }
-            // The screen's room for windows, less the title bar.
-            let height = screen.visibleFrame.height - (window.frame.height - window.contentLayoutRect.height)
+            guard let window, let changed, let parent = parent(of: window) else { return }
+            // The sheet hangs below the window's toolbar, so it's no taller
+            // than the content below it, with a margin.
+            let width = (parent.frame.width * 0.9).rounded()
+            let height = min(parent.frame.height * 0.9, parent.contentLayoutRect.height - 2 * Metrics.margin).rounded()
+            let size = CGSize(width: width - (window.frame.width - frame.width),
+                              height: height - (window.frame.height - frame.height))
             // Not while SwiftUI is updating the view.
-            Task { @MainActor in changed(height) }
+            Task { @MainActor in changed(size) }
         }
     }
 }
 #endif
 
-#if os(iOS)
 extension EnvironmentValues {
     /// Shows the Settings sheet over the window.
     @Entry var showSettings: Binding<Bool>?
 }
 
+#if os(iOS)
 /// Opens Settings. The Mac has it in the app menu instead.
 struct SettingsButton: View {
     @Environment(\.showSettings) private var showSettings

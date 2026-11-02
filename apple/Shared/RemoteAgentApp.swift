@@ -9,6 +9,9 @@ struct RemoteAgentApp: App {
     @State private var store: ServerStore
     /// Search across the servers' sessions, kept while the app runs.
     @State private var search: SessionSearch
+    /// The Settings sheet over the window, as on iPad: the Mac has no
+    /// Settings window, and ⌘, shows the sheet.
+    @State private var showSettings = false
     @Environment(\.scenePhase) private var phase
     #if os(macOS)
     @State private var notifier: Notifier
@@ -42,19 +45,6 @@ struct RemoteAgentApp: App {
                 store.setActive(newPhase == .active)
                 #endif
             }
-        #if os(macOS)
-        Settings {
-            SettingsView()
-                .environment(store)
-                .environment(notifier)
-                .environment(updater)
-                // As tall as the columns, which grow with the text sizes, up
-                // to the screen's height.
-                .fixedSize(horizontal: false, vertical: true)
-                .appStyle()
-        }
-        .windowResizability(.contentSize)
-        #endif
     }
 
     // One window. On the Mac a Window scene has no New Window; on iPad,
@@ -62,18 +52,19 @@ struct RemoteAgentApp: App {
     #if os(macOS)
     private var mainWindow: some Scene {
         Window("Remote Agent", id: "main") {
-            WindowRoot()
+            WindowRoot(showSettings: $showSettings)
                 .environment(store)
                 .environment(search)
                 .environment(notifier)
+                .environment(updater)
         }
         .defaultSize(width: 1100, height: 760)
-        .commands { AppCommands(updater: updater) }
+        .commands { AppCommands(updater: updater, showSettings: $showSettings) }
     }
     #else
     private var mainWindow: some Scene {
         WindowGroup(id: "main") {
-            WindowRoot()
+            WindowRoot(showSettings: $showSettings)
                 .environment(store)
                 .environment(search)
         }
@@ -82,11 +73,12 @@ struct RemoteAgentApp: App {
 }
 
 /// The app's window: the Inbox and Servers tabs on iPhone, the split view on
-/// iPad and the Mac. A pairing link opens the pairing sheet in it.
+/// iPad and the Mac. A pairing link opens the pairing sheet in it, and
+/// Settings is a sheet over it.
 private struct WindowRoot: View {
+    @Binding var showSettings: Bool
     @State private var pendingLink: PairingLink?
     #if os(iOS)
-    @State private var showSettings = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     #endif
 
@@ -107,13 +99,16 @@ private struct WindowRoot: View {
         .onOpenURL { url in
             pendingLink = PairingLink(string: url.absoluteString)
         }
-        #if os(iOS)
         .environment(\.showSettings, $showSettings)
         .sheet(isPresented: $showSettings) {
+            #if os(macOS)
+            NavigationStack { SettingsView() }
+                .appStyle()
+            #else
             NavigationStack { SettingsView(wide: sizeClass == .regular) }
                 .appStyle()
+            #endif
         }
-        #endif
         .appStyle()
         #if os(macOS)
         .containerBackground(Palette.base, for: .window)

@@ -33,12 +33,11 @@ struct ServerSplitView: View {
     /// The search field over the sidebar, or the Columns layout's session list.
     @FocusState private var searchFocused: Bool
     @State private var columns = NavigationSplitViewVisibility.automatic
+    @Environment(\.showSettings) private var showSettings
     #if os(macOS)
     @Environment(Notifier.self) private var notifier
-    @Environment(\.openSettings) private var openSettings
     #else
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.showSettings) private var showSettings
     #endif
 
     /// The open session, while its server is still paired.
@@ -122,19 +121,16 @@ struct ServerSplitView: View {
                 delete: { deleting = $0 },
                 remove: { removing = $0 },
                 manage: { connection in
-                    #if os(macOS)
-                    settingsServerID = connection.server.id
-                    settingsServerRequest += 1
-                    openSettings()
-                    #else
-                    if sizeClass == .regular {
-                        settingsServerID = connection.server.id
-                        settingsServerRequest += 1
-                        showSettings?.wrappedValue = true
-                    } else {
+                    #if os(iOS)
+                    // A narrow window shows the server's settings on their own.
+                    guard sizeClass == .regular else {
                         managing = ServerRequest(connection: connection)
+                        return
                     }
                     #endif
+                    settingsServerID = connection.server.id
+                    settingsServerRequest += 1
+                    showSettings?.wrappedValue = true
                 },
                 open: { route, itemID in
                     itemFocus = itemID.map { ItemFocus(route: route, itemID: $0) }
