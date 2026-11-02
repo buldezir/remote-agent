@@ -56,6 +56,7 @@ export function InboxSidebar({ route, actions, tab = false }: { route: Route; ac
             onOpen={() => navigate({ serverID: item.connection.server.id, sessionID: item.session.id, tab: tab ? "inbox" : undefined })}
             onRename={() => actions.renameSession(item.connection, item.session)}
             onArchive={() => actions.archive(item.connection, item.session)}
+            onUnarchive={() => actions.unarchive(item.connection, item.session)}
             onDelete={() => actions.delete(item.connection, item.session)}
           >
             <InboxRow item={item} showsServer={showsServer} />

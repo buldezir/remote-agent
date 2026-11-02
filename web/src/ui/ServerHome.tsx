@@ -47,6 +47,7 @@ export function ServerHome({
         onOpen={() => onOpen(s.id)}
         onRename={() => setRenameTarget(s)}
         onArchive={s.archived ? undefined : () => setArchiveTarget(s)}
+        onUnarchive={() => void connection.unarchive(s.id).catch((e) => setError((e as Error).message))}
         onDelete={() => setDeleteTarget(s)}
       />
     </li>

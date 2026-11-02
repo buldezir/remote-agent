@@ -153,6 +153,7 @@ function Root() {
     serverSettings: (c) => setSheet({ kind: "server", connection: c }),
     newSession: (c, projectID) => setSheet({ kind: "new", connection: c, projectID }),
     archive: (c, s) => setSheet({ kind: "archive", connection: c, session: s }),
+    unarchive: (c, s) => void c.unarchive(s.id).catch((e) => setError((e as Error).message)),
     delete: (c, s) => setSheet({ kind: "delete", connection: c, session: s }),
     renameSession: (c, s) => setSheet({ kind: "renameSession", connection: c, session: s }),
     fork: (c, s) => setSheet({ kind: "fork", connection: c, session: s }),

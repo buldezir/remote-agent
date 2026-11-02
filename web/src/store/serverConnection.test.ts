@@ -491,6 +491,31 @@ describe("ServerConnection", () => {
     }
   });
 
+  it("unarchives a session", async () => {
+    const server = new TestServer();
+    const at = "2026-10-09T12:00:00Z";
+    const session = { id: "s1", projectId: "p1", harness: "fake", workspace: { kind: "root", path: "/p" }, status: "idle", title: "t", archived: true, createdAt: at, updatedAt: at };
+    server.handlers["session.unarchive"] = (p) =>
+      p.sessionId === "s1" ? { ...session, archived: false } : new RPCError("conflict", "the branch rad/x is gone");
+    const c = await connect(server);
+    try {
+      c.sessions.set("s1", session);
+      const store = c.sessionStore("s1");
+      store.setSession(session);
+      expect(c.archivedSessions.map((s) => s.id)).toEqual(["s1"]);
+      expect((await c.unarchive("s1")).archived).toBe(false);
+      // The index and the session's store take the answer, before its event.
+      expect(c.sessions.get("s1")?.archived).toBe(false);
+      expect(store.session?.archived).toBe(false);
+      expect(c.activeSessions.map((s) => s.id)).toEqual(["s1"]);
+      await expect(c.unarchive("s2")).rejects.toMatchObject({ code: "conflict", message: "the branch rad/x is gone" });
+      expect(server.calls.filter((m) => m.method === "session.unarchive").map((m) => m.params)).toEqual([{ sessionId: "s1" }, { sessionId: "s2" }]);
+    } finally {
+      c.stop();
+      await server.stop();
+    }
+  });
+
   it("delivers a draft saved or sent on a dead socket after reconnecting", async () => {
     const server = new TestServer();
     const at = "2026-10-09T12:00:00Z";

@@ -39,6 +39,8 @@ struct SessionActions {
     /// Only for a server that renames (`ServerConnection.renames`).
     var rename: (SessionRequest) -> Void = { _ in }
     var archive: (SessionRequest) -> Void = { _ in }
+    /// Only for an archived session, on a server that unarchives (`ServerConnection.unarchives`).
+    var unarchive: (SessionRequest) -> Void = { _ in }
     /// Every connected server's sessions with nothing new for a week (`ServerStore.oldSessions`).
     var archiveOld: ([ServerSession]) -> Void = { _ in }
     var delete: (SessionRequest) -> Void = { _ in }

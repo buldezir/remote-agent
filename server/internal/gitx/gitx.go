@@ -99,6 +99,15 @@ func AddWorktree(ctx context.Context, repo, path, branch, baseRef string) error 
 	return err
 }
 
+// CheckoutWorktree checks out an existing branch at path, as a new worktree.
+func CheckoutWorktree(ctx context.Context, repo, path, branch string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	_, err := run(ctx, repo, nil, "worktree", "add", path, branch)
+	return err
+}
+
 func RemoveWorktree(ctx context.Context, repo, path string) error {
 	_, err := run(ctx, repo, nil, "worktree", "remove", "--force", path)
 	return err

@@ -97,6 +97,12 @@ func (v *sessionView) archived() bool {
 	return v.store.Session != nil && v.store.Session.Archived
 }
 
+// readOnly: the session is archived, and rad can't bring it back, so the
+// composer takes nothing. Where it can, a prompt asks to unarchive first.
+func (v *sessionView) readOnly(m *Model) bool {
+	return v.archived() && !canUnarchive(m)
+}
+
 // canSteer reports whether the queued prompt it can join the running turn.
 func (v *sessionView) canSteer(m *Model, it *model.Item) bool {
 	if it.Kind != model.ItemUserMessage || it.Status != model.ItemQueued || v.store.Session == nil {
@@ -430,7 +436,7 @@ func (v *sessionView) hints(m *Model) [][2]string {
 	if v.composer.suggesting() {
 		return [][2]string{{"↑↓", "choose"}, {"tab", "complete"}, {"esc", "dismiss"}}
 	}
-	if v.archived() {
+	if v.readOnly(m) {
 		return [][2]string{{"↑", "messages"}, {"ctrl+p", "actions"}, {"ctrl+h", "help"}}
 	}
 	h := [][2]string{{"enter", "send"}, {"shift+enter", "new line"}}
@@ -626,7 +632,7 @@ func (v *sessionView) transcriptKey(m *Model, k tea.KeyPressMsg) tea.Cmd {
 		}
 	default:
 		// Typing goes to the prompt.
-		if k.Text != "" && !v.dock.active() && !v.archived() {
+		if k.Text != "" && !v.dock.active() && !v.readOnly(m) {
 			m.setFocus(focusComposer)
 			return v.composer.key(m, v, k)
 		}
@@ -657,6 +663,26 @@ func (v *sessionView) interrupt(m *Model, force bool) tea.Cmd {
 }
 
 func (v *sessionView) sendDraft(m *Model) tea.Cmd {
+	if v.archived() && canUnarchive(m) {
+		id := v.store.ID
+		m.push(newConfirm("Unarchive session?", "This session is archived. Unarchive it to send your prompt.",
+			menuItem{label: "Unarchive and Send", run: func(m *Model) tea.Cmd {
+				return m.do(func(ctx context.Context) error {
+					_, err := m.conn.Unarchive(ctx, id)
+					return err
+				}, func(m *Model) tea.Cmd {
+					if m.sess != v {
+						return nil
+					}
+					return v.sendDraftNow(m)
+				})
+			}}))
+		return nil
+	}
+	return v.sendDraftNow(m)
+}
+
+func (v *sessionView) sendDraftNow(m *Model) tea.Cmd {
 	job, err := v.store.SendDraft()
 	if err != nil {
 		m.fail(err)
@@ -767,6 +793,8 @@ func (v *sessionView) actions(m *Model) overlay {
 	}
 	if !s.Archived {
 		items = append(items, menuItem{label: "Archive…", run: func(m *Model) tea.Cmd { m.push(archiveConfirm(m, s)); return nil }})
+	} else if canUnarchive(m) {
+		items = append(items, menuItem{label: "Unarchive", run: func(m *Model) tea.Cmd { return unarchive(m, s) }})
 	}
 	items = append(items, menuItem{label: "Delete…", danger: true, run: func(m *Model) tea.Cmd { m.push(deleteConfirm(m, s)); return nil }})
 	items = append(items, menuItem{label: "ra", header: true})

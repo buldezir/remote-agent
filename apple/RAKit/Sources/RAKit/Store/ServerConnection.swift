@@ -550,6 +550,25 @@ public final class ServerConnection {
         let _: Empty = try await client.call("session.archive", P(sessionId: sessionID, removeWorktree: removeWorktree))
     }
 
+    /// Whether the server brings archived sessions back (`session.unarchive`).
+    /// Without it, archived sessions are read-only.
+    public var unarchives: Bool { info?.unarchive == true }
+
+    /// Brings an archived session back: it takes prompts again, and the
+    /// server checks out a worktree that archiving deleted. The session the
+    /// server returns goes into the index at once, so the views change, and
+    /// a prompt can follow, before its event comes. A session that isn't
+    /// archived comes back as it is. `conflict` when its branch or project
+    /// is gone. Only for a server whose `info.unarchive` is true.
+    @discardableResult
+    public func unarchive(_ sessionID: String) async throws -> Session {
+        struct P: Encodable, Sendable { var sessionId: String }
+        let s: Session = try await client.call("session.unarchive", P(sessionId: sessionID))
+        sessions[s.id] = s
+        sessionStores[s.id]?.session = s
+        return s
+    }
+
     /// Whether the server renames sessions (`session.rename`).
     public var renames: Bool { info?.rename == true }
 

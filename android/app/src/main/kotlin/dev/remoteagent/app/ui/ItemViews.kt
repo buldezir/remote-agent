@@ -258,10 +258,11 @@ private fun QueuedCaption(sendNow: suspend () -> Unit, steer: (suspend () -> Uni
  * The session's draft: a prompt saved to send later, from any device. It
  * shows as the prompt it will be, outlined, with Send, and Edit, which takes
  * it back into the composer. [enabled]: neither is under way, and the
- * session isn't archived.
+ * session isn't archived, or the server unarchives it as it sends; [canEdit]:
+ * the session isn't archived.
  */
 @Composable
-fun DraftBubble(draft: Draft, enabled: Boolean, onEdit: () -> Unit, onSend: () -> Unit) {
+fun DraftBubble(draft: Draft, enabled: Boolean, onEdit: () -> Unit, onSend: () -> Unit, canEdit: Boolean = enabled) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         UserBubble(draft.text, draft.images, draft = true)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -272,7 +273,7 @@ fun DraftBubble(draft: Draft, enabled: Boolean, onEdit: () -> Unit, onSend: () -
                 Icon(painterResource(Icons.draft), null, Modifier.size(13.dp), tint = palette.subtext)
                 Text("Draft · not sent", style = Type.caption2, color = palette.subtext)
             }
-            DraftButton("Edit", palette.surface0, palette.text, enabled, onEdit, Modifier.testTag("edit-draft"))
+            DraftButton("Edit", palette.surface0, palette.text, enabled && canEdit, onEdit, Modifier.testTag("edit-draft"))
             DraftButton("Send", palette.accent, palette.onAccent, enabled, onSend, Modifier.testTag("send-draft"))
         }
     }

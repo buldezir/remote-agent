@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,7 +91,8 @@ fun SessionRow(session: Session, project: Project?, harness: HarnessInfo?, modif
 
 /**
  * A session in a list: a tap opens it, a long press offers to rename, archive
- * or delete it, and a swipe archives it at once, or deletes one already archived.
+ * (or unarchive) or delete it, and a swipe archives it at once, or deletes one
+ * already archived.
  * The selected one is drawn as a surface inset from the edges, on the list's
  * [background], which also covers the swipe's colour behind the row.
  */
@@ -107,6 +109,8 @@ fun SessionRowItem(
     onDelete: () -> Unit,
     // Null: the server can't rename.
     onRename: (() -> Unit)?,
+    // Null: the session isn't archived, or the server can't unarchive.
+    onUnarchive: (() -> Unit)?,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
 ) {
@@ -122,7 +126,7 @@ fun SessionRowItem(
                 ) {
                     SessionRow(session, project, harness, Modifier.padding(horizontal = 8.dp, vertical = 10.dp))
                 }
-                SessionRowMenu(menu, { menu = false }, session.archived, onArchive, onDelete, onRename)
+                SessionRowMenu(menu, { menu = false }, session.archived, onArchive, onDelete, onRename, onUnarchive)
             }
         }
     }
@@ -143,7 +147,8 @@ fun SessionSwipe(request: SessionRequest, onDelete: () -> Unit, content: @Compos
 
 /**
  * A row's long-press menu: Rename when the server can (archived sessions
- * too), Archive while it isn't archived, and Delete.
+ * too), Archive while it isn't archived, else Unarchive when the server can,
+ * which doesn't ask, and Delete.
  */
 @Composable
 fun SessionRowMenu(
@@ -154,10 +159,13 @@ fun SessionRowMenu(
     onDelete: () -> Unit,
     // Null: the server can't rename.
     onRename: (() -> Unit)?,
+    // Null: the session isn't archived, or the server can't unarchive.
+    onUnarchive: (() -> Unit)?,
 ) {
     DropdownMenu(expanded, onDismiss, containerColor = palette.mantle) {
         if (onRename != null) MenuItem("Rename…", Icons.rename) { onDismiss(); onRename() }
         if (!archived) MenuItem("Archive…", Icons.archive) { onDismiss(); onArchive() }
+        if (archived && onUnarchive != null) MenuItem("Unarchive", Icons.unarchive) { onDismiss(); onUnarchive() }
         MenuItem("Delete…", Icons.delete, color = palette.red) { onDismiss(); onDelete() }
     }
 }
@@ -171,6 +179,38 @@ data class SessionRequest(val session: Session, val connection: ServerConnection
     fun archive(removeWorktree: Boolean = false) {
         connection.scope.launch { runCatching { connection.archive(session.id, removeWorktree) } }
     }
+}
+
+/**
+ * Unarchives sessions from rows' menus, without asking: it's harmless. One
+ * that fails, as when its worktree's branch is gone, shows its error in
+ * [UnarchiveErrorDialog], which callers keep in the composition.
+ */
+@Stable
+class Unarchiver {
+    var error by mutableStateOf<String?>(null)
+
+    /** On the connection's scope: the row that asked leaves its list as the session does. */
+    fun unarchive(request: SessionRequest) {
+        val (s, connection) = request
+        connection.scope.launch {
+            try {
+                connection.unarchive(s.id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.message ?: "The request failed"
+            }
+        }
+    }
+}
+
+@Composable
+fun rememberUnarchiver() = remember { Unarchiver() }
+
+@Composable
+fun UnarchiveErrorDialog(unarchiver: Unarchiver) {
+    ErrorDialog(unarchiver.error, title = "Couldn't unarchive the session") { unarchiver.error = null }
 }
 
 /** Confirmation before archiving a session, which can also delete its worktree. */

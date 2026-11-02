@@ -568,6 +568,8 @@ public struct ServerInfo: Codable, Hashable, Sendable {
     public var search: Bool?
     /// The server renames sessions (`session.rename`).
     public var rename: Bool?
+    /// The server brings archived sessions back (`session.unarchive`).
+    public var unarchive: Bool?
 }
 
 /// What `session.search` found (`ServerConnection.search`).

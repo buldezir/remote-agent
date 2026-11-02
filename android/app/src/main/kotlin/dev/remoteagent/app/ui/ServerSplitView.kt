@@ -49,6 +49,7 @@ fun ServerSplitView(
     var archiving by remember { mutableStateOf<SessionRequest?>(null) }
     var deleting by remember { mutableStateOf<SessionRequest?>(null) }
     var renaming by remember { mutableStateOf<SessionRequest?>(null) }
+    val unarchiver = rememberUnarchiver()
     var removing by remember { mutableStateOf<SavedServer?>(null) }
     var settingsOf by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -74,6 +75,7 @@ fun ServerSplitView(
             archive = { archiving = it },
             delete = { deleting = it },
             rename = { renaming = it },
+            unarchive = { unarchiver.unarchive(it) },
             remove = { removing = it },
             serverSettings = { settingsOf = it.server.value.id },
         )
@@ -136,6 +138,7 @@ fun ServerSplitView(
     ArchiveSessionDialog(archiving, onDismiss = { archiving = null })
     DeleteSessionDialog(deleting, onDismiss = { deleting = null })
     RenameSessionDialog(renaming, onDismiss = { renaming = null })
+    UnarchiveErrorDialog(unarchiver)
     val removed = removing
     RemoveServerDialog(removed, onDismiss = { removing = null }, onRemove = { removed?.let(onRemoved) })
     servers.firstOrNull { it.id == settingsOf }?.let { s ->

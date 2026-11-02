@@ -16,6 +16,7 @@ struct ServerHomeView: View {
     @State private var showArchived = false
     @State private var renaming: SessionRequest?
     @State private var archiving: SessionRequest?
+    @State private var unarchiving: SessionRequest?
     @State private var deleting: SessionRequest?
 
     var body: some View {
@@ -73,6 +74,7 @@ struct ServerHomeView: View {
             }
             .renameSessionAlert($renaming)
             .archiveSessionDialog($archiving)
+            .unarchiveSession($unarchiving)
             .deleteSessionDialog($deleting)
             .refreshable {
                 if connection.state != .connected { connection.retry() }
@@ -162,6 +164,9 @@ struct ServerHomeView: View {
             if !s.archived {
                 Button("Archive", systemImage: "archivebox") { SessionRequest(session: s, connection: connection).archive() }
                     .tint(Palette.blue)
+            } else if connection.unarchives {
+                Button("Unarchive", systemImage: SessionRequest.unarchiveSymbol) { unarchiving = SessionRequest(session: s, connection: connection) }
+                    .tint(Palette.blue)
             }
             Button("Delete", systemImage: "trash") { deleting = SessionRequest(session: s, connection: connection) }
                 .tint(Palette.red)
@@ -172,6 +177,8 @@ struct ServerHomeView: View {
             }
             if !s.archived {
                 Button("Archive…", systemImage: "archivebox") { archiving = SessionRequest(session: s, connection: connection) }
+            } else if connection.unarchives {
+                Button("Unarchive", systemImage: SessionRequest.unarchiveSymbol) { unarchiving = SessionRequest(session: s, connection: connection) }
             }
             Button("Delete…", systemImage: "trash", role: .destructive) { deleting = SessionRequest(session: s, connection: connection) }
         }

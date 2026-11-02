@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -16,7 +18,8 @@ import (
 )
 
 // The system agent names a session from its first prompt: a title, and a
-// branch for its worktree. It also writes commit messages and pull requests
+// branch for its worktree; after its first and third turns, it names it
+// again from the work, title only (renamesAfter). It also writes commit messages and pull requests
 // (commit.go). Until it answers, the session has the names rad
 // makes up (titleFrom, provisionalBranch), and it keeps them if the agent
 // fails. Names the user chose are left alone.
@@ -82,7 +85,46 @@ func (o *Orchestrator) nameSession(sessionID, projectName, text string, title, b
 	if strings.TrimSpace(text) == "" || !title && !branch {
 		return
 	}
+	o.askNames(sessionID, func(context.Context) (string, bool) {
+		return namingPrompt(projectName, text, branch), true
+	}, title, branch)
+}
+
+// renamesAfter are the turns after which the system agent names the session
+// again, from the work done so far: a first prompt often says little ("look
+// at this", "continue"), and the first turns show what the session is about.
+// Two calls at most, so that naming stays cheap.
+var renamesAfter = []int{1, 3}
+
+// renameFromWork has the system agent, if one is set, name the session again
+// from its prompts, the agent's latest reply and the files it changed: only
+// its title, which it keeps when it still fits, and never one the user chose.
+func (o *Orchestrator) renameFromWork(sessionID, projectName string) {
+	o.askNames(sessionID, func(ctx context.Context) (string, bool) {
+		s, err := o.st.Session(ctx, sessionID)
+		if err != nil || s.CustomTitle || s.Archived {
+			return "", false
+		}
+		items, err := o.st.Items(ctx, sessionID)
+		if err != nil {
+			return "", false
+		}
+		w := workOf(items, Workdir(s.Workspace))
+		if len(w.requests) == 0 || w.reply == "" && len(w.files) == 0 {
+			return "", false // nothing to learn from
+		}
+		return renamingPrompt(projectName, s.Title, w), true
+	}, true, false)
+}
+
+// askNames runs a naming request in the background, after the session's
+// earlier ones, so that a later request, which knows more, has the last
+// word. prompt builds the request once its turn comes, or says there's none.
+func (o *Orchestrator) askNames(sessionID string, prompt func(context.Context) (string, bool), title, branch bool) {
+	ticket := o.namingOrder.take(sessionID)
 	o.naming.Go(func() {
+		defer o.namingOrder.done(sessionID)
+		o.namingOrder.wait(sessionID, ticket)
 		ctx, cancel := context.WithTimeout(o.bg, namingTimeout)
 		defer cancel()
 		settings, err := o.st.Settings(ctx)
@@ -90,8 +132,12 @@ func (o *Orchestrator) nameSession(sessionID, projectName, text string, title, b
 			return
 		}
 		agent := *settings.SystemAgent
+		text, ok := prompt(ctx)
+		if !ok {
+			return
+		}
 		start := time.Now()
-		names, err := o.askNames(ctx, agent, projectName, text, branch)
+		names, err := o.ask(ctx, agent, text)
 		if err != nil {
 			if o.bg.Err() == nil {
 				o.log.Warn("naming the session failed", "session", sessionID, "harness", agent.Harness, "model", agent.Model, "err", err)
@@ -119,14 +165,56 @@ func (o *Orchestrator) nameSession(sessionID, projectName, text string, title, b
 	})
 }
 
+// namingOrder runs each session's naming requests one at a time, in the
+// order they were made.
+type namingOrder struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	issued map[string]int // tickets given out, per session
+	served map[string]int // tickets done
+}
+
+func (q *namingOrder) take(sessionID string) int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.issued == nil {
+		q.cond = sync.NewCond(&q.mu)
+		q.issued, q.served = map[string]int{}, map[string]int{}
+	}
+	t := q.issued[sessionID]
+	q.issued[sessionID]++
+	return t
+}
+
+// wait returns once every earlier ticket of the session is done. Each
+// request ends within namingTimeout, so the wait does too.
+func (q *namingOrder) wait(sessionID string, ticket int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for q.served[sessionID] != ticket {
+		q.cond.Wait()
+	}
+}
+
+func (q *namingOrder) done(sessionID string) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.served[sessionID]++
+	if q.served[sessionID] == q.issued[sessionID] {
+		delete(q.served, sessionID)
+		delete(q.issued, sessionID)
+	}
+	q.cond.Broadcast()
+}
+
 type names struct {
 	Title  string `json:"title"`
 	Branch string `json:"branch"`
 }
 
-// askNames has the system agent name the session.
-func (o *Orchestrator) askNames(ctx context.Context, agent model.AgentSpec, projectName, text string, branch bool) (names, error) {
-	reply, err := o.oneShot(ctx, agent, namingPrompt(projectName, text, branch))
+// ask has the system agent name the session.
+func (o *Orchestrator) ask(ctx context.Context, agent model.AgentSpec, prompt string) (names, error) {
+	reply, err := o.oneShot(ctx, agent, prompt)
 	if err != nil {
 		return names{}, err
 	}
@@ -168,6 +256,112 @@ func namingPrompt(projectName, text string, branch bool) string {
 	b.WriteString("The session's first request:\n<request>\n")
 	b.WriteString(text)
 	b.WriteString("\n</request>\n")
+	return b.String()
+}
+
+// work is what a session did so far, as the system agent reads it to name
+// the session again.
+type work struct {
+	requests []string // the user's prompts
+	reply    string   // the agent's latest reply
+	files    []string // the files the agent changed, at most maxWorkFiles
+}
+
+// How much of the work the system agent reads: the first prompt, a little
+// of each later one (the first and the latest five), the end of the latest
+// reply (where agents sum up), and the files' names. About 1,500 tokens.
+const (
+	maxFirstRequest = 1000
+	maxLaterRequest = 300
+	maxRequests     = 6
+	maxReply        = 1500
+	maxWorkFiles    = 12
+)
+
+// workOf gathers a session's work from its items: the conversation's, not
+// sub-agents'. Paths in dir are made relative to it.
+func workOf(items []*model.Item, dir string) work {
+	var w work
+	seen := map[string]bool{}
+	for _, it := range items {
+		if it.ParentItemID != "" {
+			continue
+		}
+		switch it.Kind {
+		case model.ItemUserMessage:
+			if t := strings.TrimSpace(it.Text); t != "" {
+				w.requests = append(w.requests, t)
+			}
+		case model.ItemAssistantMessage:
+			if t := strings.TrimSpace(it.Text); t != "" {
+				w.reply = t
+			}
+		case model.ItemToolCall:
+			if it.Tool == nil || it.Tool.Kind != model.ToolEdit || it.Status == model.ItemFailed {
+				continue
+			}
+			for _, p := range it.Tool.Paths {
+				if rel, err := filepath.Rel(dir, p); err == nil && filepath.IsAbs(p) && !strings.HasPrefix(rel, "..") {
+					p = rel
+				}
+				if !seen[p] && len(w.files) < maxWorkFiles {
+					seen[p] = true
+					w.files = append(w.files, p)
+				}
+			}
+		}
+	}
+	return w
+}
+
+// cut keeps the first max characters of s, else its end with keepEnd.
+func cut(s string, max int, keepEnd bool) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	if keepEnd {
+		return "…" + string(r[len(r)-max:])
+	}
+	return string(r[:max]) + "…"
+}
+
+func renamingPrompt(projectName, title string, w work) string {
+	var b strings.Builder
+	b.WriteString("You name the sessions of a coding agent. Don't do the task, and don't use tools. Reply with only a JSON object:\n")
+	b.WriteString(`{"title": "<what the session is about, in at most 6 words, in the requests' language, sentence case, without quotes or a full stop>"}`)
+	b.WriteString("\n\n")
+	if projectName != "" {
+		fmt.Fprintf(&b, "The project is %q. ", projectName)
+	}
+	b.WriteString("The session was named from its first request, before any work. Name it for what the work turned out to be about; ")
+	b.WriteString("when the title still fits, give it again.\n<title>")
+	b.WriteString(title)
+	b.WriteString("</title>\n<requests>\n")
+	requests := w.requests
+	if len(requests) > maxRequests {
+		requests = append(requests[:1:1], requests[len(requests)-maxRequests+1:]...)
+	}
+	for i, r := range requests {
+		max := maxLaterRequest
+		if i == 0 {
+			max = maxFirstRequest
+		}
+		b.WriteString("<request>\n")
+		b.WriteString(cut(r, max, false))
+		b.WriteString("\n</request>\n")
+	}
+	b.WriteString("</requests>\n")
+	if w.reply != "" {
+		b.WriteString("The agent's latest reply:\n<reply>\n")
+		b.WriteString(cut(w.reply, maxReply, true))
+		b.WriteString("\n</reply>\n")
+	}
+	if len(w.files) > 0 {
+		b.WriteString("Files it changed:\n<files>\n")
+		b.WriteString(strings.Join(w.files, "\n"))
+		b.WriteString("\n</files>\n")
+	}
 	return b.String()
 }
 

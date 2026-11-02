@@ -2,17 +2,19 @@ import { Archive, Clock, GitBranch, Hand, Pencil, Square, TriangleAlert } from "
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { contextFraction, modelName, parseDate, type SearchResult, type Session, type SnippetPart } from "../protocol/models";
 import { Spinner, useContextMenu } from "./primitives";
-import { DeleteButton, sessionRowMenu } from "./SessionRow";
+import { DeleteButton, sessionRowMenu, UnarchiveButton } from "./SessionRow";
 import { needsYou, projectOf, shortAge, standsOut, type ServerSession } from "./sidebarLayout";
 
 /** A session's row in a sidebar list: a click opens it, on hover buttons
- *  archive or delete it, and its context menu renames, archives or deletes it. */
+ *  archive (or unarchive) or delete it, and its context menu renames,
+ *  archives (or unarchives) or deletes it. */
 export function SessionLink({
   item,
   selected,
   onOpen,
   onRename,
   onArchive,
+  onUnarchive,
   onDelete,
   className = "",
   children,
@@ -22,11 +24,12 @@ export function SessionLink({
   onOpen: () => void;
   onRename?: () => void;
   onArchive?: () => void;
+  onUnarchive?: () => void;
   onDelete?: () => void;
   className?: string;
   children: ReactNode;
 }) {
-  const { onContextMenu, menu } = useContextMenu(sessionRowMenu(item.session, item.connection, { onRename, onArchive, onDelete }));
+  const { onContextMenu, menu } = useContextMenu(sessionRowMenu(item.session, item.connection, { onRename, onArchive, onUnarchive, onDelete }));
   return (
     <>
       <div className={`session-row ${className}` + (selected ? " selected" : "")} onContextMenu={onContextMenu}>
@@ -38,6 +41,7 @@ export function SessionLink({
             <Archive size={15} />
           </button>
         )}
+        {onUnarchive && item.session.archived && !!item.connection.info?.unarchive && <UnarchiveButton onUnarchive={onUnarchive} />}
         {onDelete && <DeleteButton onDelete={onDelete} />}
       </div>
       {menu}

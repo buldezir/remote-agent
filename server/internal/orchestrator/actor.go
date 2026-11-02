@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -794,6 +795,9 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 		return a.putSession(w)
 	})
 	a.items = carried
+	if slices.Contains(renamesAfter, turn.N) && ev.Status != model.TurnFailed && !a.sess.CustomTitle && !a.sess.Archived && !a.archiving && !a.deleted {
+		a.o.renameFromWork(a.sess.ID, a.projectName())
+	}
 	if a.rt != nil { // else the agent exited, which cancels the queue
 		a.startNext(ctx)
 	}
@@ -1080,6 +1084,48 @@ func (a *actor) archive(ctx context.Context, removeWorktree bool) error {
 	a.sess.Status = model.SessionStopped
 	a.sess.Unread = false // and not for the turn the agent stopping ended
 	return a.write(ctx, a.putSession)
+}
+
+// unarchive brings the session back from the archive. Its worktree, if
+// archiving removed it, is checked out again from its branch; without the
+// branch, or its project, the session stays archived. Its checkpoints went
+// with the archive, so its earlier turns have no diffs.
+func (a *actor) unarchive(ctx context.Context) (*model.Session, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deleted {
+		return nil, errorf(CodeNotFound, "session %s not found", a.sess.ID)
+	}
+	if a.archiving && !a.sess.Archived {
+		return nil, errorf(CodeConflict, "the session is being archived")
+	}
+	if !a.sess.Archived {
+		cp := *a.sess
+		return &cp, nil
+	}
+	if a.project == nil {
+		return nil, errorf(CodeConflict, "the session's project was removed")
+	}
+	if ws := a.sess.Workspace; ws.Kind == model.WorkspaceWorktree {
+		if _, err := os.Stat(ws.Path); errors.Is(err, fs.ErrNotExist) {
+			gitx.PruneWorktrees(ctx, a.project.Path)
+			if ws.Branch == "" || !gitx.BranchExists(ctx, a.project.Path, ws.Branch) {
+				return nil, errorf(CodeConflict, "the session's worktree was removed, and its branch %s is gone", ws.Branch)
+			}
+			if err := gitx.CheckoutWorktree(ctx, a.project.Path, ws.Path, ws.Branch); err != nil {
+				return nil, errorf(CodeConflict, "checking out %s again: %v", ws.Branch, err)
+			}
+		}
+	}
+	a.archiving = false
+	a.sess.Archived = false
+	if err := a.write(ctx, a.putSession); err != nil {
+		a.sess.Archived = true
+		return nil, err
+	}
+	a.o.log.Info("session unarchived", a.logAttrs("device", clientOf(ctx))...)
+	cp := *a.sess
+	return &cp, nil
 }
 
 // saveDraft keeps a prompt in the session to send later, or, with nothing

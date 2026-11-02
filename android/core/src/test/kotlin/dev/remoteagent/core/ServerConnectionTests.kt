@@ -552,6 +552,36 @@ class ServerConnectionTests {
         withContext(dispatcher) { c.stop() }
     }
 
+    @Test
+    fun unarchiveBringsTheSessionBackAtOnce() = runBlocking {
+        rad.answer = { r, method, _ ->
+            when (method) {
+                "server.info" -> FakeRad.serverInfo
+                "subscribe" -> {
+                    r.notify("events", events("index", 1L to upserted("project", project("p1")), 2L to upserted("session", session("s1", archived = true))))
+                    r.notify("synchronized", synchronized(2, reset = true))
+                    subscribed(2)
+                }
+                // Its event follows later; the session comes back first.
+                "session.unarchive" -> session("s1", updatedAt = "2026-10-09T13:00:00Z")
+                else -> JsonObject(emptyMap())
+            }
+        }
+        server.upgrade(rad)
+        val c = connect()
+        withTimeout(5.seconds) { c.indexSynced.first { it } }
+        val store = withContext(dispatcher) { c.sessionStore("s1") }
+        assertTrue(c.sessions.value.getValue("s1").archived)
+
+        val s = withContext(dispatcher) { c.unarchive("s1") }
+        assertEquals(params("sessionId" to "s1"), rad.nextCall("session.unarchive")["params"])
+        assertFalse(s.archived)
+        // In the lists and the open session, without waiting for the event.
+        assertFalse(c.sessions.value.getValue("s1").archived)
+        assertEquals(false, store.session.value?.archived)
+        withContext(dispatcher) { c.stop() }
+    }
+
     private fun removed(id: String) = buildJsonObject {
         put("type", "session.removed")
         put("id", id)

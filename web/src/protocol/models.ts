@@ -524,6 +524,9 @@ export interface ServerInfo {
   search?: boolean;
   /** The server renames sessions (`session.rename`). */
   rename?: boolean;
+  /** The server brings archived sessions back (`session.unarchive`). Older
+   *  ones keep archived sessions read-only. */
+  unarchive?: boolean;
 }
 
 /** `session.search`'s result, best first. */

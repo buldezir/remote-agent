@@ -118,6 +118,7 @@ function ServerProjects({
             onOpen={() => navigate({ serverID: id, sessionID: item.session.id })}
             onRename={() => actions.renameSession(connection, item.session)}
             onArchive={() => actions.archive(connection, item.session)}
+            onUnarchive={() => actions.unarchive(connection, item.session)}
             onDelete={() => actions.delete(connection, item.session)}
           >
             <TreeRow item={item} />

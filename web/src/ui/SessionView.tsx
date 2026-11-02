@@ -41,7 +41,7 @@ import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./image
 import { DraftBubble, ItemView, ToolRunRow, TurnFooter, UserBubble } from "./items/ItemView";
 import { ErrorAlert, Menu, Spinner, type MenuEntry } from "./primitives";
 import { focusDone, useFocusItem, usePageInFront, useWide } from "./router";
-import { RenameSession } from "./SessionRow";
+import { RenameSession, UnarchiveConfirm } from "./SessionRow";
 import { useSettings } from "./settings";
 import { storage } from "../store/storage";
 
@@ -295,7 +295,11 @@ export function SessionView({
     };
   }, [findOpen, findQuery, matches, currentMatch]);
   const outbox = [...store.outbox.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const drop = useImageDrop(session?.archived ? undefined : attachments);
+  // An archived session takes a prompt where its server unarchives it,
+  // which asks first; on an older server it is read-only.
+  const canUnarchive = !!connection.info?.unarchive;
+  const readOnly = !!session?.archived && !canUnarchive;
+  const drop = useImageDrop(readOnly ? undefined : attachments);
   const composer = useRef<ComposerHandle>(null);
 
   // The draft at the foot of the transcript, until it's sent. A session with
@@ -314,6 +318,18 @@ export function SessionView({
     scrollToEnd();
     return run(() => store.sendDraft());
   };
+  const [unarchivingDraft, setUnarchivingDraft] = useState(false);
+  const sendDraftAsking = async () => {
+    if (session?.archived) setUnarchivingDraft(true);
+    else await sendDraft();
+  };
+  const unarchiveAndSendDraft = () =>
+    run(async () => {
+      await connection.unarchive(sessionID);
+      pinned.current = true;
+      scrollToEnd();
+      await store.sendDraft();
+    });
   // Taken off the server, then into the composer.
   const editDraft = (d: Draft) =>
     run(async () => {
@@ -489,7 +505,15 @@ export function SessionView({
               {outbox.map(([id, out]) => (
                 <UserBubble key={id} text={out.text} images={out.images} pending />
               ))}
-              {draft && <DraftBubble draft={draft} archived={!!session?.archived} onSend={sendDraft} onEdit={() => editDraft(draft)} />}
+              {draft && (
+                <DraftBubble
+                  draft={draft}
+                  archived={!!session?.archived}
+                  canUnarchive={canUnarchive}
+                  onSend={sendDraftAsking}
+                  onEdit={() => editDraft(draft)}
+                />
+              )}
               {store.synced && store.transcript.length === 0 && outbox.length === 0 && !session?.draft && (
                 <div className="hint center pad">No prompts yet. Write the first one below.</div>
               )}
@@ -532,6 +556,7 @@ export function SessionView({
           />
         )}
         {showCommit && session && <CommitSheet session={session} onClose={() => setShowCommit(false)} />}
+        {unarchivingDraft && <UnarchiveConfirm onConfirm={() => void unarchiveAndSendDraft()} onClose={() => setUnarchivingDraft(false)} />}
         {renaming && session && <RenameSession connection={connection} session={session} onClose={() => setRenaming(false)} onError={setError} />}
         <ErrorAlert error={error ?? attachments.error} onClose={() => (error ? setError(undefined) : attachments.clearError())} />
       </div>
@@ -733,6 +758,11 @@ function Composer({
   const [focused, setFocused] = useState(false);
   const dictation = useDictation();
   const archived = session?.archived === true;
+  // Where the server unarchives, a prompt typed into an archived session
+  // asks to unarchive it, then goes as any other; otherwise it's read-only.
+  const canUnarchive = !!connection.info?.unarchive;
+  const readOnly = archived && !canUnarchive;
+  const [askUnarchive, setAskUnarchive] = useState(false);
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [loadingCommands, setLoadingCommands] = useState(false);
   const [commandsError, setCommandsError] = useState(false);
@@ -834,14 +864,22 @@ function Composer({
   // the agent takes one; Return queues it.
   const steers = store.canSteer(draft, harness);
   const send = (steer = false) => {
-    if (!canSend || archived) return;
+    if (!canSend || readOnly) return;
+    if (archived) setAskUnarchive(true);
+    else deliver(steer && steers);
+  };
+  // `unarchive` first brings the session back; if it can't, the prompt
+  // comes back into the composer, as one that couldn't be sent.
+  const deliver = (steer: boolean, unarchive = false) => {
+    if (!canSend) return;
     const text = draft;
     const sent = attachments.entries;
     const images = attachments.refs;
     setDraft("");
     attachments.clear();
     onSend();
-    store.send(text, images, steer && steers).catch((e) => {
+    const go = unarchive ? connection.unarchive(store.sessionID).then(() => store.send(text, images)) : store.send(text, images, steer);
+    go.catch((e) => {
       // It didn't go: back into the composer, ahead of anything written since.
       setDraft([text, store.draft].filter((t) => t !== "").join("\n"));
       attachments.restore(sent);
@@ -860,7 +898,8 @@ function Composer({
     }
   };
 
-  const placeholder = dictation.phase === "listening" ? "Listening…" : store.isRunning ? "Queue a follow-up…" : "Prompt";
+  const placeholder =
+    dictation.phase === "listening" ? "Listening…" : archived && canUnarchive ? "Archived. Send to unarchive" : store.isRunning ? "Queue a follow-up…" : "Prompt";
 
   return (
     <div className="composer-wrap">
@@ -888,7 +927,7 @@ function Composer({
           <small className="command-discovery-status">{loadingCommands ? "Loading skills…" : "Skills unavailable. Try typing / again."}</small>
         )}
         <div className="composer-row">
-          <AttachButton attachments={attachments} disabled={archived} />
+          <AttachButton attachments={attachments} disabled={readOnly} />
           <textarea
             aria-controls={suggestions.length ? "command-suggestions" : undefined}
             aria-expanded={suggestions.length > 0}
@@ -899,7 +938,7 @@ function Composer({
             rows={1}
             value={draft}
             placeholder={placeholder}
-            disabled={archived}
+            disabled={readOnly}
             onChange={(e) => setDraft(e.target.value)}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
@@ -954,7 +993,7 @@ function Composer({
           <button
             className={"round-button main " + (action === "stopDictation" ? "c-red" : "c-accent")}
             onClick={main}
-            disabled={archived || (action === "send" && !canSend)}
+            disabled={readOnly || (action === "send" && !canSend)}
             title={
               action === "send"
                 ? steers
@@ -970,6 +1009,7 @@ function Composer({
           </button>
         </div>
       </div>
+      {askUnarchive && <UnarchiveConfirm onConfirm={() => deliver(false, true)} onClose={() => setAskUnarchive(false)} />}
     </div>
   );
 }

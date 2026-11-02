@@ -824,6 +824,15 @@ func (c *ServerConnection) Archive(ctx context.Context, sessionID string, remove
 	return c.rpc.Call(ctx, "session.archive", map[string]any{"sessionId": sessionID, "removeWorktree": removeWorktree}, nil)
 }
 
+// Unarchive brings an archived session back, where the server unarchives
+// (ServerInfo.Unarchive); the index and the session's store hear of it as
+// of any change.
+func (c *ServerConnection) Unarchive(ctx context.Context, sessionID string) (model.Session, error) {
+	var s model.Session
+	err := c.rpc.Call(ctx, "session.unarchive", map[string]any{"sessionId": sessionID}, &s)
+	return s, err
+}
+
 // DeleteSession deletes a session and its transcript for good; the index
 // then drops it.
 func (c *ServerConnection) DeleteSession(ctx context.Context, sessionID string, removeWorktree bool) error {

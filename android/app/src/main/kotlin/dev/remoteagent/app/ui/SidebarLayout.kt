@@ -47,6 +47,8 @@ class SessionActions(
     val archive: (SessionRequest) -> Unit = {},
     val delete: (SessionRequest) -> Unit = {},
     val rename: (SessionRequest) -> Unit = {},
+    /** Unarchives at once, without asking. */
+    val unarchive: (SessionRequest) -> Unit = {},
     val remove: (SavedServer) -> Unit = {},
     /** Opens the server's settings: its updates, agents and system agent. */
     val serverSettings: (ServerConnection) -> Unit = {},
@@ -76,6 +78,8 @@ class ServerState(
     val offline get() = state is ConnectionState.Failed
     /** The server renames sessions: rows offer Rename…. */
     val renames get() = info?.rename == true
+    /** The server unarchives sessions: archived rows offer Unarchive. */
+    val unarchives get() = info?.unarchive == true
 
     fun harness(id: String): HarnessInfo? = harnesses?.firstOrNull { it.id == id }
 }

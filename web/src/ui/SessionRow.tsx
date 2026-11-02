@@ -1,4 +1,4 @@
-import { Archive, GitBranch, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, GitBranch, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { Session } from "../protocol/models";
 import type { ServerConnection } from "../store/serverConnection";
@@ -8,13 +8,14 @@ import { Confirm, useContextMenu, type MenuEntry } from "./primitives";
 import { needsYou } from "./sidebarLayout";
 
 /** A session in a list: its status, title, agent, project and branch. Its
- *  context menu renames, archives or deletes it. */
+ *  context menu renames, archives (or unarchives) or deletes it. */
 export function SessionRow({
   session,
   selected,
   onOpen,
   onRename,
   onArchive,
+  onUnarchive,
   onDelete,
 }: {
   session: Session;
@@ -22,12 +23,13 @@ export function SessionRow({
   onOpen: () => void;
   onRename?: () => void;
   onArchive?: () => void;
+  onUnarchive?: () => void;
   onDelete?: () => void;
 }) {
   const connection = useConnection();
   const project = connection.projects.get(session.projectId);
   const harness = connection.harness(session.harness);
-  const { onContextMenu, menu } = useContextMenu(sessionRowMenu(session, connection, { onRename, onArchive, onDelete }));
+  const { onContextMenu, menu } = useContextMenu(sessionRowMenu(session, connection, { onRename, onArchive, onUnarchive, onDelete }));
   return (
     <>
       <div className={"session-row" + (selected ? " selected" : "")} onContextMenu={onContextMenu}>
@@ -53,6 +55,7 @@ export function SessionRow({
             <Archive size={15} />
           </button>
         )}
+        {session.archived && onUnarchive && !!connection.info?.unarchive && <UnarchiveButton onUnarchive={onUnarchive} />}
         {onDelete && <DeleteButton onDelete={onDelete} />}
       </div>
       {menu}
@@ -61,17 +64,28 @@ export function SessionRow({
 }
 
 /** A session row's context menu, as the apps': Rename… where its server
- *  renames, Archive… unless it is archived, and Delete…. */
+ *  renames, Archive… unless it is archived, Unarchive if it is and its
+ *  server unarchives, and Delete…. */
 export function sessionRowMenu(
   session: Session,
   connection: ServerConnection,
-  { onRename, onArchive, onDelete }: { onRename?: () => void; onArchive?: () => void; onDelete?: () => void },
+  { onRename, onArchive, onUnarchive, onDelete }: { onRename?: () => void; onArchive?: () => void; onUnarchive?: () => void; onDelete?: () => void },
 ): MenuEntry[] {
   return [
     !!connection.info?.rename && onRename && { label: "Rename…", icon: Pencil, onSelect: onRename },
     !session.archived && onArchive && { label: "Archive…", icon: Archive, onSelect: onArchive },
+    session.archived && !!connection.info?.unarchive && onUnarchive && { label: "Unarchive", icon: ArchiveRestore, onSelect: onUnarchive },
     onDelete && { label: "Delete…", icon: Trash2, destructive: true, onSelect: onDelete },
   ];
+}
+
+/** A row's button that brings its archived session back, without asking. */
+export function UnarchiveButton({ onUnarchive }: { onUnarchive: () => void }) {
+  return (
+    <button className="session-row-action icon-button" onClick={onUnarchive} title="Unarchive" aria-label="Unarchive">
+      <ArchiveRestore size={15} />
+    </button>
+  );
 }
 
 /** A row's button that asks to delete its session. */
@@ -94,6 +108,19 @@ export function ArchiveConfirm({ connection, session, onClose }: { connection: S
         { label: "Archive", onSelect: () => connection.archive(session.id, false).catch(() => {}) },
         ...(worktree ? [{ label: "Archive and delete worktree", destructive: true, onSelect: () => connection.archive(session.id, true).catch(() => {}) }] : []),
       ]}
+      onClose={onClose}
+    />
+  );
+}
+
+/** Asks before a prompt goes to an archived session, which is unarchived
+ *  first; `onConfirm` does both. */
+export function UnarchiveConfirm({ onConfirm, onClose }: { onConfirm: () => void; onClose: () => void }) {
+  return (
+    <Confirm
+      title="Unarchive session?"
+      message="This session is archived. Unarchive it to send your prompt."
+      actions={[{ label: "Unarchive and Send", onSelect: onConfirm }]}
       onClose={onClose}
     />
   );

@@ -73,10 +73,13 @@ struct SessionRow: View {
     }
 }
 
-/// A session to rename, archive or delete, and the server it is on.
+/// A session to rename, archive, unarchive or delete, and the server it is on.
 struct SessionRequest {
     let session: Session
     let connection: ServerConnection
+
+    /// Unarchive's symbol: the archive box with an arrow out of it.
+    static let unarchiveSymbol = "arrow.up.bin"
 
     /// Archives the session without asking, as a swipe does; its worktree stays.
     func archive(removeWorktree: Bool = false) {
@@ -107,6 +110,13 @@ extension View {
         } message: { r in
             Text(r.session.workspace.kind == .worktree ? "The branch \(r.session.workspace.branch ?? "") is kept either way." : "The agent process is stopped.")
         }
+    }
+
+    /// Unarchives the session asked for (`SessionActions.unarchive`) at once,
+    /// without asking, and says so if the server can't: its worktree's branch
+    /// or its project is gone. The session leaves the archive with its event.
+    func unarchiveSession(_ request: Binding<SessionRequest?>) -> some View {
+        modifier(UnarchiveSession(request: request))
     }
 
     /// Confirmation before archiving the sessions with nothing new for a week,
@@ -186,6 +196,28 @@ private struct RenameSessionAlert: ViewModifier {
             do { try await r.connection.rename(r.session.id, title: title) }
             catch { self.error = error.localizedDescription }
         }
+    }
+}
+
+private struct UnarchiveSession: ViewModifier {
+    @Binding var request: SessionRequest?
+    @State private var error: String?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: request?.session.id) { _, _ in
+                guard let r = request else { return }
+                request = nil
+                Task {
+                    do { try await r.connection.unarchive(r.session.id) }
+                    catch { self.error = error.localizedDescription }
+                }
+            }
+            .alert("Couldn't unarchive the session", isPresented: .init(get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("OK") { error = nil }
+            } message: {
+                Text(error ?? "")
+            }
     }
 }
 

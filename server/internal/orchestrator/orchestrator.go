@@ -52,6 +52,8 @@ type Orchestrator struct {
 	bg     context.Context // the system agent's calls; cancelled by Shutdown
 	stopBg context.CancelFunc
 	naming sync.WaitGroup
+	// namingOrder runs each session's naming requests in turn (naming.go).
+	namingOrder namingOrder
 
 	limits limitsState // the agents' usage limits (limits.go)
 }
@@ -566,6 +568,17 @@ func (o *Orchestrator) Archive(ctx context.Context, sessionID string, removeWork
 	o.mu.Unlock()
 	o.dropToken(sessionID)
 	return err
+}
+
+// Unarchive brings an archived session back: it takes prompts again, and
+// its agent picks up its conversation. A worktree archived with it is made
+// again from its branch.
+func (o *Orchestrator) Unarchive(ctx context.Context, sessionID string) (*model.Session, error) {
+	a, err := o.actor(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return a.unarchive(ctx)
 }
 
 // Delete removes a session for good, archived or not: its agent stops, and

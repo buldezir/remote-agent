@@ -14,6 +14,7 @@
     "forks": true,
     "commit": true,
     "search": true,
-    "rename": true
+    "rename": true,
+    "unarchive": true
   }
 }

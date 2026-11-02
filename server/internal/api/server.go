@@ -133,14 +133,15 @@ type serverInfo struct {
 // what only a paired device sees.
 type serverInfoResult struct {
 	serverInfo
-	Roots    []string `json:"roots"`
-	DeviceID string   `json:"deviceId"`
-	Terminal bool     `json:"terminal,omitempty"` // GET /v1/terminal is there
-	Drafts   bool     `json:"drafts"`             // session.saveDraft and sendDraft, and session.create's draft
-	Forks    bool     `json:"forks,omitempty"`    // session.fork
-	Commit   bool     `json:"commit,omitempty"`   // git.commitPreview and git.commit
-	Search   bool     `json:"search,omitempty"`   // session.search
-	Rename   bool     `json:"rename,omitempty"`   // session.rename
+	Roots     []string `json:"roots"`
+	DeviceID  string   `json:"deviceId"`
+	Terminal  bool     `json:"terminal,omitempty"`  // GET /v1/terminal is there
+	Drafts    bool     `json:"drafts"`              // session.saveDraft and sendDraft, and session.create's draft
+	Forks     bool     `json:"forks,omitempty"`     // session.fork
+	Commit    bool     `json:"commit,omitempty"`    // git.commitPreview and git.commit
+	Search    bool     `json:"search,omitempty"`    // session.search
+	Rename    bool     `json:"rename,omitempty"`    // session.rename
+	Unarchive bool     `json:"unarchive,omitempty"` // session.unarchive
 }
 
 func (s *Server) info() serverInfo {

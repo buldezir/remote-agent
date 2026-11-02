@@ -12,7 +12,9 @@ import (
 
 // OneShot names a session from the request in the prompt, between <request>
 // and </request>: "Named: " and its first words, or a failure when it says
-// "fail". "slow" takes two seconds. Asked for a commit message, it answers
+// "fail". "slow" takes two seconds. Asked to name it again from its work (a
+// <title>), it keeps the title, unless a request says "rename": then it's
+// "Renamed: " and the first words of the agent's <reply>. Asked for a commit message, it answers
 // "Change " and the files in the <diff>; for a pull request, its title is
 // "Fake: " and the latest of the <commits>' subjects.
 func (Harness) OneShot(ctx context.Context, o harness.OneShotOptions) (string, error) {
@@ -23,6 +25,9 @@ func (Harness) OneShot(ctx context.Context, o harness.OneShotOptions) (string, e
 	case strings.HasPrefix(o.Prompt, "You write git commit messages"):
 		diff, _ := between(o.Prompt, "<diff>", "</diff>")
 		return commitMessage(diff)
+	}
+	if title, ok := between(o.Prompt, "<title>", "</title>"); ok {
+		return rename(o.Prompt, title)
 	}
 	req := o.Prompt
 	if _, after, ok := strings.Cut(req, "<request>"); ok {
@@ -45,6 +50,17 @@ func (Harness) OneShot(ctx context.Context, o harness.OneShotOptions) (string, e
 		"branch": "named-" + strings.ToLower(strings.Join(words, "-")),
 	})
 	return "Here you go:\n" + string(b), nil
+}
+
+func rename(prompt, title string) (string, error) {
+	requests, _ := between(prompt, "<requests>", "</requests>")
+	if strings.Contains(requests, "rename") {
+		reply, _ := between(prompt, "<reply>", "</reply>")
+		words := strings.Fields(reply)
+		title = "Renamed: " + strings.Join(words[:min(len(words), 4)], " ")
+	}
+	b, _ := json.Marshal(map[string]string{"title": title})
+	return string(b), nil
 }
 
 func between(s, start, end string) (string, bool) {

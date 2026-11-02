@@ -67,8 +67,8 @@ struct ConnectionTests {
     }
 
     /// A session as the index sends it.
-    private func session(_ id: String, unread: Bool = false, draft: String? = nil) -> String {
-        #"{"id":"\#(id)","projectId":"p","harness":"fake","status":"idle","title":"\#(id)","archived":false,"unread":\#(unread),"#
+    private func session(_ id: String, unread: Bool = false, draft: String? = nil, archived: Bool = false) -> String {
+        #"{"id":"\#(id)","projectId":"p","harness":"fake","status":"idle","title":"\#(id)","archived":\#(archived),"unread":\#(unread),"#
             + (draft.map { #""draft":{"text":"\#($0)"},"# } ?? "")
             + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
     }
@@ -393,6 +393,33 @@ struct ConnectionTests {
         let c = try await connect(to: server)
         defer { c.stop(); server.stop() }
         #expect(c.info?.rename == nil && !c.renames)
+    }
+
+    @Test func unarchives() async throws {
+        let server = try TestServer(index: [session("s", archived: true)], unarchives: true)
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        #expect(c.unarchives)
+        try await wait { c.indexSynced }
+        #expect(c.sessions["s"]?.archived == true)
+        let store = c.sessionStore("s")
+
+        let s = try await c.unarchive("s")
+        #expect(!s.archived)
+        let call = try #require(server.calls.last { $0.method == "session.unarchive" })
+        #expect(call.commandID == nil)
+        #expect(call.params == .object(["sessionId": .string("s")]))
+        // The views have it at once, before its event, so a prompt can follow.
+        #expect(c.sessions["s"]?.archived == false)
+        #expect(store.session?.archived == false)
+        #expect(c.archivedSessions.isEmpty && c.activeSessions.map(\.id) == ["s"])
+    }
+
+    @Test func olderServerDoesntUnarchive() async throws {
+        let server = try TestServer()
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        #expect(c.info?.unarchive == nil && !c.unarchives)
     }
 
     @Test func promptFailsOnceTheConnectionGivesUp() async throws {

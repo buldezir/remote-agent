@@ -929,6 +929,15 @@ func TestSessionCommandSuggestions(t *testing.T) {
 	if len(result.Commands) != 0 {
 		t.Fatal("archived session has suggestions")
 	}
+	var back model.Session
+	c.mustCall("session.unarchive", map[string]any{"sessionId": session.ID}, &back)
+	if back.ID != session.ID || back.Archived {
+		t.Fatalf("unarchived = %+v", back)
+	}
+	c.mustCall("session.commands", map[string]any{"sessionId": session.ID}, &result)
+	if len(result.Commands) == 0 {
+		t.Fatal("unarchived session has no suggestions")
+	}
 }
 
 // TestImportOverWebSocket picks up one of the fake agent's sessions from the

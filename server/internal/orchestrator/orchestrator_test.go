@@ -1854,3 +1854,63 @@ func TestClaudeBackgroundAgent(t *testing.T) {
 	}
 	checkOrder(t, items, turns)
 }
+
+func TestUnarchive(t *testing.T) {
+	e := newEnv(t, true)
+	s := e.create(CreateSessionParams{Mode: "auto", Prompt: "write kept.txt", Workspace: WorkspaceParams{Kind: model.WorkspaceWorktree}})
+	e.waitTurn(s.ID, 1)
+	run(t, s.Workspace.Path, "git", "add", "-A")
+	run(t, s.Workspace.Path, "git", "commit", "-q", "-m", "kept")
+
+	// Not archived: nothing to do.
+	if got, err := e.o.Unarchive(bg, s.ID); err != nil || got.Archived {
+		t.Fatalf("unarchive an active session: %+v, %v", got, err)
+	}
+	if err := e.o.Archive(bg, s.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := e.o.Unarchive(bg, s.ID)
+	if err != nil || got.Archived || e.session(s.ID).Archived {
+		t.Fatalf("unarchived: %+v, %v", got, err)
+	}
+	// Its worktree is back on its branch, with what was committed there.
+	if b := gitx.CurrentBranch(bg, s.Workspace.Path); b != s.Workspace.Branch {
+		t.Fatalf("worktree on %q, want %q", b, s.Workspace.Branch)
+	}
+	if _, err := os.Stat(filepath.Join(s.Workspace.Path, "kept.txt")); err != nil {
+		t.Fatal(err)
+	}
+	// It takes prompts again, and the agent picks up its conversation.
+	e.prompt(s.ID, "write more.txt", "")
+	if turn := e.waitTurn(s.ID, 2); turn.Status != model.TurnCompleted {
+		t.Fatalf("turn 2: %+v", turn)
+	}
+	if _, err := os.Stat(filepath.Join(s.Workspace.Path, "more.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without its branch, it stays archived.
+	if err := e.o.Archive(bg, s.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	run(t, e.dir, "git", "branch", "-D", s.Workspace.Branch)
+	if _, err := e.o.Unarchive(bg, s.ID); CodeOf(err) != CodeConflict || !e.session(s.ID).Archived {
+		t.Fatalf("unarchive without the branch: %v", err)
+	}
+
+	// Nor without its project.
+	other := e.create(CreateSessionParams{Prompt: "hi"})
+	e.waitTurn(other.ID, 1)
+	if err := e.o.Archive(bg, other.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.o.RemoveProject(bg, e.proj.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.o.Unarchive(bg, other.ID); CodeOf(err) != CodeConflict {
+		t.Fatalf("unarchive without the project: %v", err)
+	}
+	if _, err := e.o.Unarchive(bg, "missing"); CodeOf(err) != CodeNotFound {
+		t.Fatalf("unarchive a missing session: %v", err)
+	}
+}

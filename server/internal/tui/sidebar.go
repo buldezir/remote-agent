@@ -644,6 +644,10 @@ func (s *sidebar) rowKey(m *Model, rows []sideRow, k tea.KeyPressMsg) tea.Cmd {
 		if r.session != nil && !r.session.Archived {
 			m.push(archiveConfirm(m, r.session))
 		}
+	case "u":
+		if r.session != nil && r.session.Archived && canUnarchive(m) {
+			return unarchive(m, r.session)
+		}
 	case "D":
 		if r.session != nil {
 			m.push(deleteConfirm(m, r.session))
@@ -672,6 +676,8 @@ func (s *sidebar) rowMenu(m *Model, r sideRow) overlay {
 		}
 		if !sess.Archived {
 			items = append(items, menuItem{label: "Archive…", hint: "a", run: func(m *Model) tea.Cmd { m.push(archiveConfirm(m, sess)); return nil }})
+		} else if canUnarchive(m) {
+			items = append(items, menuItem{label: "Unarchive", hint: "u", run: func(m *Model) tea.Cmd { return unarchive(m, sess) }})
 		}
 		items = append(items, menuItem{label: "Delete…", hint: "D", danger: true, run: func(m *Model) tea.Cmd { m.push(deleteConfirm(m, sess)); return nil }})
 		return newMenu(sess.Title, items)

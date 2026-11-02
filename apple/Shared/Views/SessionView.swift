@@ -24,6 +24,10 @@ struct SessionView: View {
     @State private var sending = false
     /// The draft is being saved, or taken back into the composer.
     @State private var savingDraft = false
+    /// What goes once the user agrees to unarchive the session first.
+    @State private var confirmUnarchive: ArchivedSend?
+    /// The session is being unarchived, for a prompt that waits.
+    @State private var unarchiving = false
     @State private var error: String?
     @State private var showDiff = false
     @State private var showFork = false
@@ -72,6 +76,10 @@ struct SessionView: View {
     private var deleted: Bool { store.removed || (connection.indexSynced && connection.sessions[store.sessionID] == nil) }
     private var harness: HarnessInfo? { session.flatMap { connection.harness($0.harness) } }
     private var project: Project? { session.flatMap { connection.projects[$0.projectId] } }
+    private var archived: Bool { session?.archived == true }
+    /// The session is archived on a server that can't bring it back, where
+    /// nothing can be sent. On one that can, a prompt asks to unarchive it.
+    private var readOnly: Bool { archived && !connection.unarchives }
 
     /// The window is in front: on the Mac the active one, on iOS on screen.
     private var inFront: Bool {
@@ -165,6 +173,17 @@ struct SessionView: View {
             Text(error ?? "")
         }
         .renameSessionAlert($renaming)
+        .alert("Unarchive session?", isPresented: .init(get: { confirmUnarchive != nil }, set: { if !$0 { confirmUnarchive = nil } }),
+               presenting: confirmUnarchive) { send in
+            Button("Cancel", role: .cancel) {}
+            Button("Unarchive and Send") { unarchiveAndSend(send) }
+                // As Rename's: iOS would draw the palette's accent on the system's blue.
+                #if os(macOS)
+                .keyboardShortcut(.defaultAction)
+                #endif
+        } message: { _ in
+            Text("This session is archived. Unarchive it to send your prompt.")
+        }
         .onChange(of: dictation.error) { _, e in
             if let e { error = e; dictation.error = nil }
         }
@@ -234,8 +253,11 @@ struct SessionView: View {
                     UserBubble(text: out.text, images: out.images, store: store, pending: true)
                 }
                 if store.synced, let draft = store.unsentDraft {
-                    DraftBubble(draft: draft, store: store, disabled: savingDraft || session?.archived == true,
-                                edit: { editDraft(draft) }, send: sendDraft)
+                    DraftBubble(draft: draft, store: store, disabled: savingDraft || unarchiving || readOnly,
+                                editable: !archived,
+                                edit: { editDraft(draft) }) {
+                        if archived { confirmUnarchive = .draft } else { sendDraft() }
+                    }
                 }
                 if store.synced, store.transcript.isEmpty, store.outbox.isEmpty, session?.hasDraft != true {
                     Text("No prompts yet. Write the first one below.")
@@ -682,7 +704,7 @@ struct SessionView: View {
 
     private var attachMenu: some View {
         AttachMenu(attachments: attachments, connection: connection)
-            .disabled(session?.archived == true)
+            .disabled(readOnly)
     }
 
     /// Stop, while a turn runs, then save as a draft, and dictate or send.
@@ -728,7 +750,7 @@ struct SessionView: View {
         .tint(mainAction == .stopDictation ? Palette.red : Palette.accent)
         .keyboardShortcut(mainAction == .send && !terminalHasKeys ? KeyboardShortcut(.return) : nil)
         // While dictation finishes, the final pass is still rewriting the draft.
-        .disabled(session?.archived == true || (mainAction == .send && !canSend) || dictation.phase == .finishing)
+        .disabled(readOnly || unarchiving || (mainAction == .send && !canSend) || dictation.phase == .finishing)
         .help(steers ? "Queue (Return) · Steer into the turn (⇧⌘Return)" : "")
         .accessibilityLabel(mainAction.label)
         .animation(.snappy, value: mainAction)
@@ -803,20 +825,50 @@ struct SessionView: View {
         case .stopDictation:
             dictation.stop()
         case .send:
-            let text = store.draft, sent = attachments.entries
-            store.draft = ""
-            attachments.clear()
-            scrollToFoot()
-            Task {
-                do {
-                    try await store.send(text, images: sent.compactMap(\.ref), steer: steer)
-                } catch {
-                    // It didn't go: back into the composer, ahead of anything
-                    // written since.
-                    store.draft = [text, store.draft].filter { !$0.isEmpty }.joined(separator: "\n")
-                    attachments.restore(sent)
-                    self.error = error.localizedDescription
-                }
+            // An archived session comes back first, once the user agrees.
+            if archived { confirmUnarchive = .prompt } else { send(steer: steer) }
+        }
+    }
+
+    /// Sends what the composer holds.
+    private func send(steer: Bool = false) {
+        let text = store.draft, sent = attachments.entries
+        store.draft = ""
+        attachments.clear()
+        scrollToFoot()
+        Task {
+            do {
+                try await store.send(text, images: sent.compactMap(\.ref), steer: steer)
+            } catch {
+                // It didn't go: back into the composer, ahead of anything
+                // written since.
+                store.draft = [text, store.draft].filter { !$0.isEmpty }.joined(separator: "\n")
+                attachments.restore(sent)
+                self.error = error.localizedDescription
+            }
+        }
+    }
+
+    /// A prompt for an archived session: from the composer, or its draft.
+    private enum ArchivedSend {
+        case prompt, draft
+    }
+
+    /// Unarchives the session, then sends as a send would. If the session
+    /// can't come back, the prompt stays where it was, and the error shows.
+    private func unarchiveAndSend(_ what: ArchivedSend) {
+        unarchiving = true
+        Task {
+            defer { unarchiving = false }
+            do {
+                try await connection.unarchive(store.sessionID)
+            } catch {
+                self.error = error.localizedDescription
+                return
+            }
+            switch what {
+            case .prompt: if canSend { send() }
+            case .draft: sendDraft()
             }
         }
     }
@@ -878,7 +930,10 @@ struct SessionView: View {
         switch dictation.phase {
         case .downloading: "Downloading the speech model…"
         case .starting, .listening: "Listening…"
-        case .idle, .finishing: store.isRunning ? "Queue a follow-up…" : "Prompt"
+        case .idle, .finishing:
+            if archived && connection.unarchives { "Archived. Send to unarchive" }
+            else if store.isRunning { "Queue a follow-up…" }
+            else { "Prompt" }
         }
     }
 

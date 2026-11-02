@@ -29,6 +29,9 @@ type ServerInfo struct {
 	Search bool `json:"search,omitempty"`
 	// Rename: the server renames sessions (session.rename).
 	Rename bool `json:"rename,omitempty"`
+	// Unarchive: the server brings archived sessions back
+	// (session.unarchive).
+	Unarchive bool `json:"unarchive,omitempty"`
 }
 
 // PairResult is what POST /v1/pair returns.

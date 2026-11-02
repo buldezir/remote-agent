@@ -434,6 +434,51 @@ func TestRadRenamesASession(t *testing.T) {
 	})
 }
 
+// An unarchived session leaves the archive, in the index and its store,
+// and takes prompts again.
+func TestRadUnarchivesASession(t *testing.T) {
+	r := startRad(t)
+	c, q, _ := r.connect(t)
+	if !c.Info.Unarchive {
+		t.Fatalf("info %+v", c.Info)
+	}
+	p := r.project(t, c, q)
+	var s model.Session
+	if err := run(t, q, func() (err error) {
+		s, err = c.CreateSession(context.Background(), NewSession{ProjectID: p.ID, Harness: "fake", Workspace: NewWorkspace{Kind: model.WorkspaceRoot}, Prompt: "hello there"})
+		return
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := c.SessionStore(s.ID)
+	store.Activate()
+	eventually(t, q, "the turn to end", func() bool {
+		return store.Live && store.Session.Status == model.SessionIdle && len(store.SortedTurns()) == 1
+	})
+	if err := run(t, q, func() error { return c.Archive(context.Background(), s.ID, false) }); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, q, "the archive", func() bool { return len(c.ArchivedSessions()) == 1 && store.Session.Archived })
+	var back model.Session
+	if err := run(t, q, func() (err error) { back, err = c.Unarchive(context.Background(), s.ID); return }); err != nil {
+		t.Fatal(err)
+	}
+	if back.Archived {
+		t.Fatalf("unarchived %+v", back)
+	}
+	eventually(t, q, "the session back", func() bool {
+		return len(c.ArchivedSessions()) == 0 && len(c.ActiveSessions()) == 1 && !store.Session.Archived
+	})
+	job := store.Send("again", nil, false)
+	if err := run(t, q, func() error { return job(context.Background()) }); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, q, "the second turn", func() bool {
+		turns := store.SortedTurns()
+		return len(turns) == 2 && turns[1].Status == model.TurnCompleted
+	})
+}
+
 func TestRadResubscribesAndDeliversAfterADrop(t *testing.T) {
 	r := startRad(t)
 	c, q, _ := r.connect(t)

@@ -209,6 +209,14 @@ private fun SessionScreen(
     val project = session?.let { projects[it.projectId] }
     val running = session?.status == SessionStatus.RUNNING || session?.status == SessionStatus.AWAITING_APPROVAL
     val archived = session?.archived == true
+    // An archived session takes a prompt when the server can unarchive it,
+    // which the prompt asks for first; otherwise it is read-only.
+    val canUnarchive = info?.unarchive == true
+    val writable = !archived || canUnarchive
+    // Asks whether to unarchive the session, then sends what is waiting.
+    var confirmUnarchive by remember(store) { mutableStateOf<UnarchiveThen?>(null) }
+    // Unarchiving, before the prompt goes.
+    var unarchiving by remember(store) { mutableStateOf(false) }
 
     var draft by rememberDraft(store)
     var focused by remember { mutableStateOf(false) }
@@ -309,7 +317,7 @@ private fun SessionScreen(
     fun toBottom() = uiScope.launch { listState.animateScrollToItem(0) }
 
     // There is something to send, and its images are on the server.
-    val canSend = (draft.isNotBlank() || !attachments.isEmpty) && attachments.ready && !archived
+    val canSend = (draft.isNotBlank() || !attachments.isEmpty) && attachments.ready && writable && !unarchiving
 
     // Dictated text is appended to whatever was already typed.
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -325,8 +333,7 @@ private fun SessionScreen(
         dictation.start(listOfNotNull(project?.name, harness?.name)) { text -> draft = prefix + separator + text }
     }
     // With steer, the prompt joins the running turn, where the agent takes it.
-    fun send(steer: Boolean = false) {
-        if (!canSend) return
+    fun sendPrompt(steer: Boolean) {
         val text = draft
         val sent = attachments.entries.toList()
         draft = ""
@@ -346,6 +353,16 @@ private fun SessionScreen(
                 error = e.message ?: "The request failed"
             }
         }
+    }
+
+    // An archived session asks to be unarchived first.
+    fun send(steer: Boolean = false) {
+        if (!canSend) return
+        if (archived) {
+            confirmUnarchive = UnarchiveThen.PROMPT
+            return
+        }
+        sendPrompt(steer)
     }
 
     // The composer's prompt becomes the session's draft, kept on the server
@@ -371,7 +388,7 @@ private fun SessionScreen(
         }
     }
 
-    fun sendDraft() {
+    fun sendSavedDraft() {
         toBottom()
         draftBusy = true
         connection.scope.launch {
@@ -383,6 +400,36 @@ private fun SessionScreen(
                 error = e.message ?: "The request failed"
             } finally {
                 draftBusy = false
+            }
+        }
+    }
+
+    fun sendDraft() {
+        if (archived) {
+            confirmUnarchive = UnarchiveThen.DRAFT
+            return
+        }
+        sendSavedDraft()
+    }
+
+    // The session comes back, then what was waiting goes as it would have. One
+    // that fails leaves the prompt as it was, in the composer or the draft.
+    fun unarchiveAndSend(then: UnarchiveThen) {
+        unarchiving = true
+        connection.scope.launch {
+            try {
+                connection.unarchive(store.sessionID)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.message ?: "The request failed"
+                return@launch
+            } finally {
+                unarchiving = false
+            }
+            when (then) {
+                UnarchiveThen.PROMPT -> sendPrompt(steer = false)
+                UnarchiveThen.DRAFT -> sendSavedDraft()
             }
         }
     }
@@ -604,7 +651,7 @@ private fun SessionScreen(
                     }
                     savedDraft?.let { d ->
                         item(key = "draft") {
-                            DraftBubble(d, enabled = !draftBusy && !archived, onEdit = ::editDraft, onSend = ::sendDraft)
+                            DraftBubble(d, enabled = !draftBusy && !unarchiving && writable, onEdit = ::editDraft, onSend = ::sendDraft, canEdit = !archived)
                         }
                     }
                     if (showsEmpty) {
@@ -673,7 +720,8 @@ private fun SessionScreen(
             }
             if (!covered) {
                 Composer(
-                    commands = commands + harness?.commands.orEmpty(),
+                    // Not for an archived session, which may run none until it's back.
+                    commands = if (archived) emptyList() else commands + harness?.commands.orEmpty(),
                     loadingCommands = loadingCommands,
                     commandsError = commandsError,
                     insets = !below,
@@ -684,13 +732,17 @@ private fun SessionScreen(
                     draft = draft, onDraft = { draft = it }, placeholder = when (dictation.phase) {
                         Dictation.Phase.DOWNLOADING -> "Downloading the speech model…"
                         Dictation.Phase.STARTING, Dictation.Phase.LISTENING -> "Listening…"
-                        else -> if (running) "Queue a follow-up…" else "Prompt"
+                        else -> when {
+                            archived && canUnarchive -> "Archived. Send to unarchive"
+                            running -> "Queue a follow-up…"
+                            else -> "Prompt"
+                        }
                     },
-                    running = running, enabled = !archived, canSend = canSend, focusPrompt = focusPrompt, focusRequester = focusRequester,
+                    running = running, enabled = writable, canSend = canSend, focusPrompt = focusPrompt, focusRequester = focusRequester,
                     onSaveDraft = if (offersDraft) ::saveDraft else null, canSaveDraft = canSaveDraft,
                     // The keyboard has its own dictation key.
                     onFocus = { focused = it; if (it) dictation.stop() }, onSend = { send() }, onStop = { run { store.interrupt() } },
-                    onSteer = if (canSend && store.canSteer(draft, harness)) ({ send(steer = true) }) else null,
+                    onSteer = if (canSend && !archived && store.canSteer(draft, harness)) ({ send(steer = true) }) else null,
                 )
             }
             if (below) {
@@ -716,6 +768,16 @@ private fun SessionScreen(
     }
     if (showCommit && session != null) {
         CommitDialog(connection, session.id, onDismiss = { showCommit = false })
+    }
+    confirmUnarchive?.let { then ->
+        ConfirmDialog(
+            title = "Unarchive session?",
+            message = "This session is archived. Unarchive it to send your prompt.",
+            confirm = "Unarchive and Send",
+            destructive = false,
+            onConfirm = { unarchiveAndSend(then) },
+            onDismiss = { confirmUnarchive = null },
+        )
     }
     RenameSessionDialog(session?.takeIf { showRename }?.let { SessionRequest(it, connection) }, onDismiss = { showRename = false })
     if (showFork && session != null) {
@@ -1117,3 +1179,6 @@ fun RoundIcon(icon: Int, color: androidx.compose.ui.graphics.Color, label: Strin
         Icon(painterResource(icon), label, Modifier.size(Metrics.roundButton * 0.62f), tint = palette.onAccent)
     }
 }
+
+/** What goes once an archived session is unarchived: the composer's prompt, or the session's draft. */
+private enum class UnarchiveThen { PROMPT, DRAFT }

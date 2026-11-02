@@ -587,6 +587,11 @@ data class ServerInfo(
     val search: Boolean? = null,
     /** The server renames sessions (`session.rename`); an older one answers `method_not_found`. */
     val rename: Boolean? = null,
+    /**
+     * The server unarchives sessions (`session.unarchive`); an older one
+     * answers `method_not_found`, and its archived sessions stay read-only.
+     */
+    val unarchive: Boolean? = null,
 )
 
 /** `session.search`'s result (`ServerConnection.search`). */

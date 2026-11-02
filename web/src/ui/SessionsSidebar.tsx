@@ -20,6 +20,8 @@ export interface ServerActions {
   /** A new session on the server, in one of its projects when given. */
   newSession: (c: ServerConnection, projectID?: string) => void;
   archive: (c: ServerConnection, s: Session) => void;
+  /** Brings an archived session back, at once; a failure shows as an error. */
+  unarchive: (c: ServerConnection, s: Session) => void;
   delete: (c: ServerConnection, s: Session) => void;
   /** Asks for the session's new title. */
   renameSession: (c: ServerConnection, s: Session) => void;

@@ -154,8 +154,10 @@ func (c *composer) suggesting() bool {
 // the session's commands when a command starts being typed.
 func (c *composer) sync(m *Model, v *sessionView) tea.Cmd {
 	switch {
-	case v.archived():
+	case v.readOnly(m):
 		c.ta.Placeholder = "This session is archived."
+	case v.archived():
+		c.ta.Placeholder = "Archived · enter unarchives it and sends"
 	case v.store.Session != nil && v.store.CanSteer("", m.conn.Harness(v.store.Session.Harness)):
 		c.ta.Placeholder = "Queue a follow-up · ctrl+t steers it into the turn"
 	case v.store.IsRunning():
@@ -244,7 +246,7 @@ func (c *composer) message(m *Model, msg tea.Msg) tea.Cmd {
 }
 
 func (c *composer) key(m *Model, v *sessionView, k tea.KeyPressMsg) tea.Cmd {
-	if v.archived() {
+	if v.readOnly(m) {
 		switch k.String() {
 		case "esc":
 			m.toList()
@@ -284,6 +286,10 @@ func (c *composer) key(m *Model, v *sessionView, k tea.KeyPressMsg) tea.Cmd {
 		c.ta.InsertString("\n")
 		return nil
 	case "ctrl+s":
+		if v.archived() {
+			m.say("Archived sessions take no drafts.")
+			return nil
+		}
 		return c.saveDraft(m, v)
 	case "esc":
 		m.toList()
@@ -368,9 +374,40 @@ func (c *composer) submit(m *Model, v *sessionView, steer bool) tea.Cmd {
 	if !ok || (text == "" && len(refs) == 0) {
 		return nil
 	}
+	if v.archived() {
+		m.push(c.unarchiveConfirm(m, v))
+		return nil
+	}
 	c.reset(m)
 	v.store.SetDraft("")
 	return c.send(m, v, text, refs, steer)
+}
+
+// unarchiveConfirm asks to bring the archived session back before sending
+// the prompt, which stays in the composer until it goes, and if it fails.
+func (c *composer) unarchiveConfirm(m *Model, v *sessionView) overlay {
+	id := v.store.ID
+	send := func(m *Model) tea.Cmd {
+		return m.do(func(ctx context.Context) error {
+			_, err := m.conn.Unarchive(ctx, id)
+			return err
+		}, func(m *Model) tea.Cmd {
+			if m.sess != v {
+				return nil
+			}
+			text := strings.TrimSpace(c.value())
+			refs, ok := c.images(m)
+			if !ok || (text == "" && len(refs) == 0) {
+				return nil
+			}
+			// The index may not have brought the change yet; rad has it.
+			c.reset(m)
+			v.store.SetDraft("")
+			return c.send(m, v, text, refs, false)
+		})
+	}
+	return newConfirm("Unarchive session?", "This session is archived. Unarchive it to send your prompt.",
+		menuItem{label: "Unarchive and Send", run: send})
 }
 
 // send sends a prompt; if it fails, it comes back to the composer.
@@ -422,7 +459,7 @@ func (c *composer) saveDraft(m *Model, v *sessionView) tea.Cmd {
 // paste attaches pasted image paths, as a file dropped on the terminal
 // pastes its path; other text goes in the prompt.
 func (c *composer) paste(m *Model, v *sessionView, text string) tea.Cmd {
-	if paths := imagePaths(text); len(paths) > 0 && !v.archived() {
+	if paths := imagePaths(text); len(paths) > 0 && !v.readOnly(m) {
 		var cmds []tea.Cmd
 		for _, p := range paths {
 			cmds = append(cmds, c.attach(m, p))
@@ -533,7 +570,7 @@ func (c *composer) view(m *Model, v *sessionView, w int, focused bool) []string 
 		lines = append(lines, truncate(" "+strings.Join(chips, " "), w))
 	}
 	rule := m.st.Rule
-	if focused && (v == nil || !v.archived()) {
+	if focused && (v == nil || !v.readOnly(m)) {
 		rule = m.st.Accent
 	}
 	lines = append(lines, rule.Render(strings.Repeat("─", w)))

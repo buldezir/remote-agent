@@ -1833,3 +1833,64 @@ func TestShowsUsageLimits(t *testing.T) {
 	u.key("down")
 	u.waitFor("Limit reached · resets in ")
 }
+
+// A prompt typed into an archived session asks to unarchive it, then goes;
+// the list's u unarchives a session too.
+func TestUnarchivesASessionToPromptIt(t *testing.T) {
+	var sess, other model.Session
+	u := startUIWith(t, 120, 36, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		p := addProject(t, rpc, r)
+		sess = prompted(t, rpc, r, p.ID, "hello there")
+		other = prompted(t, rpc, r, p.ID, "another one")
+		for _, id := range []string{sess.ID, other.ID} {
+			if err := rpc.Call(context.Background(), "session.archive", map[string]any{"sessionId": id}, nil); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: sess.ID}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	archived := func(id string) bool {
+		t.Helper()
+		s, err := u.rad.Store.Session(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.Archived
+	}
+	u.waitFor("Echo: hello there")
+	u.waitFor("enter unarchives it and sends")
+	u.key("again please")
+	u.key("enter")
+	u.waitFor("Unarchive session?")
+	// Cancel keeps it archived, and the prompt where it was.
+	u.key("esc")
+	if s := u.waitFor("again please"); strings.Contains(s, "Unarchive session?") || !archived(sess.ID) {
+		t.Fatalf("after cancel:\n%s", s)
+	}
+	u.key("enter")
+	u.waitFor("Unarchive and Send")
+	u.key("enter")
+	u.waitFor("Echo: again please")
+	if archived(sess.ID) {
+		t.Fatal("still archived")
+	}
+
+	// From the list: its menu offers Unarchive, and u does it.
+	u.key("esc")
+	u.waitFor("▾ Archived 1")
+	u.key("down")
+	u.key("down")
+	u.key(".")
+	u.waitFor("Unarchive")
+	u.key("esc")
+	u.key("u")
+	deadline := time.Now().Add(10 * time.Second)
+	for archived(other.ID) {
+		if time.Now().After(deadline) {
+			t.Fatalf("not unarchived:\n%s", u.screen())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

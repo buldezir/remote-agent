@@ -549,8 +549,14 @@ class ServerConnection(
      */
     suspend fun saveDraft(sessionID: String, text: String, images: List<ImageRef>): Session {
         val saved = deliver("session.saveDraft", params("sessionId" to sessionID, "text" to text, "images" to imageIds(images)))
-        val s: Session = WireCoding.json.decodeFromJsonElement(saved)
-        // Unless an event brought a later change first, such as its new name.
+        return keep(WireCoding.json.decodeFromJsonElement(saved))
+    }
+
+    /**
+     * A session a request returned, in the index and its store at once,
+     * unless an event brought a later change first, such as its new name.
+     */
+    private fun keep(s: Session): Session {
         if (_sessions.value[s.id]?.updatedAt?.isAfter(s.updatedAt) != true) _sessions.value += s.id to s
         sessionStores[s.id]?.let { store ->
             if (store.session.value?.updatedAt?.isAfter(s.updatedAt) != true) store.setSession(s)
@@ -566,6 +572,16 @@ class ServerConnection(
      */
     suspend fun rename(sessionID: String, title: String): Session =
         client.call("session.rename", params("sessionId" to sessionID, "title" to title))
+
+    /**
+     * Brings an archived session back: it takes prompts again, and a worktree
+     * archiving deleted is checked out again from its branch (`conflict` when
+     * the branch or the project is gone). The session changes here at once,
+     * without waiting for its event. Only for a server whose `info.unarchive`
+     * is true.
+     */
+    suspend fun unarchive(sessionID: String): Session =
+        keep(client.call<Session>("session.unarchive", params("sessionId" to sessionID)))
 
     suspend fun archive(sessionID: String, removeWorktree: Boolean) {
         client.callRaw("session.archive", params("sessionId" to sessionID, "removeWorktree" to removeWorktree))

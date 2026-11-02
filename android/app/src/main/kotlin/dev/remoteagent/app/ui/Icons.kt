@@ -11,6 +11,7 @@ object Icons {
     @DrawableRes val add = R.drawable.sym_add // plus
     @DrawableRes val addCircle = R.drawable.sym_add_circle // plus.circle
     @DrawableRes val archive = R.drawable.sym_archive // archivebox
+    @DrawableRes val unarchive = R.drawable.sym_unarchive // arrow.up.bin
     @DrawableRes val back = R.drawable.sym_arrow_back
     @DrawableRes val send = R.drawable.sym_arrow_upward // arrow.up
     @DrawableRes val plan = R.drawable.sym_assignment // list.clipboard

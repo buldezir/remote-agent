@@ -185,6 +185,7 @@ export function SessionListColumn({ collection, route, actions }: { collection: 
                   onOpen={() => navigate({ serverID: item.connection.server.id, sessionID: item.session.id })}
                   onRename={() => actions.renameSession(item.connection, item.session)}
                   onArchive={() => actions.archive(item.connection, item.session)}
+                  onUnarchive={() => actions.unarchive(item.connection, item.session)}
                   onDelete={() => actions.delete(item.connection, item.session)}
                 >
                   <SessionListRow item={item} showsServer={showsServer} />

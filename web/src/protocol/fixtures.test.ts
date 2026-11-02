@@ -173,6 +173,7 @@ describe("fixtures", () => {
     expect(info.commit).toBe(true);
     expect(info.search).toBe(true);
     expect(info.rename).toBe(true);
+    expect(info.unarchive).toBe(true);
     expect(info.deviceId).toBe("dev1");
   });
 

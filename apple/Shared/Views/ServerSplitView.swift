@@ -21,6 +21,7 @@ struct ServerSplitView: View {
     @State private var startedEmpty: SessionRoute?
     @State private var renaming: SessionRequest?
     @State private var archiving: SessionRequest?
+    @State private var unarchiving: SessionRequest?
     @State private var archivingOld: [ServerSession]?
     @State private var deleting: SessionRequest?
     @State private var removing: SavedServer?
@@ -116,6 +117,7 @@ struct ServerSplitView: View {
                 startSession: { newSession = inChosenProject($0) },
                 rename: { renaming = $0 },
                 archive: { archiving = $0 },
+                unarchive: { unarchiving = $0 },
                 archiveOld: { archivingOld = $0 },
                 delete: { deleting = $0 },
                 remove: { removing = $0 },
@@ -213,6 +215,7 @@ struct ServerSplitView: View {
                 SessionListColumn(collection: current, selection: selection, searchFocused: $searchFocused)
                     .renameSessionAlert($renaming)
                     .archiveSessionDialog($archiving)
+                    .unarchiveSession($unarchiving)
                     .deleteSessionDialog($deleting)
                     #if os(macOS)
                     .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 460)
@@ -227,6 +230,7 @@ struct ServerSplitView: View {
                 SessionsSidebar(layout: layout, selection: selection, showAdd: $showAdd, searchFocused: $searchFocused)
                     .renameSessionAlert($renaming)
                     .archiveSessionDialog($archiving)
+                    .unarchiveSession($unarchiving)
                     .archiveOldSessionsDialog($archivingOld)
                     .deleteSessionDialog($deleting)
                     .removeServerDialog($removing)

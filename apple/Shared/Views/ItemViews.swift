@@ -153,9 +153,12 @@ struct UserBubble: View {
 struct DraftBubble: View {
     let draft: Draft
     let store: SessionStore
-    /// Edit and Send wait: the session is archived, or a change to the draft
-    /// is on its way to the server.
+    /// Edit and Send wait: the session is archived on a server that can't
+    /// bring it back, or a change to the draft is on its way to the server.
     var disabled = false
+    /// Edit can take the draft back: not in an archived session, which
+    /// Send unarchives first.
+    var editable = true
     /// Takes the draft back into the composer.
     let edit: () -> Void
     let send: () -> Void
@@ -171,6 +174,7 @@ struct DraftBubble: View {
                     Text("Edit").scaledFont(.footnote, weight: .medium).foregroundStyle(Palette.subtext)
                 }
                 .buttonStyle(.borderless)
+                .disabled(!editable)
                 .help("Take the draft back into the prompt to change it")
                 Button(action: send) {
                     Text("Send").scaledFont(.footnote, weight: .semibold).foregroundStyle(Palette.onAccent)

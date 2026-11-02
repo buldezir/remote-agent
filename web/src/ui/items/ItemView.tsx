@@ -118,15 +118,18 @@ export function UserBubble({
 
 /** The session's draft, a prompt kept to send later from any device: Send
  *  sends it, and Edit takes it back into the composer. An archived session
- *  does neither. */
+ *  doesn't edit it, and sends it only where its server unarchives it
+ *  (`onSend` asks first). */
 export function DraftBubble({
   draft,
   archived,
+  canUnarchive,
   onSend,
   onEdit,
 }: {
   draft: Draft;
   archived: boolean;
+  canUnarchive: boolean;
   onSend: () => Promise<void>;
   onEdit: () => Promise<void>;
 }) {
@@ -152,7 +155,7 @@ export function DraftBubble({
           <button className="button small" onClick={() => void act(onEdit)} disabled={busy || archived}>
             Edit
           </button>
-          <button className="button prominent small" onClick={() => void act(onSend)} disabled={busy || archived}>
+          <button className="button prominent small" onClick={() => void act(onSend)} disabled={busy || (archived && !canUnarchive)}>
             Send
           </button>
         </div>

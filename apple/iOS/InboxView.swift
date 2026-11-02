@@ -14,6 +14,7 @@ struct InboxView: View {
     @State private var startedEmpty: SessionRoute?
     @State private var renaming: SessionRequest?
     @State private var archiving: SessionRequest?
+    @State private var unarchiving: SessionRequest?
     @State private var archivingOld: [ServerSession]?
     @State private var deleting: SessionRequest?
     @State private var removing: SavedServer?
@@ -52,6 +53,7 @@ struct InboxView: View {
             }
             .renameSessionAlert($renaming)
             .archiveSessionDialog($archiving)
+            .unarchiveSession($unarchiving)
             .archiveOldSessionsDialog($archivingOld)
             .deleteSessionDialog($deleting)
             .removeServerDialog($removing)
@@ -60,6 +62,7 @@ struct InboxView: View {
             startSession: { newSession = $0 },
             rename: { renaming = $0 },
             archive: { archiving = $0 },
+            unarchive: { unarchiving = $0 },
             archiveOld: { archivingOld = $0 },
             delete: { deleting = $0 },
             remove: { removing = $0 },

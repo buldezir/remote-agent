@@ -135,7 +135,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "server.info":
 		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true, Forks: true,
-			Commit: c.s.Tasks != nil, Search: true, Rename: true}, nil
+			Commit: c.s.Tasks != nil, Search: true, Rename: true, Unarchive: true}, nil
 
 	case "device.unpair":
 		// The phone forgets this server: revoke its own token. The socket is
@@ -293,6 +293,9 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 			defer c.s.closeTerminal(p.SessionID)
 			return nil, o.Archive(ctx, p.SessionID, p.RemoveWorktree)
 		})
+
+	case "session.unarchive":
+		return call(raw, func(p sessionParams) (any, error) { return o.Unarchive(ctx, p.SessionID) })
 
 	case "session.delete":
 		return call(raw, func(p archiveParams) (any, error) {

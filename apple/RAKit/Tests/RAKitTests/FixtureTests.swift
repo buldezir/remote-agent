@@ -139,6 +139,7 @@ struct FixtureTests {
         #expect(info.result?.commit == true)
         #expect(info.result?.search == true)
         #expect(info.result?.rename == true)
+        #expect(info.result?.unarchive == true)
         #expect(info.result?.deviceId == "dev1")
     }
 

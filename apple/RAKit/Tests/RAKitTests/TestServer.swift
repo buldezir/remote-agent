@@ -4,7 +4,7 @@ import RAKit
 
 /// A WebSocket server on loopback that stands in for rad: it answers
 /// `server.info`, `session.prompt`, the drafts' calls, the index's
-/// `subscribe`, the commits', imports', searches' and renames' calls and pings, and records the calls. `quiet()`
+/// `subscribe`, the commits', imports', searches', renames' and unarchives' calls and pings, and records the calls. `quiet()`
 /// makes the sockets open so far ignore everything, as a socket that died
 /// while the Mac slept does: nothing comes back, and nothing says it closed.
 final class TestServer: @unchecked Sendable {
@@ -23,6 +23,8 @@ final class TestServer: @unchecked Sendable {
     private let search: Search?
     /// `server.info` offers `session.rename`.
     private let renames: Bool
+    /// `server.info` offers `session.unarchive`.
+    private let unarchives: Bool
 
     /// How the server answers `session.search`, which `server.info` then
     /// offers: with the sessions in the index whose title holds the query.
@@ -39,11 +41,13 @@ final class TestServer: @unchecked Sendable {
     private var quietCount = 0
     private var recorded: [Call] = []
 
-    init(index: [String] = [], name: String = "Test", search: Search? = nil, renames: Bool = false) throws {
+    init(index: [String] = [], name: String = "Test", search: Search? = nil, renames: Bool = false,
+         unarchives: Bool = false) throws {
         self.index = index
         self.name = name
         self.search = search
         self.renames = renames
+        self.unarchives = unarchives
         let ws = NWProtocolWebSocket.Options()
         ws.autoReplyPing = false
         let params = NWParameters.tcp
@@ -116,7 +120,8 @@ final class TestServer: @unchecked Sendable {
         switch method {
         case "server.info":
             result = #"{"serverId":"srv","name":"\#(name)","protocolVersion":1,"version":"0.1""#
-                + (search == nil ? "" : #","search":true"#) + (renames ? #","rename":true"# : "") + "}"
+                + (search == nil ? "" : #","search":true"#) + (renames ? #","rename":true"# : "")
+                + (unarchives ? #","unarchive":true"# : "") + "}"
         case "session.commands":
             send(c, Data(#"{"id":\#(id),"error":{"code":"method_not_found","message":"old server"}}"#.utf8), opcode: .text)
             return
@@ -145,6 +150,11 @@ final class TestServer: @unchecked Sendable {
             let named = title.isEmpty ? #""title":"\#(sid)","# : #""title":"\#(title)","customTitle":true,"#
             result = #"{"id":"\#(sid)","projectId":"p","harness":"fake","status":"idle","archived":false,"#
                 + named + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
+        case "session.unarchive":
+            // The session, out of the archive.
+            let sid = params?["sessionId"] as? String ?? ""
+            result = #"{"id":"\#(sid)","projectId":"p","harness":"fake","status":"idle","title":"\#(sid)","archived":false,"#
+                + #""workspace":{"kind":"root","path":"/tmp/p"},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}"#
         case "git.commitPreview":
             result = #"{"branch":"ra/x","files":[{"path":"a.txt","status":"modified","additions":1,"deletions":0}],"message":"Fix it","remote":"origin","ahead":0}"#
         case "git.commit":

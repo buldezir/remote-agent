@@ -218,6 +218,7 @@ class FixtureTests {
         assertEquals(true, info.commit)
         assertEquals(true, info.search)
         assertEquals(true, info.rename)
+        assertEquals(true, info.unarchive)
         assertEquals("dev1", info.deviceId)
     }
 

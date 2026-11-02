@@ -584,6 +584,19 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
     await this.client.call("session.archive", { sessionId, removeWorktree });
   }
 
+  /** Brings an archived session back, for servers that say `unarchive` in
+   *  their info. The index and the session's store take the session it
+   *  returns at once, so a prompt sent next finds it unarchived; its
+   *  `session.upserted` follows. `conflict` when its worktree's branch or
+   *  its project is gone. */
+  async unarchive(sessionId: string): Promise<Session> {
+    const s = await this.client.call<Session>("session.unarchive", { sessionId });
+    this.sessions.set(s.id, s);
+    this.sessionStores.get(s.id)?.setSession(s);
+    this.changed();
+    return s;
+  }
+
   /** Gives the session the user's title; an empty one gives it back to the
    *  server's naming. Rows and the session take the new title from its
    *  `session.upserted`. Servers that say `rename` in their info have it. */
