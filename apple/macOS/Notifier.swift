@@ -8,13 +8,21 @@ import UserNotifications
 /// that no longer needs the user, because they answered on another device,
 /// takes its notification back, as does one read on another device. Settings
 /// turns them off.
+///
+/// The Dock icon also counts the sessions that need the user, waiting for an
+/// answer or failed, on every server, and can bounce once when one starts
+/// waiting while the app is in the background. Settings turns each off.
 @MainActor @Observable
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let enabledKey = "notifications"
+    static let dockBadgeKey = "dockBadge"
+    static let dockBounceKey = "dockBounce"
     /// The session a click on a notification asked to open.
     var opened: SessionRoute?
     /// Whether macOS lets the app show notifications.
     private(set) var authorization: UNAuthorizationStatus = .notDetermined
+    /// Whether macOS lets the app badge its Dock icon.
+    private(set) var badgeSetting: UNNotificationSetting = .notSupported
     /// The session the window shows.
     @ObservationIgnored var shown: SessionRoute? {
         didSet { if NSApp.isActive, let shown { remove(shown) } }
@@ -33,7 +41,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         self.store = store
         self.defaults = defaults
         super.init()
-        defaults.register(defaults: [Self.enabledKey: true])
+        defaults.register(defaults: [Self.enabledKey: true, Self.dockBadgeKey: false, Self.dockBounceKey: false])
         // Before launch ends, so a click that launched the app gets here.
         center.delegate = self
         store.onSessionChange = { [weak self] c, old, new in self?.sessionChanged(c, old, new) }
@@ -44,19 +52,56 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 Task { await self.refreshAuthorization() }
             }
         }
-        if enabled { Task { await requestAuthorization() } }
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateBadge() }
+        }
+        // NSApp doesn't exist yet while the app's init runs.
+        NotificationCenter.default.addObserver(forName: NSApplication.didFinishLaunchingNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.trackBadge() }
+        }
+        // The Dock draws the badge only with the user's leave, as for
+        // notifications.
+        if enabled || badges { Task { await requestAuthorization() } }
     }
 
     var enabled: Bool { defaults.bool(forKey: Self.enabledKey) }
+    private var badges: Bool { defaults.bool(forKey: Self.dockBadgeKey) }
+    private var bounces: Bool { defaults.bool(forKey: Self.dockBounceKey) }
+
+    // MARK: Dock
+
+    /// The sessions that need the user, on every server.
+    private var waitingCount: Int {
+        store.connections.reduce(0) { $0 + $1.activeSessions.count(where: \.needsYou) }
+    }
+
+    /// Updates the badge now and again whenever the servers or their
+    /// sessions change, whether or not the window is open.
+    private func trackBadge() {
+        withObservationTracking {
+            updateBadge()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.trackBadge() }
+        }
+    }
+
+    private func updateBadge() {
+        guard NSApp != nil else { return }
+        let count = badges ? waitingCount : 0
+        let label = count > 0 ? String(count) : nil
+        if NSApp.dockTile.badgeLabel != label { NSApp.dockTile.badgeLabel = label }
+    }
 
     /// Asks macOS once; after that it answers with the user's choice.
     func requestAuthorization() async {
-        _ = try? await center.requestAuthorization(options: [.alert, .sound])
+        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
         await refreshAuthorization()
     }
 
     func refreshAuthorization() async {
-        authorization = await center.notificationSettings().authorizationStatus
+        let settings = await center.notificationSettings()
+        authorization = settings.authorizationStatus
+        badgeSetting = settings.badgeSetting
     }
 
     private func sessionChanged(_ c: ServerConnection, _ old: Session, _ new: Session) {
@@ -65,7 +110,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             remove(route)
         }
         if old.isUnread && !new.isUnread { remove(route) }
-        guard enabled, let alert = SessionAlert(from: old, to: new) else { return }
+        guard let alert = SessionAlert(from: old, to: new) else { return }
+        if alert == .needsYou && bounces && !NSApp.isActive { NSApp.requestUserAttention(.informationalRequest) }
+        guard enabled else { return }
         if alert == .finished {
             Task {
                 try? await Task.sleep(for: Self.finishDelay)

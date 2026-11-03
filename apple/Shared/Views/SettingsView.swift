@@ -299,6 +299,7 @@ private struct GeneralSettingsView: View {
 
         #if os(macOS)
         NotificationsSection()
+        DockSection()
         UpdatesSection()
         #endif
 
@@ -470,17 +471,13 @@ private struct SizeSlider: View {
 /// Turns notifications on and off, and says when macOS holds them back.
 private struct NotificationsSection: View {
     @Environment(Notifier.self) private var notifier
-    @Environment(\.openURL) private var openURL
     @AppStorage(Notifier.enabledKey) private var enabled = true
 
     var body: some View {
         Section {
             Toggle("Show notifications", isOn: $enabled)
             if blocked {
-                Button("Open System Settings") {
-                    let id = Bundle.main.bundleIdentifier ?? ""
-                    openURL(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)")!)
-                }
+                Button("Open System Settings") { openNotificationSettings() }
             }
         } header: {
             Text("Notifications").formHeaderFont()
@@ -496,6 +493,44 @@ private struct NotificationsSection: View {
     }
 
     private var blocked: Bool { enabled && notifier.authorization == .denied }
+}
+
+/// What the Dock icon shows when sessions need the user, and when macOS
+/// holds the badge back.
+private struct DockSection: View {
+    @Environment(Notifier.self) private var notifier
+    @AppStorage(Notifier.dockBadgeKey) private var badge = false
+    @AppStorage(Notifier.dockBounceKey) private var bounce = false
+
+    var body: some View {
+        Section {
+            Toggle("Count sessions that need you", isOn: $badge)
+            if blocked {
+                Button("Open System Settings") { openNotificationSettings() }
+            }
+            Toggle("Bounce when a session needs you", isOn: $bounce)
+        } header: {
+            Text("Dock").formHeaderFont()
+        } footer: {
+            Text(blocked ? "Badges for Remote Agent are turned off in System Settings, under Notifications."
+                         : "The badge counts the sessions on every server that wait for an answer or failed. The icon bounces once, while Remote Agent is in the background.")
+                .formFooterFont()
+        }
+        .onChange(of: badge) { _, on in
+            if on { Task { await notifier.requestAuthorization() } }
+        }
+    }
+
+    /// Denied, or allowed without badges.
+    private var blocked: Bool {
+        badge && (notifier.authorization == .denied || notifier.badgeSetting == .disabled)
+    }
+}
+
+/// The app's page in System Settings › Notifications.
+@MainActor private func openNotificationSettings() {
+    let id = Bundle.main.bundleIdentifier ?? ""
+    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)")!)
 }
 
 /// Whether the app looks for updates, and installs them by itself.
