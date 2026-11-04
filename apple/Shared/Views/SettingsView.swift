@@ -513,7 +513,7 @@ private struct DockSection: View {
             Text("Dock").formHeaderFont()
         } footer: {
             Text(blocked ? "Badges for Remote Agent are turned off in System Settings, under Notifications."
-                         : "The badge counts the sessions on every server that wait for an answer or failed. The icon bounces once, while Remote Agent is in the background.")
+                         : "The badge counts the sessions on every server that wait for an answer, failed or have a reply you haven't read. The icon bounces once when one starts waiting, while Remote Agent is in the background.")
                 .formFooterFont()
         }
         .onChange(of: badge) { _, on in
@@ -521,9 +521,15 @@ private struct DockSection: View {
         }
     }
 
-    /// Denied, or allowed without badges.
+    /// Denied, or allowed without badges: also when the app was allowed
+    /// notifications before it asked for badges, which then stay off.
     private var blocked: Bool {
-        badge && (notifier.authorization == .denied || notifier.badgeSetting == .disabled)
+        guard badge else { return false }
+        switch notifier.authorization {
+        case .denied: return true
+        case .notDetermined: return false
+        default: return notifier.badgeSetting != .enabled
+        }
     }
 }
 

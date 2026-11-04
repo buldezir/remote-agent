@@ -9,8 +9,9 @@ import UserNotifications
 /// takes its notification back, as does one read on another device. Settings
 /// turns them off.
 ///
-/// The Dock icon also counts the sessions that need the user, waiting for an
-/// answer or failed, on every server, and can bounce once when one starts
+/// The Dock icon can also count the sessions that need the user, on every
+/// server, as the Inbox's Needs You does: waiting for an answer, failed, or
+/// with a reply nobody has read. It can bounce once when one starts
 /// waiting while the app is in the background. Settings turns each off.
 @MainActor @Observable
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
@@ -72,7 +73,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     /// The sessions that need the user, on every server.
     private var waitingCount: Int {
-        store.connections.reduce(0) { $0 + $1.activeSessions.count(where: \.needsYou) }
+        store.connections.reduce(0) { $0 + $1.activeSessions.count(where: \.standsOut) }
     }
 
     /// Updates the badge now and again whenever the servers or their
