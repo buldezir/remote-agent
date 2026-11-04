@@ -11,19 +11,26 @@ import UserNotifications
 ///
 /// The Dock icon can also count the sessions that need the user, on every
 /// server, as the Inbox's Needs You does: waiting for an answer, failed, or
-/// with a reply nobody has read. It can bounce once when one starts
-/// waiting while the app is in the background. Settings turns each off.
+/// with a reply nobody has read. When a session needs the user, finishes or
+/// fails while the app is in the background, the icon can bounce once; or,
+/// for a session that waits for an answer or failed, until the user comes
+/// to the app or those sessions no longer need them. Settings turns each off.
 @MainActor @Observable
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     static let enabledKey = "notifications"
     static let dockBadgeKey = "dockBadge"
-    static let dockBounceKey = "dockBounce"
+    static let dockBounceKey = "dockBounceMode"
+    /// 0.27's on/off bounce, which was once.
+    private static let oldDockBounceKey = "dockBounce"
     /// The session a click on a notification asked to open.
     var opened: SessionRoute?
     /// Whether macOS lets the app show notifications.
     private(set) var authorization: UNAuthorizationStatus = .notDetermined
     /// Whether macOS lets the app badge its Dock icon.
     private(set) var badgeSetting: UNNotificationSetting = .notSupported
+    /// The Dock icon's bounce until the user comes to the app, and the
+    /// sessions it is for.
+    @ObservationIgnored private var bouncing: (request: Int, routes: Set<SessionRoute>)?
     /// The session the window shows.
     @ObservationIgnored var shown: SessionRoute? {
         didSet { if NSApp.isActive, let shown { remove(shown) } }
@@ -42,7 +49,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         self.store = store
         self.defaults = defaults
         super.init()
-        defaults.register(defaults: [Self.enabledKey: true, Self.dockBadgeKey: false, Self.dockBounceKey: false])
+        defaults.register(defaults: [Self.enabledKey: true, Self.dockBadgeKey: false, Self.dockBounceKey: DockBounce.off.rawValue])
+        if defaults.object(forKey: Self.oldDockBounceKey) != nil {
+            if defaults.bool(forKey: Self.oldDockBounceKey) { defaults.set(DockBounce.once.rawValue, forKey: Self.dockBounceKey) }
+            defaults.removeObject(forKey: Self.oldDockBounceKey)
+        }
         // Before launch ends, so a click that launched the app gets here.
         center.delegate = self
         store.onSessionChange = { [weak self] c, old, new in self?.sessionChanged(c, old, new) }
@@ -50,11 +61,17 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if let shown = self.shown { self.remove(shown) }
+                // macOS stops the bounce itself.
+                self.bouncing = nil
                 Task { await self.refreshAuthorization() }
             }
         }
         NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateBadge() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.updateBadge()
+                if self.bounceMode != .untilActive { self.stopBouncing() }
+            }
         }
         // NSApp doesn't exist yet while the app's init runs.
         NotificationCenter.default.addObserver(forName: NSApplication.didFinishLaunchingNotification, object: nil, queue: .main) { [weak self] _ in
@@ -67,7 +84,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     var enabled: Bool { defaults.bool(forKey: Self.enabledKey) }
     private var badges: Bool { defaults.bool(forKey: Self.dockBadgeKey) }
-    private var bounces: Bool { defaults.bool(forKey: Self.dockBounceKey) }
+    private var bounceMode: DockBounce {
+        defaults.string(forKey: Self.dockBounceKey).flatMap(DockBounce.init) ?? .off
+    }
 
     // MARK: Dock
 
@@ -111,18 +130,54 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             remove(route)
         }
         if old.isUnread && !new.isUnread { remove(route) }
-        guard let alert = SessionAlert(from: old, to: new) else { return }
-        if alert == .needsYou && bounces && !NSApp.isActive { NSApp.requestUserAttention(.informationalRequest) }
-        guard enabled else { return }
+        if !new.needsYou || new.archived { stopBouncing(for: route) }
+        guard enabled || bounceMode != .off, let alert = SessionAlert(from: old, to: new) else { return }
         if alert == .finished {
             Task {
                 try? await Task.sleep(for: Self.finishDelay)
                 guard let now = c.sessions[new.id], now.status == .idle else { return }
-                post(alert, now, on: c)
+                alertUser(alert, now, on: c)
             }
         } else {
-            post(alert, new, on: c)
+            alertUser(alert, new, on: c)
         }
+    }
+
+    /// Bounces the Dock icon, which macOS does only while another app is in
+    /// front, and posts the notification.
+    private func alertUser(_ alert: SessionAlert, _ session: Session, on c: ServerConnection) {
+        bounce(alert, for: SessionRoute(serverID: c.server.id, sessionID: session.id))
+        if enabled { post(alert, session, on: c) }
+    }
+
+    /// A turn that finished bounces once, even in `untilActive`: only a
+    /// session that is stuck keeps bouncing.
+    private func bounce(_ alert: SessionAlert, for route: SessionRoute) {
+        switch bounceMode {
+        case .off: break
+        case .once: NSApp.requestUserAttention(.informationalRequest)
+        case .untilActive where alert == .finished: NSApp.requestUserAttention(.informationalRequest)
+        case .untilActive:
+            guard !NSApp.isActive else { return }
+            if bouncing != nil {
+                bouncing?.routes.insert(route)
+            } else {
+                bouncing = (NSApp.requestUserAttention(.criticalRequest), [route])
+            }
+        }
+    }
+
+    /// Stops the bounce once none of its sessions needs the user, such as
+    /// when they answered on another device; or at once, without a route.
+    private func stopBouncing(for route: SessionRoute? = nil) {
+        guard var b = bouncing else { return }
+        if let route {
+            guard b.routes.remove(route) != nil else { return }
+            bouncing = b
+            if !b.routes.isEmpty { return }
+        }
+        NSApp.cancelUserAttentionRequest(b.request)
+        bouncing = nil
     }
 
     private func post(_ alert: SessionAlert, _ session: Session, on c: ServerConnection) {
@@ -177,5 +232,22 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
     private func open(_ route: SessionRoute) {
         NSApp.activate()
         opened = route
+    }
+}
+
+/// How the Dock icon bounces when a session needs the user.
+enum DockBounce: String, CaseIterable, Identifiable {
+    case off, once
+    /// Until the user comes to the app.
+    case untilActive
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .once: "Once"
+        case .untilActive: "Keep bouncing when stuck"
+        }
     }
 }

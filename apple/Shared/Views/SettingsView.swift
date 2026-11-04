@@ -500,7 +500,7 @@ private struct NotificationsSection: View {
 private struct DockSection: View {
     @Environment(Notifier.self) private var notifier
     @AppStorage(Notifier.dockBadgeKey) private var badge = false
-    @AppStorage(Notifier.dockBounceKey) private var bounce = false
+    @AppStorage(Notifier.dockBounceKey) private var bounce = DockBounce.off
 
     var body: some View {
         Section {
@@ -508,12 +508,14 @@ private struct DockSection: View {
             if blocked {
                 Button("Open System Settings") { openNotificationSettings() }
             }
-            Toggle("Bounce when a session needs you", isOn: $bounce)
+            Picker("Bounce", selection: $bounce) {
+                ForEach(DockBounce.allCases) { Text($0.title).tag($0) }
+            }
         } header: {
             Text("Dock").formHeaderFont()
         } footer: {
             Text(blocked ? "Badges for Remote Agent are turned off in System Settings, under Notifications."
-                         : "The badge counts the sessions on every server that wait for an answer, failed or have a reply you haven't read. The icon bounces once when one starts waiting, while Remote Agent is in the background.")
+                         : "The badge counts the sessions on every server that wait for an answer, failed or have a reply you haven't read. The icon bounces once when a session needs you, finishes or fails while Remote Agent is in the background. With “Keep bouncing when stuck”, a session that waits for an answer or failed keeps it bouncing until you switch to Remote Agent or deal with it on another device.")
                 .formFooterFont()
         }
         .onChange(of: badge) { _, on in
