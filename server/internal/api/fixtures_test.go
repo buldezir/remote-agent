@@ -181,6 +181,12 @@ func fixtures() map[string]any {
 				{Text: "All "}, {Text: "tests", Match: true}, {Text: " pass now. func x() {}"}}},
 			{Session: archived, Snippet: []model.SnippetPart{{Text: "Flaky "}, {Text: "tests", Match: true}}},
 		}, More: true, Indexing: true}},
+		"response_branches.json": response{ID: json.RawMessage("17"), Result: map[string]any{
+			"branches": []string{"main", "ra/fix-tests", "feature/login"}, "current": "main",
+			"worktrees": []model.WorktreeInfo{
+				{Path: "/Users/me/.local/share/remote-agent/worktrees/p1/s1", Branch: "ra/fix-tests"},
+				{Path: "/Users/me/projects/app/.claude/worktrees/spike"},
+			}}},
 		"terminal_attached.json": model.TerminalMessage{Type: "attached", ID: "5f0c2a9e1b7d3c48", Offset: 262130, Reset: true, Cols: 80, Rows: 24},
 		"terminal_resize.json":   model.TerminalMessage{Type: "resize", Cols: 120, Rows: 40},
 		"terminal_exit.json":     model.TerminalMessage{Type: "exit", ExitCode: &signalled},

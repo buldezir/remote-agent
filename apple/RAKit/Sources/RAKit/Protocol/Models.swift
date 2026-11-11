@@ -682,6 +682,58 @@ public struct CommitPreview: Codable, Hashable, Sendable {
     }
 }
 
+/// A project's branches and its repository's other checkouts (`git.branches`).
+public struct GitBranches: Codable, Hashable, Sendable {
+    public var branches: [String]
+    /// The project folder's branch; empty for a detached HEAD.
+    public var current: String
+    /// The repository's checkouts besides the project folder, which a new
+    /// session can work in. Empty from an older server, which takes no
+    /// `path` in `session.create`.
+    public var worktrees: [WorktreeInfo]
+
+    public init(branches: [String] = [], current: String = "", worktrees: [WorktreeInfo] = []) {
+        self.branches = branches
+        self.current = current
+        self.worktrees = worktrees
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        branches = try c.decodeIfPresent([String].self, forKey: .branches) ?? []
+        current = try c.decodeIfPresent(String.self, forKey: .current) ?? ""
+        worktrees = try c.decodeIfPresent([WorktreeInfo].self, forKey: .worktrees) ?? []
+    }
+
+    /// The branches a new worktree can check out: those no checkout has,
+    /// neither the project folder nor another worktree, in the server's order.
+    public var availableBranches: [String] {
+        let taken = Set(worktrees.compactMap(\.branch)).union([current])
+        return branches.filter { !taken.contains($0) }
+    }
+}
+
+/// A worktree of a project's repository besides the project folder, as
+/// `git.branches` lists it.
+public struct WorktreeInfo: Codable, Hashable, Sendable, Identifiable {
+    public var path: String
+    /// nil: a detached HEAD.
+    public var branch: String?
+    public var id: String { path }
+
+    public init(path: String, branch: String? = nil) {
+        self.path = path
+        self.branch = branch
+    }
+
+    /// How the new-session form names it: its branch, else its folder's
+    /// name, detached (`worktreeLabel` in the other clients).
+    public var label: String {
+        if let branch, !branch.isEmpty { return branch }
+        return "\((path as NSString).lastPathComponent) (detached)"
+    }
+}
+
 /// A text frame on a terminal socket. The shell's output and the user's
 /// input travel as binary frames.
 public struct TerminalMessage: Codable, Hashable, Sendable {

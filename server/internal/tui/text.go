@@ -25,6 +25,19 @@ func truncate(s string, width int) string {
 	return ansi.Truncate(s, width, "…")
 }
 
+// truncateStart cuts a line to width from its start, as a path whose end
+// tells most, beginning it with "…" if it was longer.
+func truncateStart(s string, width int) string {
+	w := ansi.StringWidth(s)
+	if w <= width {
+		return s
+	}
+	if width < 1 {
+		return ""
+	}
+	return "…" + ansi.TruncateLeft(s, w-width+1, "")
+}
+
 // pad fills a line with spaces to width, cutting it if longer.
 func pad(s string, width int) string {
 	w := ansi.StringWidth(s)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,6 +53,20 @@ func TestFixtures(t *testing.T) {
 	ls := fixture[resultFrame[FSListing]](t, "response_fs_list.json").Result
 	if ls.Parent != "/Users/me" || len(ls.Entries) != 2 || !ls.Entries[0].IsGitRepo || ls.Entries[1].IsGitRepo {
 		t.Errorf("fs.list: %+v", ls)
+	}
+
+	br := fixture[resultFrame[Branches]](t, "response_branches.json").Result
+	if br.Current != "main" || len(br.Branches) != 3 || len(br.Worktrees) != 2 || br.Worktrees[0].Branch != "ra/fix-tests" ||
+		br.Worktrees[1].Branch != "" || br.Worktrees[1].Path != "/Users/me/projects/app/.claude/worktrees/spike" {
+		t.Errorf("git.branches: %+v", br)
+	}
+	if got := AvailableBranches(br.Branches, br.Current, br.Worktrees); !slices.Equal(got, []string{"feature/login"}) {
+		t.Errorf("available branches: %v", got)
+	}
+	// An older rad's, without worktrees.
+	var old Branches
+	if err := json.Unmarshal([]byte(`{"branches":["main"],"current":"main"}`), &old); err != nil || len(old.Worktrees) != 0 {
+		t.Errorf("older git.branches: %+v %v", old, err)
 	}
 
 	sub := fixture[resultFrame[subscribeResult]](t, "response_subscribe.json").Result

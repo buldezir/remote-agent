@@ -35,6 +35,13 @@ type Workspace struct {
 	AgentPath string `json:"agentPath,omitempty"`
 }
 
+// WorktreeInfo is a worktree of a project's repository besides the project
+// folder, as git.branches lists it: one a new session can work in.
+type WorktreeInfo struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch,omitempty"` // absent for a detached HEAD
+}
+
 // ContextUsage is how full the agent's context window was at its last model
 // call. Window is 0 when the harness has not reported it (yet).
 type ContextUsage struct {

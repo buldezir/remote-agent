@@ -22,6 +22,35 @@ export interface Workspace {
   agentPath?: string;
 }
 
+/** A checkout of a project's repository besides the project folder, as
+ * `git.branches` lists it: one a new session can work in. */
+export interface WorktreeInfo {
+  path: string;
+  /** Absent for a detached HEAD. */
+  branch?: string;
+}
+
+/** `git.branches`' result. `worktrees` is empty from a server that doesn't
+ * list them, which doesn't take an existing worktree either. */
+export interface Branches {
+  branches: string[];
+  current: string;
+  worktrees: WorktreeInfo[];
+}
+
+/** The branches a new worktree can check out: the ones no checkout has. */
+export function availableBranches(b: Branches): string[] {
+  const taken = new Set([b.current, ...b.worktrees.map((w) => w.branch)]);
+  return b.branches.filter((x) => !taken.has(x));
+}
+
+/** A worktree's name in pickers: its branch, else its folder's. */
+export function worktreeLabel(w: WorktreeInfo): string {
+  if (w.branch) return w.branch;
+  const name = w.path.replace(/\/+$/, "").split("/").pop() || w.path;
+  return `${name} (detached)`;
+}
+
 export type SessionStatus = Open<"idle" | "running" | "awaiting_approval" | "stopped" | "error">;
 
 export interface Session {

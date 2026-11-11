@@ -1,7 +1,20 @@
 import { Check, ChevronLeft, ChevronRight, Folder, FolderGit2, FolderPlus, ImagePlus, Save, SquareTerminal, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { effortsForModel, usable, type AgentSpec, type Choice, type FSListing, type HarnessInfo, type Session, type UsageLimits } from "../protocol/models";
+import {
+  availableBranches,
+  effortsForModel,
+  usable,
+  worktreeLabel,
+  type AgentSpec,
+  type Branches,
+  type Choice,
+  type FSListing,
+  type HarnessInfo,
+  type Session,
+  type UsageLimits,
+} from "../protocol/models";
 import { Attachments } from "../store/attachments";
+import type { NewSession as NewSessionParams } from "../store/serverConnection";
 import { useObserved } from "../store/observable";
 import { storage } from "../store/storage";
 import { HarnessIcon } from "./components";
@@ -52,6 +65,19 @@ export function startingOptions(
 /** Starts in `projectID` when given, else in the project used last.
  *  `onCreated` gets the new session, and whether it started empty, without
  *  a prompt or a draft: a session picked up from the terminal does. */
+const noBranches: Branches = { branches: [], current: "", worktrees: [] };
+
+/** The "Work in" choice of a new worktree; an existing one's is its path. */
+export const newWorktree = "\u0000new";
+
+/** session.create's workspace for the form's choices. */
+export function workspaceParams(workIn: string, existingBranch: string, branch: string, baseRef: string): NewSessionParams["workspace"] {
+  if (!workIn) return { kind: "root" };
+  if (workIn !== newWorktree) return { kind: "worktree", path: workIn };
+  if (existingBranch) return { kind: "worktree", branch: existingBranch };
+  return { kind: "worktree", branch: branch.trim() || undefined, baseRef: baseRef || undefined };
+}
+
 export function NewSession({
   projectID: initialProject,
   onClose,
@@ -72,10 +98,14 @@ export function NewSession({
   const [customModel, setCustomModel] = useState("");
   const [effort, setEffort] = useState("");
   const [mode, setMode] = useState("");
-  const [useWorktree, setUseWorktree] = useState(false);
+  /** Where the agent works: "" for the project folder, `newWorktree`, or an
+   * existing worktree's path. */
+  const [workIn, setWorkIn] = useState("");
+  /** A new worktree's branch: "" for a new one, else an existing one's name. */
+  const [existingBranch, setExistingBranch] = useState("");
   const [branch, setBranch] = useState("");
   const [baseRef, setBaseRef] = useState("");
-  const [branches, setBranches] = useState<string[]>([]);
+  const [branches, setBranches] = useState<Branches>(noBranches);
   const [prompt, setPrompt] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string>();
@@ -153,12 +183,13 @@ export function NewSession({
 
   useEffect(() => {
     setForgetError(undefined);
-    setUseWorktree(false);
-    setBranches([]);
+    setWorkIn("");
+    setExistingBranch("");
+    setBranches(noBranches);
     if (!project?.isGitRepo) return;
     let live = true;
     connection.branches(project.id).then(
-      (r) => live && setBranches(r.branches),
+      (r) => live && setBranches(r),
       () => {},
     );
     return () => {
@@ -178,7 +209,7 @@ export function NewSession({
         model: chosenModel,
         effort: effort || undefined,
         mode: mode || undefined,
-        workspace: useWorktree ? { kind: "worktree", branch: branch || undefined, baseRef: baseRef || undefined } : { kind: "root" },
+        workspace: workspaceParams(workIn, existingBranch, branch, baseRef),
         prompt,
         images: attachments.refs.length ? attachments.refs.map((r) => r.id) : undefined,
         draft,
@@ -359,33 +390,58 @@ export function NewSession({
             <h4 className="form-header">Workspace</h4>
             <section className="form-section">
               <label className="form-row">
-                <span>Isolated git worktree</span>
-                <input type="checkbox" className="switch" checked={useWorktree} onChange={(e) => setUseWorktree(e.target.checked)} />
+                <span>Work in</span>
+                <select value={workIn} onChange={(e) => setWorkIn(e.target.value)}>
+                  <option value="">Project folder</option>
+                  <option value={newWorktree}>New worktree</option>
+                  {branches.worktrees.map((w) => (
+                    <option key={w.path} value={w.path}>
+                      {worktreeLabel(w)}
+                    </option>
+                  ))}
+                </select>
               </label>
-              {useWorktree && (
+              {workIn === newWorktree && (
                 <>
                   <label className="form-row">
                     <span>Branch</span>
-                    <input className="text-field" placeholder="auto" value={branch} onChange={(e) => setBranch(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-                  </label>
-                  <label className="form-row">
-                    <span>Based on</span>
-                    <select value={baseRef} onChange={(e) => setBaseRef(e.target.value)}>
-                      <option value="">Current HEAD</option>
-                      {branches.map((b) => (
+                    <select value={existingBranch} onChange={(e) => setExistingBranch(e.target.value)}>
+                      <option value="">New branch</option>
+                      {availableBranches(branches).map((b) => (
                         <option key={b} value={b}>
                           {b}
                         </option>
                       ))}
                     </select>
                   </label>
+                  {!existingBranch && (
+                    <>
+                      <label className="form-row">
+                        <span>Name</span>
+                        <input className="text-field" placeholder="auto" value={branch} onChange={(e) => setBranch(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+                      </label>
+                      <label className="form-row">
+                        <span>Based on</span>
+                        <select value={baseRef} onChange={(e) => setBaseRef(e.target.value)}>
+                          <option value="">Current HEAD</option>
+                          {branches.branches.map((b) => (
+                            <option key={b} value={b}>
+                              {b}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </>
+                  )}
                 </>
               )}
             </section>
             <p className="form-footer">
-              {useWorktree
-                ? "The agent works on its own branch in a separate checkout. You can revert its turns."
-                : "The agent works directly in the project folder."}
+              {workIn === ""
+                ? "The agent works directly in the project folder."
+                : workIn === newWorktree
+                  ? "The agent works on its own branch in a separate checkout. You can revert its turns."
+                  : `The agent works in ${workIn}, on its branch, beside any session already there.`}
             </p>
           </>
         )}

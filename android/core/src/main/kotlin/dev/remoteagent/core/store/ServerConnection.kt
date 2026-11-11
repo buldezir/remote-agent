@@ -7,6 +7,7 @@ import dev.remoteagent.core.net.RpcClient
 import dev.remoteagent.core.net.RpcError
 import dev.remoteagent.core.net.ServerMessage
 import dev.remoteagent.core.net.params
+import dev.remoteagent.core.protocol.Branches
 import dev.remoteagent.core.protocol.CommitPreview
 import dev.remoteagent.core.protocol.Event
 import dev.remoteagent.core.protocol.FSListing
@@ -700,9 +701,6 @@ private data class TaskList(val tasks: List<ServerTask> = emptyList())
 private data class ImportableList(val sessions: List<ImportableSession> = emptyList())
 
 @Serializable
-data class Branches(val branches: List<String> = emptyList(), val current: String = "")
-
-@Serializable
 data class NewSession(
     val commandId: String = UUID.randomUUID().toString(),
     val projectId: String,
@@ -721,7 +719,12 @@ data class NewSession(
     val draft: Boolean? = null,
 ) {
     @Serializable
-    data class WorkspaceParams(val kind: Workspace.Kind, val branch: String? = null, val baseRef: String? = null)
+    /**
+     * A new worktree on [branch] (an existing one, or a new one at
+     * [baseRef]), or the existing worktree at [path] (one of `branches`'
+     * worktrees), without a branch or base.
+     */
+    data class WorkspaceParams(val kind: Workspace.Kind, val branch: String? = null, val baseRef: String? = null, val path: String? = null)
 }
 
 /**

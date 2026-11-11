@@ -344,10 +344,23 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 				return nil, &methodError{"not_found", "project not found"}
 			}
 			if !proj.IsGitRepo {
-				return map[string]any{"branches": []string{}, "current": ""}, nil
+				return map[string]any{"branches": []string{}, "current": "", "worktrees": []model.WorktreeInfo{}}, nil
 			}
 			bs, err := gitx.Branches(ctx, proj.Path)
-			return map[string]any{"branches": bs, "current": gitx.CurrentBranch(ctx, proj.Path)}, err
+			if err != nil {
+				return nil, err
+			}
+			wts, err := gitx.Worktrees(ctx, proj.Path)
+			if err != nil {
+				return nil, err
+			}
+			worktrees := []model.WorktreeInfo{}
+			for _, wt := range wts {
+				if !wt.Main {
+					worktrees = append(worktrees, model.WorktreeInfo{Path: wt.Path, Branch: wt.Branch})
+				}
+			}
+			return map[string]any{"branches": bs, "current": gitx.CurrentBranch(ctx, proj.Path), "worktrees": worktrees}, nil
 		})
 	}
 	return nil, &methodError{"method_not_found", "unknown method " + method}

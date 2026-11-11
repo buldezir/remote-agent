@@ -1,6 +1,12 @@
 import RAKit
 import SwiftUI
 
+/// Where a new session works: the project folder, a new worktree, or one of
+/// the repository's worktrees (`GitBranches.worktrees`), by its path.
+enum WorkIn: Hashable {
+    case project, newWorktree, existing(String)
+}
+
 struct NewSessionView: View {
     let connection: ServerConnection
     /// The new session, and whether it started empty, without a prompt.
@@ -18,10 +24,13 @@ struct NewSessionView: View {
     @State private var customModel = ""
     @State private var effort = ""
     @State private var mode = ""
-    @State private var useWorktree = false
+    @State private var workIn = WorkIn.project
+    /// A new worktree's branch: "" for a new one, else an existing one's name.
+    @State private var existingBranch = ""
+    /// A new branch's name; "" lets rad name it.
     @State private var branch = ""
     @State private var baseRef = ""
-    @State private var branches: [String] = []
+    @State private var branches = GitBranches()
     @State private var prompt = ""
     @State private var creating = false
     @State private var error: String?
@@ -108,21 +117,31 @@ struct NewSessionView: View {
 
                     if project?.isGitRepo == true {
                         Section {
-                            Toggle("Isolated git worktree", isOn: $useWorktree)
-                            if useWorktree {
-                                TextField("Branch", text: $branch, prompt: Text(branchPrompt))
-                                    .plainTextInput()
-                                Picker("Based on", selection: $baseRef) {
-                                    Text("Current HEAD").tag("")
-                                    ForEach(branches, id: \.self) { Text($0).tag($0) }
+                            Picker("Work in", selection: $workIn) {
+                                Text("Project folder").tag(WorkIn.project)
+                                Text("New worktree").tag(WorkIn.newWorktree)
+                                ForEach(branches.worktrees) { w in
+                                    Text(w.label).tag(WorkIn.existing(w.path))
+                                }
+                            }
+                            if workIn == .newWorktree {
+                                Picker("Branch", selection: $existingBranch) {
+                                    Text("New branch").tag("")
+                                    ForEach(branches.availableBranches, id: \.self) { Text($0).tag($0) }
+                                }
+                                if existingBranch.isEmpty {
+                                    TextField("Name", text: $branch, prompt: Text(branchPrompt))
+                                        .plainTextInput()
+                                    Picker("Based on", selection: $baseRef) {
+                                        Text("Current HEAD").tag("")
+                                        ForEach(branches.branches, id: \.self) { Text($0).tag($0) }
+                                    }
                                 }
                             }
                         } header: {
                             Text("Workspace").formHeaderFont()
                         } footer: {
-                            Text(useWorktree ? "The agent works on its own branch in a separate checkout. You can revert its turns."
-                                             : "The agent works directly in the project folder.")
-                                .formFooterFont()
+                            Text(workspaceFooter).formFooterFont()
                         }
                     }
 
@@ -236,10 +255,15 @@ struct NewSessionView: View {
             // Initially too, for a project given at the start.
             .onChange(of: projectID, initial: true) { _, id in
                 forgetError = nil
-                useWorktree = false
-                branches = []
+                workIn = .project
+                existingBranch = ""
+                branches = GitBranches()
                 guard project?.isGitRepo == true else { return }
-                Task { branches = (try? await connection.branches(projectID: id).branches) ?? [] }
+                Task {
+                    let b = (try? await connection.branches(projectID: id)) ?? GitBranches()
+                    // Unless the user picked another project meanwhile.
+                    if projectID == id { branches = b }
+                }
             }
         }
     }
@@ -256,13 +280,36 @@ struct NewSessionView: View {
         }
     }
 
-    /// On the Mac the field's label, Branch, is shown beside it.
+    /// On the Mac the field's label, Name, is shown beside it, under the
+    /// Branch picker.
     private var branchPrompt: String {
         #if os(macOS)
         "auto"
         #else
         "Branch (auto)"
         #endif
+    }
+
+    private var workspaceFooter: String {
+        switch workIn {
+        case .project: "The agent works directly in the project folder."
+        case .newWorktree: "The agent works on its own branch in a separate checkout. You can revert its turns."
+        case .existing(let path): "The agent works in \(path), on its branch, beside any session already there."
+        }
+    }
+
+    private var workspace: ServerConnection.NewSession.WorkspaceParams {
+        switch workIn {
+        case .project:
+            return .init(kind: .root)
+        case .existing(let path):
+            return .init(kind: .worktree, path: path)
+        case .newWorktree where !existingBranch.isEmpty:
+            return .init(kind: .worktree, branch: existingBranch)
+        case .newWorktree:
+            let name = branch.trimmingCharacters(in: .whitespaces)
+            return .init(kind: .worktree, branch: name.isEmpty ? nil : name, baseRef: baseRef.isEmpty ? nil : baseRef)
+        }
     }
 
     /// The model id to request; nil for the harness default.
@@ -299,10 +346,7 @@ struct NewSessionView: View {
         creating = true
         error = nil
         defer { creating = false }
-        let ws = ServerConnection.NewSession.WorkspaceParams(
-            kind: useWorktree ? .worktree : .root,
-            branch: useWorktree && !branch.isEmpty ? branch : nil,
-            baseRef: useWorktree && !baseRef.isEmpty ? baseRef : nil)
+        let ws = workspace
         do {
             let s = try await connection.createSession(.init(
                 projectId: project.id, harness: harness.id,

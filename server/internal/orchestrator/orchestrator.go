@@ -150,9 +150,14 @@ func (o *Orchestrator) RemoveProject(ctx context.Context, id string) error {
 // Sessions.
 
 type WorkspaceParams struct {
-	Kind    model.WorkspaceKind `json:"kind"`
-	Branch  string              `json:"branch,omitempty"`
-	BaseRef string              `json:"baseRef,omitempty"`
+	Kind model.WorkspaceKind `json:"kind"`
+	// Branch names a new worktree's branch: an existing branch is checked
+	// out there, any other name is made at BaseRef.
+	Branch  string `json:"branch,omitempty"`
+	BaseRef string `json:"baseRef,omitempty"`
+	// Path picks a worktree the project's repository has already (one of
+	// git.branches' worktrees) instead of making one.
+	Path string `json:"path,omitempty"`
 }
 
 type CreateSessionParams struct {
@@ -220,15 +225,11 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 		if !proj.IsGitRepo {
 			return nil, errorf(CodeInvalid, "worktrees need a git repository")
 		}
-		branch := p.Workspace.Branch
-		if branch == "" {
-			branch = provisionalBranch(s.Title, s.ID)
+		ws, err := o.worktree(ctx, proj, s, p.Workspace)
+		if err != nil {
+			return nil, err
 		}
-		dir := filepath.Join(o.opt.WorktreesDir, proj.ID, s.ID)
-		if err := gitx.AddWorktree(ctx, proj.Path, dir, branch, p.Workspace.BaseRef); err != nil {
-			return nil, errorf(CodeInvalid, "create worktree: %v", err)
-		}
-		s.Workspace = model.Workspace{Kind: model.WorkspaceWorktree, Path: dir, Branch: branch, BaseRef: p.Workspace.BaseRef}
+		s.Workspace = ws
 	} else if proj.IsGitRepo {
 		s.Workspace.Branch = gitx.CurrentBranch(ctx, proj.Path)
 	}
@@ -276,9 +277,52 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 	}
 	if hasPrompt {
 		// A draft names the session as the prompt it will be.
-		o.nameSession(s.ID, proj.Name, p.Prompt, p.Title == "", s.Workspace.Kind == model.WorkspaceWorktree && p.Workspace.Branch == "")
+		o.nameSession(s.ID, proj.Name, p.Prompt, p.Title == "", s.Workspace.Kind == model.WorkspaceWorktree && p.Workspace.Branch == "" && p.Workspace.Path == "")
 	}
 	return s, nil
+}
+
+// worktree is the worktree a new session works in: the existing one at
+// wp.Path, else a new one, on the existing branch wp.Branch or on a new
+// branch (named wp.Branch, or provisionally) at wp.BaseRef.
+func (o *Orchestrator) worktree(ctx context.Context, proj *model.Project, s *model.Session, wp WorkspaceParams) (model.Workspace, error) {
+	if wp.Path != "" {
+		if wp.Branch != "" || wp.BaseRef != "" {
+			return model.Workspace{}, errorf(CodeInvalid, "an existing worktree takes no branch or base")
+		}
+		if !filepath.IsAbs(wp.Path) {
+			return model.Workspace{}, errorf(CodeInvalid, "a worktree's path must be absolute")
+		}
+		wts, err := gitx.Worktrees(ctx, proj.Path)
+		if err != nil {
+			return model.Workspace{}, errorf(CodeInvalid, "list worktrees: %v", err)
+		}
+		for _, wt := range wts {
+			if !wt.Main && gitx.SamePath(wt.Path, wp.Path) {
+				path := filepath.Clean(wp.Path)
+				return model.Workspace{Kind: model.WorkspaceWorktree, Path: path, Branch: gitx.CurrentBranch(ctx, path)}, nil
+			}
+		}
+		return model.Workspace{}, errorf(CodeInvalid, "%s is not a worktree of %s", wp.Path, proj.Name)
+	}
+	dir := filepath.Join(o.opt.WorktreesDir, proj.ID, s.ID)
+	if wp.Branch != "" && gitx.BranchExists(ctx, proj.Path, wp.Branch) {
+		if wp.BaseRef != "" {
+			return model.Workspace{}, errorf(CodeInvalid, "branch %s already exists", wp.Branch)
+		}
+		if err := gitx.CheckoutWorktree(ctx, proj.Path, dir, wp.Branch); err != nil {
+			return model.Workspace{}, errorf(CodeInvalid, "check out %s: %v", wp.Branch, err)
+		}
+		return model.Workspace{Kind: model.WorkspaceWorktree, Path: dir, Branch: wp.Branch}, nil
+	}
+	branch := wp.Branch
+	if branch == "" {
+		branch = provisionalBranch(s.Title, s.ID)
+	}
+	if err := gitx.AddWorktree(ctx, proj.Path, dir, branch, wp.BaseRef); err != nil {
+		return model.Workspace{}, errorf(CodeInvalid, "create worktree: %v", err)
+	}
+	return model.Workspace{Kind: model.WorkspaceWorktree, Path: dir, Branch: branch, BaseRef: wp.BaseRef}, nil
 }
 
 // AgentToken is the token the session's agent calls rad's MCP server with.

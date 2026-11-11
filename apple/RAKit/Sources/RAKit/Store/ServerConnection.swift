@@ -387,10 +387,8 @@ public final class ServerConnection {
         let _: Empty = try await client.call("project.remove", ["id": id])
     }
 
-    public func branches(projectID: String) async throws -> (branches: [String], current: String) {
-        struct Res: Decodable { var branches: [String]?; var current: String? }
-        let r: Res = try await client.call("git.branches", ["projectId": projectID])
-        return (r.branches ?? [], r.current ?? "")
+    public func branches(projectID: String) async throws -> GitBranches {
+        try await client.call("git.branches", ["projectId": projectID])
     }
 
     public struct NewSession: Encodable, Sendable {
@@ -408,14 +406,19 @@ public final class ServerConnection {
         /// turn. Only for a server whose `info.drafts` is true.
         public var draft: Bool?
 
-        public struct WorkspaceParams: Encodable, Sendable {
+        /// `kind: .worktree` makes a new worktree on `branch` (one that
+        /// exists, or a new one at `baseRef`), or with `path` works in an
+        /// existing one (`GitBranches.worktrees`), without `branch` or `baseRef`.
+        public struct WorkspaceParams: Encodable, Hashable, Sendable {
             public var kind: Workspace.Kind
             public var branch: String?
             public var baseRef: String?
-            public init(kind: Workspace.Kind, branch: String? = nil, baseRef: String? = nil) {
+            public var path: String?
+            public init(kind: Workspace.Kind, branch: String? = nil, baseRef: String? = nil, path: String? = nil) {
                 self.kind = kind
                 self.branch = branch
                 self.baseRef = baseRef
+                self.path = path
             }
         }
 

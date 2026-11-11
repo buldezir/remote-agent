@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   aspectRatio,
+  availableBranches,
   contextFraction,
   effortsForModel,
   imageIdLinkedBy,
@@ -12,6 +13,8 @@ import {
   modelName,
   parseDate,
   usable,
+  worktreeLabel,
+  type Branches,
   type CommitPreview,
   type Diff,
   type Event,
@@ -230,6 +233,18 @@ describe("fixtures", () => {
     expect(parseDate(tasks[1].endedAt) - parseDate(tasks[1].startedAt)).toBe(5000);
     expect(tasks[0].steps).toBeUndefined();
     expect(tasks[0].sessionId).toBeUndefined();
+  });
+
+  it("branches and worktrees", () => {
+    const r: Branches = load("response_branches.json").result;
+    expect(r.branches).toEqual(["main", "ra/fix-tests", "feature/login"]);
+    expect(r.current).toBe("main");
+    expect(r.worktrees.map((w) => [w.path, w.branch])).toEqual([
+      ["/Users/me/.local/share/remote-agent/worktrees/p1/s1", "ra/fix-tests"],
+      ["/Users/me/projects/app/.claude/worktrees/spike", undefined],
+    ]);
+    expect(availableBranches(r)).toEqual(["feature/login"]);
+    expect(r.worktrees.map(worktreeLabel)).toEqual(["ra/fix-tests", "spike (detached)"]);
   });
 
   it("importable sessions", () => {

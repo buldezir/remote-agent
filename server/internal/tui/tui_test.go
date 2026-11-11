@@ -1894,3 +1894,156 @@ func TestUnarchivesASessionToPromptIt(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// formTo moves the new session form to its row field.
+func (u *ui) formTo(field int) {
+	u.t.Helper()
+	for range 20 {
+		var on, below bool
+		u.inspect(func(m *Model) {
+			if ns, ok := m.topOverlay().(*newSession); ok {
+				on = ns.field == field
+				below = ns.field > field
+			}
+		})
+		if on {
+			return
+		}
+		if below {
+			u.key("shift+tab")
+		} else {
+			u.key("tab")
+		}
+	}
+	u.t.Fatalf("no row %d in the form:\n%s", field, u.screen())
+}
+
+// branchesLoaded waits for the new session form's branches and worktrees,
+// which it fetches as it opens.
+func (u *ui) branchesLoaded() {
+	u.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for loaded := false; !loaded; time.Sleep(30 * time.Millisecond) {
+		u.inspect(func(m *Model) {
+			ns, ok := m.topOverlay().(*newSession)
+			loaded = ok && ns.branches != nil
+		})
+		if !loaded && time.Now().After(deadline) {
+			u.t.Fatalf("no branches:\n%s", u.screen())
+		}
+	}
+}
+
+// The new session form works in the project folder, a new worktree on a
+// new branch or one no checkout has, or a worktree the repository has.
+func TestNewSessionWorksInAnExistingWorktree(t *testing.T) {
+	for k, v := range map[string]string{"GIT_CONFIG_GLOBAL": os.DevNull, "GIT_CONFIG_NOSYSTEM": "1",
+		"GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com", "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com"} {
+		t.Setenv(k, v)
+	}
+	wt := filepath.Join(t.TempDir(), "wt-hand")
+	u := startUIWith(t, 120, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
+		for _, args := range [][]string{{"init", "-q", "-b", "main", r.Root}, {"-C", r.Root, "commit", "-q", "--allow-empty", "-m", "init"},
+			{"-C", r.Root, "branch", "dev"}, {"-C", r.Root, "worktree", "add", "-q", wt, "-b", "hand"}} {
+			if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+				t.Skipf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		addProject(t, rpc, r)
+		state := State{LastHarness: "fake", LastMode: map[string]string{"fake": "auto"}}
+		if err := saveJSON(filepath.Join(dir, "state.json"), state); err != nil {
+			t.Fatal(err)
+		}
+	})
+	u.key("ctrl+n")
+	u.waitFor("Work in      Project folder")
+	u.formTo(fieldWorkIn)
+	u.waitFor("The agent works directly in the project folder.")
+	u.branchesLoaded()
+	u.key("enter")
+	u.waitFor("Work In")
+	u.inspect(func(m *Model) {
+		mn, ok := m.topOverlay().(*menu)
+		var got []string
+		for _, it := range mn.items {
+			got = append(got, it.label+" "+filepath.Base(it.detail))
+		}
+		if want := []string{"Project folder .", "New worktree .", "hand wt-hand"}; !ok || !slices.Equal(got, want) {
+			t.Errorf("work in %v, want %v", got, want)
+		}
+	})
+
+	// A new worktree, on a branch no checkout has: main is the project
+	// folder's, hand the worktree's.
+	u.menuTo("New worktree")
+	u.key("enter")
+	u.waitFor("Branch       New branch")
+	u.waitFor("Based on")
+	u.formTo(fieldUseBranch)
+	u.key("enter")
+	u.waitFor("dev")
+	u.inspect(func(m *Model) {
+		mn, ok := m.topOverlay().(*menu)
+		var labels []string
+		for _, it := range mn.items {
+			labels = append(labels, it.label)
+		}
+		if !ok || !slices.Equal(labels, []string{"New branch", "dev"}) {
+			t.Errorf("branches %v", labels)
+		}
+	})
+	u.key("esc")
+
+	// Right steps to the existing worktree, which takes no branch.
+	u.formTo(fieldWorkIn)
+	u.key("right")
+	s := u.waitFor("already there.")
+	if !strings.Contains(s, "Work in      hand") || strings.Contains(s, "Based on") || strings.Contains(s, "New branch") {
+		t.Errorf("the existing worktree:\n%s", s)
+	}
+	u.formTo(fieldPrompt)
+	u.key("write a.txt")
+	u.key("enter")
+	u.waitFor("Echo: write a.txt")
+	ss, err := u.rad.Store.Sessions(context.Background())
+	if err != nil || len(ss) != 1 {
+		t.Fatalf("sessions %v %v", ss, err)
+	}
+	u.turnsEnded(ss[0].ID, 1)
+	w := ss[0].Workspace
+	real, _ := filepath.EvalSymlinks(wt)
+	if got, _ := filepath.EvalSymlinks(w.Path); w.Kind != model.WorkspaceWorktree || got != real {
+		t.Errorf("workspace %+v, want %s", w, real)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "a.txt")); err != nil {
+		t.Errorf("a.txt isn't in the worktree: %v", err)
+	}
+
+	// A new worktree that checks out dev, and the form starts again in the
+	// project folder.
+	u.key("ctrl+n")
+	u.waitFor("Work in      Project folder")
+	u.branchesLoaded()
+	u.formTo(fieldWorkIn)
+	u.key("right")
+	u.waitFor("Branch       New branch")
+	u.formTo(fieldUseBranch)
+	u.key("right")
+	s = u.waitFor("Branch       dev")
+	if strings.Contains(s, "Based on") {
+		t.Errorf("an existing branch with a base:\n%s", s)
+	}
+	u.formTo(fieldPrompt)
+	u.key("hello")
+	u.key("enter")
+	u.waitFor("Echo: hello")
+	ss, err = u.rad.Store.Sessions(context.Background())
+	if err != nil || len(ss) != 2 {
+		t.Fatalf("sessions %v %v", ss, err)
+	}
+	for _, s := range ss {
+		if s.Workspace.Path != w.Path && (s.Workspace.Kind != model.WorkspaceWorktree || s.Workspace.Branch != "dev") {
+			t.Errorf("the new worktree %+v", s.Workspace)
+		}
+	}
+}

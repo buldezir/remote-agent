@@ -108,6 +108,58 @@ func CheckoutWorktree(ctx context.Context, repo, path, branch string) error {
 	return err
 }
 
+// Worktree is a checkout of the repository, as `git worktree list` gives it.
+type Worktree struct {
+	Path   string
+	Branch string // "" for a detached HEAD
+	Main   bool   // the repository's own folder
+}
+
+// Worktrees lists the repository's checkouts, the main one first, leaving
+// out the ones whose folder is gone.
+func Worktrees(ctx context.Context, repo string) ([]Worktree, error) {
+	out, err := run(ctx, repo, nil, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	var wts []Worktree
+	for i, block := range strings.Split(strings.TrimSpace(out), "\n\n") {
+		var wt Worktree
+		skip := false
+		for line := range strings.SplitSeq(block, "\n") {
+			key, val, _ := strings.Cut(line, " ")
+			switch key {
+			case "worktree":
+				wt.Path = val
+			case "branch":
+				wt.Branch = strings.TrimPrefix(val, "refs/heads/")
+			case "bare", "prunable":
+				skip = true
+			}
+		}
+		wt.Main = i == 0
+		if wt.Path == "" || skip {
+			continue
+		}
+		if _, err := os.Stat(wt.Path); err != nil {
+			continue
+		}
+		wts = append(wts, wt)
+	}
+	return wts, nil
+}
+
+// SamePath reports whether a and b name the same folder, through symlinks
+// (such as macOS's /var and /private/var).
+func SamePath(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
+}
+
 func RemoveWorktree(ctx context.Context, repo, path string) error {
 	_, err := run(ctx, repo, nil, "worktree", "remove", "--force", path)
 	return err

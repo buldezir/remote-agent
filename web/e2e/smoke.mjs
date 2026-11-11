@@ -276,7 +276,7 @@ await page.getByRole("button", { name: "Hide Terminal" }).click();
 step("worktree session: changes and revert");
 await page.getByRole("button", { name: "New session", exact: true }).first().click();
 await page.locator(".harness-row", { hasText: "Fake" }).click();
-await page.getByLabel("Isolated git worktree").check();
+await page.getByLabel("Work in").selectOption({ label: "New worktree" });
 await page.getByPlaceholder("What should the agent do?").fill("write b.txt");
 await page.getByRole("button", { name: "Start", exact: true }).click();
 await page.getByRole("button", { name: "Allow", exact: true }).click();
@@ -414,7 +414,7 @@ await shot("draft-sent");
 step("search sessions, and open a result at the item that matched");
 // A session whose match is far above its end.
 await page.getByRole("button", { name: "New session", exact: true }).first().click();
-await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
+await page.locator(".form-row", { hasText: /^Project/ }).locator("select").selectOption({ label: project });
 await page.locator(".harness-row", { hasText: "Fake" }).click();
 await page.getByPlaceholder("What should the agent do?").fill("zebrafish swim upstream");
 await page.getByRole("button", { name: "Start", exact: true }).click();
@@ -491,7 +491,7 @@ await page.locator(".find-bar").waitFor({ state: "detached" });
 
 step("runs of tool calls fold, and open");
 await page.getByRole("button", { name: "New session", exact: true }).first().click();
-await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
+await page.locator(".form-row", { hasText: /^Project/ }).locator("select").selectOption({ label: project });
 await page.locator(".harness-row", { hasText: "Fake" }).click();
 await page.getByPlaceholder("What should the agent do?").fill("tools");
 await page.getByRole("button", { name: "Start", exact: true }).click();
@@ -650,7 +650,7 @@ if (sent !== JSON.stringify(expected)) throw new Error(`session.rename was sent 
 step("continue a terminal session");
 const continueTerminal = async (name) => {
   await page.getByRole("button", { name: "New session", exact: true }).first().click();
-  await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
+  await page.locator(".form-row", { hasText: /^Project/ }).locator("select").selectOption({ label: project });
   await page.locator(".harness-row", { hasText: "Fake" }).click();
   if (name) {
     await page.getByRole("button", { name: "Continue a terminal session…" }).scrollIntoViewIfNeeded();
@@ -754,7 +754,7 @@ await shot("layout-columns");
 // A project's collection, and a project's +, start a new session in that
 // project. Forgetting the project used last leaves only them to choose it.
 const startsInProject = async (what) => {
-  const chosen = await page.locator(".form-row", { hasText: "Project" }).locator("select").evaluate((s) => s.selectedOptions[0]?.textContent);
+  const chosen = await page.locator(".form-row", { hasText: /^Project/ }).locator("select").evaluate((s) => s.selectedOptions[0]?.textContent);
   if (chosen !== project) throw new Error(`${what} starts a session in ${chosen}, not ${project}`);
   await page.getByRole("button", { name: "Cancel" }).click();
 };
@@ -774,7 +774,7 @@ await startsInProject("the project's +");
 
 step("forget a project");
 await page.getByRole("button", { name: "New session", exact: true }).first().click();
-const projectPicker = page.locator(".form-row", { hasText: "Project" }).locator("select");
+const projectPicker = page.locator(".form-row", { hasText: /^Project/ }).locator("select");
 await projectPicker.selectOption({ label: project });
 // The server keeps a project while it has sessions that aren't archived.
 await page.getByRole("button", { name: `Forget ${project}` }).click();
@@ -883,7 +883,7 @@ await systemAgent.selectOption({ label: fake });
 await settingsSection("System Agent").getByLabel(/^Model/).waitFor();
 await page.getByRole("button", { name: "Done" }).click();
 await page.getByRole("button", { name: "New session", exact: true }).first().click();
-await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
+await page.locator(".form-row", { hasText: /^Project/ }).locator("select").selectOption({ label: project });
 await page.locator(".harness-row", { hasText: "Fake" }).click();
 await page.getByPlaceholder("What should the agent do?").fill("tidy up the readme please");
 await page.getByRole("button", { name: "Start", exact: true }).click();
@@ -929,7 +929,7 @@ await shot("limits-settings");
 await page.getByRole("button", { name: "Done" }).click();
 // Beside the chosen agent in the new session form; a click on it keeps the agent.
 await page.getByRole("button", { name: "New session", exact: true }).first().click();
-await page.locator(".form-row", { hasText: "Project" }).locator("select").selectOption({ label: project });
+await page.locator(".form-row", { hasText: /^Project/ }).locator("select").selectOption({ label: project });
 await page.locator(".harness-row", { hasText: "Fake" }).click();
 const chosenGauge = page.locator(".harness-row[aria-pressed=true]", { hasText: "Fake" }).locator(".limits-gauge");
 await chosenGauge.click();

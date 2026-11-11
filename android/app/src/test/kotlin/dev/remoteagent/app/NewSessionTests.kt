@@ -1,8 +1,14 @@
 package dev.remoteagent.app
 
+import dev.remoteagent.app.ui.NEW_WORKTREE
 import dev.remoteagent.app.ui.startingHarness
+import dev.remoteagent.app.ui.workspaceParams
 import dev.remoteagent.core.protocol.AgentSpec
 import dev.remoteagent.core.protocol.HarnessInfo
+import dev.remoteagent.core.protocol.Project
+import dev.remoteagent.core.protocol.Workspace
+import dev.remoteagent.core.store.NewSession.WorkspaceParams
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -28,5 +34,24 @@ class NewSessionTests {
         assertEquals("", startingHarness(emptyList(), null, null))
         // The agents haven't come.
         assertEquals("", startingHarness(null, AgentSpec("codex"), "fake"))
+    }
+
+    @Test
+    fun workspaceFollowsTheWorkInAndBranchPickers() {
+        val git = Project("p1", "/repo", "repo", isGitRepo = true, createdAt = Instant.EPOCH)
+        val root = WorkspaceParams(Workspace.Kind.ROOT)
+        assertEquals(root, workspaceParams(git, "", "", "named", "main"))
+        // A new worktree on a new branch, named by rad unless named here.
+        assertEquals(WorkspaceParams(Workspace.Kind.WORKTREE), workspaceParams(git, NEW_WORKTREE, "", "", ""))
+        assertEquals(
+            WorkspaceParams(Workspace.Kind.WORKTREE, branch = "fix", baseRef = "main"),
+            workspaceParams(git, NEW_WORKTREE, "", "fix", "main"),
+        )
+        // On a branch that exists: no name or base.
+        assertEquals(WorkspaceParams(Workspace.Kind.WORKTREE, branch = "feature/login"), workspaceParams(git, NEW_WORKTREE, "feature/login", "fix", "main"))
+        // An existing worktree goes by its path alone.
+        assertEquals(WorkspaceParams(Workspace.Kind.WORKTREE, path = "/wt/hand"), workspaceParams(git, "/wt/hand", "feature/login", "fix", "main"))
+        // Outside git, always the folder.
+        assertEquals(root, workspaceParams(git.copy(isGitRepo = false), NEW_WORKTREE, "", "", ""))
     }
 }

@@ -1280,9 +1280,10 @@ func (a *actor) delete(ctx context.Context, removeWorktree bool) error {
 	return err
 }
 
-// dropWorkspace deletes the session's checkpoints and, when asked, its worktree.
+// dropWorkspace deletes the session's checkpoints and, when asked, its
+// worktree, if rad made it and no other session works in it.
 func (a *actor) dropWorkspace(ctx context.Context, removeWorktree bool) {
-	if removeWorktree && a.sess.Workspace.Kind == model.WorkspaceWorktree && a.project != nil {
+	if removeWorktree && a.sess.Workspace.Kind == model.WorkspaceWorktree && a.project != nil && a.ownsWorktree(ctx) {
 		if err := gitx.RemoveWorktree(ctx, a.project.Path, a.sess.Workspace.Path); err != nil {
 			a.o.log.Warn("remove worktree", "err", err)
 		}
@@ -1290,6 +1291,26 @@ func (a *actor) dropWorkspace(ctx context.Context, removeWorktree bool) {
 	if a.project != nil && a.project.IsGitRepo {
 		gitx.DeleteRefs(ctx, a.project.Path, "refs/ra/cp/"+a.sess.ID+"/")
 	}
+}
+
+// ownsWorktree reports whether the session's worktree is one rad made (in
+// its worktrees folder, not one the user or an agent made and the session
+// picked) and no other session that isn't archived works in it.
+func (a *actor) ownsWorktree(ctx context.Context) bool {
+	path := a.sess.Workspace.Path
+	if rel, err := filepath.Rel(a.o.opt.WorktreesDir, path); a.o.opt.WorktreesDir == "" || err != nil || !filepath.IsLocal(rel) {
+		return false
+	}
+	sessions, err := a.o.st.Sessions(ctx)
+	if err != nil {
+		return false
+	}
+	for _, s := range sessions {
+		if s.ID != a.sess.ID && !s.Archived && s.Workspace.Kind == model.WorkspaceWorktree && gitx.SamePath(s.Workspace.Path, path) {
+			return false
+		}
+	}
+	return true
 }
 
 // dir is the folder the agent works in: Workdir.

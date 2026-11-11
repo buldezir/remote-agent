@@ -153,3 +153,24 @@ func TestPrepareImage(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The new session form's choices of where to work.
+func TestWorktreeChoices(t *testing.T) {
+	wts := []model.WorktreeInfo{{Path: "/data/worktrees/p1/s1", Branch: "ra/fix-tests"}, {Path: "/app/.claude/worktrees/spike"}}
+	got := AvailableBranches([]string{"main", "ra/fix-tests", "feature/login", "spike"}, "main", wts)
+	if want := []string{"feature/login", "spike"}; !slices.Equal(got, want) {
+		t.Errorf("available %v, want %v", got, want)
+	}
+	if got := AvailableBranches([]string{"main", "dev"}, "", nil); !slices.Equal(got, []string{"main", "dev"}) {
+		t.Errorf("available with no checkouts %v", got)
+	}
+	if got := AvailableBranches(nil, "main", wts); len(got) != 0 {
+		t.Errorf("available of none %v", got)
+	}
+	if l := WorktreeLabel(wts[0]); l != "ra/fix-tests" {
+		t.Errorf("label %q", l)
+	}
+	if l := WorktreeLabel(wts[1]); l != "spike (detached)" {
+		t.Errorf("detached label %q", l)
+	}
+}

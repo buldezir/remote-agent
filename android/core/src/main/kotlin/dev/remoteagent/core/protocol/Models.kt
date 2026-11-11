@@ -53,6 +53,41 @@ data class Workspace(
     }
 }
 
+/**
+ * A checkout of a project's repository besides the project folder, as
+ * `git.branches` lists it: one a new session can work in.
+ */
+@Serializable
+data class WorktreeInfo(
+    val path: String,
+    /** Null for a detached HEAD. */
+    val branch: String? = null,
+)
+
+/**
+ * `git.branches`' result. [worktrees] is empty from a server that doesn't
+ * list them, which doesn't take an existing worktree either.
+ */
+@Serializable
+data class Branches(
+    val branches: List<String> = emptyList(),
+    val current: String = "",
+    val worktrees: List<WorktreeInfo> = emptyList(),
+)
+
+/** The branches a new worktree can check out: the ones no checkout has. */
+fun availableBranches(b: Branches): List<String> {
+    val taken = setOf(b.current) + b.worktrees.mapNotNull { it.branch }
+    return b.branches.filter { it !in taken }
+}
+
+/** A worktree's name in pickers: its branch, else its folder's. */
+fun worktreeLabel(w: WorktreeInfo): String {
+    w.branch?.takeIf { it.isNotEmpty() }?.let { return it }
+    val name = w.path.trimEnd('/').substringAfterLast('/').ifEmpty { w.path }
+    return "$name (detached)"
+}
+
 @Serializable(with = SessionStatus.Serializer::class)
 enum class SessionStatus(override val wire: String) : WireEnum {
     IDLE("idle"), RUNNING("running"), AWAITING_APPROVAL("awaiting_approval"), STOPPED("stopped"), ERROR("error"),

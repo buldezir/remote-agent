@@ -1,4 +1,5 @@
 import type {
+  Branches,
   CommitPreview,
   Event,
   FSListing,
@@ -38,7 +39,9 @@ export interface NewSession {
   model?: string;
   effort?: string;
   mode?: string;
-  workspace: { kind: "root" | "worktree"; branch?: string; baseRef?: string };
+  /** A new worktree on `branch` (an existing one, or a new one at
+   * `baseRef`), or the existing worktree at `path`. */
+  workspace: { kind: "root" | "worktree"; branch?: string; baseRef?: string; path?: string };
   prompt: string;
   /** Ids of uploaded images that go with the prompt. */
   images?: string[];
@@ -517,9 +520,9 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
     await this.client.call("project.remove", { id });
   }
 
-  async branches(projectId: string): Promise<{ branches: string[]; current: string }> {
-    const r = await this.client.call<{ branches?: string[]; current?: string }>("git.branches", { projectId });
-    return { branches: r.branches ?? [], current: r.current ?? "" };
+  async branches(projectId: string): Promise<Branches> {
+    const r = await this.client.call<Partial<Branches>>("git.branches", { projectId });
+    return { branches: r.branches ?? [], current: r.current ?? "", worktrees: r.worktrees ?? [] };
   }
 
   async createSession(p: NewSession): Promise<Session> {

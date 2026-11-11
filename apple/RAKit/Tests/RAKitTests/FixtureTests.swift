@@ -246,4 +246,31 @@ struct FixtureTests {
         #expect(r.more == true)
         #expect(r.indexing == true)
     }
+
+    @Test func branches() throws {
+        let dec = WireCoding.decoder()
+        let b = try #require(try dec.decode(Response<GitBranches>.self, from: load("response_branches.json")).result)
+        #expect(b.branches == ["main", "ra/fix-tests", "feature/login"] && b.current == "main")
+        #expect(b.worktrees.count == 2)
+        #expect(b.worktrees[0].branch == "ra/fix-tests")
+        #expect(b.worktrees[1].branch == nil && b.worktrees[1].path == "/Users/me/projects/app/.claude/worktrees/spike")
+        // Neither the project folder's branch nor a worktree's.
+        #expect(b.availableBranches == ["feature/login"])
+        #expect(b.worktrees.map(\.label) == ["ra/fix-tests", "spike (detached)"])
+
+        // An older server lists no worktrees.
+        let old = try dec.decode(GitBranches.self, from: Data(#"{"branches":["main","dev"],"current":"main"}"#.utf8))
+        #expect(old.worktrees.isEmpty && old.availableBranches == ["dev"])
+        // A detached project folder takes no branch away.
+        #expect(GitBranches(branches: ["main", "dev"], current: "").availableBranches == ["main", "dev"])
+    }
+
+    @Test func workspaceParams() throws {
+        func sent(_ w: ServerConnection.NewSession.WorkspaceParams) throws -> JSONValue {
+            try JSONDecoder().decode(JSONValue.self, from: WireCoding.encoder().encode(w))
+        }
+        #expect(try sent(.init(kind: .worktree, path: "/w/hand")) == .object(["kind": .string("worktree"), "path": .string("/w/hand")]))
+        #expect(try sent(.init(kind: .worktree, branch: "dev")) == .object(["kind": .string("worktree"), "branch": .string("dev")]))
+        #expect(try sent(.init(kind: .root)) == .object(["kind": .string("root")]))
+    }
 }

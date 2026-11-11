@@ -57,10 +57,12 @@ type FSEntry struct {
 	IsGitRepo bool   `json:"isGitRepo"`
 }
 
-// Branches is git.branches' result.
+// Branches is git.branches' result. Worktrees are the repository's other
+// checkouts, which an older rad doesn't list: then there are none to offer.
 type Branches struct {
-	Branches []string `json:"branches"`
-	Current  string   `json:"current"`
+	Branches  []string             `json:"branches"`
+	Current   string               `json:"current"`
+	Worktrees []model.WorktreeInfo `json:"worktrees"`
 }
 
 // NewSession is session.create's params, less the commandId.
@@ -79,10 +81,15 @@ type NewSession struct {
 	Draft bool `json:"draft,omitempty"`
 }
 
+// NewWorkspace is where a new session works. A worktree with Path is an
+// existing one of the repository's (Branches.Worktrees), without Branch or
+// BaseRef; without it, a new one on Branch: an existing branch no checkout
+// has, without BaseRef, or a new branch made at BaseRef.
 type NewWorkspace struct {
 	Kind    model.WorkspaceKind `json:"kind"`
 	Branch  string              `json:"branch,omitempty"`
 	BaseRef string              `json:"baseRef,omitempty"`
+	Path    string              `json:"path,omitempty"`
 }
 
 // ForkSession is session.fork's params, less the commandId: a session that

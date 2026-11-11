@@ -4,17 +4,20 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"remote-agent/internal/client"
 	"remote-agent/internal/model"
 )
 
 // newSession is the new session form, as NewSessionView: a project, an
-// agent with its model, effort and permissions, a worktree, and the first
+// agent with its model, effort and permissions, where to work (the project
+// folder, a new worktree, or one the repository has), and the first
 // prompt, or none, or a draft. It starts with the server's default agent,
 // model and effort, else what each agent was last started with, which it
 // remembers.
@@ -24,14 +27,21 @@ type newSession struct {
 	// answered: nil without one, or from an older rad.
 	def       *model.AgentSpec
 	projectID string
-	worktree  bool
+	// Where to work: the project folder, a new worktree, or with existing,
+	// the path of one of the repository's (branches.Worktrees).
+	worktree bool
+	existing string
+	// useBranch is the branch a new worktree checks out, one no checkout
+	// has; "": a new branch, named branch (or by rad), made at base.
+	useBranch string
 	branch    textinput.Model
 	base      string
-	branches  *client.Branches
-	prompt    composer
-	field     int
-	busy      bool
-	leaving   bool // closing, once its prompt is kept as a draft
+	// branches are git.branches', fetched as the project is chosen.
+	branches *client.Branches
+	prompt   composer
+	field    int
+	busy     bool
+	leaving  bool // closing, once its prompt is kept as a draft
 }
 
 // The rows of the new session and fork forms.
@@ -42,7 +52,9 @@ const (
 	fieldModel
 	fieldEffort
 	fieldMode
-	fieldWorktree
+	fieldWorktree // the fork's
+	fieldWorkIn   // the new session's
+	fieldUseBranch
 	fieldBranch
 	fieldBase
 	fieldPrompt
@@ -52,7 +64,7 @@ const (
 
 var fieldLabels = map[int]string{
 	fieldTurn: "After turn", fieldProject: "Project", fieldAgent: "Agent", fieldModel: "Model", fieldEffort: "Effort",
-	fieldMode: "Permissions", fieldWorktree: "Workspace", fieldBranch: "Branch", fieldBase: "Based on", fieldImport: "Or",
+	fieldMode: "Permissions", fieldWorktree: "Workspace", fieldWorkIn: "Work in", fieldUseBranch: "Branch", fieldBranch: "Branch", fieldBase: "Based on", fieldImport: "Or",
 }
 
 // defaultAgentMsg brings the server's default agent to the form that asked.
@@ -104,13 +116,13 @@ func newNewSession(m *Model, projectID string) *newSession {
 // method_not_found, means none.
 func (ns *newSession) init(m *Model) tea.Cmd {
 	conn := m.conn
-	return func() tea.Msg {
+	return tea.Batch(func() tea.Msg {
 		s, err := conn.Settings(context.Background())
 		if err != nil {
 			return defaultAgentMsg{ns: ns}
 		}
 		return defaultAgentMsg{ns: ns, def: s.DefaultAgent}
-	}
+	}, ns.loadBranches(m))
 }
 
 // projectAt is the project that holds dir, the innermost if they nest.
@@ -208,9 +220,12 @@ func (ns *newSession) fields(m *Model) []int {
 		f = append(f, fieldImport)
 	}
 	if p := ns.project(m); p != nil && p.IsGitRepo {
-		f = append(f, fieldWorktree)
+		f = append(f, fieldWorkIn)
 		if ns.worktree {
-			f = append(f, fieldBranch, fieldBase)
+			f = append(f, fieldUseBranch)
+			if ns.useBranch == "" {
+				f = append(f, fieldBranch, fieldBase)
+			}
 		}
 	}
 	return append(f, fieldPrompt, fieldStart)
@@ -393,27 +408,32 @@ func (ns *newSession) cycle(m *Model, d int) tea.Cmd {
 				i = j
 			}
 		}
-		ns.setProject(m, ps[(i+d+len(ps))%len(ps)].ID)
-	case fieldWorktree:
-		return ns.toggleWorktree(m)
+		return ns.setProject(m, ps[(i+d+len(ps))%len(ps)].ID)
+	case fieldWorkIn:
+		cs := ns.workInChoices()
+		return ns.setWorkIn(m, cs[(ns.workInIndex(cs)+d+len(cs))%len(cs)])
+	case fieldUseBranch:
+		bs := append([]string{""}, ns.availableBranches()...)
+		ns.useBranch = bs[(max(0, slices.Index(bs, ns.useBranch))+d+len(bs))%len(bs)]
 	default:
 		ns.cycleOption(m, ns.field, d, ns.pick)
 	}
 	return nil
 }
 
-func (ns *newSession) setProject(m *Model, id string) {
+// setProject chooses the project, and starts again in its folder, fetching
+// its branches and worktrees.
+func (ns *newSession) setProject(m *Model, id string) tea.Cmd {
 	ns.projectID = id
 	ns.branches = nil
-	ns.base = ""
-	if p := ns.project(m); p == nil || !p.IsGitRepo {
-		ns.worktree = false
-	}
+	ns.worktree, ns.existing, ns.useBranch, ns.base = false, "", "", ""
+	return ns.loadBranches(m)
 }
 
-func (ns *newSession) toggleWorktree(m *Model) tea.Cmd {
-	ns.worktree = !ns.worktree
-	if !ns.worktree || ns.branches != nil {
+// loadBranches fetches the git project's branches and worktrees.
+func (ns *newSession) loadBranches(m *Model) tea.Cmd {
+	p := ns.project(m)
+	if p == nil || !p.IsGitRepo {
 		return nil
 	}
 	project := ns.projectID
@@ -424,6 +444,53 @@ func (ns *newSession) toggleWorktree(m *Model) tea.Cmd {
 	}
 }
 
+// workIn is a choice of where to work: the project folder, a new
+// worktree, or with path, an existing one.
+type workIn struct {
+	label, detail string
+	worktree      bool
+	path          string
+}
+
+func (ns *newSession) workInChoices() []workIn {
+	cs := []workIn{{label: "Project folder"}, {label: "New worktree", worktree: true}}
+	if ns.branches != nil {
+		for _, wt := range ns.branches.Worktrees {
+			cs = append(cs, workIn{label: client.WorktreeLabel(wt), detail: wt.Path, worktree: true, path: wt.Path})
+		}
+	}
+	return cs
+}
+
+// workInIndex is the choice made among cs.
+func (ns *newSession) workInIndex(cs []workIn) int {
+	for i, c := range cs {
+		if c.worktree == (ns.worktree || ns.existing != "") && c.path == ns.existing {
+			return i
+		}
+	}
+	return 0
+}
+
+// setWorkIn chooses where to work. A new worktree fetches the branches,
+// if the project's first fetch failed.
+func (ns *newSession) setWorkIn(m *Model, c workIn) tea.Cmd {
+	ns.worktree = c.worktree && c.path == ""
+	ns.existing = c.path
+	if ns.worktree && ns.branches == nil {
+		return ns.loadBranches(m)
+	}
+	return nil
+}
+
+// availableBranches are the ones a new worktree can check out.
+func (ns *newSession) availableBranches() []string {
+	if ns.branches == nil {
+		return nil
+	}
+	return client.AvailableBranches(ns.branches.Branches, ns.branches.Current, ns.branches.Worktrees)
+}
+
 func (ns *newSession) choose(m *Model) tea.Cmd {
 	switch ns.field {
 	case fieldProject:
@@ -431,8 +498,7 @@ func (ns *newSession) choose(m *Model) tea.Cmd {
 		for _, p := range m.conn.SortedProjects() {
 			id := p.ID
 			items = append(items, menuItem{label: p.Name, detail: p.Path, checked: id == ns.projectID, run: func(m *Model) tea.Cmd {
-				ns.setProject(m, id)
-				return nil
+				return ns.setProject(m, id)
 			}})
 		}
 		items = append(items, menuItem{label: "Add a Folder…", run: func(m *Model) tea.Cmd {
@@ -445,8 +511,24 @@ func (ns *newSession) choose(m *Model) tea.Cmd {
 		m.push(mn)
 	case fieldAgent, fieldModel, fieldEffort, fieldMode:
 		ns.chooseOption(m, ns.field, ns.pick)
-	case fieldWorktree:
-		return ns.toggleWorktree(m)
+	case fieldWorkIn:
+		cs := ns.workInChoices()
+		chosen := ns.workInIndex(cs)
+		var items []menuItem
+		for i, c := range cs {
+			items = append(items, menuItem{label: c.label, detail: truncateStart(c.detail, 54), checked: i == chosen, run: func(m *Model) tea.Cmd {
+				return ns.setWorkIn(m, c)
+			}})
+		}
+		mn := newMenu("Work In", items)
+		mn.width = 60
+		m.push(mn)
+	case fieldUseBranch:
+		items := []menuItem{{label: "New branch", checked: ns.useBranch == "", run: func(m *Model) tea.Cmd { ns.useBranch = ""; return nil }}}
+		for _, b := range ns.availableBranches() {
+			items = append(items, menuItem{label: b, checked: b == ns.useBranch, run: func(m *Model) tea.Cmd { ns.useBranch = b; return nil }})
+		}
+		m.push(newMenu("Branch", items))
 	case fieldImport:
 		il := newImportList(ns)
 		m.push(il)
@@ -521,7 +603,12 @@ func (ns *newSession) start(m *Model, draft bool) tea.Cmd {
 		ProjectID: ns.projectID, Harness: ns.harness, Model: ns.model, Effort: ns.effort, Mode: ns.mode,
 		Workspace: client.NewWorkspace{Kind: model.WorkspaceRoot}, Prompt: prompt, Images: refs, Draft: draft,
 	}
-	if ns.worktree {
+	switch {
+	case ns.existing != "":
+		p.Workspace = client.NewWorkspace{Kind: model.WorkspaceWorktree, Path: ns.existing}
+	case ns.worktree && ns.useBranch != "":
+		p.Workspace = client.NewWorkspace{Kind: model.WorkspaceWorktree, Branch: ns.useBranch}
+	case ns.worktree:
 		p.Workspace = client.NewWorkspace{Kind: model.WorkspaceWorktree, Branch: strings.TrimSpace(ns.branch.Value()), BaseRef: ns.base}
 	}
 	ns.busy = true
@@ -587,8 +674,19 @@ func (ns *newSession) view(m *Model, width, height int) string {
 				return p.Name + m.st.Faint.Render("  "+p.Path)
 			}
 			return m.st.Faint.Render("Choose…")
-		case fieldWorktree:
-			return worktreeValue(m, ns.worktree)
+		case fieldWorkIn:
+			cs := ns.workInChoices()
+			c := cs[ns.workInIndex(cs)]
+			if c.detail != "" {
+				room := inner - 15 - ansi.StringWidth(c.label) - 2
+				return c.label + m.st.Faint.Render("  "+truncateStart(c.detail, room))
+			}
+			return c.label
+		case fieldUseBranch:
+			if ns.useBranch == "" {
+				return "New branch"
+			}
+			return ns.useBranch
 		case fieldBranch:
 			ns.branch.SetWidth(inner - 16)
 			return ns.branch.View()
@@ -623,15 +721,34 @@ func (ns *newSession) view(m *Model, width, height int) string {
 			lines = append(lines, spread(formButton(m, "Start", ns.field == fieldStart, ns.busy), hint, inner))
 			continue
 		}
+		if f == fieldBranch {
+			// The new branch's name, under the Branch choice.
+			lines = append(lines, labelRow(m, "Name", value(f), f == ns.field, inner))
+			continue
+		}
 		lines = append(lines, formRow(m, f, value(f), f == ns.field, inner))
 		if f == fieldAgent && ns.field == fieldAgent {
 			lines = append(lines, m.limitsDetails(ns.harness, pad("", 15), inner)...)
 		}
 	}
-	if ns.worktree && ns.field >= fieldWorktree && ns.field <= fieldBase {
-		lines = append(lines, "", m.st.Faint.Render(truncate("The agent works on its own branch, in a folder of its own.", inner)))
+	if ns.field >= fieldWorkIn && ns.field <= fieldBase {
+		lines = append(lines, "")
+		for _, l := range wrap(ns.workInFooter(), inner) {
+			lines = append(lines, m.st.Faint.Render(l))
+		}
 	}
 	return box(m, "New Session", lines, w)
+}
+
+// workInFooter says what the Work in choice means.
+func (ns *newSession) workInFooter() string {
+	switch {
+	case ns.existing != "":
+		return "The agent works in " + ns.existing + ", on its branch, beside any session already there."
+	case ns.worktree:
+		return "The agent works on its own branch in a separate checkout. You can revert its turns."
+	}
+	return "The agent works directly in the project folder."
 }
 
 // The pieces the new session and fork forms share.
@@ -992,8 +1109,7 @@ func (fb *folderBrowser) use(m *Model, path string) tea.Cmd {
 		if m.topOverlay() == fb {
 			m.pop()
 		}
-		ns.setProject(m, p.ID)
-		return nil
+		return ns.setProject(m, p.ID)
 	})
 }
 

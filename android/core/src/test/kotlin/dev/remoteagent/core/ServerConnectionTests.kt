@@ -333,6 +333,15 @@ class ServerConnectionTests {
         // An older rad would start the session with it, so it's left out.
         withContext(dispatcher) { c.createSession(new("now", draft = null)) }
         assertFalse("draft" in (rad.nextCall("session.create")["params"] as JsonObject))
+
+        // An existing worktree goes by its path alone.
+        withContext(dispatcher) {
+            c.createSession(new("there", draft = null).copy(workspace = NewSession.WorkspaceParams(Workspace.Kind.WORKTREE, path = "/wt/hand")))
+        }
+        assertEquals(
+            params("kind" to "worktree", "path" to "/wt/hand"),
+            (rad.nextCall("session.create")["params"] as JsonObject)["workspace"],
+        )
         withContext(dispatcher) { c.stop() }
     }
 

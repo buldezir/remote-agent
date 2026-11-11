@@ -1,0 +1,20 @@
+{
+  "id": 17,
+  "result": {
+    "branches": [
+      "main",
+      "ra/fix-tests",
+      "feature/login"
+    ],
+    "current": "main",
+    "worktrees": [
+      {
+        "path": "/Users/me/.local/share/remote-agent/worktrees/p1/s1",
+        "branch": "ra/fix-tests"
+      },
+      {
+        "path": "/Users/me/projects/app/.claude/worktrees/spike"
+      }
+    ]
+  }
+}

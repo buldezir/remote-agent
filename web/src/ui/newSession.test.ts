@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HarnessInfo } from "../protocol/models";
-import { custom, startingHarness, startingOptions } from "./NewSession";
+import { custom, newWorktree, startingHarness, startingOptions, workspaceParams } from "./NewSession";
 
 const caps = { resume: true, interrupt: true, setMode: true, freeModel: false, modelSelect: true };
 const harness = (id: string, p: Partial<HarnessInfo> = {}): HarnessInfo => ({ id, name: id, protocol: "acp", installed: true, authOk: true, caps, ...p });
@@ -53,5 +53,13 @@ describe("new session", () => {
     expect(startingOptions(listed, "my/model", "high")).toEqual({ model: custom, customModel: "my/model", effort: "high" });
     const unlisted = harness("opencode", { caps: free });
     expect(startingOptions(unlisted, "my/model", "high")).toEqual({ model: "", customModel: "my/model", effort: "" });
+  });
+
+  it("asks for the workspace chosen", () => {
+    expect(workspaceParams("", "x", "y", "main")).toEqual({ kind: "root" });
+    expect(workspaceParams(newWorktree, "", "", "")).toEqual({ kind: "worktree", branch: undefined, baseRef: undefined });
+    expect(workspaceParams(newWorktree, "", " ra/x ", "main")).toEqual({ kind: "worktree", branch: "ra/x", baseRef: "main" });
+    expect(workspaceParams(newWorktree, "feature", "ignored", "main")).toEqual({ kind: "worktree", branch: "feature" });
+    expect(workspaceParams("/w/hand", "feature", "x", "main")).toEqual({ kind: "worktree", path: "/w/hand" });
   });
 });

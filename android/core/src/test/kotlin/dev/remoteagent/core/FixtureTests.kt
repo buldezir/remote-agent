@@ -6,6 +6,7 @@ import dev.remoteagent.core.net.ServerMessage
 import dev.remoteagent.core.protocol.AgentSpec
 import dev.remoteagent.core.protocol.Approval
 import dev.remoteagent.core.protocol.BackgroundTask
+import dev.remoteagent.core.protocol.Branches
 import dev.remoteagent.core.protocol.CommitPreview
 import dev.remoteagent.core.protocol.Diff
 import dev.remoteagent.core.protocol.FSListing
@@ -30,6 +31,7 @@ import dev.remoteagent.core.protocol.UpdateInfo
 import dev.remoteagent.core.protocol.UsageLimits
 import dev.remoteagent.core.protocol.UsageWindow
 import dev.remoteagent.core.protocol.WireCoding
+import dev.remoteagent.core.protocol.availableBranches
 import dev.remoteagent.core.protocol.Workspace
 import dev.remoteagent.core.protocol.get
 import dev.remoteagent.core.protocol.stringValue
@@ -187,6 +189,13 @@ class FixtureTests {
         assertEquals(true, d.files[2].binary)
 
         assertEquals(2, result<FSListing>("response_fs_list.json").entries.size)
+
+        val b = result<Branches>("response_branches.json")
+        assertEquals("main", b.current)
+        assertEquals(2, b.worktrees.size)
+        assertEquals("ra/fix-tests", b.worktrees[0].branch)
+        assertNull(b.worktrees[1].branch)
+        assertEquals(listOf("feature/login"), availableBranches(b))
 
         val error = WireCoding.json.parseToJsonElement(fixture("response_error.json")).jsonObject.getValue("error")
         assertEquals("conflict", error.get("code")?.stringValue)

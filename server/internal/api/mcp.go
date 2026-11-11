@@ -144,6 +144,10 @@ func (s *Server) mcpServer() *mcp.Server {
 				"project": str("The project's id or folder, from list_projects. A folder under rad's roots becomes a project."),
 				"prompt":  str("The request for the session's agent. It knows nothing of your conversation: say everything it needs."),
 				"title":   str("The session's title. Default: one made from the request."),
+				"branch": str("With worktree, the branch: an existing branch that no checkout has is checked out in the new worktree; any other name is a new branch from the project's HEAD. " +
+					"Default: a new branch named after the request."),
+				"worktreePath": str("An existing worktree of the project to work in, such as another session's folder from list_sessions, instead of making one (worktree and branch then don't apply). " +
+					"Other sessions may be working there too."),
 			})), Call: s.toolStartSession},
 		{Name: "send_prompt", Title: "Send a prompt",
 			Description: "Sends a request to a session's agent. While the agent works, it waits its turn, unless it steers. It returns at once.",
@@ -460,9 +464,10 @@ func (s *Server) defaultAgent(ctx context.Context) *model.AgentSpec {
 func (s *Server) toolStartSession(ctx context.Context, raw json.RawMessage) (any, error) {
 	p, err := mcp.Args[struct {
 		agentArgs
-		Project string `json:"project"`
-		Prompt  string `json:"prompt"`
-		Title   string `json:"title"`
+		Project      string `json:"project"`
+		Prompt       string `json:"prompt"`
+		Title        string `json:"title"`
+		WorktreePath string `json:"worktreePath"`
 	}](raw)
 	if err != nil {
 		return nil, err
@@ -479,7 +484,9 @@ func (s *Server) toolStartSession(ctx context.Context, raw json.RawMessage) (any
 		return nil, err
 	}
 	ws := orchestrator.WorkspaceParams{Kind: model.WorkspaceRoot}
-	if p.Worktree != nil && *p.Worktree {
+	if p.WorktreePath != "" {
+		ws = orchestrator.WorkspaceParams{Kind: model.WorkspaceWorktree, Path: p.WorktreePath}
+	} else if p.Worktree != nil && *p.Worktree {
 		ws = orchestrator.WorkspaceParams{Kind: model.WorkspaceWorktree, Branch: p.Branch}
 	}
 	sess, err := s.orch.CreateSession(ctx, orchestrator.CreateSessionParams{CommandID: store.NewID(), ProjectID: proj.ID,

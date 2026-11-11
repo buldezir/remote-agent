@@ -81,7 +81,8 @@ tap "text=$PROJECT" || fail "no project $PROJECT (add it once with Add a folderâ
 sleep 0.5
 tap 'id=harness-fake' || fail "no fake harness (fake: true in the scratch config)"
 sleep 0.3
-tap 'text=Isolated git worktree'; sleep 0.3
+tap 'id=work-in-picker'; sleep 0.5
+tap 'text=New worktree'; sleep 0.3
 "$A" shell input swipe 540 1800 540 500 300; sleep 0.5   # the prompt, at the foot of the form
 fill 'id=new-prompt' 'write smoke.txt'
 shot 02-new-session

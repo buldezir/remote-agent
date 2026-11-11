@@ -48,12 +48,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.remoteagent.app.platform.AppSettings.Keys
 import dev.remoteagent.core.protocol.AgentSpec
+import dev.remoteagent.core.protocol.Branches
 import dev.remoteagent.core.protocol.FSListing
 import dev.remoteagent.core.protocol.HarnessInfo
 import dev.remoteagent.core.protocol.Project
 import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.UsageLimits
 import dev.remoteagent.core.protocol.Workspace
+import dev.remoteagent.core.protocol.availableBranches
+import dev.remoteagent.core.protocol.worktreeLabel
 import dev.remoteagent.core.store.NewSession
 import dev.remoteagent.core.store.ServerConnection
 import dev.remoteagent.core.store.sortedProjects
@@ -63,6 +66,9 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 private const val CUSTOM = "__custom"
+
+/** Work in: a new worktree; "" is the project folder, and any other value an existing worktree's path. */
+internal const val NEW_WORKTREE = "__new"
 
 /**
  * "New session", in `projectId` when given, else in the project used last,
@@ -85,10 +91,15 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     var customModel by rememberSaveable { mutableStateOf("") }
     var effort by rememberSaveable { mutableStateOf("") }
     var mode by rememberSaveable { mutableStateOf("") }
-    var useWorktree by rememberSaveable { mutableStateOf(false) }
+    // Where the agent works: the project folder (""), a new worktree
+    // (NEW_WORKTREE) or the path of an existing one.
+    var workIn by rememberSaveable { mutableStateOf("") }
+    // A new worktree's branch: a new one ("") named `branch` at `baseRef`, or
+    // an existing one that no checkout has.
+    var existingBranch by rememberSaveable { mutableStateOf("") }
     var branch by rememberSaveable { mutableStateOf("") }
     var baseRef by rememberSaveable { mutableStateOf("") }
-    var branches by remember { mutableStateOf(emptyList<String>()) }
+    var branches by remember { mutableStateOf(Branches()) }
     var prompt by rememberSaveable { mutableStateOf("") }
     var creating by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -147,8 +158,19 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
     }
     LaunchedEffect(projectID) {
         forgetError = null
-        branches = emptyList()
-        if (project?.isGitRepo == true) branches = runCatching { connection.branches(projectID).branches }.getOrDefault(emptyList())
+        branches = Branches()
+        if (project?.isGitRepo == true) branches = runCatching { connection.branches(projectID) }.getOrDefault(Branches())
+        // Choices another project's branches allowed, or that went meanwhile.
+        if (workIn != NEW_WORKTREE && branches.worktrees.none { it.path == workIn }) workIn = ""
+        if (existingBranch !in availableBranches(branches)) existingBranch = ""
+    }
+
+    // The Workspace section starts over with each project.
+    fun chooseProject(id: String) {
+        projectID = id
+        workIn = ""
+        existingBranch = ""
+        baseRef = ""
     }
 
     // The next form starts from them.
@@ -172,11 +194,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                     NewSession(
                         projectId = p.id, harness = h.id, model = chosenModel, effort = effort.ifEmpty { null },
                         mode = mode.ifEmpty { null },
-                        workspace = NewSession.WorkspaceParams(
-                            kind = if (useWorktree) Workspace.Kind.WORKTREE else Workspace.Kind.ROOT,
-                            branch = branch.takeIf { useWorktree && it.isNotEmpty() },
-                            baseRef = baseRef.takeIf { useWorktree && it.isNotEmpty() },
-                        ),
+                        workspace = workspaceParams(p, workIn, existingBranch, branch, baseRef),
                         prompt = prompt,
                         images = attachments.refs.map { it.id }.ifEmpty { null },
                         draft = true.takeIf { asDraft },
@@ -233,7 +251,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                         "Project", project?.name ?: "Choose…",
                         listOf("" to "Choose…") + projects.sortedProjects.map { it.id to it.name },
                         tag = "project-picker",
-                    ) { projectID = it; useWorktree = false }
+                    ) { chooseProject(it) }
                     FormDivider()
                     Row(
                         Modifier.fillMaxWidth().clickable { browsing = true }.padding(12.dp),
@@ -293,18 +311,30 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
                     FormSection(
                         "Workspace",
                         footer = AnnotatedString(
-                            if (useWorktree) "The agent works on its own branch in a separate checkout. You can revert its turns."
-                            else "The agent works directly in the project folder.",
+                            when (workIn) {
+                                "" -> "The agent works directly in the project folder."
+                                NEW_WORKTREE -> "The agent works on its own branch in a separate checkout. You can revert its turns."
+                                else -> "The agent works in $workIn, on its branch, beside any session already there."
+                            },
                         ),
                     ) {
-                        SwitchRow("Isolated git worktree", useWorktree) { useWorktree = it }
-                        if (useWorktree) {
+                        val places = listOf("" to "Project folder", NEW_WORKTREE to "New worktree") +
+                            branches.worktrees.map { it.path to worktreeLabel(it) }
+                        PickerRow("Work in", places.firstOrNull { it.first == workIn }?.second ?: "Project folder", places, tag = "work-in-picker") {
+                            workIn = it
+                        }
+                        if (workIn == NEW_WORKTREE) {
                             FormDivider()
-                            FormTextField(branch, { branch = it }, "Branch (auto)",
-                                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, capitalization = KeyboardCapitalization.None))
-                            FormDivider()
-                            val options = listOf("" to "Current HEAD") + branches.map { it to it }
-                            PickerRow("Based on", options.firstOrNull { it.first == baseRef }?.second ?: baseRef, options) { baseRef = it }
+                            val available = listOf("" to "New branch") + availableBranches(branches).map { it to it }
+                            PickerRow("Branch", existingBranch.ifEmpty { "New branch" }, available, tag = "branch-picker") { existingBranch = it }
+                            if (existingBranch.isEmpty()) {
+                                FormDivider()
+                                FormTextField(branch, { branch = it }, "Branch (auto)",
+                                    keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, capitalization = KeyboardCapitalization.None))
+                                FormDivider()
+                                val options = listOf("" to "Current HEAD") + branches.branches.map { it to it }
+                                PickerRow("Based on", options.firstOrNull { it.first == baseRef }?.second ?: baseRef, options) { baseRef = it }
+                            }
                         }
                     }
                 }
@@ -363,7 +393,7 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
             browsing = false
             scope.launch {
                 try {
-                    projectID = connection.addProject(picked).id
+                    chooseProject(connection.addProject(picked).id)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -373,6 +403,20 @@ fun NewSessionDialog(connection: ServerConnection, projectId: String? = null, on
         }
     }
 }
+
+/**
+ * Where a session in [project] works, from the Workspace section: the project
+ * folder (""), a new worktree ([NEW_WORKTREE]) on [existingBranch], else on a
+ * new branch named [branch] (or by rad) at [baseRef], or the existing
+ * worktree at the path [workIn]. Outside git it's always the folder.
+ */
+internal fun workspaceParams(project: Project, workIn: String, existingBranch: String, branch: String, baseRef: String): NewSession.WorkspaceParams =
+    when {
+        !project.isGitRepo || workIn.isEmpty() -> NewSession.WorkspaceParams(Workspace.Kind.ROOT)
+        workIn != NEW_WORKTREE -> NewSession.WorkspaceParams(Workspace.Kind.WORKTREE, path = workIn)
+        existingBranch.isNotEmpty() -> NewSession.WorkspaceParams(Workspace.Kind.WORKTREE, branch = existingBranch)
+        else -> NewSession.WorkspaceParams(Workspace.Kind.WORKTREE, branch = branch.ifEmpty { null }, baseRef = baseRef.ifEmpty { null })
+    }
 
 /**
  * The agent a new session starts with: the server's default while it's
