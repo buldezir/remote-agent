@@ -65,6 +65,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -152,6 +153,8 @@ fun ItemView(item: Item, store: SessionStore, children: Map<String, List<Item>>,
         ItemKind.PLAN -> PlanView(item.plan)
         ItemKind.NOTICE -> Text(
             findHighlighted(item.text ?: ""), style = Type.footnote, color = palette.subtext, textAlign = TextAlign.Center,
+            // A few lines at most: a notice can quote a whole script.
+            maxLines = 4, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().testTag("notice"),
         )
         ItemKind.ERROR -> {

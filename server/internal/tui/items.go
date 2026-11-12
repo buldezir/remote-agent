@@ -53,6 +53,9 @@ func (m *Model) itemStatus(it *model.Item) string {
 }
 
 // renderItem draws an item and, under a tool call, its children.
+// noticeLines is the most lines a notice takes, as in the other clients.
+const noticeLines = 4
+
 func (m *Model) renderItem(v *sessionView, it *model.Item, width int) []string {
 	switch it.Kind {
 	case model.ItemUserMessage:
@@ -78,8 +81,9 @@ func (m *Model) renderItem(v *sessionView, it *model.Item, width int) []string {
 	case model.ItemPlan:
 		return m.renderPlan(it.Plan, width)
 	case model.ItemNotice:
+		// A few lines at most: a notice can quote a whole script.
 		var lines []string
-		for _, l := range wrap(strings.TrimSpace(it.Text), width-2) {
+		for _, l := range clipLines(wrap(strings.TrimSpace(it.Text), width-2), noticeLines, width-2) {
 			lines = append(lines, m.st.Faint.Render("· "+l))
 		}
 		return lines

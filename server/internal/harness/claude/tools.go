@@ -95,8 +95,8 @@ func describeTool(name string, input json.RawMessage, cwd string) (string, []str
 
 func firstLine(s string) string {
 	line, _, more := strings.Cut(strings.TrimSpace(s), "\n")
-	if len(line) > 160 {
-		line = line[:160] + "…"
+	if r := []rune(line); len(r) > 160 {
+		line = string(r[:160]) + "…"
 	} else if more {
 		line += " …"
 	}

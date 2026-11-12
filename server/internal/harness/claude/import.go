@@ -272,7 +272,7 @@ func promptOf(e *entry) prompt {
 	case strings.HasPrefix(t, "<task-notification>"):
 		n := "Background task finished"
 		if s := taskSummary.FindStringSubmatch(t); s != nil && strings.TrimSpace(s[1]) != "" {
-			n += ": " + strings.TrimSpace(s[1])
+			n += ": " + firstLine(s[1])
 		}
 		return prompt{kind: promptTask, text: n}
 	case leadingTag.MatchString(t):

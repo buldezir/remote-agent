@@ -1366,6 +1366,13 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   text-align: center;
   font-size: 0.86em;
   color: var(--subtext);
+  /* A few lines at most: a notice can quote a whole script. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .item-error {
   display: flex;

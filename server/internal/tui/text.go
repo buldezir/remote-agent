@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"image/color"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -56,6 +57,21 @@ func spread(left, right string, width int) string {
 	}
 	left = truncate(left, width-rw-1)
 	return left + strings.Repeat(" ", width-ansi.StringWidth(left)-rw) + right
+}
+
+// clipLines keeps n of lines, the last ending in "…" when some were cut,
+// within width.
+func clipLines(lines []string, n, width int) []string {
+	if len(lines) <= n {
+		return lines
+	}
+	lines = slices.Clone(lines[:n])
+	last := []rune(strings.TrimRight(lines[n-1], " "))
+	for len(last) > 0 && runesWidth(last)+1 > width {
+		last = last[:len(last)-1]
+	}
+	lines[n-1] = string(last) + "…"
+	return lines
 }
 
 // indent prefixes each line.

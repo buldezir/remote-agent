@@ -33,6 +33,7 @@ struct ItemView: View {
             Text(FindHighlight.text(item.text ?? "", highlight))
                 .scaledFont(.footnote)
                 .foregroundStyle(.secondary)
+                .lineLimit(4) // a notice can quote a whole script
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
         case .error:

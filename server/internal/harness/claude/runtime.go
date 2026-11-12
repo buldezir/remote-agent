@@ -452,7 +452,9 @@ func (r *runtime) onBackgroundTasks(f frame) {
 	}
 	tasks := []model.BackgroundTask{}
 	for _, t := range f.Tasks {
-		bt := model.BackgroundTask{ID: t.TaskID, Kind: model.BackgroundOther, Description: t.Description}
+		// A command run without a description has the command as its
+		// description, which can be a whole script.
+		bt := model.BackgroundTask{ID: t.TaskID, Kind: model.BackgroundOther, Description: firstLine(t.Description)}
 		switch {
 		case t.TaskType == "local_bash":
 			bt.Kind = model.BackgroundCommand
