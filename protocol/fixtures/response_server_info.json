@@ -12,6 +12,7 @@
     "terminal": true,
     "drafts": true,
     "forks": true,
+    "forkInWorktree": true,
     "commit": true,
     "search": true,
     "rename": true,

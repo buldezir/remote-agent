@@ -183,6 +183,8 @@ func (s *Server) mcpServer() *mcp.Server {
 				"session": session,
 				"turn":    map[string]any{"type": "integer", "minimum": 1, "description": "The turn to go on after. Default: the last one that ended."},
 				"prompt":  str("A request to send the fork at once. Default: none."),
+				"worktreePath": str("An existing worktree of the project to work in as it is now, such as the forked session's own folder from list_sessions, instead of making one (worktree and branch then don't apply). " +
+					"The session it forks may go on working there too."),
 			})), Call: s.toolForkSession},
 	}}
 }
@@ -689,9 +691,10 @@ func (s *Server) toolRenameSession(ctx context.Context, raw json.RawMessage) (an
 func (s *Server) toolForkSession(ctx context.Context, raw json.RawMessage) (any, error) {
 	p, err := mcp.Args[struct {
 		agentArgs
-		Session string `json:"session"`
-		Turn    int    `json:"turn"`
-		Prompt  string `json:"prompt"`
+		Session      string `json:"session"`
+		Turn         int    `json:"turn"`
+		Prompt       string `json:"prompt"`
+		WorktreePath string `json:"worktreePath"`
 	}](raw)
 	if err != nil {
 		return nil, err
@@ -714,6 +717,8 @@ func (s *Server) toolForkSession(ctx context.Context, raw json.RawMessage) (any,
 	fp := orchestrator.ForkParams{CommandID: store.NewID(), SessionID: src.ID, Turn: p.Turn, Harness: a.Agent, Model: a.Model,
 		Effort: a.Effort, Mode: a.Mode, Prompt: p.Prompt, StartedBy: callerOf(ctx).session}
 	switch {
+	case p.WorktreePath != "":
+		fp.Workspace = &orchestrator.WorkspaceParams{Kind: model.WorkspaceWorktree, Path: p.WorktreePath}
 	case p.Worktree == nil:
 		// As the session it forks.
 	case *p.Worktree:

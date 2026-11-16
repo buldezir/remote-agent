@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -15,19 +16,19 @@ import (
 
 // forkSession is the Fork Session form, as ForkSessionView: the turn the
 // fork goes on after, the agent with its model, effort and permissions, a
-// worktree, and the next prompt, or none. It shares the new session form's
+// workspace, and the next prompt, or none. It shares the new session form's
 // rows, but not what that remembers: the session's own agent starts where
 // the session is, another at its defaults.
 type forkSession struct {
 	agentChoice
-	src      *model.Session
-	turns    []forkTurn // newest first
-	turn     int        // the chosen one's n
-	worktree bool
-	branch   textinput.Model
-	prompt   composer
-	field    int
-	busy     bool
+	src    *model.Session
+	turns  []forkTurn // newest first
+	turn   int        // the chosen one's n
+	workIn forkWorkIn
+	branch textinput.Model
+	prompt composer
+	field  int
+	busy   bool
 }
 
 // forkTurn is a turn that ended, which a fork can go on after.
@@ -43,6 +44,18 @@ func (t forkTurn) label() string {
 	return fmt.Sprintf("Turn %d · %s", t.n, t.prompt)
 }
 
+// forkWorkIn is where a fork works: the project folder, a worktree of its
+// own, or the source's worktree.
+type forkWorkIn int
+
+const (
+	forkInFolder forkWorkIn = iota
+	forkInNewWorktree
+	forkInSameWorktree
+)
+
+var forkWorkInLabels = []string{"Project folder", "New worktree", "This session's worktree"}
+
 type forkedMsg struct {
 	f   *forkSession
 	s   model.Session
@@ -55,6 +68,14 @@ const (
 	forkWorktreeFooter = "The fork gets its own branch, with the files as they were after that turn."
 	forkFolderFooter   = "The fork works in the project folder, as it is now."
 )
+
+// forkSameFooter is the footer for working in the source's worktree, on branch.
+func forkSameFooter(branch string) string {
+	if branch != "" {
+		branch = ", on " + branch + ","
+	}
+	return "The fork works beside this session in its worktree" + branch + " with the files as they are now."
+}
 
 // forkTurns are the session's turns that ended, newest first, with the
 // first lines of their prompts.
@@ -99,7 +120,9 @@ func newForkSession(m *Model, src *model.Session, turns []forkTurn) *forkSession
 	f := &forkSession{src: src, turns: turns, turn: turns[0].n, prompt: newComposer(m), branch: newBranchInput(m)}
 	f.prompt.ta.Placeholder = "Next prompt (optional)"
 	f.prompt.ta.MaxHeight = 8
-	f.worktree = src.Workspace.Kind == model.WorkspaceWorktree && f.git(m)
+	if src.Workspace.Kind == model.WorkspaceWorktree && f.git(m) {
+		f.workIn = forkInNewWorktree
+	}
 	f.pick(m, src.Harness)
 	f.field = fieldPrompt
 	f.focusField()
@@ -121,12 +144,22 @@ func (f *forkSession) git(m *Model) bool {
 	return p != nil && p.IsGitRepo
 }
 
+// workInChoices are where the fork can work: the source's worktree too when
+// it has one and rad forks into it.
+func (f *forkSession) workInChoices(m *Model) []forkWorkIn {
+	cs := []forkWorkIn{forkInFolder, forkInNewWorktree}
+	if f.src.Workspace.Kind == model.WorkspaceWorktree && m.conn.Info != nil && m.conn.Info.ForkInWorktree {
+		cs = append(cs, forkInSameWorktree)
+	}
+	return cs
+}
+
 // fields are the rows shown, by what the agent and the project offer.
 func (f *forkSession) fields(m *Model) []int {
 	fs := append([]int{fieldTurn, fieldAgent}, f.optionFields(m)...)
 	if f.git(m) {
-		fs = append(fs, fieldWorktree)
-		if f.worktree {
+		fs = append(fs, fieldWorkIn)
+		if f.workIn == forkInNewWorktree {
 			fs = append(fs, fieldBranch)
 		}
 	}
@@ -253,8 +286,10 @@ func (f *forkSession) cycle(m *Model, d int) {
 			}
 		}
 		f.turn = f.turns[(i+d+len(f.turns))%len(f.turns)].n
-	case fieldWorktree:
-		f.worktree = !f.worktree
+	case fieldWorkIn:
+		cs := f.workInChoices(m)
+		i := max(0, slices.Index(cs, f.workIn))
+		f.workIn = cs[(i+d+len(cs))%len(cs)]
 	default:
 		f.cycleOption(m, f.field, d, f.pick)
 	}
@@ -276,8 +311,18 @@ func (f *forkSession) choose(m *Model) tea.Cmd {
 		mn.width = 60
 		mn.cursor = cursor
 		m.push(mn)
-	case fieldWorktree:
-		f.worktree = !f.worktree
+	case fieldWorkIn:
+		var items []menuItem
+		cursor := 0
+		for i, c := range f.workInChoices(m) {
+			if c == f.workIn {
+				cursor = i
+			}
+			items = append(items, menuItem{label: forkWorkInLabels[c], checked: c == f.workIn, run: func(*Model) tea.Cmd { f.workIn = c; return nil }})
+		}
+		mn := newMenu("Work In", items)
+		mn.cursor = cursor
+		m.push(mn)
 	case fieldStart:
 		return f.start(m)
 	default:
@@ -296,9 +341,13 @@ func (f *forkSession) start(m *Model) tea.Cmd {
 		Prompt: strings.TrimSpace(f.prompt.value()),
 	}
 	if f.git(m) {
-		p.Workspace = &client.NewWorkspace{Kind: model.WorkspaceRoot}
-		if f.worktree {
+		switch f.workIn {
+		case forkInFolder:
+			p.Workspace = &client.NewWorkspace{Kind: model.WorkspaceRoot}
+		case forkInNewWorktree:
 			p.Workspace = &client.NewWorkspace{Kind: model.WorkspaceWorktree, Branch: strings.TrimSpace(f.branch.Value())}
+		case forkInSameWorktree:
+			p.Workspace = &client.NewWorkspace{Kind: model.WorkspaceWorktree, Path: f.src.Workspace.Path}
 		}
 	}
 	f.busy = true
@@ -339,8 +388,8 @@ func (f *forkSession) view(m *Model, width, height int) string {
 					return v
 				}
 			}
-		case fieldWorktree:
-			return worktreeValue(m, f.worktree)
+		case fieldWorkIn:
+			return forkWorkInLabels[f.workIn]
 		case fieldBranch:
 			f.branch.SetWidth(inner - 16)
 			return f.branch.View()
@@ -362,11 +411,8 @@ func (f *forkSession) view(m *Model, width, height int) string {
 	}
 	footer := ""
 	switch f.field {
-	case fieldWorktree, fieldBranch:
-		footer = forkFolderFooter
-		if f.worktree {
-			footer = forkWorktreeFooter
-		}
+	case fieldWorkIn, fieldBranch:
+		footer = [...]string{forkFolderFooter, forkWorktreeFooter, forkSameFooter(f.src.Workspace.Branch)}[f.workIn]
 	case fieldPrompt, fieldStart:
 		footer = forkPromptFooter
 	}

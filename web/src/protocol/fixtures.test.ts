@@ -173,6 +173,7 @@ describe("fixtures", () => {
     expect(info.terminal).toBe(true);
     expect(info.drafts).toBe(true);
     expect(info.forks).toBe(true);
+    expect(info.forkInWorktree).toBe(true);
     expect(info.commit).toBe(true);
     expect(info.search).toBe(true);
     expect(info.rename).toBe(true);

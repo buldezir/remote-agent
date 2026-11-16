@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { effortsForModel, type Session } from "../protocol/models";
 import { useObserved } from "../store/observable";
 import { useConnection } from "./context";
-import { AgentOptions, custom, HarnessChoiceRow } from "./NewSession";
+import { AgentOptions, custom, HarnessChoiceRow, newWorktree } from "./NewSession";
 import { Modal, Spinner } from "./primitives";
 
 /** Forks `session` after one of its turns, into a new session that goes on
@@ -41,7 +41,8 @@ export function ForkSession({
   const [customModel, setCustomModel] = useState("");
   const [effort, setEffort] = useState("");
   const [mode, setMode] = useState("");
-  const [useWorktree, setUseWorktree] = useState(session.workspace.kind === "worktree");
+  /** As New session's: "" the project folder, `newWorktree`, or the source's worktree by its path. */
+  const [workIn, setWorkIn] = useState(session.workspace.kind === "worktree" ? newWorktree : "");
   const [branch, setBranch] = useState("");
   const [prompt, setPrompt] = useState("");
   const [forking, setForking] = useState(false);
@@ -53,6 +54,8 @@ export function ForkSession({
   const chosenModel = (model === custom || !harness?.models?.length ? customModel : model) || undefined;
   const efforts = harness ? effortsForModel(harness, chosenModel) : [];
   const n = turn ?? turns[0]?.n;
+  /** The source's worktree, which the fork can share when the server takes it. */
+  const sourceWorktree = session.workspace.kind === "worktree" && connection.info?.forkInWorktree ? session.workspace.path : undefined;
 
   useEffect(() => {
     if (!harnesses) void connection.refreshHarnesses();
@@ -85,7 +88,13 @@ export function ForkSession({
         model: chosenModel,
         effort: effort || undefined,
         mode: mode || undefined,
-        workspace: project?.isGitRepo ? (useWorktree ? { kind: "worktree", branch: branch || undefined } : { kind: "root" }) : undefined,
+        workspace: project?.isGitRepo
+          ? workIn === newWorktree
+            ? { kind: "worktree", branch: branch.trim() || undefined }
+            : workIn
+              ? { kind: "worktree", path: workIn }
+              : { kind: "root" }
+          : undefined,
         prompt: prompt.trim() ? prompt : undefined,
       });
       onClose();
@@ -159,10 +168,14 @@ export function ForkSession({
             <h4 className="form-header">Workspace</h4>
             <section className="form-section">
               <label className="form-row">
-                <span>Isolated git worktree</span>
-                <input type="checkbox" className="switch" checked={useWorktree} onChange={(e) => setUseWorktree(e.target.checked)} />
+                <span>Work in</span>
+                <select value={workIn} onChange={(e) => setWorkIn(e.target.value)}>
+                  <option value="">Project folder</option>
+                  <option value={newWorktree}>New worktree</option>
+                  {sourceWorktree && <option value={sourceWorktree}>This session's worktree</option>}
+                </select>
               </label>
-              {useWorktree && (
+              {workIn === newWorktree && (
                 <label className="form-row">
                   <span>Branch</span>
                   <input className="text-field" placeholder="auto" value={branch} onChange={(e) => setBranch(e.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
@@ -170,7 +183,11 @@ export function ForkSession({
               )}
             </section>
             <p className="form-footer">
-              {useWorktree ? "The fork gets its own branch, with the files as they were after that turn." : "The fork works in the project folder, as it is now."}
+              {workIn === newWorktree
+                ? "The fork gets its own branch, with the files as they were after that turn."
+                : workIn
+                  ? `The fork works beside this session in its worktree${session.workspace.branch ? `, on ${session.workspace.branch},` : ""} with the files as they are now.`
+                  : "The fork works in the project folder, as it is now."}
             </p>
           </>
         )}

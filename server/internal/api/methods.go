@@ -134,7 +134,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	o := c.s.orch
 	switch method {
 	case "server.info":
-		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true, Forks: true,
+		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true, Forks: true, ForkInWorktree: true,
 			Commit: c.s.Tasks != nil, Search: true, Rename: true, Unarchive: true}, nil
 
 	case "device.unpair":

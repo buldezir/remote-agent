@@ -560,6 +560,9 @@ public struct ServerInfo: Codable, Hashable, Sendable {
     public var drafts: Bool?
     /// The server forks sessions (`session.fork`).
     public var forks: Bool?
+    /// `session.fork` takes an existing worktree (`workspace.path`), such as
+    /// the source's own.
+    public var forkInWorktree: Bool?
     /// The server commits a session's changes, pushes them and opens pull
     /// requests (`git.commitPreview`, `git.commit`).
     public var commit: Bool?

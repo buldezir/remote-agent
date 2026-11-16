@@ -61,7 +61,8 @@ export interface ForkParams {
   model?: string;
   effort?: string;
   mode?: string;
-  workspace?: { kind: "root" | "worktree"; branch?: string };
+  /** `path`: an existing worktree, as it is now (`info.forkInWorktree`). */
+  workspace?: { kind: "root" | "worktree"; branch?: string; path?: string };
   prompt?: string;
 }
 

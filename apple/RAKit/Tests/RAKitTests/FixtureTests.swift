@@ -136,6 +136,7 @@ struct FixtureTests {
         #expect(info.result?.terminal == true)
         #expect(info.result?.drafts == true)
         #expect(info.result?.forks == true)
+        #expect(info.result?.forkInWorktree == true)
         #expect(info.result?.commit == true)
         #expect(info.result?.search == true)
         #expect(info.result?.rename == true)

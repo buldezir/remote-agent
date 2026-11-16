@@ -21,6 +21,9 @@ type ServerInfo struct {
 	Drafts bool `json:"drafts,omitempty"`
 	// Forks: the server forks sessions (session.fork).
 	Forks bool `json:"forks,omitempty"`
+	// ForkInWorktree: session.fork takes an existing worktree
+	// (ForkSession.Workspace's Path), such as the source's own.
+	ForkInWorktree bool `json:"forkInWorktree,omitempty"`
 	// Commit: the server commits, pushes and opens pull requests
 	// (git.commitPreview, git.commit).
 	Commit bool `json:"commit,omitempty"`
@@ -103,8 +106,9 @@ type ForkSession struct {
 	Model     string
 	Effort    string
 	Mode      string
-	// Workspace: nil keeps the source's kind. A worktree starts with the
-	// files as they were after the turn, so BaseRef is left out.
+	// Workspace: nil keeps the source's kind. A new worktree starts with
+	// the files as they were after the turn, so BaseRef is left out; Path
+	// works in an existing one as it is (ServerInfo.ForkInWorktree).
 	Workspace *NewWorkspace
 	Prompt    string
 	Images    []model.ImageRef

@@ -75,6 +75,7 @@ fun ForkSessionDialog(connection: ServerConnection, store: SessionStore, onDismi
     val projects by connection.projects.collectAsStateWithLifecycle()
     val harnesses by connection.harnesses.collectAsStateWithLifecycle()
     val limits by connection.limits.collectAsStateWithLifecycle()
+    val info by connection.info.collectAsStateWithLifecycle()
     val turns by store.turns.collectAsStateWithLifecycle()
     val transcript by store.transcript.collectAsStateWithLifecycle()
     val source = storeSession ?: sessions[store.sessionID]
@@ -88,13 +89,16 @@ fun ForkSessionDialog(connection: ServerConnection, store: SessionStore, onDismi
     var customModel by rememberSaveable { mutableStateOf("") }
     var effort by rememberSaveable { mutableStateOf("") }
     var mode by rememberSaveable { mutableStateOf("") }
-    var useWorktree by rememberSaveable { mutableStateOf(source?.workspace?.kind == Workspace.Kind.WORKTREE) }
+    // As New Session's: "" the project folder, NEW_WORKTREE, or the source's worktree by its path.
+    var workIn by rememberSaveable { mutableStateOf(if (source?.workspace?.kind == Workspace.Kind.WORKTREE) NEW_WORKTREE else "") }
     var branch by rememberSaveable { mutableStateOf("") }
     var prompt by rememberSaveable { mutableStateOf("") }
     var forking by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     val point = points.firstOrNull { it.turn == turn } ?: points.firstOrNull()
+    // The source's worktree, which the fork can share when the server takes it.
+    val sourceWorktree = source?.workspace?.takeIf { it.kind == Workspace.Kind.WORKTREE && info?.forkInWorktree == true }
     val harness = harnesses?.firstOrNull { it.id == harnessID }
     val chosenModel = chosenModel(harness, model, customModel)
     // With the source's agent, its model, effort and mode as the pickers
@@ -132,10 +136,11 @@ fun ForkSessionDialog(connection: ServerConnection, store: SessionStore, onDismi
         val s = source ?: return
         val at = point ?: return
         val h = harness ?: return
-        // The source's kind of workspace goes unsaid too.
-        val named = if (useWorktree) branch.trim() else ""
-        val workspace = NewSession.WorkspaceParams(if (useWorktree) Workspace.Kind.WORKTREE else Workspace.Kind.ROOT, branch = named.ifEmpty { null })
-            .takeIf { project?.isGitRepo == true && (useWorktree != (s.workspace.kind == Workspace.Kind.WORKTREE) || named.isNotEmpty()) }
+        val workspace = when (workIn) {
+            "" -> NewSession.WorkspaceParams(Workspace.Kind.ROOT)
+            NEW_WORKTREE -> NewSession.WorkspaceParams(Workspace.Kind.WORKTREE, branch = branch.trim().ifEmpty { null })
+            else -> NewSession.WorkspaceParams(Workspace.Kind.WORKTREE, path = workIn)
+        }.takeIf { project?.isGitRepo == true }
         forking = true
         error = null
         scope.launch {
@@ -198,12 +203,20 @@ fun ForkSessionDialog(connection: ServerConnection, store: SessionStore, onDismi
                     FormSection(
                         "Workspace",
                         footer = AnnotatedString(
-                            if (useWorktree) "The fork gets its own branch, with the files as they were after that turn."
-                            else "The fork works in the project folder, as it is now.",
+                            when (workIn) {
+                                "" -> "The fork works in the project folder, as it is now."
+                                NEW_WORKTREE -> "The fork gets its own branch, with the files as they were after that turn."
+                                else -> "The fork works beside this session in its worktree" +
+                                    (source?.workspace?.branch?.let { ", on $it," } ?: "") + " with the files as they are now."
+                            },
                         ),
                     ) {
-                        SwitchRow("Isolated git worktree", useWorktree) { useWorktree = it }
-                        if (useWorktree) {
+                        val places = listOf("" to "Project folder", NEW_WORKTREE to "New worktree") +
+                            listOfNotNull(sourceWorktree?.let { it.path to "This session's worktree" })
+                        PickerRow("Work in", places.firstOrNull { it.first == workIn }?.second ?: "Project folder", places, tag = "fork-work-in") {
+                            workIn = it
+                        }
+                        if (workIn == NEW_WORKTREE) {
                             FormDivider()
                             FormTextField(branch, { branch = it }, "Branch (auto)",
                                 keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, capitalization = KeyboardCapitalization.None))

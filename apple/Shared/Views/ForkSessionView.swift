@@ -2,7 +2,8 @@ import RAKit
 import SwiftUI
 
 /// A new session that continues this one after one of its turns, with its
-/// agent or another, in a worktree of its own or in the project folder. Built
+/// agent or another, in a worktree of its own, in this session's worktree or
+/// in the project folder. Built
 /// like New session, from its rows. The choices aren't remembered as New
 /// session's.
 struct ForkSessionView: View {
@@ -20,7 +21,8 @@ struct ForkSessionView: View {
     @State private var customModel = ""
     @State private var effort = ""
     @State private var mode = ""
-    @State private var useWorktree: Bool
+    /// `.existing` is only ever the source's worktree.
+    @State private var workIn: WorkIn
     @State private var branch = ""
     @State private var prompt = ""
     @State private var forking = false
@@ -33,7 +35,7 @@ struct ForkSessionView: View {
         self.source = source
         self.onForked = onForked
         _turn = State(initialValue: Self.endedTurns(store).first?.n ?? 0)
-        _useWorktree = State(initialValue: source.workspace.kind == .worktree)
+        _workIn = State(initialValue: source.workspace.kind == .worktree ? .newWorktree : .project)
     }
 
     /// The turns that ended, which a fork can continue after, the newest first.
@@ -44,6 +46,10 @@ struct ForkSessionView: View {
     private var project: Project? { connection.projects[source.projectId] }
     private var harness: HarnessInfo? { connection.harness(harnessID) }
     private var canFork: Bool { harness != nil && turn > 0 }
+    /// The source's worktree, which the fork can share when the server takes it.
+    private var sourceWorktree: String? {
+        source.workspace.kind == .worktree && connection.info?.forkInWorktree == true ? source.workspace.path : nil
+    }
     /// The model id to request; nil for the harness default.
     private var chosenModel: String? { harness?.modelID(model, custom: customModel) }
 
@@ -79,17 +85,21 @@ struct ForkSessionView: View {
 
                     if project?.isGitRepo == true {
                         Section {
-                            Toggle("Isolated git worktree", isOn: $useWorktree)
-                            if useWorktree {
+                            Picker("Work in", selection: $workIn) {
+                                Text("Project folder").tag(WorkIn.project)
+                                Text("New worktree").tag(WorkIn.newWorktree)
+                                if let path = sourceWorktree {
+                                    Text("This session's worktree").tag(WorkIn.existing(path))
+                                }
+                            }
+                            if workIn == .newWorktree {
                                 TextField("Branch", text: $branch, prompt: Text(branchPrompt))
                                     .plainTextInput()
                             }
                         } header: {
                             Text("Workspace").formHeaderFont()
                         } footer: {
-                            Text(useWorktree ? "The fork gets its own branch, with the files as they were after that turn."
-                                             : "The fork works in the project folder, as it is now.")
-                                .formFooterFont()
+                            Text(workspaceFooter).formFooterFont()
                         }
                     }
 
@@ -162,6 +172,17 @@ struct ForkSessionView: View {
         return "Turn \(t.n) · " + (line.count > 48 ? line.prefix(47).trimmingCharacters(in: .whitespaces) + "…" : line)
     }
 
+    private var workspaceFooter: String {
+        switch workIn {
+        case .project: "The fork works in the project folder, as it is now."
+        case .newWorktree: "The fork gets its own branch, with the files as they were after that turn."
+        case .existing:
+            "The fork works beside this session in its worktree"
+                + (source.workspace.branch.map { ", on \($0)," } ?? "")
+                + " with the files as they are now."
+        }
+    }
+
     /// On the Mac the field's label, Branch, is shown beside it.
     private var branchPrompt: String {
         #if os(macOS)
@@ -196,9 +217,16 @@ struct ForkSessionView: View {
         error = nil
         defer { forking = false }
         var workspace: ServerConnection.NewSession.WorkspaceParams?
-        let named = useWorktree ? self.branch.trimmingCharacters(in: .whitespaces) : ""
-        if project?.isGitRepo == true, useWorktree != (source.workspace.kind == .worktree) || !named.isEmpty {
-            workspace = .init(kind: useWorktree ? .worktree : .root, branch: named.isEmpty ? nil : named)
+        if project?.isGitRepo == true {
+            switch workIn {
+            case .project:
+                workspace = .init(kind: .root)
+            case .newWorktree:
+                let named = branch.trimmingCharacters(in: .whitespaces)
+                workspace = .init(kind: .worktree, branch: named.isEmpty ? nil : named)
+            case .existing(let path):
+                workspace = .init(kind: .worktree, path: path)
+            }
         }
         do {
             let s = try await connection.fork(.init(

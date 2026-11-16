@@ -140,6 +140,54 @@ func TestForkInWorktree(t *testing.T) {
 	}
 }
 
+func TestForkInSameWorktree(t *testing.T) {
+	e := newEnv(t, true)
+	e.setSystemAgent("fake")
+	src := e.create(CreateSessionParams{Mode: "auto", Prompt: "write new.txt", Workspace: WorkspaceParams{Kind: model.WorkspaceWorktree}})
+	e.waitTurn(src.ID, 1)
+	e.prompt(src.ID, "write a.txt", "")
+	e.waitTurn(src.ID, 2)
+	e.o.naming.Wait()
+	src = e.session(src.ID)
+
+	// After turn 1, but in the source's worktree as it is now: a.txt as turn 2 left it.
+	f := e.fork(ForkParams{CommandID: "f1", SessionID: src.ID, Turn: 1, Prompt: "continue",
+		Workspace: &WorkspaceParams{Kind: model.WorkspaceWorktree, Path: src.Workspace.Path}})
+	ws := f.Workspace
+	if ws.Kind != model.WorkspaceWorktree || !gitx.SamePath(ws.Path, src.Workspace.Path) || ws.Branch != src.Workspace.Branch {
+		t.Fatalf("workspace = %+v, source's %+v", ws, src.Workspace)
+	}
+	if b, _ := os.ReadFile(filepath.Join(ws.Path, "a.txt")); string(b) != "hello from fake\n" {
+		t.Errorf("a.txt = %q", b)
+	}
+	e.waitTurn(f.ID, 2)
+	e.o.naming.Wait()
+	// The system agent names the fork, but leaves the shared branch alone.
+	if b := gitx.CurrentBranch(bg, src.Workspace.Path); b != src.Workspace.Branch {
+		t.Errorf("branch = %s, want %s", b, src.Workspace.Branch)
+	}
+	if got := e.session(f.ID); got.Workspace.Branch != src.Workspace.Branch || got.Title != "Named: continue" {
+		t.Errorf("fork named %q on %q", got.Title, got.Workspace.Branch)
+	}
+
+	// Archiving one leaves the worktree to the other.
+	if err := e.o.Archive(bg, f.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(src.Workspace.Path); err != nil {
+		t.Errorf("worktree after archiving the fork: %v", err)
+	}
+
+	// Only one of the project's worktrees, and a path alone means one.
+	if _, err := e.o.Fork(bg, ForkParams{CommandID: "f2", SessionID: src.ID, Workspace: &WorkspaceParams{Path: t.TempDir()}}); err == nil {
+		t.Error("forked into a folder that isn't a worktree")
+	}
+	if _, err := e.o.Fork(bg, ForkParams{CommandID: "f3", SessionID: src.ID,
+		Workspace: &WorkspaceParams{Kind: model.WorkspaceWorktree, Path: src.Workspace.Path, Branch: "x"}}); err == nil {
+		t.Error("forked into an existing worktree on a new branch")
+	}
+}
+
 func TestForkToAnotherAgent(t *testing.T) {
 	t.Parallel()
 	e := newEnvAt(t, t.TempDir(), true, fake.Harness{}, plainAgent{})

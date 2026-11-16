@@ -224,6 +224,7 @@ class FixtureTests {
         assertEquals(true, info.terminal)
         assertEquals(true, info.drafts)
         assertEquals(true, info.forks)
+        assertEquals(true, info.forkInWorktree)
         assertEquals(true, info.commit)
         assertEquals(true, info.search)
         assertEquals(true, info.rename)

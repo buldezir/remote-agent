@@ -988,10 +988,59 @@ func TestForksASessionAfterATurn(t *testing.T) {
 	}
 }
 
-// A worktree session's fork gets a worktree of its own, unless the switch
-// is turned off.
+// A worktree session's fork gets a worktree of its own, unless the user
+// picks the project folder or the session's worktree.
 func TestForksAWorktreeSession(t *testing.T) {
-	var src string
+	u, src := startWorktreeFork(t)
+	// Up from the prompt to the branch, under Work in, a new worktree.
+	u.key("up")
+	s := u.waitFor("own branch, with the files as they were")
+	if !strings.Contains(s, "New worktree") {
+		t.Errorf("the fork isn't in a new worktree:\n%s", s)
+	}
+	u.key("up")
+	u.key("left")
+	u.waitFor("in the project folder, as it is now")
+	u.key("right")
+	u.key("down")
+	u.key("ra/forked")
+	u.key("enter")
+	u.waitFor("enter fork")
+	u.key("enter")
+	u.waitFor("after turn 1.")
+	f := u.forkOf(src.ID)
+	if f.Workspace.Kind != model.WorkspaceWorktree || f.Workspace.Branch != "ra/forked" {
+		t.Errorf("fork %+v", f)
+	}
+}
+
+// A worktree session's fork can work in the session's own worktree.
+func TestForksIntoTheSameWorktree(t *testing.T) {
+	u, src := startWorktreeFork(t)
+	u.key("up")
+	u.key("up")
+	u.key("enter")
+	u.waitFor("This session's worktree")
+	u.key("down")
+	u.key("enter")
+	s := u.waitFor("beside this session in its worktree, on " + src.Workspace.Branch + ",")
+	if strings.Contains(s, "Branch") {
+		t.Errorf("a branch to name in the session's worktree:\n%s", s)
+	}
+	u.key("down")
+	u.waitFor("enter fork")
+	u.key("enter")
+	u.waitFor("after turn 1.")
+	f := u.forkOf(src.ID)
+	if f.Workspace.Kind != model.WorkspaceWorktree || f.Workspace.Path != src.Workspace.Path || f.Workspace.Branch != src.Workspace.Branch {
+		t.Errorf("fork %+v, source %+v", f.Workspace, src.Workspace)
+	}
+}
+
+// startWorktreeFork opens the fork form of a session in a worktree, after
+// its first turn.
+func startWorktreeFork(t *testing.T) (*ui, model.Session) {
+	var src model.Session
 	u := startUIWith(t, 120, 44, func(rpc *client.RPCClient, r *radtest.Rad, dir string) {
 		for _, args := range [][]string{
 			{"init", "-q", "-b", "main"},
@@ -1013,37 +1062,18 @@ func TestForksAWorktreeSession(t *testing.T) {
 			"workspace": map[string]any{"kind": "worktree"}, "prompt": "hello"}, &s); err != nil {
 			t.Fatal(err)
 		}
-		src = s.ID
+		src = s
 		if err := saveJSON(filepath.Join(dir, "state.json"), State{LastSession: s.ID}); err != nil {
 			t.Fatal(err)
 		}
 	})
 	u.waitFor("Echo: hello")
-	u.turnsEnded(src, 1)
+	u.turnsEnded(src.ID, 1)
 	u.key("ctrl+p")
 	u.menuTo("Fork…")
 	u.key("enter")
 	u.waitFor("Fork Session")
-	// Up from the prompt to the branch, under the switch, which is on.
-	u.key("up")
-	s := u.waitFor("own branch, with the files as they were")
-	if !strings.Contains(s, "◉ Isolated git worktree") {
-		t.Errorf("the worktree switch is off:\n%s", s)
-	}
-	u.key("up")
-	u.key("space")
-	u.waitFor("in the project folder, as it is now")
-	u.key("space")
-	u.key("down")
-	u.key("ra/forked")
-	u.key("enter")
-	u.waitFor("enter fork")
-	u.key("enter")
-	u.waitFor("after turn 1.")
-	f := u.forkOf(src)
-	if f.Workspace.Kind != model.WorkspaceWorktree || f.Workspace.Branch != "ra/forked" {
-		t.Errorf("fork %+v", f)
-	}
+	return u, src
 }
 
 func TestCommitsPushesAndOpensAPullRequest(t *testing.T) {

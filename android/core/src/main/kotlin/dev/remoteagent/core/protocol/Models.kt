@@ -616,6 +616,8 @@ data class ServerInfo(
     val drafts: Boolean? = null,
     /** The server forks sessions (`session.fork`); an older one answers `method_not_found`. */
     val forks: Boolean? = null,
+    /** `session.fork` takes an existing worktree (`workspace.path`), such as the source's own. */
+    val forkInWorktree: Boolean? = null,
     /** The server commits, pushes and opens pull requests (`git.commitPreview`, `git.commit`). */
     val commit: Boolean? = null,
     /** The server finds sessions by what was said in them (`session.search`); an older one answers `method_not_found`. */

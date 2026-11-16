@@ -52,8 +52,7 @@ const (
 	fieldModel
 	fieldEffort
 	fieldMode
-	fieldWorktree // the fork's
-	fieldWorkIn   // the new session's
+	fieldWorkIn
 	fieldUseBranch
 	fieldBranch
 	fieldBase
@@ -64,7 +63,7 @@ const (
 
 var fieldLabels = map[int]string{
 	fieldTurn: "After turn", fieldProject: "Project", fieldAgent: "Agent", fieldModel: "Model", fieldEffort: "Effort",
-	fieldMode: "Permissions", fieldWorktree: "Workspace", fieldWorkIn: "Work in", fieldUseBranch: "Branch", fieldBranch: "Branch", fieldBase: "Based on", fieldImport: "Or",
+	fieldMode: "Permissions", fieldWorkIn: "Work in", fieldUseBranch: "Branch", fieldBranch: "Branch", fieldBase: "Based on", fieldImport: "Or",
 }
 
 // defaultAgentMsg brings the server's default agent to the form that asked.
@@ -971,13 +970,6 @@ func newBranchInput(m *Model) textinput.Model {
 	in.Prompt = ""
 	styleInput(&in, m)
 	return in
-}
-
-func worktreeValue(m *Model, on bool) string {
-	if on {
-		return m.st.Accent.Render("◉") + " Isolated git worktree"
-	}
-	return m.st.Faint.Render("○") + " Isolated git worktree"
 }
 
 // formRow is a row of a form: its label, marked while it's the one chosen,

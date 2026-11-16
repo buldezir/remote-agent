@@ -547,6 +547,8 @@ export interface ServerInfo {
   drafts?: boolean;
   /** The server forks sessions (`session.fork`). */
   forks?: boolean;
+  /** `session.fork` takes an existing worktree (`workspace.path`), such as the source's own. */
+  forkInWorktree?: boolean;
   /** The server commits, pushes and opens pull requests (`git.commitPreview`, `git.commit`). */
   commit?: boolean;
   /** The server finds sessions by what was said in them (`session.search`). */

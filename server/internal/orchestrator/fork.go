@@ -34,8 +34,9 @@ type ForkParams struct {
 	Model   string `json:"model,omitempty"`
 	Effort  string `json:"effort,omitempty"`
 	Mode    string `json:"mode,omitempty"`
-	// Workspace defaults to the session's kind. A worktree starts with the
-	// files as they were after the turn; the project folder is as it is.
+	// Workspace defaults to the session's kind. A new worktree starts with
+	// the files as they were after the turn; the project folder, or an
+	// existing worktree (Path, such as the session's own), is as it is.
 	Workspace *WorkspaceParams `json:"workspace,omitempty"`
 	Prompt    string           `json:"prompt,omitempty"`
 	Images    []string         `json:"images,omitempty"`
@@ -118,11 +119,15 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 	if p.Workspace != nil && p.Workspace.Kind != "" {
 		kind = p.Workspace.Kind
 	}
-	branch := ""
+	branch, path := "", ""
 	if p.Workspace != nil {
-		branch = p.Workspace.Branch
+		branch, path = p.Workspace.Branch, p.Workspace.Path
+		if path != "" && p.Workspace.Kind == "" {
+			kind = model.WorkspaceWorktree
+		}
 	}
-	named := branch != ""
+	// A branch the user named, or an existing worktree's, keeps its name.
+	named := branch != "" || path != ""
 	// Until the session is written, a failure takes back what was made for
 	// it: the worktree and its branch, and the checkpoints copied below.
 	written := false
@@ -131,7 +136,17 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 			gitx.DeleteRefs(context.Background(), proj.Path, "refs/ra/cp/"+s.ID+"/")
 		}
 	}()
-	if kind == model.WorkspaceWorktree {
+	if kind == model.WorkspaceWorktree && path != "" {
+		// An existing worktree, as it is now, beside whoever works there.
+		if !proj.IsGitRepo {
+			return nil, errorf(CodeInvalid, "worktrees need a git repository")
+		}
+		ws, _, err := o.worktree(ctx, proj, s, *p.Workspace)
+		if err != nil {
+			return nil, err
+		}
+		s.Workspace = ws
+	} else if kind == model.WorkspaceWorktree {
 		if !proj.IsGitRepo {
 			return nil, errorf(CodeInvalid, "worktrees need a git repository")
 		}

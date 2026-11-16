@@ -46,7 +46,7 @@ func TestFixtures(t *testing.T) {
 	}
 
 	info := fixture[resultFrame[ServerInfo]](t, "response_server_info.json").Result
-	if info.Version != "0.4.0" || info.DeviceID != "dev1" || len(info.Roots) != 1 || !info.Drafts || !info.Terminal || !info.Forks || !info.Commit || !info.Search || !info.Rename || !info.Unarchive {
+	if info.Version != "0.4.0" || info.DeviceID != "dev1" || len(info.Roots) != 1 || !info.Drafts || !info.Terminal || !info.Forks || !info.ForkInWorktree || !info.Commit || !info.Search || !info.Rename || !info.Unarchive {
 		t.Errorf("server.info: %+v", info)
 	}
 
