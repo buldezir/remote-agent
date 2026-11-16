@@ -225,68 +225,22 @@ struct SessionView: View {
     }
 
     private func transcript(_ matches: [String]) -> some View {
-        let matching = Set(matches)
         let current = currentMatch(matches)
         return ScrollView {
-            LazyVStack(alignment: .leading, spacing: Metrics.gap) {
-                if !store.synced {
-                    ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
-                }
-                ForEach(rows(findOn: current)) { row in
-                    switch row {
-                    case .item(let item):
-                        ItemView(item: item, store: store, harness: harness)
-                            .environment(\.findHighlight, matching.contains(item.id) ? findQuery : nil)
-                            .background { itemTint(item.id, match: matching.contains(item.id), current: item.id == current) }
-                            .id(item.id)
-                    case .run(let run, let expanded):
-                        // Shut, it's tinted for the matches inside it.
-                        let match = !expanded && run.items.contains { matching.contains($0.id) }
-                        ToolRunRow(run: run, expanded: expanded) { expandedRuns[run.id] = !expanded }
-                            .background { itemTint(run.id, match: match, current: match && current.map(run.contains) == true) }
-                            .id(run.id)
-                    case .turnEnd(let turn):
-                        TurnFooter(turn: turn)
-                    }
-                }
-                ForEach(store.outbox.sorted(by: { $0.key < $1.key }), id: \.key) { _, out in
-                    UserBubble(text: out.text, images: out.images, store: store, pending: true)
-                }
-                if store.synced, let draft = store.unsentDraft {
-                    DraftBubble(draft: draft, store: store, disabled: savingDraft || unarchiving || readOnly,
-                                editable: !archived,
-                                edit: { editDraft(draft) }) {
-                        if archived { confirmUnarchive = .draft } else { sendDraft() }
-                    }
-                }
-                if store.synced, store.transcript.isEmpty, store.outbox.isEmpty, session?.hasDraft != true {
-                    Text("No prompts yet. Write the first one below.")
-                        .scaledFont(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 40)
-                }
-                if session?.status == .running {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Working…").scaledFont(.footnote).foregroundStyle(.secondary)
-                    }
-                    .padding(.leading, 4)
-                }
-                if let tasks = session?.backgroundTasks, !tasks.isEmpty {
-                    BackgroundTasksView(tasks: tasks)
-                }
-                if let err = session?.error, session?.status == .error {
-                    Label(err, systemImage: "exclamationmark.octagon")
-                        .scaledFont(.footnote)
-                        .foregroundStyle(Palette.red)
-                }
-            }
-            .padding(.horizontal, Metrics.margin)
-            .padding(.vertical, Metrics.gap)
-            .frame(maxWidth: Metrics.readableWidth)
-            .frame(maxWidth: .infinity)
-            .paletteText()
+            TranscriptRows(connection: connection, store: store, matches: matches, current: current, findQuery: findQuery,
+                           flashing: flashing, flash: flash, expandedRuns: expandedRuns, grouping: groupToolCalls,
+                           draftBusy: savingDraft || unarchiving,
+                           toggleRun: { id, open in expandedRuns[id] = open },
+                           editDraft: editDraft,
+                           sendDraft: { if archived { confirmUnarchive = .draft } else { sendDraft() } })
+                // Only when what it shows changes: this view's body also runs
+                // on every keystroke in the prompt.
+                .equatable()
+                .padding(.horizontal, Metrics.margin)
+                .padding(.vertical, Metrics.gap)
+                .frame(maxWidth: Metrics.readableWidth)
+                .frame(maxWidth: .infinity)
+                .paletteText()
         }
         .background(Palette.base)
         .scrollPosition($scrollPosition)
@@ -427,22 +381,6 @@ struct SessionView: View {
         scrollTo(next)
     }
 
-    /// An item's background: a tint while it holds the find bar's query, a
-    /// stronger one on the match the bar is on, and a flash of the accent
-    /// once a search result opened it.
-    @ViewBuilder private func itemTint(_ id: String, match: Bool, current: Bool) -> some View {
-        let shape = RoundedRectangle(cornerRadius: Metrics.Corner.card)
-        if match || id == flashing {
-            ZStack {
-                if match { shape.fill(current ? FindHighlight.current : FindHighlight.match) }
-                if id == flashing { shape.fill(FindHighlight.flash).opacity(flash) }
-            }
-            .padding(.horizontal, -6)
-            .padding(.vertical, -3)
-            .allowsHitTesting(false)
-        }
-    }
-
     /// Scrolls an item to the middle, and again a moment later: a lazy stack
     /// places the rows it hasn't laid out yet by estimate, and the first
     /// jump can stop short. Not while the whole transcript fits, where the
@@ -516,17 +454,6 @@ struct SessionView: View {
     }
 
     // MARK: Rows
-
-    /// Items in order, runs of tool calls folded (Settings › Transcript), with
-    /// a footer after the last item of each interrupted or failed turn. The
-    /// run that holds the find bar's match shows open while it's on it.
-    private func rows(findOn match: String?) -> [ToolRuns.Row] {
-        var expanded = expandedRuns
-        if let match, let run = ToolRuns.run(containing: match, in: store.transcript, turns: store.turns) {
-            expanded[run.id] = true
-        }
-        return ToolRuns.rows(store.transcript, turns: store.turns, expanded: expanded, grouping: groupToolCalls)
-    }
 
     /// Opens the run an item is folded into, as the user would: for a search
     /// result, and what find was on as it closes.
@@ -1124,6 +1051,133 @@ struct SessionView: View {
 
     private func run(_ f: () async throws -> Void) async {
         do { try await f() } catch { self.error = error.localizedDescription }
+    }
+}
+
+/// The transcript's rows: the items with their runs of tool calls folded,
+/// then the prompts on their way, the draft, and what the session is doing.
+///
+/// A view of its own, drawn again only when what it shows changes: the
+/// session, its transcript, find's matches, the open runs. `SessionView`'s
+/// body runs on every keystroke in the prompt, and as part of it the rows
+/// were all made again each time, which in a long session took longer than
+/// the keys came. Its actions are left out of the comparison: they go to
+/// `SessionView`'s state, which is the same whichever body made them.
+private struct TranscriptRows: View, Equatable {
+    let connection: ServerConnection
+    let store: SessionStore
+    /// The items that hold the find bar's query, the one it is on, and the query.
+    let matches: [String]
+    let current: String?
+    let findQuery: String
+    /// The item a search result opened at, and how much of its flash is left.
+    let flashing: String?
+    let flash: Double
+    /// The runs of tool calls the user opened or shut, by id.
+    let expandedRuns: [String: Bool]
+    /// Settings › Transcript › Group tool calls.
+    let grouping: Bool
+    /// The draft is being saved, taken back or sent.
+    let draftBusy: Bool
+    /// Opens or shuts a run.
+    let toggleRun: (_ id: String, _ open: Bool) -> Void
+    let editDraft: (Draft) -> Void
+    let sendDraft: () -> Void
+
+    nonisolated static func == (a: TranscriptRows, b: TranscriptRows) -> Bool {
+        a.connection === b.connection && a.store === b.store && a.matches == b.matches && a.current == b.current
+            && a.findQuery == b.findQuery && a.flashing == b.flashing && a.flash == b.flash
+            && a.expandedRuns == b.expandedRuns && a.grouping == b.grouping && a.draftBusy == b.draftBusy
+    }
+
+    private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
+    private var harness: HarnessInfo? { session.flatMap { connection.harness($0.harness) } }
+    private var archived: Bool { session?.archived == true }
+
+    var body: some View {
+        let matching = Set(matches)
+        LazyVStack(alignment: .leading, spacing: Metrics.gap) {
+            if !store.synced {
+                ProgressView().frame(maxWidth: .infinity).padding(.top, 40)
+            }
+            ForEach(rows(findOn: current)) { row in
+                switch row {
+                case .item(let item):
+                    ItemView(item: item, store: store, harness: harness)
+                        .environment(\.findHighlight, matching.contains(item.id) ? findQuery : nil)
+                        .background { itemTint(item.id, match: matching.contains(item.id), current: item.id == current) }
+                        .id(item.id)
+                case .run(let run, let expanded):
+                    // Shut, it's tinted for the matches inside it.
+                    let match = !expanded && run.items.contains { matching.contains($0.id) }
+                    ToolRunRow(run: run, expanded: expanded) { toggleRun(run.id, !expanded) }
+                        .background { itemTint(run.id, match: match, current: match && current.map(run.contains) == true) }
+                        .id(run.id)
+                case .turnEnd(let turn):
+                    TurnFooter(turn: turn)
+                }
+            }
+            ForEach(store.outbox.sorted(by: { $0.key < $1.key }), id: \.key) { _, out in
+                UserBubble(text: out.text, images: out.images, store: store, pending: true)
+            }
+            if store.synced, let draft = store.unsentDraft {
+                // Read-only: archived on a server that can't bring it back.
+                DraftBubble(draft: draft, store: store, disabled: draftBusy || (archived && !connection.unarchives),
+                            editable: !archived,
+                            edit: { editDraft(draft) },
+                            send: sendDraft)
+            }
+            if store.synced, store.transcript.isEmpty, store.outbox.isEmpty, session?.hasDraft != true {
+                Text("No prompts yet. Write the first one below.")
+                    .scaledFont(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 40)
+            }
+            if session?.status == .running {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Working…").scaledFont(.footnote).foregroundStyle(.secondary)
+                }
+                .padding(.leading, 4)
+            }
+            if let tasks = session?.backgroundTasks, !tasks.isEmpty {
+                BackgroundTasksView(tasks: tasks)
+            }
+            if let err = session?.error, session?.status == .error {
+                Label(err, systemImage: "exclamationmark.octagon")
+                    .scaledFont(.footnote)
+                    .foregroundStyle(Palette.red)
+            }
+        }
+    }
+
+    /// Items in order, runs of tool calls folded (Settings › Transcript), with
+    /// a footer after the last item of each interrupted or failed turn. The
+    /// run that holds the find bar's match shows open while it's on it.
+    private func rows(findOn match: String?) -> [ToolRuns.Row] {
+        var expanded = expandedRuns
+        if let match, let run = ToolRuns.run(containing: match, in: store.transcript, turns: store.turns) {
+            expanded[run.id] = true
+        }
+        return ToolRuns.rows(store.transcript, turns: store.turns, expanded: expanded, grouping: grouping)
+    }
+
+
+    /// An item's background: a tint while it holds the find bar's query, a
+    /// stronger one on the match the bar is on, and a flash of the accent
+    /// once a search result opened it.
+    @ViewBuilder private func itemTint(_ id: String, match: Bool, current: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Metrics.Corner.card)
+        if match || id == flashing {
+            ZStack {
+                if match { shape.fill(current ? FindHighlight.current : FindHighlight.match) }
+                if id == flashing { shape.fill(FindHighlight.flash).opacity(flash) }
+            }
+            .padding(.horizontal, -6)
+            .padding(.vertical, -3)
+            .allowsHitTesting(false)
+        }
     }
 }
 
