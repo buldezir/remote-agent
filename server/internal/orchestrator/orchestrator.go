@@ -213,6 +213,7 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 	}
 
 	p.Title = userTitle(p.Title)
+	written := false
 	s := &model.Session{
 		ID: store.NewID(), ProjectID: proj.ID, Harness: p.Harness, Model: p.Model, Effort: p.Effort, Mode: mode,
 		Workspace: model.Workspace{Kind: model.WorkspaceRoot, Path: proj.Path},
@@ -225,11 +226,17 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 		if !proj.IsGitRepo {
 			return nil, errorf(CodeInvalid, "worktrees need a git repository")
 		}
-		ws, err := o.worktree(ctx, proj, s, p.Workspace)
+		ws, undo, err := o.worktree(ctx, proj, s, p.Workspace)
 		if err != nil {
 			return nil, err
 		}
 		s.Workspace = ws
+		// Until the session is written, a failure takes back what was made.
+		defer func() {
+			if !written {
+				undo()
+			}
+		}()
 	} else if proj.IsGitRepo {
 		s.Workspace.Branch = gitx.CurrentBranch(ctx, proj.Path)
 	}
@@ -261,6 +268,7 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 	if err != nil {
 		return nil, err
 	}
+	written = true
 	if p.StartedBy != "" {
 		o.mu.Lock()
 		o.parents[s.ID] = p.StartedBy
@@ -284,45 +292,85 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 
 // worktree is the worktree a new session works in: the existing one at
 // wp.Path, else a new one, on the existing branch wp.Branch or on a new
-// branch (named wp.Branch, or provisionally) at wp.BaseRef.
-func (o *Orchestrator) worktree(ctx context.Context, proj *model.Project, s *model.Session, wp WorkspaceParams) (model.Workspace, error) {
+// branch (named wp.Branch, or provisionally) at wp.BaseRef. undo removes
+// what it made, should the session not be created after all.
+func (o *Orchestrator) worktree(ctx context.Context, proj *model.Project, s *model.Session, wp WorkspaceParams) (ws model.Workspace, undo func(), err error) {
+	undo = func() {}
 	if wp.Path != "" {
 		if wp.Branch != "" || wp.BaseRef != "" {
-			return model.Workspace{}, errorf(CodeInvalid, "an existing worktree takes no branch or base")
+			return ws, undo, errorf(CodeInvalid, "an existing worktree takes no branch or base")
 		}
 		if !filepath.IsAbs(wp.Path) {
-			return model.Workspace{}, errorf(CodeInvalid, "a worktree's path must be absolute")
+			return ws, undo, errorf(CodeInvalid, "a worktree's path must be absolute")
 		}
 		wts, err := gitx.Worktrees(ctx, proj.Path)
 		if err != nil {
-			return model.Workspace{}, errorf(CodeInvalid, "list worktrees: %v", err)
+			return ws, undo, errorf(CodeInvalid, "list worktrees: %v", err)
 		}
 		for _, wt := range wts {
 			if !wt.Main && gitx.SamePath(wt.Path, wp.Path) {
 				path := filepath.Clean(wp.Path)
-				return model.Workspace{Kind: model.WorkspaceWorktree, Path: path, Branch: gitx.CurrentBranch(ctx, path)}, nil
+				return model.Workspace{Kind: model.WorkspaceWorktree, Path: path, Branch: gitx.CurrentBranch(ctx, path)}, undo, nil
 			}
 		}
-		return model.Workspace{}, errorf(CodeInvalid, "%s is not a worktree of %s", wp.Path, proj.Name)
+		return ws, undo, errorf(CodeInvalid, "%s is not a worktree of %s", wp.Path, proj.Name)
 	}
+	if err := checkRefName("branch", wp.Branch); err != nil {
+		return ws, undo, err
+	}
+	if err := checkRefName("base", wp.BaseRef); err != nil {
+		return ws, undo, err
+	}
+	if wp.BaseRef != "" {
+		if _, err := gitx.Resolve(ctx, proj.Path, wp.BaseRef+"^{commit}"); err != nil {
+			return ws, undo, errorf(CodeInvalid, "no commit %s in %s", wp.BaseRef, proj.Name)
+		}
+	}
+	// git runs to the end even if the client goes, rather than being killed
+	// halfway through and leaving a worktree half made.
+	gctx := context.WithoutCancel(ctx)
 	dir := o.worktreeDir(proj, s.ID)
 	if wp.Branch != "" && gitx.BranchExists(ctx, proj.Path, wp.Branch) {
 		if wp.BaseRef != "" {
-			return model.Workspace{}, errorf(CodeInvalid, "branch %s already exists", wp.Branch)
+			return ws, undo, errorf(CodeInvalid, "branch %s already exists", wp.Branch)
 		}
-		if err := gitx.CheckoutWorktree(ctx, proj.Path, dir, wp.Branch); err != nil {
-			return model.Workspace{}, errorf(CodeInvalid, "check out %s: %v", wp.Branch, err)
+		if err := gitx.CheckoutWorktree(gctx, proj.Path, dir, wp.Branch); err != nil {
+			return ws, undo, errorf(CodeInvalid, "check out %s: %v", wp.Branch, err)
 		}
-		return model.Workspace{Kind: model.WorkspaceWorktree, Path: dir, Branch: wp.Branch}, nil
+		return model.Workspace{Kind: model.WorkspaceWorktree, Path: dir, Branch: wp.Branch}, o.undoWorktree(proj.Path, dir, ""), nil
 	}
 	branch := wp.Branch
 	if branch == "" {
 		branch = provisionalBranch(s.Title, s.ID)
 	}
-	if err := gitx.AddWorktree(ctx, proj.Path, dir, branch, wp.BaseRef); err != nil {
-		return model.Workspace{}, errorf(CodeInvalid, "create worktree: %v", err)
+	if err := gitx.AddWorktree(gctx, proj.Path, dir, branch, wp.BaseRef); err != nil {
+		return ws, undo, errorf(CodeInvalid, "create worktree: %v", err)
 	}
-	return model.Workspace{Kind: model.WorkspaceWorktree, Path: dir, Branch: branch, BaseRef: wp.BaseRef}, nil
+	return model.Workspace{Kind: model.WorkspaceWorktree, Path: dir, Branch: branch, BaseRef: wp.BaseRef}, o.undoWorktree(proj.Path, dir, branch), nil
+}
+
+// undoWorktree removes a worktree rad just made at dir, and the branch it
+// made for it, if any.
+func (o *Orchestrator) undoWorktree(repo, dir, branch string) func() {
+	return func() {
+		ctx := context.Background()
+		if err := gitx.RemoveWorktree(ctx, repo, dir); err != nil {
+			o.log.Warn("removing a new session's worktree failed", "dir", dir, "err", err)
+		}
+		if branch != "" {
+			if err := gitx.DeleteBranch(ctx, repo, branch); err != nil {
+				o.log.Warn("deleting a new session's branch failed", "branch", branch, "err", err)
+			}
+		}
+	}
+}
+
+// checkRefName refuses a branch or ref that git would read as an option.
+func checkRefName(what, name string) error {
+	if strings.HasPrefix(name, "-") {
+		return errorf(CodeInvalid, "a %s can't start with -: %s", what, name)
+	}
+	return nil
 }
 
 // worktreeDir is the folder for a new session's worktree, in the worktrees

@@ -95,7 +95,7 @@ func AddWorktree(ctx context.Context, repo, path, branch, baseRef string) error 
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	_, err := run(ctx, repo, nil, "worktree", "add", "-b", branch, path, baseRef)
+	_, err := run(ctx, repo, nil, "worktree", "add", "-b", branch, "--", path, baseRef)
 	return err
 }
 
@@ -104,7 +104,7 @@ func CheckoutWorktree(ctx context.Context, repo, path, branch string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	_, err := run(ctx, repo, nil, "worktree", "add", path, branch)
+	_, err := run(ctx, repo, nil, "worktree", "add", "--", path, branch)
 	return err
 }
 
@@ -161,7 +161,13 @@ func SamePath(a, b string) bool {
 }
 
 func RemoveWorktree(ctx context.Context, repo, path string) error {
-	_, err := run(ctx, repo, nil, "worktree", "remove", "--force", path)
+	_, err := run(ctx, repo, nil, "worktree", "remove", "--force", "--", path)
+	return err
+}
+
+// DeleteBranch deletes a branch, merged or not.
+func DeleteBranch(ctx context.Context, repo, branch string) error {
+	_, err := run(ctx, repo, nil, "branch", "-D", "--", branch)
 	return err
 }
 

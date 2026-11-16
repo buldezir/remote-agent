@@ -123,17 +123,34 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 		branch = p.Workspace.Branch
 	}
 	named := branch != ""
+	// Until the session is written, a failure takes back what was made for
+	// it: the worktree and its branch, and the checkpoints copied below.
+	written := false
+	defer func() {
+		if !written && proj.IsGitRepo {
+			gitx.DeleteRefs(context.Background(), proj.Path, "refs/ra/cp/"+s.ID+"/")
+		}
+	}()
 	if kind == model.WorkspaceWorktree {
 		if !proj.IsGitRepo {
 			return nil, errorf(CodeInvalid, "worktrees need a git repository")
+		}
+		if err := checkRefName("branch", branch); err != nil {
+			return nil, err
 		}
 		if branch == "" {
 			branch = provisionalBranch(strings.TrimSuffix(s.Title, forkSuffix), s.ID)
 		}
 		dir := o.worktreeDir(proj, s.ID)
-		if err := forkWorktree(ctx, proj.Path, dir, branch, at.CheckpointAfter); err != nil {
+		if err := o.forkWorktree(context.WithoutCancel(ctx), proj.Path, dir, branch, at.CheckpointAfter); err != nil {
 			return nil, err
 		}
+		undo := o.undoWorktree(proj.Path, dir, branch)
+		defer func() {
+			if !written {
+				undo()
+			}
+		}()
 		s.Workspace = model.Workspace{Kind: model.WorkspaceWorktree, Path: dir, Branch: branch}
 	} else if proj.IsGitRepo {
 		s.Workspace.Branch = gitx.CurrentBranch(ctx, proj.Path)
@@ -182,6 +199,7 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 	if err != nil {
 		return nil, err
 	}
+	written = true
 	if p.StartedBy != "" {
 		o.mu.Lock()
 		o.parents[s.ID] = p.StartedBy
@@ -228,7 +246,7 @@ func forkTurn(turns []*model.Turn, n int) (*model.Turn, error) {
 // forkWorktree checks out a new branch in dir with the files of checkpoint:
 // the branch starts at the commit the checkpoint was taken on, and the
 // changes the checkpoint has on top of it are in the working tree.
-func forkWorktree(ctx context.Context, repo, dir, branch, checkpoint string) error {
+func (o *Orchestrator) forkWorktree(ctx context.Context, repo, dir, branch, checkpoint string) error {
 	if checkpoint == "" {
 		return errorf(CodeInvalid, "the turn has no checkpoint of its files")
 	}
@@ -240,7 +258,7 @@ func forkWorktree(ctx context.Context, repo, dir, branch, checkpoint string) err
 		return errorf(CodeInvalid, "create worktree: %v", err)
 	}
 	if _, err := gitx.Revert(ctx, dir, checkpoint, base); err != nil {
-		gitx.RemoveWorktree(ctx, repo, dir)
+		o.undoWorktree(repo, dir, branch)()
 		return fmt.Errorf("restore the turn's files: %w", err)
 	}
 	return nil

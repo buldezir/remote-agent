@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"remote-agent/internal/gitx"
@@ -128,5 +129,53 @@ func TestWorktreeFolders(t *testing.T) {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestWorktreeRefusalsLeaveNothing(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, true)
+	create := func(p CreateSessionParams) error {
+		p.ProjectID, p.Harness, p.Mode = e.proj.ID, "fake", "auto"
+		p.Workspace.Kind = model.WorkspaceWorktree
+		_, err := e.o.CreateSession(bg, p)
+		return err
+	}
+	branches := func() string { return run(t, e.dir, "git", "branch", "--format=%(refname:short)") }
+	before := branches()
+
+	// git would read these as options.
+	for name, wp := range map[string]WorkspaceParams{
+		"option as base":   {BaseRef: "--no-checkout"},
+		"option as branch": {Branch: "-x"},
+		"unknown base":     {BaseRef: "no-such-ref"},
+	} {
+		if err := create(CreateSessionParams{Workspace: wp}); CodeOf(err) != CodeInvalid {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+
+	// A session that fails after its worktree was made takes it back, and
+	// the branch made for it.
+	for _, branch := range []string{"", "ra/undone"} {
+		if err := create(CreateSessionParams{Workspace: WorkspaceParams{Branch: branch}, Prompt: "hi", StartedBy: "no-such-session"}); CodeOf(err) != CodeNotFound {
+			t.Fatalf("err = %v", err)
+		}
+	}
+	// And an existing branch it checked out stays.
+	run(t, e.dir, "git", "branch", "kept")
+	if err := create(CreateSessionParams{Workspace: WorkspaceParams{Branch: "kept"}, StartedBy: "no-such-session"}); CodeOf(err) != CodeNotFound {
+		t.Fatalf("err = %v", err)
+	}
+	run(t, e.dir, "git", "branch", "-D", "kept")
+
+	if after := branches(); after != before {
+		t.Errorf("branches = %q, want %q", after, before)
+	}
+	if entries, _ := os.ReadDir(e.o.opt.WorktreesDir); len(entries) != 0 {
+		t.Errorf("worktrees folder has %d entries", len(entries))
+	}
+	if out := run(t, e.dir, "git", "worktree", "list", "--porcelain"); strings.Count(out, "worktree ") != 1 {
+		t.Errorf("worktrees:\n%s", out)
 	}
 }
