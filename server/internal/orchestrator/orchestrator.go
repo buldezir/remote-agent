@@ -305,7 +305,7 @@ func (o *Orchestrator) worktree(ctx context.Context, proj *model.Project, s *mod
 		}
 		return model.Workspace{}, errorf(CodeInvalid, "%s is not a worktree of %s", wp.Path, proj.Name)
 	}
-	dir := filepath.Join(o.opt.WorktreesDir, proj.ID, s.ID)
+	dir := o.worktreeDir(proj, s.ID)
 	if wp.Branch != "" && gitx.BranchExists(ctx, proj.Path, wp.Branch) {
 		if wp.BaseRef != "" {
 			return model.Workspace{}, errorf(CodeInvalid, "branch %s already exists", wp.Branch)
@@ -323,6 +323,23 @@ func (o *Orchestrator) worktree(ctx context.Context, proj *model.Project, s *mod
 		return model.Workspace{}, errorf(CodeInvalid, "create worktree: %v", err)
 	}
 	return model.Workspace{Kind: model.WorkspaceWorktree, Path: dir, Branch: branch, BaseRef: wp.BaseRef}, nil
+}
+
+// worktreeDir is the folder for a new session's worktree, in the worktrees
+// folder: the project's name and the end of the session's id, the suffix
+// its provisional branch has, such as remote-agent-3f9a1c. Where that
+// folder is taken, more of the id.
+func (o *Orchestrator) worktreeDir(proj *model.Project, sessionID string) string {
+	id := strings.ReplaceAll(sessionID, "-", "")
+	name := slug(proj.Name) + "-"
+	dir := ""
+	for _, n := range []int{6, 12, len(id)} {
+		dir = filepath.Join(o.opt.WorktreesDir, name+id[len(id)-n:])
+		if _, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+	}
+	return dir
 }
 
 // AgentToken is the token the session's agent calls rad's MCP server with.

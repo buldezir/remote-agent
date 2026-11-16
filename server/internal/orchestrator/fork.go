@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -131,7 +130,7 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 		if branch == "" {
 			branch = provisionalBranch(strings.TrimSuffix(s.Title, forkSuffix), s.ID)
 		}
-		dir := filepath.Join(o.opt.WorktreesDir, proj.ID, s.ID)
+		dir := o.worktreeDir(proj, s.ID)
 		if err := forkWorktree(ctx, proj.Path, dir, branch, at.CheckpointAfter); err != nil {
 			return nil, err
 		}

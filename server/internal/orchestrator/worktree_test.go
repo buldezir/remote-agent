@@ -108,3 +108,25 @@ func TestSessionsInExistingWorktreesAndBranches(t *testing.T) {
 		t.Error("the last session's worktree wasn't removed")
 	}
 }
+
+func TestWorktreeFolders(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, true)
+	s := e.create(CreateSessionParams{Workspace: WorkspaceParams{Kind: model.WorkspaceWorktree}})
+	name := slug(e.proj.Name) + "-"
+	if want := filepath.Join(e.o.opt.WorktreesDir, name+branchSuffix(s.ID)); s.Workspace.Path != want {
+		t.Errorf("path = %s, want %s", s.Workspace.Path, want)
+	}
+
+	// A taken folder makes the name longer.
+	id := "019a8b2c-3d4e-7f00-8a1b-2c3d4e5f6a7b"
+	for _, want := range []string{name + "5f6a7b", name + "2c3d4e5f6a7b", name + "019a8b2c3d4e7f008a1b2c3d4e5f6a7b"} {
+		dir := e.o.worktreeDir(e.proj, id)
+		if got := filepath.Base(dir); got != want {
+			t.Fatalf("folder = %s, want %s", got, want)
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
