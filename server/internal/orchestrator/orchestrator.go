@@ -758,8 +758,8 @@ func (o *Orchestrator) Recover(ctx context.Context) error {
 		for _, s := range sessions {
 			if s.Status != model.SessionRunning && s.Status != model.SessionAwaitingApproval {
 				if len(s.BackgroundTasks) > 0 {
-					s.BackgroundTasks = nil // they ended with the agent
-					if err := w.PutSession(s); err != nil {
+					s.BackgroundTasks = nil // they ended with the agent; no news to sort by
+					if err := w.PutSessionKeepingTime(s); err != nil {
 						return err
 					}
 				}

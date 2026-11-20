@@ -1072,6 +1072,31 @@ func TestBackgroundTask(t *testing.T) {
 	}
 }
 
+// Stopping an idle agent isn't news from its session: it keeps its updatedAt,
+// by which the clients order the sessions and show their ages.
+func TestIdleStopKeepsUpdatedAt(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, false)
+	s := e.create(CreateSessionParams{Prompt: "hello"})
+	e.waitTurn(s.ID, 1)
+	before := e.session(s.ID).UpdatedAt
+	time.Sleep(20 * time.Millisecond)
+	a, err := e.o.actor(bg, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.reapIfIdle(0)
+	a.mu.Lock()
+	alive := a.rt != nil
+	a.mu.Unlock()
+	if alive {
+		t.Fatal("the idle agent wasn't stopped")
+	}
+	if after := e.session(s.ID); !after.UpdatedAt.Equal(before) || after.Status != model.SessionIdle {
+		t.Errorf("after stopping the idle agent: updatedAt %v (was %v), status %s", after.UpdatedAt, before, after.Status)
+	}
+}
+
 func TestFailedTurn(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, false)

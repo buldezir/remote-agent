@@ -870,6 +870,10 @@ func (a *actor) failQueue(ctx context.Context) {
 func (a *actor) onExit(ctx context.Context, err error) {
 	a.rt = nil
 	a.rtGen++
+	// An idle agent stopped after idle_timeout, or one that quit between
+	// turns, is no news: the session keeps its updatedAt, by which the
+	// clients order it and show its age.
+	news := err != nil || len(a.sess.BackgroundTasks) > 0
 	a.sess.BackgroundTasks = nil // they end with the agent's process
 	if a.turn != nil {
 		msg := ""
@@ -897,11 +901,16 @@ func (a *actor) onExit(ctx context.Context, err error) {
 		}
 	}
 	a.items = map[string]*model.Item{}
+	news = news || len(left) > 0
 	a.write(ctx, func(w *store.W) error {
 		for _, it := range left {
 			if err := a.putItem(w, it); err != nil {
 				return err
 			}
+		}
+		if !news {
+			cp := *a.sess
+			return w.PutSessionKeepingTime(&cp)
 		}
 		return a.putSession(w)
 	})
