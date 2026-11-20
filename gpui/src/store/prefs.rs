@@ -1,8 +1,8 @@
 //! The app's own settings and what it remembers between launches, in
 //! `prefs.json` beside `servers.json`: the sidebar's layout, the transcript's
-//! options, notifications, the agent and commit scope last chosen, the
-//! Columns layout's collection, prompts written and not sent, the
-//! columns' widths and where the window was.
+//! options, notifications, the Dock icon, the agent and commit scope last
+//! chosen, the Columns layout's collection, prompts written and not sent,
+//! the columns' widths and where the window was.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -38,6 +38,10 @@ pub struct Prefs {
     /// the window isn't in front.
     #[serde(default = "yes")]
     pub notifications: bool,
+    /// The Dock icon counts the sessions that need you (`store::dock`).
+    pub dock_badge: bool,
+    /// How the Dock icon bounces: "off", "once" or "untilActive".
+    pub dock_bounce: String,
     /// Archived sessions in search results.
     #[serde(default = "yes")]
     pub search_archived: bool,
@@ -121,6 +125,8 @@ impl Default for Prefs {
             sidebar_layout: "inbox".into(),
             group_tool_calls: true,
             notifications: true,
+            dock_badge: false,
+            dock_bounce: "off".into(),
             search_archived: true,
             text_size: 14.,
             message_size: 14.,

@@ -1,8 +1,8 @@
 //! Settings (⌘,), as T3 Code lays them out: a sidebar of categories with a
 //! search field, and the chosen one's page beside it. General
-//! (notifications, the sidebar, updates), Appearance (the theme, text sizes
-//! and fonts), Chat (the transcript and the prompt), Terminal, and each
-//! server's settings. As `SettingsView.swift`.
+//! (notifications, the Dock, the sidebar, updates), Appearance (the theme,
+//! text sizes and fonts), Chat (the transcript and the prompt), Terminal,
+//! and each server's settings. As `SettingsView.swift`.
 
 use std::collections::HashMap;
 
@@ -22,6 +22,7 @@ use gpui_kit::{
 };
 
 use crate::conn::{ConnState, ServerConn};
+use crate::store::dock::Bounce;
 use crate::store::prefs::Prefs;
 use crate::store::sidebar::Layout;
 use crate::ui::agent_picker::picker;
@@ -91,7 +92,9 @@ impl Page {
     /// names and what they're about.
     fn terms(self) -> &'static str {
         match self {
-            Page::General => "notifications notify alerts sidebar layout inbox projects columns updates build host",
+            Page::General => {
+                "notifications notify alerts dock badge bounce sidebar layout inbox projects columns updates build host"
+            }
             Page::Appearance => {
                 "theme dark light system catppuccin text size interface messages font code menlo monospaced"
             }
@@ -114,6 +117,8 @@ pub struct SettingsView {
     code_size: Entity<SliderState>,
     /// The page's scroll; it goes back to the top on another page.
     scroll: ScrollHandle,
+    /// System Settings holds the Dock's badge back (`ui::dock::badge_blocked`).
+    badge_blocked: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -143,8 +148,14 @@ impl SettingsView {
                     this.search_changed(cx);
                 }
             }),
+            // Back from System Settings, or from macOS's question.
+            cx.observe_window_activation(window, |this, window, cx| {
+                if window.is_window_active() {
+                    this.refresh_badge_blocked(cx);
+                }
+            }),
         ];
-        Self {
+        let mut this = Self {
             page: match server {
                 Some(i) if i < conns.len() => Page::Server(i),
                 _ => Page::General,
@@ -156,8 +167,26 @@ impl SettingsView {
             message_size,
             code_size,
             scroll: ScrollHandle::new(),
+            badge_blocked: false,
             _subscriptions: subs,
-        }
+        };
+        this.refresh_badge_blocked(cx);
+        this
+    }
+
+    fn refresh_badge_blocked(&mut self, cx: &mut Context<Self>) {
+        let Some(answer) = crate::ui::dock::badge_blocked() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            if let Ok(blocked) = answer.recv().await {
+                let _ = this.update(cx, |this, cx| {
+                    this.badge_blocked = blocked;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
 
     fn show(&mut self, page: Page, cx: &mut Context<Self>) {
@@ -219,6 +248,8 @@ impl SettingsView {
             && prefs.terminal_placement == d.terminal_placement
             && prefs.terminal_copy_on_select == d.terminal_copy_on_select
             && prefs.notifications == d.notifications
+            && prefs.dock_badge == d.dock_badge
+            && prefs.dock_bounce == d.dock_bounce
     }
 
     /// This device's settings back to their defaults; servers' stay.
@@ -238,6 +269,8 @@ impl SettingsView {
             p.terminal_placement = d.terminal_placement.clone();
             p.terminal_copy_on_select = d.terminal_copy_on_select;
             p.notifications = d.notifications;
+            p.dock_badge = d.dock_badge;
+            p.dock_bounce = d.dock_bounce.clone();
         });
         apply_appearance(window, cx);
         self.text_size.update(cx, |s, cx| s.set_value(d.text_size, window, cx));
@@ -247,6 +280,65 @@ impl SettingsView {
     }
 
     // MARK: Pages
+
+    /// The Dock icon's badge and bounce (`store::dock`).
+    fn dock(&self, prefs: &Prefs, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let bounce = Bounce::from_key(&prefs.dock_bounce);
+        let bounce_picker = picker(
+            "dock-bounce",
+            bounce.title().into(),
+            Bounce::ALL
+                .iter()
+                .map(|b| (b.key().to_string(), b.title().to_string()))
+                .collect(),
+            bounce.key().into(),
+            |key, _, cx| update_prefs(cx, |p| p.dock_bounce = key),
+        );
+        let badge = Switch::new("dock-badge")
+            .checked(prefs.dock_badge)
+            .on_change(cx.listener(|this, on: &bool, _, cx| {
+                let on = *on;
+                update_prefs(cx, |p| p.dock_badge = on);
+                if on {
+                    // macOS asks the first time; the answer comes back with the window.
+                    crate::ui::dock::request_authorization();
+                    this.refresh_badge_blocked(cx);
+                }
+            }))
+            .into_any_element();
+        let mut rows = vec![setting(
+            "Count sessions that need you",
+            Some(
+                "The badge counts the sessions on every server that wait for an answer, failed or have a reply you haven't read.",
+            ),
+            badge,
+            p,
+        )];
+        if prefs.dock_badge && self.badge_blocked {
+            rows.push(setting(
+                "Badges are off in System Settings",
+                Some("macOS shows the badge once Remote Agent may show badges, under Notifications."),
+                Button::new("notification-settings")
+                    .small()
+                    .outline()
+                    .label("Open System Settings")
+                    .on_click(|_: &ClickEvent, _, cx| cx.open_url(&crate::ui::dock::notification_settings_url()))
+                    .into_any_element(),
+                p,
+            ));
+        }
+        rows.push(setting(
+            "Bounce",
+            Some(
+                "Once when a session needs you, finishes or fails while Remote Agent is in the background. \
+                 With “Keep bouncing when stuck”, a session that waits for an answer or failed keeps it \
+                 bouncing until you switch to Remote Agent or deal with it on another device.",
+            ),
+            bounce_picker,
+            p,
+        ));
+        group("Dock", rows, None, p)
+    }
 
     fn render_general(&mut self, p: &Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let prefs = prefs(cx).clone();
@@ -278,6 +370,7 @@ impl SettingsView {
                 None,
                 p,
             ),
+            self.dock(&prefs, p, cx),
             group(
                 "Sidebar",
                 vec![setting(

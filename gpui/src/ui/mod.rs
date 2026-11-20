@@ -9,6 +9,7 @@ pub mod commit;
 pub mod common;
 pub mod dialogs;
 pub mod diff;
+pub mod dock;
 pub mod fonts;
 pub mod fork;
 pub mod new_session;

@@ -4,6 +4,7 @@
 pub mod alert;
 pub mod build_update;
 pub mod commit;
+pub mod dock;
 pub mod identity;
 pub mod index;
 pub mod limits;

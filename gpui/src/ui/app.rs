@@ -19,6 +19,7 @@ use serde_json::json;
 use crate::conn::{ConnEvent, ServerConn};
 use crate::protocol::{Session, SessionStatus};
 use crate::store::alert::SessionAlert;
+use crate::store::dock::{Attention, Bounce, Bouncer, badge_count};
 use crate::store::prefs::WindowFrame;
 use crate::store::search::{Hit, merge_search_results, search_active};
 use crate::store::servers::{SavedServer, ServerStore, custom_home, home_dir, pair, parse_pairing_link};
@@ -26,11 +27,12 @@ use crate::store::sidebar::{Collection, Layout, OpenedSession, stands_out};
 use crate::store::ssh_install;
 use crate::store::tokens::Tokens;
 use crate::ui::common::{sidebar_toggle, top_bar};
+use crate::ui::dock;
 use crate::ui::new_session::{NewSessionEvent, NewSessionView};
 use crate::ui::palette::{Palette, follow_appearance};
 use crate::ui::panes::{self, PaneResize};
 use crate::ui::session::SessionView;
-use crate::ui::state::{prefs, update_prefs};
+use crate::ui::state::{AppPrefs, prefs, update_prefs};
 use crate::ui::window_frame;
 use crate::*;
 
@@ -94,6 +96,9 @@ pub struct AppView {
     pub(crate) sidebar_width: f32,
     pub(crate) middle_width: f32,
     pub(crate) widths_save: Option<Task<()>>,
+    /// The Dock icon's bounce until the user comes back, and the badge it shows.
+    bouncer: Bouncer,
+    badge: Option<usize>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -123,12 +128,24 @@ impl AppView {
             }),
             cx.observe_window_appearance(window, |_, window, cx| follow_appearance(window, cx)),
             cx.observe_window_activation(window, |this, window, cx| {
+                if window.is_window_active() {
+                    // macOS stops the Dock's bounce itself.
+                    this.bouncer.activated();
+                }
                 // Back in front: the open session may have been read meanwhile.
                 if window.is_window_active()
                     && let Detail::Session(view) = &this.detail
                 {
                     view.update(cx, |v, cx| v.mark_read_if_shown(window, cx));
                 }
+            }),
+            cx.observe_global::<AppPrefs>(|this, cx| {
+                if Bounce::from_key(&prefs(cx).dock_bounce) != Bounce::UntilActive
+                    && let Some(request) = this.bouncer.stop()
+                {
+                    dock::stop_bouncing(request);
+                }
+                this.update_dock(cx);
             }),
             // Saved half a second after it stops moving, not at every step of a drag.
             cx.observe_window_bounds(window, |this, window, cx| {
@@ -172,8 +189,15 @@ impl AppView {
             sidebar_width,
             middle_width,
             widths_save: None,
+            bouncer: Bouncer::default(),
+            badge: None,
             _subscriptions: Vec::new(),
         };
+        // The Dock draws the badge only with the user's leave, as for
+        // notifications: ask for both before GPUI asks for notifications alone.
+        if prefs(cx).notifications || prefs(cx).dock_badge {
+            dock::request_authorization();
+        }
         for saved in this.store.servers.clone() {
             subscriptions.extend(this.connect(&saved, window, cx));
         }
@@ -231,6 +255,7 @@ impl AppView {
     /// A server's state changed: the open session may be gone, the session
     /// from the last launch may be in, and a search may have servers anew.
     fn conn_changed(&mut self, conn: &Entity<ServerConn>, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_dock(cx);
         if let Detail::Session(view) = &self.detail {
             let v = view.read(cx);
             let gone = v.conn() == conn && conn.read(cx).stores.get(v.session_id()).is_some_and(|s| s.removed);
@@ -391,6 +416,7 @@ impl AppView {
         }
         self.conns.remove(ix);
         let _ = self.store.remove(id);
+        self.update_dock(cx);
         if self.conns.is_empty() {
             self.detail = Detail::Pair;
         }
@@ -752,7 +778,7 @@ impl AppView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !prefs(cx).notifications {
+        if !prefs(cx).notifications && Bounce::from_key(&prefs(cx).dock_bounce) == Bounce::Off {
             return;
         }
         // A turn that ended may start the next queued prompt at once.
@@ -764,14 +790,77 @@ impl AppView {
                     if let Some(s) = conn.read(cx).index.sessions.get(&id).cloned()
                         && s.status == SessionStatus::Idle
                     {
-                        this.post(conn.clone(), s, SessionAlert::Finished, window, cx);
+                        this.alert_user(conn.clone(), s, SessionAlert::Finished, window, cx);
                     }
                 });
             })
             .detach();
         } else {
+            self.alert_user(conn, session, alert, window, cx);
+        }
+    }
+
+    /// Bounces the Dock icon, which macOS does only while another app is in
+    /// front, and posts the notification.
+    fn alert_user(
+        &mut self,
+        conn: Entity<ServerConn>,
+        session: Rc<Session>,
+        alert: SessionAlert,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let route = format!("{} {}", conn.read(cx).server_id, session.id);
+        let mode = Bounce::from_key(&prefs(cx).dock_bounce);
+        match self.bouncer.alert(mode, &alert, &route, dock::app_active()) {
+            Attention::None => {}
+            Attention::Once => dock::bounce_once(),
+            Attention::UntilActive => self.bouncer.started(dock::bounce_until_active()),
+        }
+        if prefs(cx).notifications {
             self.post(conn, session, alert, window, cx);
         }
+    }
+
+    /// The Dock icon's badge, and its bounce, which stops once none of its
+    /// sessions needs the user, such as when they answered on another device.
+    fn update_dock(&mut self, cx: &mut Context<Self>) {
+        let count = if prefs(cx).dock_badge {
+            self.conns
+                .iter()
+                .map(|c| badge_count(c.read(cx).index.sessions.values().map(|s| &**s)))
+                .sum()
+        } else {
+            0
+        };
+        if self.badge != Some(count) {
+            self.badge = Some(count);
+            dock::set_badge(count);
+        }
+        let resolved: Vec<String> = self
+            .bouncer
+            .routes()
+            .filter(|route| !self.needs_you(route, cx))
+            .cloned()
+            .collect();
+        for route in resolved {
+            if let Some(request) = self.bouncer.resolved(&route) {
+                dock::stop_bouncing(request);
+            }
+        }
+    }
+
+    /// Whether the session "<serverId> <sessionId>" waits for an answer or failed.
+    fn needs_you(&self, route: &str, cx: &App) -> bool {
+        let Some((server, id)) = route.split_once(' ') else {
+            return false;
+        };
+        self.conns
+            .iter()
+            .map(|c| c.read(cx))
+            .find(|c| c.server_id == server)
+            .and_then(|c| c.index.sessions.get(id))
+            .is_some_and(|s| !s.archived && crate::store::sidebar::needs_you(s))
     }
 
     fn post(
