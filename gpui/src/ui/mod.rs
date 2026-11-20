@@ -3,6 +3,7 @@
 pub mod actions;
 pub mod agent_picker;
 pub mod app;
+pub mod build_update;
 pub mod commit;
 pub mod common;
 pub mod dialogs;

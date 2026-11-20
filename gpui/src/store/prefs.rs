@@ -86,6 +86,8 @@ pub struct Prefs {
     /// The window's frame when it last moved; none until it has.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowFrame>,
+    /// The ssh host that Check for Update pulls builds from.
+    pub update_host: String,
 }
 
 /// Where the window was: its top-left corner on its display, in points from
@@ -132,6 +134,7 @@ impl Default for Prefs {
             column_width: 330.,
             sidebar_hidden: false,
             window: None,
+            update_host: String::new(),
         }
     }
 }

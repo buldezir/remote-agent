@@ -297,6 +297,31 @@ impl SettingsView {
                     .into_any_element(),
                 Some("When a session needs you, finishes or fails, unless the window shows it.".into()),
             ))
+            .when_some(crate::store::build_update::current(), |d, build| {
+                let from = if prefs.update_host.is_empty() {
+                    "Check for Update asks which Mac to pull builds from.".to_string()
+                } else {
+                    format!("Builds come from {} over ssh.", prefs.update_host)
+                };
+                d.child(section(
+                    "Updates",
+                    v_flex()
+                        .gap_2()
+                        .child(div().text_sm().child(format!("This build: {}", build.summary(chrono::Utc::now()))))
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(Button::new("check-update").small().outline().label("Check for Update…").on_click(
+                                    |_: &ClickEvent, window, cx| crate::ui::build_update::check(window, cx),
+                                ))
+                                .child(Button::new("update-host").small().ghost().label("Change Host…").on_click(
+                                    |_: &ClickEvent, window, cx| crate::ui::build_update::ask_host(window, cx),
+                                )),
+                        )
+                        .into_any_element(),
+                    Some(from),
+                ))
+            })
             .child(
                 h_flex().child(
                     Button::new("restore")

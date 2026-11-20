@@ -24,7 +24,7 @@ It does what the SwiftUI Mac client does, with the gaps listed below.
 - **Notifications:** when a session needs you, finishes or fails and the window doesn't show it; clicking one opens the session.
 - **Unread state, connections, appearance:** a session is marked read while it shows in the window in front; the client reconnects with backoff and resubscribes from where it left off; Catppuccin, Frappé when dark and Latte when light. The sidebar and the Columns layout's middle column resize by dragging their right edge (a double click restores them), and keep their widths. The window reopens where it was, on the same display while it's connected (else kept on the main one), and in full screen if it was.
 
-Not yet: the Dock badge and bounce, the Photo Library, and app updates (Sparkle). The fonts are installed families only: GPUI loads a font by family name, so the system font's other designs (New York, SF Pro Rounded, SF Mono) aren't offered, and code is Menlo unless you pick another. Notifications reach Notification Center only from the app bundle; a bare build shows them in the window. The terminal draws with the code font; Menlo lacks Nerd Font glyphs, so pick a Nerd Font there for them.
+Not yet: the Dock badge and bounce, the Photo Library, and app updates for anyone else (Sparkle). The fonts are installed families only: GPUI loads a font by family name, so the system font's other designs (New York, SF Pro Rounded, SF Mono) aren't offered, and code is Menlo unless you pick another. Notifications reach Notification Center only from the app bundle; a bare build shows them in the window. The terminal draws with the code font; Menlo lacks Nerd Font glyphs, so pick a Nerd Font there for them.
 
 ## Building and running
 
@@ -32,13 +32,15 @@ It needs Rust (stable, edition 2024), Xcode's Metal toolchain, which GPUI uses t
 
 ```bash
 cd gpui
-scripts/bundle.sh                                  # target/release/Remote Agent GPUI.app
+scripts/bundle.sh                                  # target/release/Remote Agent GPUI.app, and /Applications
 cargo run --release                                # or run it from cargo
 cargo run --release -- "$(rad pair --print-url)"   # pairs at launch
 cargo test
 ```
 
 - **The app:** `scripts/bundle.sh` builds `target/release/Remote Agent GPUI.app`, with the Mac app's icon, signed. Open it from Finder, or drag it to Applications. Double-click the app, not `target/release/remote-agent-gpui`: Finder opens a bare executable in Terminal. Pass a pairing link with `open "target/release/Remote Agent GPUI.app" --args "$(rad pair --print-url)"`.
+- **/Applications:** `bundle.sh` also installs the app in `/Applications` (`RA_GPUI_INSTALL_DIR` names another folder, or none when empty), so every worktree's build lands in the same place.
+- **Updating another Mac:** a bundle offers Remote Agent › Check for Update… (and the same in Settings › Updates). It asks once for the ssh host of the Mac that builds it (`ssh <host>` must work without a password), reads that Mac's `Contents/Resources/build.json` (the commit, branch and build time `bundle.sh` writes), and on Install and Restart pulls the bundle from the same path with tar over ssh, checks that it's signed as the running app is (`codesign -R` with its designated requirement), quits, and a small helper swaps it in and opens it (`src/store/build_update.rs`). The app must run from a folder you can write to, and not translocated. `cargo run` and bare builds have no `build.json`, so they don't offer it.
 - **Signing:** `cargo run` signs the app before it runs it (`.cargo/config.toml` makes `scripts/run-signed.sh` its runner), and `bundle.sh` signs the bundle. Both use your Apple Development identity, or the one `RA_GPUI_SIGN_IDENTITY` names, and the identifier `dev.remote-agent.gpui`, so the bundle and `cargo run`'s builds share their tokens. To run a bare build some other way, sign it first: `scripts/sign.sh target/release/remote-agent-gpui`.
 - **Why it's signed:** the device tokens live in your login keychain. macOS lets a new build read, replace and delete the items an earlier build saved without asking only when both are signed with the same Apple-issued certificate (a Team ID). An ad hoc or self-signed build is a new app each time, and macOS asks for your login password. Without an Apple Development identity, `sign.sh` signs ad hoc and says so.
 - **Where it keeps servers:** in `~/Library/Application Support/Remote Agent GPUI/servers.json` (0600), without the tokens. The tokens are generic passwords for the service `dev.remote-agent.gpui`, one per server id. A file from before the Keychain held its tokens itself: the first launch moves them into the Keychain.

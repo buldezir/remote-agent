@@ -29,6 +29,7 @@ actions!(
         NewSession,
         PairServer,
         OpenSettings,
+        CheckForUpdate,
         SearchSessions,
         FindInSession,
         FindNext,
@@ -85,14 +86,16 @@ fn main() {
                 KeyBinding::new("cmd-3", LayoutColumns, None),
                 KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
             ]);
+            // A bundle scripts/bundle.sh built updates from the Mac that built it.
+            let mut app_menu = vec![MenuItem::action("Settings…", OpenSettings)];
+            if ui::build_update::available() {
+                app_menu.push(MenuItem::action("Check for Update…", CheckForUpdate));
+            }
+            app_menu.extend([MenuItem::separator(), MenuItem::action("Quit Remote Agent", Quit)]);
             cx.set_menus(vec![
                 Menu {
                     name: "Remote Agent".into(),
-                    items: vec![
-                        MenuItem::action("Settings…", OpenSettings),
-                        MenuItem::separator(),
-                        MenuItem::action("Quit Remote Agent", Quit),
-                    ],
+                    items: app_menu,
                     disabled: false,
                 },
                 Menu {
@@ -202,6 +205,7 @@ fn main() {
             forward::<NewSession>(window, view.clone(), cx);
             forward::<PairServer>(window, view.clone(), cx);
             forward::<OpenSettings>(window, view.clone(), cx);
+            forward::<CheckForUpdate>(window, view.clone(), cx);
             forward::<SearchSessions>(window, view.clone(), cx);
             forward::<FindInSession>(window, view.clone(), cx);
             forward::<FindNext>(window, view.clone(), cx);

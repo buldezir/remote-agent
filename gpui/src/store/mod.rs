@@ -2,6 +2,7 @@
 //! sidebar's grouping, tool runs and paired servers.
 
 pub mod alert;
+pub mod build_update;
 pub mod commit;
 pub mod index;
 pub mod limits;
