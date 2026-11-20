@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use crate::conn::ServerConn;
 use crate::protocol::{AgentSpec, HarnessInfo, ServerSettings, ServerTask, TaskList, UpdateInfo};
 use crate::ui::agent_picker::{picker, row};
-use crate::ui::common::{MONO, caption, limits_gauge_view};
+use crate::ui::common::{caption, limits_gauge_view};
 use crate::ui::dialogs::{self, Choice};
 use crate::ui::palette::Palette;
 use crate::ui::session::explain;
@@ -422,14 +422,18 @@ impl ServerSettingsView {
                         v_flex()
                             .flex_1()
                             .min_w_0()
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(div().text_sm().child(h.name.clone()))
-                                    .when_some(h.version.clone(), |d, v| {
-                                        d.child(div().text_xs().font_family(MONO).text_color(p.overlay).child(v))
-                                    }),
-                            )
+                            .child(h_flex().gap_2().child(div().text_sm().child(h.name.clone())).when_some(
+                                h.version.clone(),
+                                |d, v| {
+                                    d.child(
+                                        div()
+                                            .text_xs()
+                                            .font_family(crate::ui::fonts::code())
+                                            .text_color(p.overlay)
+                                            .child(v),
+                                    )
+                                },
+                            ))
                             .child(if h.auth_ok {
                                 div().text_xs().text_color(p.green).child("Ready")
                             } else {
@@ -855,7 +859,7 @@ impl Render for TaskView {
                         .rounded_md()
                         .bg(p.crust)
                         .text_xs()
-                        .font_family(MONO)
+                        .font_family(crate::ui::fonts::code())
                         .text_color(p.subtext)
                         .child(task.output.clone()),
                 )

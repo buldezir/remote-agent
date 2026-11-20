@@ -22,6 +22,7 @@ use crate::store::sidebar::Layout;
 use crate::ui::agent_picker::{picker, row};
 use crate::ui::common::caption;
 use crate::ui::dialogs::{self, Choice};
+use crate::ui::fonts;
 use crate::ui::palette::{Palette, apply_appearance};
 use crate::ui::server_settings::ServerSettingsView;
 use crate::ui::state::{app_view, prefs, update_prefs};
@@ -96,6 +97,8 @@ impl SettingsView {
         let at_defaults = prefs.appearance == defaults.appearance
             && prefs.text_size == defaults.text_size
             && prefs.message_size == defaults.message_size
+            && prefs.message_font == defaults.message_font
+            && prefs.code_font == defaults.code_font
             && prefs.group_tool_calls == defaults.group_tool_calls
             && prefs.sidebar_layout == defaults.sidebar_layout
             && prefs.terminal_placement == defaults.terminal_placement
@@ -152,6 +155,45 @@ impl SettingsView {
             prefs.terminal_placement.clone(),
             |id, _, cx| update_prefs(cx, |p| p.terminal_placement = id),
         );
+        let families = fonts::installed_families(cx);
+        let message_font = fonts::shown(&prefs.message_font, families);
+        let mut message_choices = vec![("".to_string(), "System".to_string()), ("-".into(), String::new())];
+        message_choices.extend(families.iter().map(|f| (f.clone(), f.clone())));
+        let message_font_picker = picker(
+            "message-font",
+            if message_font.is_empty() {
+                "System".into()
+            } else {
+                message_font.clone()
+            },
+            message_choices,
+            message_font,
+            |id, _, cx| update_prefs(cx, |p| p.message_font = id),
+        );
+        let code_font = fonts::shown(&prefs.code_font, families);
+        let code_font = if code_font == fonts::MONO {
+            String::new()
+        } else {
+            code_font
+        };
+        let mut code_choices = vec![(String::new(), fonts::MONO.to_string()), ("-".into(), String::new())];
+        code_choices.extend(
+            fonts::monospaced_families(cx)
+                .iter()
+                .filter(|f| *f != fonts::MONO)
+                .map(|f| (f.clone(), f.clone())),
+        );
+        let code_font_picker = picker(
+            "code-font",
+            if code_font.is_empty() {
+                fonts::MONO.into()
+            } else {
+                code_font.clone()
+            },
+            code_choices,
+            code_font,
+            |id, _, cx| update_prefs(cx, |p| p.code_font = id),
+        );
         let section = |title: &'static str, body: AnyElement, footer: Option<String>| {
             v_flex()
                 .gap_2()
@@ -188,17 +230,22 @@ impl SettingsView {
             ))
             .child(section(
                 "Messages",
-                row(
-                    "Text size",
-                    h_flex()
-                        .gap_2()
-                        .child(div().w(px(220.)).child(Slider::new(&self.message_size)))
-                        .child(caption(format!("{} pt", prefs.message_size), p))
-                        .into_any_element(),
-                    None,
-                    p,
-                ),
-                Some("Your prompts, the agent's replies and its tool calls.".into()),
+                v_flex()
+                    .gap_2()
+                    .child(row(
+                        "Text size",
+                        h_flex()
+                            .gap_2()
+                            .child(div().w(px(220.)).child(Slider::new(&self.message_size)))
+                            .child(caption(format!("{} pt", prefs.message_size), p))
+                            .into_any_element(),
+                        None,
+                        p,
+                    ))
+                    .child(row("Font", message_font_picker, None, p))
+                    .child(row("Code font", code_font_picker, None, p))
+                    .into_any_element(),
+                Some("Your prompts, the agent's replies and its tool calls. Tool calls, diffs and the terminal use the code font.".into()),
             ))
             .child(section(
                 "Transcript",
@@ -259,6 +306,8 @@ impl SettingsView {
                                 p.appearance = d.appearance;
                                 p.text_size = d.text_size;
                                 p.message_size = d.message_size;
+                                p.message_font = d.message_font;
+                                p.code_font = d.code_font;
                                 p.group_tool_calls = d.group_tool_calls;
                                 p.sidebar_layout = d.sidebar_layout;
                                 p.terminal_placement = d.terminal_placement;

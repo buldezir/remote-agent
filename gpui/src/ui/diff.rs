@@ -19,7 +19,7 @@ use serde_json::json;
 
 use crate::conn::ServerConn;
 use crate::protocol::{Diff, RevertResult, Session, SessionStatus, Turn, WorkspaceKind};
-use crate::ui::common::{MONO, caption, file_row, files_summary, plural};
+use crate::ui::common::{caption, file_row, files_summary, plural};
 use crate::ui::dialogs::{self, Choice};
 use crate::ui::palette::Palette;
 use crate::ui::session::explain;
@@ -170,7 +170,7 @@ impl DiffView {
         let wrap = prefs(cx).diff_wrap;
         let patch = file_patch(&diff.patch, path);
         let stat = diff.files.iter().find(|f| f.path == path);
-        let mut lines = v_flex().w_full().font_family(MONO).text_xs();
+        let mut lines = v_flex().w_full().font_family(crate::ui::fonts::code()).text_xs();
         let mut count = 0;
         for line in patch_lines(&patch) {
             count += 1;

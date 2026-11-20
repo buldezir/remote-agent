@@ -44,6 +44,11 @@ pub struct Prefs {
     pub text_size: f32,
     /// Agent replies' text size, in points.
     pub message_size: f32,
+    /// The font family of prompts and replies; empty for the system font.
+    pub message_font: String,
+    /// The font family of code: in replies, tool calls, diffs and the
+    /// terminal; empty for the default, Menlo.
+    pub code_font: String,
     /// The agent last used, per server id.
     pub last_agent: HashMap<String, AgentChoice>,
     /// The project last used, per server id.
@@ -82,6 +87,8 @@ impl Default for Prefs {
             search_archived: true,
             text_size: 14.,
             message_size: 14.,
+            message_font: String::new(),
+            code_font: String::new(),
             last_agent: HashMap::new(),
             last_project: HashMap::new(),
             commit_scope: String::new(),

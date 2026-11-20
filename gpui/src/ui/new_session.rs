@@ -26,7 +26,7 @@ use crate::conn::ServerConn;
 use crate::images::{Prepared, prepare};
 use crate::protocol::{Branches, FsList, ImageRef, ImportableList, Project, ServerSettings, Session};
 use crate::ui::agent_picker::{AgentChanged, AgentPicker, picker, row};
-use crate::ui::common::{MONO, caption, plural};
+use crate::ui::common::{caption, plural};
 use crate::ui::palette::Palette;
 use crate::ui::session::explain;
 use crate::ui::state::{app_view, prefs, update_prefs};
@@ -771,7 +771,7 @@ impl Render for NewSessionView {
                                     h_flex()
                                         .gap_2()
                                         .pl(px(108.))
-                                        .child(div().flex_1().min_w_0().truncate().text_xs().font_family(MONO).text_color(p.subtext).child(pr.path.clone()))
+                                        .child(div().flex_1().min_w_0().truncate().text_xs().font_family(crate::ui::fonts::code()).text_color(p.subtext).child(pr.path.clone()))
                                         .child(
                                             Button::new("forget")
                                                 .xsmall()
@@ -835,6 +835,7 @@ impl Render for NewSessionView {
                                                     cx.stop_propagation();
                                                 }
                                             }))
+                                            .font_family(crate::ui::fonts::message())
                                             .child(Textarea::new(&self.prompt).appearance(false)),
                                     )
                                     .when_some(attachments, |d, a| d.child(a))

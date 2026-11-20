@@ -27,7 +27,7 @@ use crate::store::search::find_matches;
 use crate::store::session::{Outgoing, SessionState};
 use crate::store::tool_runs::{ToolRun, TranscriptRow, tool_runs, transcript_rows};
 use crate::ui::dialogs;
-use crate::ui::state::{prefs, update_prefs};
+use crate::ui::state::{AppPrefs, prefs, update_prefs};
 use crate::ui::terminal::TerminalView;
 
 /// A row of the transcript as this view draws it.
@@ -81,6 +81,8 @@ pub struct SessionView {
     pub(crate) list: ListState,
     pub(crate) rows: Vec<Row>,
     signatures: Vec<u64>,
+    /// The prefs and theme that rows were laid out with (`look`).
+    look: String,
     /// Runs the user opened or shut, by run id.
     pub(crate) expanded_runs: HashMap<String, bool>,
     /// Tool calls and reasoning the user opened.
@@ -148,6 +150,8 @@ impl SessionView {
             cx.subscribe_in(&speech, window, |this, _, event: &SpeechEvent, window, cx| {
                 this.dictation(event, window, cx)
             }),
+            cx.observe_global::<AppPrefs>(|this, cx| this.restyle(cx)),
+            cx.observe_global::<gpui_kit::component::Theme>(|this, cx| this.restyle(cx)),
         ];
         conn.update(cx, |c, cx| c.open_session(&session_id, cx));
         // The prompt written here before, and not sent.
@@ -161,6 +165,7 @@ impl SessionView {
             list: ListState::new(0, ListAlignment::Bottom, px(2000.)),
             rows: Vec::new(),
             signatures: Vec::new(),
+            look: look(cx),
             expanded_runs: HashMap::new(),
             open_items: HashSet::new(),
             full_outputs: HashSet::new(),
@@ -292,6 +297,19 @@ impl SessionView {
         self.rows = rows;
         self.signatures = signatures;
         cx.notify();
+    }
+
+    /// The prefs or the theme changed. When the grouping, fonts, sizes or
+    /// colours did, rows are built again and every one is laid out again.
+    fn restyle(&mut self, cx: &mut Context<Self>) {
+        let look = look(cx);
+        if look != self.look {
+            self.look = look;
+            self.refresh(cx);
+            let n = self.list.item_count();
+            self.list.splice(0..n, n);
+            cx.notify();
+        }
     }
 
     /// What a row looks like, so that only the rows that changed are laid out again.
@@ -833,4 +851,18 @@ pub fn rename_session(conn: Entity<ServerConn>, s: Rc<Session>, window: &mut Win
                 .detach();
         },
     );
+}
+
+/// What rows' layout depends on besides their own content.
+fn look(cx: &App) -> String {
+    let p = prefs(cx);
+    format!(
+        "{} {} {} {} {} {:?}",
+        p.group_tool_calls,
+        p.text_size,
+        p.message_size,
+        crate::ui::fonts::message(),
+        crate::ui::fonts::code(),
+        gpui_kit::component::ActiveTheme::theme(cx).mode
+    )
 }

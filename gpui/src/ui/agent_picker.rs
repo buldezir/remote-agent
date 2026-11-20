@@ -16,7 +16,7 @@ use gpui_kit::{
 use crate::conn::ServerConn;
 use crate::protocol::{Choice, HarnessInfo};
 use crate::store::prefs::AgentChoice;
-use crate::ui::common::{MONO, caption, limits_gauge_view};
+use crate::ui::common::{caption, limits_gauge_view};
 use crate::ui::palette::Palette;
 
 const CUSTOM: &str = "__custom";
@@ -162,14 +162,18 @@ impl AgentPicker {
                         v_flex()
                             .flex_1()
                             .min_w_0()
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(div().text_sm().child(h.name.clone()))
-                                    .when_some(h.version.clone(), |d, v| {
-                                        d.child(div().text_xs().font_family(MONO).text_color(p.overlay).child(v))
-                                    }),
-                            )
+                            .child(h_flex().gap_2().child(div().text_sm().child(h.name.clone())).when_some(
+                                h.version.clone(),
+                                |d, v| {
+                                    d.child(
+                                        div()
+                                            .text_xs()
+                                            .font_family(crate::ui::fonts::code())
+                                            .text_color(p.overlay)
+                                            .child(v),
+                                    )
+                                },
+                            ))
                             .when(!usable, |d| {
                                 d.child(
                                     div()
@@ -327,7 +331,8 @@ pub fn row(label: &str, control: AnyElement, description: Option<String>, p: &Pa
         .into_any_element()
 }
 
-/// A button that shows the choice, and a menu of the others.
+/// A button that shows the choice, and a menu of the others. A choice with
+/// the id "-" is a separator.
 pub fn picker(
     id: &'static str,
     label: String,
@@ -342,7 +347,15 @@ pub fn picker(
         .label(label)
         .icon(IconName::ChevronsUpDown)
         .dropdown_menu(move |mut menu, _, _| {
+            // A long list, such as the fonts, scrolls.
+            if choices.len() > 16 {
+                menu = menu.scrollable(true).max_h(gpui_kit::px(420.));
+            }
             for (cid, name) in &choices {
+                if cid == "-" {
+                    menu = menu.separator();
+                    continue;
+                }
                 let (f, cid2) = (on_pick.clone(), cid.clone());
                 menu = menu.item(
                     PopupMenuItem::new(name.clone())

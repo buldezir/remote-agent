@@ -21,13 +21,23 @@ pub fn update_prefs(cx: &mut App, f: impl FnOnce(&mut Prefs)) {
     cx.refresh_windows();
 }
 
-/// The interface's text size, from the prefs.
+/// The interface's text size, and code's font and size, from the prefs. Code
+/// in replies follows the theme's monospaced font, which the kit hands its
+/// Markdown through the base theme.
 pub fn apply_text_size(cx: &mut App) {
+    use gpui_kit::component::Theme;
     let size = prefs(cx).text_size.clamp(10., 20.);
-    let theme = gpui_kit::component::Theme::global_mut(cx);
-    if theme.font_size != px(size) {
+    let code_size = (prefs(cx).message_size - 1.).clamp(9., 23.);
+    crate::ui::fonts::apply(cx);
+    let code = crate::ui::fonts::code();
+    let theme = Theme::global_mut(cx);
+    let changed =
+        theme.font_size != px(size) || theme.mono_font_size != px(code_size) || theme.mono_font_family != code;
+    if changed {
         theme.font_size = px(size);
-        theme.mono_font_size = px(size - 1.5);
+        theme.mono_font_size = px(code_size);
+        theme.mono_font_family = code;
+        Theme::sync_base(cx);
     }
 }
 

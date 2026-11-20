@@ -16,20 +16,22 @@ use crate::store::limits::{LimitLevel, limits_details, limits_gauge, limits_leve
 use crate::store::sidebar::is_busy;
 use crate::ui::palette::Palette;
 
-pub const MONO: &str = "Menlo";
-
 pub fn caption(text: impl Into<SharedString>, p: &Palette) -> Div {
     div().text_xs().text_color(p.overlay).child(text.into())
 }
 
-/// Agent Markdown. As the other clients do: raw HTML in a reply stays text.
-pub fn markdown(id: impl Into<SharedString>, text: &str) -> TextView {
-    TextView::markdown(
-        ElementId::Name(SharedString::from(format!("md-{}", id.into()))),
-        SharedString::from(text.to_string()),
+/// Agent Markdown, in the message font; its code takes the theme's
+/// monospaced font, the code font. As the other clients do: raw HTML in a
+/// reply stays text.
+pub fn markdown(id: impl Into<SharedString>, text: &str) -> Div {
+    div().font_family(crate::ui::fonts::message()).child(
+        TextView::markdown(
+            ElementId::Name(SharedString::from(format!("md-{}", id.into()))),
+            SharedString::from(text.to_string()),
+        )
+        .markdown_extensions(MarkdownExtensions::default().raw_html(false))
+        .selectable(true),
     )
-    .markdown_extensions(MarkdownExtensions::default().raw_html(false))
-    .selectable(true)
 }
 
 pub fn disclosure(id: impl Into<SharedString>, open: bool, title: &str, p: &Palette) -> Stateful<Div> {
@@ -74,7 +76,7 @@ pub fn code_block(title: Option<&str>, text: &str, p: &Palette) -> Div {
         .child(
             div()
                 .text_xs()
-                .font_family(MONO)
+                .font_family(crate::ui::fonts::code())
                 .text_color(p.subtext)
                 .child(text.to_string()),
         )
@@ -141,7 +143,7 @@ pub fn file_row(f: &FileStat, p: &Palette) -> Div {
             h_flex()
                 .gap_1()
                 .text_xs()
-                .font_family(MONO)
+                .font_family(crate::ui::fonts::code())
                 .child(div().text_color(p.green).child(format!("+{}", f.additions)))
                 .child(div().text_color(p.red).child(format!("−{}", f.deletions)))
                 .into_any_element()

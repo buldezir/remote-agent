@@ -22,7 +22,7 @@ use super::{AttachState, Attachment, SessionView, explain};
 use crate::images::{Loaded, Prepared, prepare};
 use crate::protocol::{CommandList, ImageRef};
 use crate::store::search::{command_query, command_suggestions};
-use crate::ui::common::{MONO, caption};
+use crate::ui::common::caption;
 use crate::ui::dialogs::{self, Choice};
 use crate::ui::palette::Palette;
 
@@ -635,7 +635,12 @@ impl SessionView {
                         v_flex()
                             .flex_1()
                             .min_w_0()
-                            .child(div().text_xs().font_family(MONO).child(format!("/{}", c.name)))
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_family(crate::ui::fonts::code())
+                                    .child(format!("/{}", c.name)),
+                            )
                             .when_some(c.description.clone(), |d, desc| {
                                 d.child(div().text_xs().text_color(p.subtext).line_clamp(2).child(desc))
                             }),
@@ -764,6 +769,7 @@ impl SessionView {
                             .when_some(attachments, |d, a| d.child(a))
                             .child(
                                 div()
+                                    .font_family(crate::ui::fonts::message())
                                     .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                                         this.composer_key(ev, window, cx)
                                     }))

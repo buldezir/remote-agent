@@ -21,7 +21,7 @@ use serde_json::json;
 use crate::conn::ServerConn;
 use crate::protocol::{CommitPreview, ServerTask, StepStatus, TaskList};
 use crate::store::commit::{COMMIT_SCOPES, CommitScope};
-use crate::ui::common::{MONO, caption, file_row, files_summary, plural};
+use crate::ui::common::{caption, file_row, files_summary, plural};
 use crate::ui::palette::Palette;
 use crate::ui::session::explain;
 use crate::ui::state::{prefs, update_prefs};
@@ -245,6 +245,7 @@ impl CommitView {
                             .rounded_md()
                             .border_1()
                             .border_color(p.surface0)
+                            .font_family(crate::ui::fonts::message())
                             .child(Textarea::new(&self.message).appearance(false)),
                     )
                     .child(caption("Leave it empty and rad writes one.", p)),
@@ -391,7 +392,13 @@ impl CommitView {
                                     },
                                 )),
                         )
-                        .child(div().text_xs().font_family(MONO).text_color(p.subtext).child(url)),
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_family(crate::ui::fonts::code())
+                                .text_color(p.subtext)
+                                .child(url),
+                        ),
                 )
             })
             .when(!output.is_empty(), |d| {

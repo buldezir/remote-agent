@@ -663,7 +663,7 @@ impl TerminalView {
 }
 
 fn mono() -> Font {
-    font("Menlo")
+    font(crate::ui::fonts::code())
 }
 
 /// The palette's sixteen ANSI colours, Catppuccin's terminal theme.
@@ -826,7 +826,7 @@ impl Render for TerminalView {
             .py_1()
             .text_size(px(FONT_SIZE))
             .line_height(lh)
-            .font_family("Menlo");
+            .font_family(crate::ui::fonts::code());
         for l in lines {
             grid = grid.child(div().h(lh).whitespace_nowrap().child(l));
         }

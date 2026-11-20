@@ -24,7 +24,7 @@ use crate::protocol::{
 };
 use crate::store::limits::{limit_notice, limited_now};
 use crate::store::tool_runs::ToolRun;
-use crate::ui::common::{MONO, caption, code_block, disclosure, markdown};
+use crate::ui::common::{caption, code_block, disclosure, markdown};
 use crate::ui::palette::Palette;
 use crate::ui::state::prefs;
 
@@ -879,7 +879,7 @@ pub(crate) fn input_preview(name: &str, input: &Value, p: &Palette) -> AnyElemen
                 div()
                     .w_full()
                     .text_xs()
-                    .font_family(MONO)
+                    .font_family(crate::ui::fonts::code())
                     .bg(if *added {
                         p.green.opacity(0.15)
                     } else {
@@ -902,6 +902,7 @@ pub(crate) fn input_preview(name: &str, input: &Value, p: &Palette) -> AnyElemen
 
 pub(crate) fn user_bubble(text: &str, p: &Palette) -> Div {
     v_flex()
+        .font_family(crate::ui::fonts::message())
         .gap_1()
         .px_3()
         .py_2()

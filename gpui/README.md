@@ -18,11 +18,11 @@ It does what the SwiftUI Mac client does, with the gaps listed below.
 - **Fork:** after which turn, the agent and its options, the project folder, a new worktree or this session's.
 - **The terminal (⌘J):** the session's shell on the server, instead of the messages, below them or beside them, with copy on select. Hiding it leaves the shell running; it resumes where it left off.
 - **New sessions (⌘N):** the project (or a folder added as one, or Forget), the agent with its model, effort and permissions and its usage gauge, the project folder, a new worktree (a branch, its name and base) or an existing one, the prompt with images, Save as Draft, and "Continue a terminal session…" to import one. It starts with the server's default agent, else the one used last.
-- **Settings (⌘,):** theme, text sizes, grouping of tool calls, the sidebar layout, where the terminal opens, notifications; and each server's settings: rad's version and update, the agents with their versions, usage limits, Sign In and Update (with the sign-in page and its code), and the default and system agents.
+- **Settings (⌘,):** theme, text sizes, the message font and the code font (replies' code, tool calls, diffs and the terminal), grouping of tool calls, the sidebar layout, where the terminal opens, notifications; and each server's settings: rad's version and update, the agents with their versions, usage limits, Sign In and Update (with the sign-in page and its code), and the default and system agents.
 - **Notifications:** when a session needs you, finishes or fails and the window doesn't show it; clicking one opens the session.
 - **Unread state, connections, appearance:** a session is marked read while it shows in the window in front; the client reconnects with backoff and resubscribes from where it left off; Catppuccin, Frappé when dark and Latte when light.
 
-Not yet: the Dock badge and bounce, the message and code fonts, the Photo Library, and app updates (Sparkle). Notifications reach Notification Center only from the app bundle; a bare build shows them in the window. The terminal draws with Menlo, which lacks Nerd Font glyphs.
+Not yet: the Dock badge and bounce, the Photo Library, and app updates (Sparkle). The fonts are installed families only: GPUI loads a font by family name, so the system font's other designs (New York, SF Pro Rounded, SF Mono) aren't offered, and code is Menlo unless you pick another. Notifications reach Notification Center only from the app bundle; a bare build shows them in the window. The terminal draws with the code font; Menlo lacks Nerd Font glyphs, so pick a Nerd Font there for them.
 
 ## Building and running
 

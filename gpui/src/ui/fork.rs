@@ -338,6 +338,7 @@ impl Render for ForkView {
                                     .rounded_md()
                                     .border_1()
                                     .border_color(p.surface0)
+                                    .font_family(crate::ui::fonts::message())
                                     .child(Textarea::new(&self.prompt).appearance(false)),
                             )
                             .child(caption(
