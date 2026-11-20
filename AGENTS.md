@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Notes for coding agents working on this repo. What the project is and how it is laid out: [README.md](README.md). The wire contract: [protocol/PROTOCOL.md](protocol/PROTOCOL.md).
+Notes for coding agents working on this repo. What the project is: [README.md](README.md). How it is laid out, tested and released: [DEVELOPMENT.md](DEVELOPMENT.md). The wire contract: [protocol/PROTOCOL.md](protocol/PROTOCOL.md).
 
 ## Development process
 
@@ -176,7 +176,7 @@ The developer may have their own `rad serve` running on the default port 7421, w
 
 4. Stop it by its port: `kill $(lsof -tiTCP:7499 -sTCP:LISTEN)`. Don't use `pkill -f "rad serve"`: that matches the developer's rad too, including the one the Server app runs.
 
-Fake prompt keywords are listed in the README: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `tools`, `picture`, `markdown`, `background [duration]`, `enter worktree [name]` and `exit worktree`, `limit` and `limits <n>`, and the prompt `/compact`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
+Fake prompt keywords are listed in DEVELOPMENT.md: `write <file>`, `question`, `slow`, `fail`, `screenshot`, `tools`, `picture`, `markdown`, `background [duration]`, `enter worktree [name]` and `exit worktree`, `limit` and `limits <n>`, and the prompt `/compact`. Prefer the fake harness for UI work. A real harness spends tokens; use it only when the task is about that adapter.
 
 ## Terminal client
 

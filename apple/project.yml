@@ -23,7 +23,7 @@ settings:
     # (0.3.0-beta.2 → 30002, 0.3.0 → 30099), which Sparkle compares.
     CURRENT_PROJECT_VERSION: "1"
     # Sparkle installs only updates signed with the private half, which is
-    # the SPARKLE_PRIVATE_KEY secret (README.md › Development).
+    # the SPARKLE_PRIVATE_KEY secret (DEVELOPMENT.md › Releasing).
     SPARKLE_PUBLIC_KEY: WQontbp7coFEQwc0h6w4Or5DMoyvPz535n1amUTZNqc=
     # The Server app's hardened runtime, which notarization needs, is on when
     # it is signed with a team. Signed ad hoc, without one, it would stop it

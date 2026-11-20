@@ -127,7 +127,7 @@ jobs:
           # without the certificate signs ad hoc.
           if [ -z "$CERTIFICATE_BASE64" ]; then
             if [[ $GITHUB_REF == refs/tags/v* ]]; then
-              echo "::error::MACOS_CERTIFICATE_P12_BASE64 isn't set; see Development in README.md"; exit 1
+              echo "::error::MACOS_CERTIFICATE_P12_BASE64 isn't set; see Releasing in DEVELOPMENT.md"; exit 1
             fi
             exit 0
           fi
@@ -248,7 +248,7 @@ jobs:
           # Downloads; the release is usually written by the time the apps
           # are built. Without the key, a run by hand makes no feed.
           if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
-            if [[ $GITHUB_REF == refs/tags/v* ]]; then echo "::error::SPARKLE_PRIVATE_KEY isn't set; see Development in README.md"; exit 1; fi
+            if [[ $GITHUB_REF == refs/tags/v* ]]; then echo "::error::SPARKLE_PRIVATE_KEY isn't set; see Releasing in DEVELOPMENT.md"; exit 1; fi
           else
             gh release view "$GITHUB_REF_NAME" --json body --jq .body 2>/dev/null | sed '/^## Downloads/,$d' > "$RUNNER_TEMP/notes.md" || true
             download="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
@@ -308,7 +308,7 @@ jobs:
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
             export RA_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
           elif [[ $GITHUB_REF == refs/tags/v* ]]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 isn't set; see Development in README.md"; exit 1
+            echo "::error::ANDROID_KEYSTORE_BASE64 isn't set; see Releasing in DEVELOPMENT.md"; exit 1
           fi
           ./gradlew :app:assembleRelease -PversionName="$version"
           mkdir ../dist
