@@ -14,8 +14,7 @@ mod ui;
 use gpui_kit::component::TitleBar;
 use gpui_kit::component::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui_kit::{
-    Action, App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, OsAction, SharedString, WindowBounds,
-    WindowOptions, actions, px, size,
+    Action, App, AppContext as _, KeyBinding, Menu, MenuItem, OsAction, SharedString, WindowOptions, actions, px, size,
 };
 
 use crate::store::prefs::PrefsStore;
@@ -159,10 +158,12 @@ fn main() {
             })
             .detach();
 
-            let bounds = Bounds::centered(None, size(px(1240.), px(800.)), cx);
+            let (bounds, display_id) = ui::window_frame::initial(cx);
+            let (min_w, min_h) = ui::window_frame::MIN_SIZE;
             let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(720.), px(480.))),
+                window_bounds: Some(bounds),
+                display_id,
+                window_min_size: Some(size(px(min_w), px(min_h))),
                 app_id: Some("dev.remote-agent.gpui".into()),
                 ..TitleBar::window_options()
             };

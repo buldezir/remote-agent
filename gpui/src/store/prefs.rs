@@ -1,7 +1,8 @@
 //! The app's own settings and what it remembers between launches, in
 //! `prefs.json` beside `servers.json`: the sidebar's layout, the transcript's
 //! options, notifications, the agent and commit scope last chosen, the
-//! Columns layout's collection, and prompts written and not sent.
+//! Columns layout's collection, prompts written and not sent, and where the
+//! window was.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -76,6 +77,24 @@ pub struct Prefs {
     pub open_session: String,
     /// Sessions opened lately, the latest first: "<serverId> <sessionId>".
     pub recent_sessions: Vec<String>,
+    /// The window's frame when it last moved; none until it has.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<WindowFrame>,
+}
+
+/// Where the window was: its top-left corner on its display, in points from
+/// the display's top-left, and its size.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WindowFrame {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub fullscreen: bool,
+    /// The display's UUID, which outlives a restart; empty when unknown.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub display: String,
 }
 
 impl Default for Prefs {
@@ -103,6 +122,7 @@ impl Default for Prefs {
             collapsed_servers: Vec::new(),
             open_session: String::new(),
             recent_sessions: Vec::new(),
+            window: None,
         }
     }
 }

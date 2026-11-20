@@ -19,3 +19,4 @@ pub mod state;
 pub mod task;
 pub mod terminal;
 pub mod viewer;
+pub mod window_frame;

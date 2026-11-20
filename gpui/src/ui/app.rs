@@ -11,13 +11,14 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, TitleBar, WindowExt as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable as _, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Window, div,
+    IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Task, Window, div,
 };
 use serde_json::json;
 
 use crate::conn::{ConnEvent, ServerConn};
 use crate::protocol::{Session, SessionStatus};
 use crate::store::alert::SessionAlert;
+use crate::store::prefs::WindowFrame;
 use crate::store::search::{Hit, merge_search_results, search_active};
 use crate::store::servers::{SavedServer, ServerStore, custom_home, home_dir, pair, parse_pairing_link};
 use crate::store::sidebar::{Collection, Layout, OpenedSession, stands_out};
@@ -26,6 +27,7 @@ use crate::ui::new_session::{NewSessionEvent, NewSessionView};
 use crate::ui::palette::{Palette, follow_appearance};
 use crate::ui::session::SessionView;
 use crate::ui::state::{prefs, update_prefs};
+use crate::ui::window_frame;
 use crate::*;
 
 pub(crate) enum Detail {
@@ -68,6 +70,9 @@ pub struct AppView {
     pub(crate) archives_open: HashSet<String>,
     /// The session to open once its server has it: from the last launch.
     pending_open: Option<(String, String)>,
+    /// The window's frame since it last moved, until it's saved.
+    moved_frame: Option<WindowFrame>,
+    frame_save: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -98,6 +103,18 @@ impl AppView {
                     view.update(cx, |v, cx| v.mark_read_if_shown(window, cx));
                 }
             }),
+            // Saved half a second after it stops moving, not at every step of a drag.
+            cx.observe_window_bounds(window, |this, window, cx| {
+                this.moved_frame = Some(window_frame::current(window, cx));
+                this.frame_save = Some(cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(Duration::from_millis(500)).await;
+                    this.update(cx, |this, cx| this.save_frame(cx)).ok();
+                }));
+            }),
+            cx.on_app_quit(|this, cx| {
+                this.save_frame(cx);
+                async {}
+            }),
         ];
         let focus = cx.focus_handle();
         focus.focus(window, cx);
@@ -120,6 +137,8 @@ impl AppView {
             archive_open: false,
             archives_open: HashSet::new(),
             pending_open,
+            moved_frame: None,
+            frame_save: None,
             _subscriptions: Vec::new(),
         };
         for saved in this.store.servers.clone() {
@@ -140,6 +159,13 @@ impl AppView {
     }
 
     /// Focuses the window's own view, so that its commands reach it.
+    fn save_frame(&mut self, cx: &mut Context<Self>) {
+        self.frame_save = None;
+        if let Some(frame) = self.moved_frame.take() {
+            window_frame::save(frame, cx);
+        }
+    }
+
     pub fn focus_root(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.focus.focus(window, cx);
     }
