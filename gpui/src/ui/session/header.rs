@@ -13,6 +13,7 @@ use gpui_kit::{
 use serde_json::json;
 
 use super::SessionView;
+use super::dock::Dock;
 use crate::protocol::{SessionStatus, TurnStatus, WorkspaceKind};
 use crate::ui::badges::project_badge;
 use crate::ui::common::{busy_dot, caption, sidebar_toggle, top_bar};
@@ -505,36 +506,11 @@ impl Render for SessionView {
             .child(composer);
         let body = match (terminal, placement.as_str()) {
             (Some(t), "below") => {
-                let height = prefs(cx).terminal_height.clamp(120., 900.);
-                v_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .child(messages)
-                    .child(
-                        div()
-                            .h(px(height))
-                            .flex_shrink_0()
-                            .border_t_1()
-                            .border_color(p.surface0)
-                            .child(t),
-                    )
-                    .into_any_element()
+                self.render_docked(Dock::Below, messages.into_any_element(), t.into_any_element(), cx)
             }
-            (Some(t), "right") => h_flex()
-                .flex_1()
-                .min_h_0()
-                .items_start()
-                .child(messages.h_full())
-                .child(
-                    div()
-                        .w(px(440.))
-                        .h_full()
-                        .flex_shrink_0()
-                        .border_l_1()
-                        .border_color(p.surface0)
-                        .child(t),
-                )
-                .into_any_element(),
+            (Some(t), "right") => {
+                self.render_docked(Dock::Right, messages.into_any_element(), t.into_any_element(), cx)
+            }
             _ => messages.into_any_element(),
         };
         v_flex()

@@ -66,7 +66,9 @@ pub struct Prefs {
     pub drafts: HashMap<String, String>,
     /// Where a session's terminal opens: "over" the messages, "below" or "right".
     pub terminal_placement: String,
+    /// The terminal's height below the messages, and its width on their right, in points.
     pub terminal_height: f32,
+    pub terminal_width: f32,
     #[serde(default = "yes")]
     pub terminal_copy_on_select: bool,
     /// Diffs wrap their lines.
@@ -131,6 +133,7 @@ impl Default for Prefs {
             drafts: HashMap::new(),
             terminal_placement: "over".into(),
             terminal_height: 280.,
+            terminal_width: 440.,
             terminal_copy_on_select: true,
             diff_wrap: true,
             appearance: "system".into(),

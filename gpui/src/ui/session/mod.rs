@@ -3,6 +3,7 @@
 //! it, the composer, and its terminal.
 
 mod composer;
+mod dock;
 mod header;
 mod transcript;
 
@@ -109,6 +110,10 @@ pub struct SessionView {
     jump_to: Option<String>,
     pub(crate) terminal: Option<Entity<TerminalView>>,
     pub(crate) terminal_shown: bool,
+    /// The docked terminal's height or width while a drag sets it, until it's saved.
+    terminal_height: Option<f32>,
+    terminal_width: Option<f32>,
+    terminal_size_save: Option<Task<()>>,
     pub(crate) speech: Entity<SpeechState>,
     /// The prompt as it was when dictation started.
     dictation_base: Option<String>,
@@ -206,6 +211,9 @@ impl SessionView {
             marking_read: false,
             closed: false,
             draft_save: None,
+            terminal_height: None,
+            terminal_width: None,
+            terminal_size_save: None,
             _subscriptions: subscriptions,
         };
         this.refresh(cx);
