@@ -10,8 +10,9 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, TitleBar, WindowExt as _, h_flex, v_flex};
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Context, Entity, FocusHandle, Focusable as _, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Task, Window, div,
+    AnyElement, App, AppContext as _, Context, DragMoveEvent, Entity, FocusHandle, Focusable as _,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Task,
+    Window, div,
 };
 use serde_json::json;
 
@@ -25,6 +26,7 @@ use crate::store::sidebar::{Collection, Layout, OpenedSession, stands_out};
 use crate::store::tokens::Tokens;
 use crate::ui::new_session::{NewSessionEvent, NewSessionView};
 use crate::ui::palette::{Palette, follow_appearance};
+use crate::ui::panes::{self, PaneResize};
 use crate::ui::session::SessionView;
 use crate::ui::state::{prefs, update_prefs};
 use crate::ui::window_frame;
@@ -73,6 +75,11 @@ pub struct AppView {
     /// The window's frame since it last moved, until it's saved.
     moved_frame: Option<WindowFrame>,
     frame_save: Option<Task<()>>,
+    /// The sidebar's width, and the Columns layout's middle column's, as
+    /// dragged; saved shortly after.
+    pub(crate) sidebar_width: f32,
+    pub(crate) middle_width: f32,
+    pub(crate) widths_save: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -122,6 +129,7 @@ impl AppView {
             .open_session
             .split_once(' ')
             .map(|(a, b)| (a.to_string(), b.to_string()));
+        let (sidebar_width, middle_width) = panes::saved(cx);
         let mut this = Self {
             focus,
             runtime,
@@ -139,6 +147,9 @@ impl AppView {
             pending_open,
             moved_frame: None,
             frame_save: None,
+            sidebar_width,
+            middle_width,
+            widths_save: None,
             _subscriptions: Vec::new(),
         };
         for saved in this.store.servers.clone() {
@@ -920,6 +931,9 @@ impl Render for AppView {
                     .flex_1()
                     .min_h_0()
                     .items_start()
+                    .on_drag_move(
+                        cx.listener(|this, e: &DragMoveEvent<PaneResize>, window, cx| this.drag_pane(e, window, cx)),
+                    )
                     .child(sidebar)
                     .when_some(middle, |d, m| d.child(m))
                     .child(div().flex_1().min_w_0().h_full().child(detail)),

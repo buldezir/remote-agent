@@ -11,6 +11,7 @@ pub mod fonts;
 pub mod fork;
 pub mod new_session;
 pub mod palette;
+pub mod panes;
 pub mod server_settings;
 pub mod session;
 pub mod settings;

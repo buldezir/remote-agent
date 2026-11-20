@@ -30,11 +30,9 @@ use crate::ui::actions;
 use crate::ui::app::{AppView, Detail};
 use crate::ui::common::{caption, status_dot};
 use crate::ui::palette::Palette;
+use crate::ui::panes::{self, Pane};
 use crate::ui::session::rename_session;
 use crate::ui::state::{prefs, update_prefs};
-
-const SIDEBAR_WIDTH: f32 = 290.;
-const MIDDLE_WIDTH: f32 = 330.;
 
 /// A row of a list: a session, and the connection it's on.
 #[derive(Clone)]
@@ -403,7 +401,8 @@ impl AppView {
             }
         };
         v_flex()
-            .w(px(SIDEBAR_WIDTH))
+            .relative()
+            .w(px(self.sidebar_width))
             .h_full()
             .flex_shrink_0()
             .bg(p.mantle)
@@ -448,6 +447,7 @@ impl AppView {
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.show_pairing(cx))),
                 ),
             )
+            .child(panes::edge(Pane::Sidebar, &p, cx))
             .into_any_element()
     }
 
@@ -1136,13 +1136,15 @@ impl AppView {
             .gap_0p5();
         if searching {
             return v_flex()
-                .w(px(MIDDLE_WIDTH))
+                .relative()
+                .w(px(self.middle_width))
                 .h_full()
                 .flex_shrink_0()
                 .border_r_1()
                 .border_color(p.crust)
                 .child(self.middle_header(title, rows.len(), &p, cx))
                 .child(self.render_search(cx))
+                .child(panes::edge(Pane::Middle, &p, cx))
                 .into_any_element();
         }
         if rows.is_empty() {
@@ -1166,13 +1168,15 @@ impl AppView {
         }
         list = self.render_rows(&rows, selected.as_deref(), true, list, cx);
         v_flex()
-            .w(px(MIDDLE_WIDTH))
+            .relative()
+            .w(px(self.middle_width))
             .h_full()
             .flex_shrink_0()
             .border_r_1()
             .border_color(p.crust)
             .child(self.middle_header(title, rows.len(), &p, cx))
             .child(list)
+            .child(panes::edge(Pane::Middle, &p, cx))
             .into_any_element()
     }
 
@@ -1212,9 +1216,10 @@ impl AppView {
 
     pub(crate) fn render_pair(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(cx);
-        v_flex().size_full().items_center().justify_center().child(
+        v_flex().size_full().items_center().justify_center().px_6().child(
             v_flex()
-                .w(px(520.))
+                .w_full()
+                .max_w(px(520.))
                 .gap_3()
                 .p_6()
                 .rounded_lg()

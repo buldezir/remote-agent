@@ -1,8 +1,8 @@
 //! The app's own settings and what it remembers between launches, in
 //! `prefs.json` beside `servers.json`: the sidebar's layout, the transcript's
 //! options, notifications, the agent and commit scope last chosen, the
-//! Columns layout's collection, prompts written and not sent, and where the
-//! window was.
+//! Columns layout's collection, prompts written and not sent, the
+//! columns' widths and where the window was.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -77,6 +77,10 @@ pub struct Prefs {
     pub open_session: String,
     /// Sessions opened lately, the latest first: "<serverId> <sessionId>".
     pub recent_sessions: Vec<String>,
+    /// The sidebar's width, in points.
+    pub sidebar_width: f32,
+    /// The Columns layout's middle column's width, in points.
+    pub column_width: f32,
     /// The window's frame when it last moved; none until it has.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowFrame>,
@@ -122,6 +126,8 @@ impl Default for Prefs {
             collapsed_servers: Vec::new(),
             open_session: String::new(),
             recent_sessions: Vec::new(),
+            sidebar_width: 290.,
+            column_width: 330.,
             window: None,
         }
     }
