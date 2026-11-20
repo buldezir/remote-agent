@@ -1,19 +1,24 @@
-//! Settings (⌘,): General (appearance, text sizes, the transcript, the
-//! sidebar, the terminal, notifications) and Servers (each server's
-//! settings). As `SettingsView.swift`.
+//! Settings (⌘,), as T3 Code lays them out: a sidebar of categories with a
+//! search field, and the chosen one's page beside it. General
+//! (notifications, the sidebar, updates), Appearance (the theme, text sizes
+//! and fonts), Chat (the transcript and the prompt), Terminal, and each
+//! server's settings. As `SettingsView.swift`.
 
 use std::collections::HashMap;
 
+use gpui_kit::assets::IconName as L;
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::scroll::{Scrollbar, ScrollbarMode};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{Disableable as _, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div,
-    px,
+    ParentElement as _, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled as _, Subscription,
+    Window, div, px,
 };
 
 use crate::conn::{ConnState, ServerConn};
@@ -27,99 +32,306 @@ use crate::ui::palette::{Palette, apply_appearance};
 use crate::ui::server_settings::ServerSettingsView;
 use crate::ui::state::{app_view, prefs, update_prefs};
 
+/// The window's size: as large as a laptop's screen lets it, no larger.
+const WIDTH: f32 = 980.;
+const HEIGHT: f32 = 720.;
+/// The sidebar's width, and the widest a page's cards get.
+const SIDEBAR: f32 = 230.;
+const PAGE: f32 = 640.;
+
 pub fn open(conns: Vec<Entity<ServerConn>>, server: Option<usize>, window: &mut Window, cx: &mut App) {
     if window.has_active_dialog(cx) {
         return;
     }
     let view = cx.new(|cx| SettingsView::new(conns, server, window, cx));
     let size = window.viewport_size();
+    let height = (size.height * 0.86).min(px(HEIGHT));
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
-            .w((size.width * 0.9).min(px(720.)))
-            .title("Settings")
-            .child(div().h(size.height * 0.75).child(view.clone()))
+            .w((size.width * 0.92).min(px(WIDTH)))
+            .p_0()
+            .close_button(false)
+            .margin_top((size.height - height) / 2.)
+            .child(div().h(height).child(view.clone()))
     });
 }
 
+/// A page of Settings.
 #[derive(PartialEq, Clone, Copy)]
-enum Tab {
+enum Page {
     General,
-    Servers,
+    Appearance,
+    Chat,
+    Terminal,
+    /// A server's settings, by its place among the connections.
+    Server(usize),
+}
+
+impl Page {
+    fn title(self) -> &'static str {
+        match self {
+            Page::General => "General",
+            Page::Appearance => "Appearance",
+            Page::Chat => "Chat",
+            Page::Terminal => "Terminal",
+            Page::Server(_) => "Server",
+        }
+    }
+
+    fn icon(self) -> L {
+        match self {
+            Page::General => L::SlidersHorizontal,
+            Page::Appearance => L::Palette,
+            Page::Chat => L::MessageSquare,
+            Page::Terminal => L::SquareTerminal,
+            Page::Server(_) => L::Server,
+        }
+    }
+
+    /// What the search finds the page by, besides its title: its settings'
+    /// names and what they're about.
+    fn terms(self) -> &'static str {
+        match self {
+            Page::General => "notifications notify alerts sidebar layout inbox projects columns updates build host",
+            Page::Appearance => {
+                "theme dark light system catppuccin text size interface messages font code menlo monospaced"
+            }
+            Page::Chat => "transcript group tool calls runs prompt box width limit composer",
+            Page::Terminal => "shell opens placement below right copy on select clipboard code font size",
+            Page::Server(_) => {
+                "server rad version update agents sign in login usage limits default agent system agent new sessions"
+            }
+        }
+    }
 }
 
 pub struct SettingsView {
-    tab: Tab,
+    page: Page,
     conns: Vec<Entity<ServerConn>>,
-    selected: usize,
     servers: HashMap<String, Entity<ServerSettingsView>>,
+    search: Entity<InputState>,
     text_size: Entity<SliderState>,
     message_size: Entity<SliderState>,
     code_size: Entity<SliderState>,
+    /// The page's scroll; it goes back to the top on another page.
+    scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
 impl SettingsView {
     fn new(conns: Vec<Entity<ServerConn>>, server: Option<usize>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let p = prefs(cx).clone();
-        let text_size = cx.new(|_| SliderState::new().min(11.).max(18.).step(1.).default_value(p.text_size));
-        let message_size = cx.new(|_| {
-            SliderState::new()
-                .min(10.)
-                .max(24.)
-                .step(1.)
-                .default_value(p.message_size)
-        });
-        let code_size = cx.new(|_| {
-            SliderState::new()
-                .min(fonts::CODE_SIZES.0)
-                .max(fonts::CODE_SIZES.1)
-                .step(1.)
-                .default_value(p.code_size)
-        });
+        let slider = |min: f32, max: f32, value: f32| {
+            move |_: &mut Context<SliderState>| SliderState::new().min(min).max(max).step(1.).default_value(value)
+        };
+        let text_size = cx.new(slider(11., 18., p.text_size));
+        let message_size = cx.new(slider(10., 24., p.message_size));
+        let code_size = cx.new(slider(fonts::CODE_SIZES.0, fonts::CODE_SIZES.1, p.code_size));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        let on_slide = |set: fn(&mut Prefs, f32)| {
+            move |_: &mut Self, _: &Entity<SliderState>, ev: &SliderEvent, _: &mut Window, cx: &mut Context<Self>| {
+                let (SliderEvent::Change(v) | SliderEvent::Release(v)) = ev;
+                let v = v.start();
+                update_prefs(cx, |p| set(p, v));
+            }
+        };
         let subs = vec![
-            cx.subscribe_in(&code_size, window, |_, _, ev: &SliderEvent, _, cx| {
-                let (SliderEvent::Change(v) | SliderEvent::Release(v)) = ev;
-                let v = v.start();
-                update_prefs(cx, |p| p.code_size = v);
-            }),
-            cx.subscribe_in(&text_size, window, |_, _, ev: &SliderEvent, _, cx| {
-                let (SliderEvent::Change(v) | SliderEvent::Release(v)) = ev;
-                let v = v.start();
-                update_prefs(cx, |p| p.text_size = v);
-            }),
-            cx.subscribe_in(&message_size, window, |_, _, ev: &SliderEvent, _, cx| {
-                let (SliderEvent::Change(v) | SliderEvent::Release(v)) = ev;
-                let v = v.start();
-                update_prefs(cx, |p| p.message_size = v);
+            cx.subscribe_in(&text_size, window, on_slide(|p, v| p.text_size = v)),
+            cx.subscribe_in(&message_size, window, on_slide(|p, v| p.message_size = v)),
+            cx.subscribe_in(&code_size, window, on_slide(|p, v| p.code_size = v)),
+            cx.subscribe_in(&search, window, |this, _, ev: &InputEvent, _, cx| {
+                if let InputEvent::Change = ev {
+                    this.search_changed(cx);
+                }
             }),
         ];
         Self {
-            tab: if server.is_some() { Tab::Servers } else { Tab::General },
-            selected: server.unwrap_or(0),
+            page: match server {
+                Some(i) if i < conns.len() => Page::Server(i),
+                _ => Page::General,
+            },
             conns,
             servers: HashMap::new(),
+            search,
             text_size,
             message_size,
             code_size,
+            scroll: ScrollHandle::new(),
             _subscriptions: subs,
         }
     }
 
-    fn render_general(&mut self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    fn show(&mut self, page: Page, cx: &mut Context<Self>) {
+        if self.page != page {
+            self.page = page;
+            self.scroll.set_offset(gpui_kit::Point::default());
+        }
+        cx.notify();
+    }
+
+    /// The pages in the sidebar's order.
+    fn pages(&self) -> Vec<Page> {
+        let mut pages = vec![Page::General, Page::Appearance, Page::Chat, Page::Terminal];
+        pages.extend((0..self.conns.len()).map(Page::Server));
+        pages
+    }
+
+    fn page_title(&self, page: Page, cx: &App) -> String {
+        match page {
+            Page::Server(i) => self
+                .conns
+                .get(i)
+                .map(|c| c.read(cx).name.clone())
+                .unwrap_or_else(|| "Server".into()),
+            _ => page.title().to_string(),
+        }
+    }
+
+    /// Whether the search finds the page: every word of it, in the page's
+    /// title or its terms.
+    fn matches(&self, page: Page, cx: &App) -> bool {
+        let query = self.search.read(cx).value().to_lowercase();
+        let haystack = format!("{} {}", self.page_title(page, cx), page.terms()).to_lowercase();
+        query.split_whitespace().all(|w| haystack.contains(w))
+    }
+
+    /// A search shows the first page it finds, unless the one shown is found.
+    fn search_changed(&mut self, cx: &mut Context<Self>) {
+        if !self.matches(self.page, cx)
+            && let Some(first) = self.pages().into_iter().find(|p| self.matches(*p, cx))
+        {
+            self.show(first, cx);
+        }
+        cx.notify();
+    }
+
+    fn at_defaults(prefs: &Prefs) -> bool {
+        let d = Prefs::default();
+        prefs.appearance == d.appearance
+            && prefs.text_size == d.text_size
+            && prefs.message_size == d.message_size
+            && prefs.message_font == d.message_font
+            && prefs.code_font == d.code_font
+            && prefs.code_size == d.code_size
+            && prefs.group_tool_calls == d.group_tool_calls
+            && prefs.limit_prompt_width == d.limit_prompt_width
+            && prefs.sidebar_layout == d.sidebar_layout
+            && prefs.terminal_placement == d.terminal_placement
+            && prefs.terminal_copy_on_select == d.terminal_copy_on_select
+            && prefs.notifications == d.notifications
+    }
+
+    /// This device's settings back to their defaults; servers' stay.
+    fn restore_defaults(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let d = Prefs::default();
+        update_prefs(cx, |p| {
+            p.appearance = d.appearance.clone();
+            p.text_size = d.text_size;
+            p.message_size = d.message_size;
+            p.message_font = d.message_font.clone();
+            p.code_font = d.code_font.clone();
+            p.code_size = d.code_size;
+            p.group_tool_calls = d.group_tool_calls;
+            p.limit_prompt_width = d.limit_prompt_width;
+            p.sidebar_layout = d.sidebar_layout.clone();
+            p.terminal_placement = d.terminal_placement.clone();
+            p.terminal_copy_on_select = d.terminal_copy_on_select;
+            p.notifications = d.notifications;
+        });
+        apply_appearance(window, cx);
+        self.text_size.update(cx, |s, cx| s.set_value(d.text_size, window, cx));
+        self.message_size
+            .update(cx, |s, cx| s.set_value(d.message_size, window, cx));
+        self.code_size.update(cx, |s, cx| s.set_value(d.code_size, window, cx));
+    }
+
+    // MARK: Pages
+
+    fn render_general(&mut self, p: &Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let prefs = prefs(cx).clone();
-        let defaults = Prefs::default();
-        let at_defaults = prefs.appearance == defaults.appearance
-            && prefs.text_size == defaults.text_size
-            && prefs.message_size == defaults.message_size
-            && prefs.message_font == defaults.message_font
-            && prefs.code_font == defaults.code_font
-            && prefs.code_size == defaults.code_size
-            && prefs.group_tool_calls == defaults.group_tool_calls
-            && prefs.limit_prompt_width == defaults.limit_prompt_width
-            && prefs.sidebar_layout == defaults.sidebar_layout
-            && prefs.terminal_placement == defaults.terminal_placement
-            && prefs.terminal_copy_on_select == defaults.terminal_copy_on_select
-            && prefs.notifications == defaults.notifications;
+        let layout = Layout::from_key(&prefs.sidebar_layout);
+        let layout_picker = picker(
+            "layout",
+            layout.title().into(),
+            [Layout::Inbox, Layout::Projects, Layout::Columns]
+                .iter()
+                .map(|l| (l.key().to_string(), l.title().to_string()))
+                .collect(),
+            layout.key().into(),
+            |id, _, cx| update_prefs(cx, |p| p.sidebar_layout = id),
+        );
+        let summary = match layout {
+            Layout::Inbox => "Sessions from every server, those that need you first.",
+            Layout::Projects => "Each server's projects, with their sessions under them.",
+            Layout::Columns => "Needs You, Running and each project in the sidebar, their sessions beside it.",
+        };
+        let mut groups = vec![
+            group(
+                "Notifications",
+                vec![setting(
+                    "Show notifications",
+                    Some("When a session needs you, finishes or fails, unless the window shows it."),
+                    switch("notifications", prefs.notifications, |p, v| p.notifications = v),
+                    p,
+                )],
+                None,
+                p,
+            ),
+            group(
+                "Sidebar",
+                vec![setting(
+                    "Layout",
+                    Some(&format!(
+                        "{summary} The View menu switches them too, with ⌘1, ⌘2 and ⌘3."
+                    )),
+                    layout_picker,
+                    p,
+                )],
+                None,
+                p,
+            ),
+        ];
+        if let Some(build) = crate::store::build_update::current() {
+            let from = if prefs.update_host.is_empty() {
+                "Check for Update asks which Mac to pull builds from.".to_string()
+            } else {
+                format!("Builds come from {} over ssh.", prefs.update_host)
+            };
+            groups.push(group(
+                "Updates",
+                vec![
+                    setting(
+                        "This build",
+                        Some(&build.summary(chrono::Utc::now())),
+                        Button::new("check-update")
+                            .small()
+                            .outline()
+                            .label("Check for Update…")
+                            .on_click(|_: &ClickEvent, window, cx| crate::ui::build_update::check(window, cx))
+                            .into_any_element(),
+                        p,
+                    ),
+                    setting(
+                        "Build host",
+                        Some(&from),
+                        Button::new("update-host")
+                            .small()
+                            .ghost()
+                            .label("Change…")
+                            .on_click(|_: &ClickEvent, window, cx| crate::ui::build_update::ask_host(window, cx))
+                            .into_any_element(),
+                        p,
+                    ),
+                ],
+                None,
+                p,
+            ));
+        }
+        groups
+    }
+
+    fn render_appearance(&mut self, p: &Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let prefs = prefs(cx).clone();
         let theme = picker(
             "theme",
             match prefs.appearance.as_str() {
@@ -138,38 +350,6 @@ impl SettingsView {
                 update_prefs(cx, |p| p.appearance = id);
                 apply_appearance(window, cx);
             },
-        );
-        let layout = Layout::from_key(&prefs.sidebar_layout);
-        let layout_picker = picker(
-            "layout",
-            layout.title().into(),
-            [Layout::Inbox, Layout::Projects, Layout::Columns]
-                .iter()
-                .map(|l| (l.key().to_string(), l.title().to_string()))
-                .collect(),
-            layout.key().into(),
-            |id, _, cx| update_prefs(cx, |p| p.sidebar_layout = id),
-        );
-        let summary = match layout {
-            Layout::Inbox => "Sessions from every server, those that need you first.",
-            Layout::Projects => "Each server's projects, with their sessions under them.",
-            Layout::Columns => "Needs You, Running and each project in the sidebar, their sessions beside it.",
-        };
-        let placement = picker(
-            "placement",
-            match prefs.terminal_placement.as_str() {
-                "below" => "Below the Messages",
-                "right" => "Right Sidebar",
-                _ => "Instead of the Messages",
-            }
-            .into(),
-            vec![
-                ("over".into(), "Instead of the Messages".into()),
-                ("below".into(), "Below the Messages".into()),
-                ("right".into(), "Right Sidebar".into()),
-            ],
-            prefs.terminal_placement.clone(),
-            |id, _, cx| update_prefs(cx, |p| p.terminal_placement = id),
         );
         let families = fonts::installed_families(cx);
         let message_font = fonts::shown(&prefs.message_font, families);
@@ -210,304 +390,354 @@ impl SettingsView {
             code_font,
             |id, _, cx| update_prefs(cx, |p| p.code_font = id),
         );
-        let switch = |id: &'static str, on: bool, set: fn(&mut Prefs, bool)| {
-            Switch::new(id)
-                .checked(on)
-                .on_change(move |v: &bool, _, cx| {
-                    let v = *v;
-                    update_prefs(cx, |p| set(p, v))
-                })
-                .into_any_element()
-        };
-        let slider = |state: &Entity<SliderState>, value: f32| {
-            h_flex()
-                .gap_3()
-                .child(div().w(px(180.)).child(Slider::new(state)))
-                .child(caption(format!("{value} pt"), p).w(px(36.)))
-                .into_any_element()
-        };
-        let mut col = v_flex()
-            .w_full()
-            .min_w_0()
-            .gap_5()
-            .child(group(
-                "Appearance",
-                vec![setting("Theme", theme, p)],
-                Some("Catppuccin Latte when light, Frappé when dark.".into()),
+        vec![
+            group(
+                "Theme",
+                vec![setting(
+                    "Theme",
+                    Some("Catppuccin Latte when light, Frappé when dark."),
+                    theme,
+                    p,
+                )],
+                None,
                 p,
-            ))
-            .child(group(
-                "Interface",
-                vec![setting("Text size", slider(&self.text_size, prefs.text_size), p)],
-                Some("Lists, labels and the controls under the prompt.".into()),
-                p,
-            ))
-            .child(group(
-                "Messages",
+            ),
+            group(
+                "Text",
                 vec![
-                    setting("Font", message_font_picker, p),
-                    setting("Text size", slider(&self.message_size, prefs.message_size), p),
+                    setting(
+                        "Interface size",
+                        Some("Lists, labels and the controls under the prompt."),
+                        slider(&self.text_size, prefs.text_size, p),
+                        p,
+                    ),
+                    setting(
+                        "Message font",
+                        Some("Your prompts and the agent's replies."),
+                        message_font_picker,
+                        p,
+                    ),
+                    setting(
+                        "Message size",
+                        None,
+                        slider(&self.message_size, prefs.message_size, p),
+                        p,
+                    ),
+                    setting(
+                        "Code font",
+                        Some("Code in replies, tool calls, diffs and the terminal."),
+                        code_font_picker,
+                        p,
+                    ),
+                    setting("Code size", None, slider(&self.code_size, prefs.code_size, p), p),
                 ],
-                Some("Your prompts and the agent's replies.".into()),
+                None,
                 p,
-            ))
-            .child(group(
-                "Code",
-                vec![
-                    setting("Font", code_font_picker, p),
-                    setting("Text size", slider(&self.code_size, prefs.code_size), p),
-                ],
-                Some("Code in replies, tool calls, diffs and the terminal.".into()),
-                p,
-            ))
-            .child(group(
+            ),
+        ]
+    }
+
+    fn render_chat(&mut self, p: &Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let prefs = prefs(cx).clone();
+        vec![
+            group(
                 "Transcript",
                 vec![setting(
                     "Group tool calls",
+                    Some(
+                        "Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them.",
+                    ),
                     switch("group-tools", prefs.group_tool_calls, |p, v| p.group_tool_calls = v),
                     p,
                 )],
-                Some("Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them.".into()),
+                None,
                 p,
-            ))
-            .child(group(
+            ),
+            group(
                 "Prompt",
                 vec![setting(
                     "Limit its width",
-                    switch("limit-prompt-width", prefs.limit_prompt_width, |p, v| p.limit_prompt_width = v),
+                    Some(&format!(
+                        "Keeps the prompt box to {} points, as wide as on a 13-inch laptop, centred in a wider window. Off, it's as wide as the window.",
+                        crate::ui::prompt_box::LIMITED_WIDTH as u32
+                    )),
+                    switch("limit-prompt-width", prefs.limit_prompt_width, |p, v| {
+                        p.limit_prompt_width = v
+                    }),
                     p,
                 )],
-                Some(format!(
-                    "Keeps the prompt box, in a session and a new one, to {} points: as wide as on a 13-inch laptop, centred in a wider window. Off, it's as wide as the window.",
-                    crate::ui::prompt_box::LIMITED_WIDTH as u32
-                )),
+                None,
                 p,
-            ))
-            .child(group(
-                "Sidebar",
-                vec![setting("Layout", layout_picker, p)],
-                Some(format!("{summary} The View menu switches them too, with ⌘1, ⌘2 and ⌘3.")),
-                p,
-            ))
-            .child(group(
-                "Terminal",
-                vec![
-                    setting("Opens", placement, p),
-                    setting(
-                        "Copy on select",
-                        switch("copy-on-select", prefs.terminal_copy_on_select, |p, v| {
-                            p.terminal_copy_on_select = v
-                        }),
-                        p,
-                    ),
-                ],
-                Some("Where a session's terminal opens; in a narrow window it takes the place of the messages. Copy on select puts the text you select on the clipboard.".into()),
-                p,
-            ))
-            .child(group(
-                "Notifications",
-                vec![setting(
-                    "Show notifications",
-                    switch("notifications", prefs.notifications, |p, v| p.notifications = v),
-                    p,
-                )],
-                Some("When a session needs you, finishes or fails, unless the window shows it.".into()),
-                p,
-            ));
-        if let Some(build) = crate::store::build_update::current() {
-            let from = if prefs.update_host.is_empty() {
-                "Check for Update asks which Mac to pull builds from.".to_string()
-            } else {
-                format!("Builds come from {} over ssh.", prefs.update_host)
-            };
-            col = col.child(group(
-                "Updates",
-                vec![
-                    setting(
-                        "This build",
-                        caption(build.summary(chrono::Utc::now()), p).into_any_element(),
-                        p,
-                    ),
-                    setting(
-                        "Builds",
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                Button::new("update-host")
-                                    .small()
-                                    .ghost()
-                                    .label("Change Host…")
-                                    .on_click(|_: &ClickEvent, window, cx| {
-                                        crate::ui::build_update::ask_host(window, cx)
-                                    }),
-                            )
-                            .child(
-                                Button::new("check-update")
-                                    .small()
-                                    .outline()
-                                    .label("Check for Update…")
-                                    .on_click(|_: &ClickEvent, window, cx| crate::ui::build_update::check(window, cx)),
-                            )
-                            .into_any_element(),
-                        p,
-                    ),
-                ],
-                Some(from),
-                p,
-            ));
-        }
-        col.child(
-            h_flex().justify_end().child(
-                Button::new("restore")
-                    .small()
-                    .ghost()
-                    .label("Restore Defaults")
-                    .disabled(at_defaults)
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        let d = Prefs::default();
-                        update_prefs(cx, |p| {
-                            p.appearance = d.appearance;
-                            p.text_size = d.text_size;
-                            p.message_size = d.message_size;
-                            p.message_font = d.message_font;
-                            p.code_font = d.code_font;
-                            p.code_size = d.code_size;
-                            p.group_tool_calls = d.group_tool_calls;
-                            p.limit_prompt_width = d.limit_prompt_width;
-                            p.sidebar_layout = d.sidebar_layout;
-                            p.terminal_placement = d.terminal_placement;
-                            p.terminal_copy_on_select = d.terminal_copy_on_select;
-                            p.notifications = d.notifications;
-                        });
-                        apply_appearance(window, cx);
-                        this.text_size.update(cx, |s, cx| s.set_value(d.text_size, window, cx));
-                        this.message_size
-                            .update(cx, |s, cx| s.set_value(d.message_size, window, cx));
-                        this.code_size.update(cx, |s, cx| s.set_value(d.code_size, window, cx));
-                    })),
             ),
-        )
-        .into_any_element()
+        ]
     }
 
-    fn render_servers(&mut self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let mut list = v_flex().w(px(190.)).flex_shrink_0().gap_0p5();
-        for (i, conn) in self.conns.iter().enumerate() {
-            let c = conn.read(cx);
+    fn render_terminal(&mut self, p: &Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let prefs = prefs(cx).clone();
+        let placement = picker(
+            "placement",
+            match prefs.terminal_placement.as_str() {
+                "below" => "Below the Messages",
+                "right" => "Right Sidebar",
+                _ => "Instead of the Messages",
+            }
+            .into(),
+            vec![
+                ("over".into(), "Instead of the Messages".into()),
+                ("below".into(), "Below the Messages".into()),
+                ("right".into(), "Right Sidebar".into()),
+            ],
+            prefs.terminal_placement.clone(),
+            |id, _, cx| update_prefs(cx, |p| p.terminal_placement = id),
+        );
+        vec![group(
+            "Terminal",
+            vec![
+                setting(
+                    "Opens",
+                    Some(
+                        "Where a session's terminal opens (⌘J). In a narrow window it takes the place of the messages.",
+                    ),
+                    placement,
+                    p,
+                ),
+                setting(
+                    "Copy on select",
+                    Some("Puts the text you select on the clipboard."),
+                    switch("copy-on-select", prefs.terminal_copy_on_select, |p, v| {
+                        p.terminal_copy_on_select = v
+                    }),
+                    p,
+                ),
+                setting(
+                    "Font and size",
+                    Some("The terminal draws with the code font, at the code size: Appearance › Text."),
+                    Button::new("to-appearance")
+                        .small()
+                        .ghost()
+                        .label("Appearance…")
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.show(Page::Appearance, cx)))
+                        .into_any_element(),
+                    p,
+                ),
+            ],
+            None,
+            p,
+        )]
+    }
+
+    /// A server's page: its state, Reconnect and Remove, and its settings.
+    fn render_server(&mut self, i: usize, p: &Palette, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(conn) = self.conns.get(i).cloned() else {
+            return vec![caption("No such server.", p).into_any_element()];
+        };
+        let id = conn.read(cx).server_id.clone();
+        let view = self
+            .servers
+            .entry(id)
+            .or_insert_with(|| {
+                let conn = conn.clone();
+                cx.new(|cx| ServerSettingsView::new(conn, cx))
+            })
+            .clone();
+        let c = conn.read(cx);
+        let (state, color) = match &c.state {
+            ConnState::Connected => ("Connected".to_string(), p.green),
+            ConnState::Connecting(r) => (r.clone().unwrap_or_else(|| "Connecting…".into()), p.yellow),
+            ConnState::Failed(e) => (e.to_string(), p.red),
+        };
+        let url = c.base_url.clone().unwrap_or_default();
+        let (c1, c2) = (conn.clone(), conn.clone());
+        vec![
+            group(
+                "Connection",
+                vec![setting(
+                    &url,
+                    None,
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            h_flex()
+                                .gap_1p5()
+                                .max_w(px(220.))
+                                .child(div().size(px(7.)).rounded_full().flex_shrink_0().bg(color))
+                                .child(caption(state, p).truncate()),
+                        )
+                        .child(
+                            Button::new("reconnect")
+                                .small()
+                                .outline()
+                                .label("Reconnect")
+                                .on_click(move |_: &ClickEvent, _, cx| c1.read(cx).retry()),
+                        )
+                        .child(
+                            Button::new("remove")
+                                .small()
+                                .danger()
+                                .label("Remove…")
+                                .on_click(move |_: &ClickEvent, window, cx| remove_server(c2.clone(), window, cx)),
+                        )
+                        .into_any_element(),
+                    p,
+                )],
+                None,
+                p,
+            ),
+            view.into_any_element(),
+        ]
+    }
+
+    // MARK: The sidebar
+
+    fn render_sidebar(&mut self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let item = |this: &Self, page: Page, label: String, trailing: Option<AnyElement>, cx: &mut Context<Self>| {
+            let selected = this.page == page;
+            let id = match page {
+                Page::Server(i) => SharedString::from(format!("page-server-{i}")),
+                _ => SharedString::from(format!("page-{}", page.title())),
+            };
+            h_flex()
+                .id(id)
+                .w_full()
+                .gap_2()
+                .px_2()
+                .py_1p5()
+                .rounded_md()
+                .cursor_pointer()
+                .text_sm()
+                .when(selected, |d| d.bg(p.surface0).text_color(p.text))
+                .when(!selected, |d| {
+                    d.text_color(p.subtext)
+                        .hover(|d| d.bg(p.surface0.opacity(0.5)).text_color(p.text))
+                })
+                .child(Icon::new(page.icon()).small())
+                .child(div().flex_1().min_w_0().truncate().child(label))
+                .children(trailing)
+                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.show(page, cx)))
+                .into_any_element()
+        };
+        let heading = |text: &'static str| {
+            div()
+                .px_2()
+                .pt_3()
+                .pb_1()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(p.overlay)
+                .child(text)
+        };
+        let mut list = v_flex().gap_0p5();
+        for page in [Page::General, Page::Appearance, Page::Chat, Page::Terminal] {
+            if self.matches(page, cx) {
+                list = list.child(item(self, page, page.title().to_string(), None, cx));
+            }
+        }
+        let servers: Vec<usize> = (0..self.conns.len())
+            .filter(|i| self.matches(Page::Server(*i), cx))
+            .collect();
+        let searching = !self.search.read(cx).value().trim().is_empty();
+        if !servers.is_empty() || !searching {
+            list = list.child(heading("Servers"));
+        }
+        for i in servers {
+            let c = self.conns[i].read(cx);
             let color = match c.state {
                 ConnState::Connected => p.green,
                 ConnState::Connecting(_) => p.yellow,
                 ConnState::Failed(_) => p.red,
             };
-            let selected = i == self.selected;
+            let name = c.name.clone();
+            let dot = div().size(px(7.)).rounded_full().bg(color).into_any_element();
+            list = list.child(item(self, Page::Server(i), name, Some(dot), cx));
+        }
+        if !searching {
             list = list.child(
                 h_flex()
-                    .id(("server", i))
+                    .id("add-server")
+                    .w_full()
                     .gap_2()
                     .px_2()
-                    .py_1()
+                    .py_1p5()
                     .rounded_md()
                     .cursor_pointer()
-                    .when(selected, |d| d.bg(p.surface0))
-                    .child(div().size(px(7.)).rounded_full().bg(color))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .child(div().text_sm().truncate().child(c.name.clone()))
-                            .child(caption(c.base_url.clone().unwrap_or_default(), p).truncate()),
-                    )
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.selected = i;
-                        cx.notify();
-                    })),
+                    .text_sm()
+                    .text_color(p.overlay)
+                    .hover(|d| d.bg(p.surface0.opacity(0.5)).text_color(p.text))
+                    .child(Icon::new(IconName::Plus).small())
+                    .child("Add Server")
+                    .on_click(|_: &ClickEvent, window, cx| {
+                        window.close_dialog(cx);
+                        if let Some(app) = app_view(cx) {
+                            app.update(cx, |a, cx| a.show_pairing(cx));
+                        }
+                    }),
             );
         }
-        list = list.child(Button::new("add-server").small().ghost().label("Add Server").on_click(
-            |_: &ClickEvent, window, cx| {
-                window.close_dialog(cx);
-                if let Some(app) = app_view(cx) {
-                    app.update(cx, |a, cx| a.show_pairing(cx));
-                }
-            },
-        ));
-        let detail: AnyElement =
-            match self.conns.get(self.selected).cloned() {
-                None => v_flex()
-                    .flex_1()
-                    .items_center()
-                    .justify_center()
-                    .child(div().text_sm().child("No Servers"))
-                    .child(caption("Add a server to manage it here.", p))
-                    .into_any_element(),
-                Some(conn) => {
-                    let id = conn.read(cx).server_id.clone();
-                    let view = self
-                        .servers
-                        .entry(id)
-                        .or_insert_with(|| {
-                            let conn = conn.clone();
-                            cx.new(|cx| ServerSettingsView::new(conn, cx))
-                        })
-                        .clone();
-                    let c = conn.read(cx);
-                    let name = c.name.clone();
-                    let state = match &c.state {
-                        ConnState::Connected => None,
-                        ConnState::Connecting(r) => Some(r.clone().unwrap_or_else(|| "Connecting…".into())),
-                        ConnState::Failed(e) => Some(e.to_string()),
-                    };
-                    let (c1, c2) = (conn.clone(), conn.clone());
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        .gap_4()
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_lg()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(name.clone()),
-                                )
-                                .child(
-                                    Button::new("reconnect")
-                                        .small()
-                                        .outline()
-                                        .label("Reconnect")
-                                        .on_click(move |_: &ClickEvent, _, cx| c1.read(cx).retry()),
-                                )
-                                .child(
-                                    Button::new("remove").small().danger().label("Remove Server…").on_click(
-                                        move |_: &ClickEvent, window, cx| remove_server(c2.clone(), window, cx),
-                                    ),
-                                ),
-                        )
-                        .when_some(state, |d, s| d.child(caption(s, p)))
-                        .child(view)
-                        .into_any_element()
-                }
-            };
-        h_flex()
-            .size_full()
-            .items_start()
-            .gap_4()
-            .child(list)
+        let none = searching && !self.pages().into_iter().any(|page| self.matches(page, cx));
+        v_flex()
+            .w(px(SIDEBAR))
+            .h_full()
+            .flex_shrink_0()
+            .gap_2()
+            .p_2()
+            .bg(p.mantle)
+            .border_r_1()
+            .border_color(p.surface0)
+            .child(
+                Input::new(&self.search)
+                    .small()
+                    .prefix(Icon::new(IconName::Search).small().text_color(p.overlay))
+                    .cleanable(true),
+            )
             .child(
                 div()
-                    .id("server-detail")
+                    .id("settings-pages")
                     .flex_1()
-                    .min_w_0()
-                    .h_full()
+                    .min_h_0()
                     .overflow_y_scroll()
-                    .child(detail),
+                    .child(list)
+                    .when(none, |d| d.child(caption("No settings match.", p).px_2().pt_2())),
             )
             .into_any_element()
     }
+}
+
+/// A switch for a setting of the device's.
+fn switch(id: &'static str, on: bool, set: fn(&mut Prefs, bool)) -> AnyElement {
+    Switch::new(id)
+        .checked(on)
+        .on_change(move |v: &bool, _, cx| {
+            let v = *v;
+            update_prefs(cx, |p| set(p, v))
+        })
+        .into_any_element()
+}
+
+/// A slider and its value in points.
+fn slider(state: &Entity<SliderState>, value: f32, p: &Palette) -> AnyElement {
+    h_flex()
+        .gap_3()
+        .child(div().w(px(160.)).child(Slider::new(state)))
+        .child(caption(format!("{value} pt"), p).w(px(36.)))
+        .into_any_element()
+}
+
+/// A column that scrolls, with its scrollbar always shown, so that what's
+/// below the fold is plain to see: the kit's own shows only while scrolling.
+fn scroll_area(id: &'static str, handle: &ScrollHandle, content: AnyElement) -> AnyElement {
+    div()
+        .relative()
+        .size_full()
+        .child(
+            div()
+                .id(id)
+                .size_full()
+                .overflow_y_scroll()
+                .track_scroll(handle)
+                .child(content),
+        )
+        .child(Scrollbar::vertical(handle).mode(ScrollbarMode::Always))
+        .into_any_element()
 }
 
 /// A group of settings, as System Settings has them: its title, a card of
@@ -529,13 +759,12 @@ pub fn group(title: &str, rows: Vec<AnyElement>, footer: Option<String>, p: &Pal
     v_flex()
         .w_full()
         .min_w_0()
-        .gap_1p5()
+        .gap_2()
         .child(
             div()
                 .px_1()
-                .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(p.subtext)
+                .text_color(p.text)
                 .child(title.to_string()),
         )
         .child(card)
@@ -543,21 +772,28 @@ pub fn group(title: &str, rows: Vec<AnyElement>, footer: Option<String>, p: &Pal
         .into_any_element()
 }
 
-/// A row of a group: its label at the start, its control at the end.
-pub fn setting(label: &str, control: AnyElement, p: &Palette) -> AnyElement {
+/// A row of a group: its name and what it does at the start, its control at
+/// the end.
+pub fn setting(label: &str, description: Option<&str>, control: AnyElement, p: &Palette) -> AnyElement {
     h_flex()
         .w_full()
-        .min_h(px(40.))
-        .gap_4()
-        .px_3()
-        .py_1p5()
+        .min_h(px(48.))
+        .gap_6()
+        .px_4()
+        .py_2p5()
         .child(
-            div()
+            v_flex()
                 .flex_1()
                 .min_w_0()
-                .text_sm()
-                .text_color(p.text)
-                .child(label.to_string()),
+                .gap_0p5()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(p.text)
+                        .child(label.to_string()),
+                )
+                .when_some(description, |d, text| d.child(caption(text.to_string(), p))),
         )
         .child(div().flex_shrink_0().child(control))
         .into_any_element()
@@ -584,63 +820,84 @@ pub fn remove_server(conn: Entity<ServerConn>, window: &mut Window, cx: &mut App
 impl Render for SettingsView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(cx);
-        let body = match self.tab {
-            Tab::General => self.render_general(&p, cx),
-            Tab::Servers => self.render_servers(&p, cx),
+        // A server removed while Settings shows it.
+        if let Page::Server(i) = self.page
+            && i >= self.conns.len()
+        {
+            self.page = Page::General;
+        }
+        let page = self.page;
+        let groups = match page {
+            Page::General => self.render_general(&p, cx),
+            Page::Appearance => self.render_appearance(&p, cx),
+            Page::Chat => self.render_chat(&p, cx),
+            Page::Terminal => self.render_terminal(&p, cx),
+            Page::Server(i) => self.render_server(i, &p, cx),
         };
-        // A segmented control: the chosen tab raised on a sunken track.
-        let tab = |id: &'static str, label: &'static str, t: Tab, current: Tab| {
-            let b = Button::new(id).small().ghost().label(label).px_4();
-            if t == current { b.bg(p.base).shadow_sm() } else { b }
-        };
-        v_flex()
-            .size_full()
-            .gap_3()
-            .child(
-                h_flex().justify_center().child(
-                    h_flex()
-                        .gap_0p5()
-                        .p_0p5()
-                        .rounded_lg()
-                        .bg(p.crust)
-                        .child(
-                            tab("tab-general", "General", Tab::General, self.tab).on_click(cx.listener(
-                                |this, _: &ClickEvent, _, cx| {
-                                    this.tab = Tab::General;
-                                    cx.notify();
-                                },
-                            )),
-                        )
-                        .child(
-                            tab("tab-servers", "Servers", Tab::Servers, self.tab).on_click(cx.listener(
-                                |this, _: &ClickEvent, _, cx| {
-                                    this.tab = Tab::Servers;
-                                    cx.notify();
-                                },
-                            )),
-                        ),
-                ),
-            )
+        let device = !matches!(page, Page::Server(_));
+        let at_defaults = Self::at_defaults(prefs(cx));
+        let title = self.page_title(page, cx);
+        let header = h_flex()
+            .h(px(52.))
+            .flex_shrink_0()
+            .gap_2()
+            .px_5()
+            .border_b_1()
+            .border_color(p.surface0)
+            .child(div().text_sm().text_color(p.subtext).child("Settings"))
+            .child(div().text_sm().text_color(p.overlay).child("/"))
             .child(
                 div()
-                    .id("settings-body")
                     .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px_1()
-                    .child(body),
+                    .min_w_0()
+                    .truncate()
+                    .text_sm()
+                    .text_color(p.text)
+                    .child(title),
             )
-            .child(
-                h_flex().justify_end().child(
-                    Button::new("done")
+            .when(device, |d| {
+                d.child(
+                    Button::new("restore")
                         .small()
-                        .primary()
-                        .label("Done")
-                        .on_click(|_: &ClickEvent, window, cx| window.close_dialog(cx)),
-                ),
+                        .ghost()
+                        .icon(Icon::new(L::RotateCcw))
+                        .label("Restore Defaults")
+                        .tooltip("This device's settings, not the servers'")
+                        .disabled(at_defaults)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.restore_defaults(window, cx))),
+                )
+            })
+            .child(
+                Button::new("close-settings")
+                    .small()
+                    .ghost()
+                    .icon(IconName::Close)
+                    .tooltip("Close (Esc)")
+                    .on_click(|_: &ClickEvent, window, cx| window.close_dialog(cx)),
+            );
+        let body = h_flex()
+            .w_full()
+            .justify_center()
+            .px_8()
+            .py_6()
+            .child(v_flex().w_full().max_w(px(PAGE)).gap_6().children(groups));
+        let sidebar = self.render_sidebar(&p, cx);
+        h_flex()
+            .size_full()
+            .rounded_lg()
+            .overflow_hidden()
+            .child(sidebar)
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(header)
+                    .child(div().flex_1().min_h_0().child(scroll_area(
+                        "settings-page",
+                        &self.scroll,
+                        body.into_any_element(),
+                    ))),
             )
     }
 }
-
-#[allow(dead_code)]
-fn unused(_: SharedString) {}
