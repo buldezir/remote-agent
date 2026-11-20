@@ -4,10 +4,12 @@
 //! the lists while a query is in. As `SessionsSidebar.swift` and its kin.
 
 use std::rc::Rc;
+use std::time::Duration;
 
 use chrono::Utc;
 use gpui_kit::assets::IconName as L;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::hover_card::HoverCard;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
@@ -15,10 +17,11 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Context, Entity, FontWeight, HighlightStyle, Hsla, InteractiveElement as _,
-    IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, StyledText, Window,
-    div, px,
+    Anchor, AnyElement, App, ClickEvent, Context, Entity, FontWeight, HighlightStyle, Hsla, InteractiveElement as _,
+    IntoElement, MouseButton, ParentElement as _, SharedString, StatefulInteractiveElement as _, StyleRefinement,
+    Styled as _, StyledText, Window, div, px,
 };
+use serde_json::json;
 
 use crate::conn::{ConnState, ServerConn};
 use crate::protocol::{Session, SessionStatus, WorkspaceKind};
@@ -27,13 +30,16 @@ use crate::store::sidebar::{
     Collection, Layout, inbox_groups, is_busy, most_pressing, needs_you, needs_you_first, projects_in_order,
     short_age_of, stands_out, urgency,
 };
-use crate::ui::actions;
 use crate::ui::app::{AppView, Detail};
-use crate::ui::common::{caption, sidebar_toggle, status_dot, top_bar};
+use crate::ui::badges;
+use crate::ui::common::{busy_dot, caption, sidebar_toggle, status_dot, top_bar};
+use crate::ui::dialogs;
 use crate::ui::palette::Palette;
 use crate::ui::panes::{self, Pane};
+use crate::ui::session::explain;
 use crate::ui::session::rename_session;
 use crate::ui::state::{prefs, update_prefs};
+use crate::ui::{actions, new_session};
 
 /// A row of a list: a session, and the connection it's on.
 #[derive(Clone)]
@@ -260,13 +266,14 @@ impl AppView {
         row: &SessionRow,
         selected: Option<&str>,
         details: bool,
+        indent: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let p = Palette::of(cx);
         let s = &row.session;
         let conn = self.conns[row.conn].clone();
         let c = conn.read(cx);
-        let project = c
+        let project_name = c
             .index
             .projects
             .get(&s.project_id)
@@ -274,7 +281,11 @@ impl AppView {
             .unwrap_or_default();
         // In Projects, a session's project is the one it's under.
         let in_projects = self.layout(cx) == Layout::Projects && !search_active(&self.search.query);
-        let project = if in_projects { String::new() } else { project };
+        let project = if in_projects {
+            String::new()
+        } else {
+            project_name.clone()
+        };
         let server = if self.conns.len() > 1 && !in_projects {
             format!("{} · ", c.name)
         } else {
@@ -287,53 +298,158 @@ impl AppView {
         let conn_ix = row.conn;
         let id = s.id.clone();
         let activity = details.then(|| activity(s, c, &p));
-        let branch = (details && s.workspace.kind == WorkspaceKind::Worktree)
-            .then(|| s.workspace.branch.clone())
-            .flatten();
-        h_flex()
+        let worktree = s.workspace.kind == WorkspaceKind::Worktree;
+        let branch = worktree.then(|| s.workspace.branch.clone()).flatten();
+        let pr = badges::pull_request(s);
+        let harness = c.harness(&s.harness).cloned();
+        // The title takes the state's colour, and the dot says it too.
+        let state = row_state(s, &p);
+        let title_color = state.as_ref().map(|(_, color)| *color).unwrap_or(p.text);
+        let title = if s.title.is_empty() {
+            "New session".to_string()
+        } else {
+            s.title.clone()
+        };
+        let card = Card {
+            title: title.clone(),
+            project: project_name,
+            server: c.name.clone(),
+            branch: s.workspace.branch.clone(),
+            harness: s.harness.clone(),
+            model: badges::model_name(s, harness.as_ref()),
+            context: badges::context_percent(s),
+            pr: pr.as_ref().map(|pr| (pr.number, pr.title.clone())),
+        };
+        // Its pull request, server and agent, at the end of a line.
+        let (pr_number, harness_id) = (pr.as_ref().map(|pr| pr.number), s.harness.clone());
+        let marks = move || {
+            h_flex()
+                .flex_shrink_0()
+                .gap_1()
+                .text_xs()
+                .text_color(p.overlay)
+                .when_some(pr_number, |d, n| {
+                    d.child(Icon::new(L::GitPullRequest).xsmall().text_color(p.mauve))
+                        .child(div().mr_0p5().child(n.to_string()))
+                })
+                .child(Icon::new(L::Server).xsmall().text_color(p.overlay))
+                .child(badges::harness_icon(&harness_id, &p).xsmall())
+        };
+        // The age, and in its place on hover, Archive.
+        let (archive_conn, archive_id) = (conn.clone(), s.id.clone());
+        let tail = div()
+            .relative()
+            .flex_shrink_0()
+            .min_w(px(22.))
+            .h(px(18.))
+            .flex()
+            .items_center()
+            .justify_end()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(p.overlay)
+                    .when(!s.archived, |d| d.group_hover(ROW_GROUP, |d| d.invisible()))
+                    .child(age),
+            )
+            .when(!s.archived, |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .right_0()
+                        .top(px(-3.))
+                        .invisible()
+                        .group_hover(ROW_GROUP, |d| d.visible())
+                        // The row mustn't open too.
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            Button::new(SharedString::from(format!("archive-{}-{}", row.server_id, s.id)))
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::Check)
+                                .tooltip("Archive")
+                                .on_click(move |_: &ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    archive_now(archive_conn.clone(), archive_id.clone(), window, cx)
+                                }),
+                        ),
+                )
+            });
+        let second_line = !place.is_empty() || worktree;
+        // The dot sits in a gutter left of the title, so titles line up
+        // with or without one.
+        let left = (10. + indent).max(25.);
+        let trigger = h_flex()
             .id(SharedString::from(format!("row-{}-{}", row.server_id, s.id)))
+            .group(ROW_GROUP)
+            .relative()
+            .w_full()
             .gap_2()
-            .px_2()
-            .py_1p5()
+            .pl(px(left))
+            .pr_2()
+            .py(px(7.))
             .rounded_md()
             .cursor_pointer()
             .items_start()
             .when(is_selected, |d| d.bg(p.surface0))
             .when(!is_selected, |d| d.hover(|d| d.bg(p.surface0.opacity(0.5))))
-            .child(div().pt_1p5().child(status_dot(s, &p)))
+            .when_some(state.map(|(dot, _)| dot), |d, dot| {
+                d.child(div().absolute().left(px(left - 14.)).top(px(14.)).child(dot))
+            })
             .child(
                 v_flex()
                     .flex_1()
                     .min_w_0()
+                    .gap_0p5()
                     .child(
-                        div()
-                            .text_sm()
-                            .truncate()
-                            .when(bold, |d| d.font_weight(FontWeight::SEMIBOLD))
-                            .child(if s.title.is_empty() {
-                                "New session".to_string()
-                            } else {
-                                s.title.clone()
-                            }),
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_sm()
+                                    .truncate()
+                                    .text_color(title_color)
+                                    .when(bold, |d| d.font_weight(FontWeight::SEMIBOLD))
+                                    .child(title),
+                            )
+                            .when(!worktree, |d| d.child(marks()))
+                            .child(tail),
                     )
-                    .when(!place.is_empty() || branch.is_some(), |d| {
+                    .when(second_line, |d| {
                         d.child(
                             h_flex()
                                 .gap_1()
                                 .text_xs()
                                 .text_color(p.overlay)
-                                .child(div().truncate().child(place))
-                                .when_some(branch, |d, b| {
-                                    d.child(Icon::new(L::GitBranch).xsmall().text_color(p.overlay))
-                                        .child(div().truncate().child(b))
-                                }),
+                                .child(
+                                    h_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .gap_1()
+                                        .when(!place.is_empty(), |d| {
+                                            d.child(div().flex_shrink_0().max_w(px(140.)).truncate().child(place))
+                                        })
+                                        .when_some(branch, |d, b| {
+                                            d.child(Icon::new(L::GitBranch).xsmall().text_color(p.overlay))
+                                                .child(div().min_w_0().truncate().child(b))
+                                        }),
+                                )
+                                .when(worktree, |d| d.child(marks())),
                         )
                     })
                     .when_some(activity, |d, a| d.child(a)),
             )
-            .child(div().text_xs().text_color(p.overlay).flex_shrink_0().child(age))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| this.open_session(conn_ix, &id, window, cx)))
-            .context_menu(self.session_menu(conn.clone(), s.clone()))
+            .context_menu(self.session_menu(conn.clone(), s.clone()));
+        HoverCard::new(SharedString::from(format!("card-{}-{}", row.server_id, s.id)))
+            .anchor(Anchor::LeftCenter)
+            .open_delay(Duration::from_millis(500))
+            .close_delay(Duration::from_millis(100))
+            .trigger_style(StyleRefinement::default().w_full())
+            .trigger(trigger)
+            .content(move |_, _, cx| card.render(cx))
             .into_any_element()
     }
 
@@ -342,11 +458,24 @@ impl AppView {
         rows: &[SessionRow],
         selected: Option<&str>,
         details: bool,
+        list: gpui_kit::Stateful<gpui_kit::Div>,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Stateful<gpui_kit::Div> {
+        self.render_rows_in(rows, selected, details, 0., list, cx)
+    }
+
+    /// Rows indented, so that their titles line up with a header's name.
+    fn render_rows_in(
+        &self,
+        rows: &[SessionRow],
+        selected: Option<&str>,
+        details: bool,
+        indent: f32,
         mut list: gpui_kit::Stateful<gpui_kit::Div>,
         cx: &mut Context<Self>,
     ) -> gpui_kit::Stateful<gpui_kit::Div> {
         for row in rows {
-            list = list.child(self.render_row(row, selected, details, cx));
+            list = list.child(self.render_row(row, selected, details, indent, cx));
         }
         list
     }
@@ -389,7 +518,6 @@ impl AppView {
     pub(crate) fn render_sidebar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = Palette::of(cx);
         let layout = self.layout(cx);
-        let old = self.old_sessions(cx).len();
         let searching = search_active(&self.search.query) && layout != Layout::Columns;
         let list = if searching {
             self.render_search(cx)
@@ -427,22 +555,12 @@ impl AppView {
                             .child(layout.title()),
                     )
                     .child(sidebar_toggle(false))
-                    .child(
-                        Button::new("archive-old")
-                            .ghost()
-                            .small()
-                            .icon(Icon::new(L::Archive))
-                            .tooltip(if old == 0 {
-                                "No sessions older than 7 days"
-                            } else {
-                                "Archive sessions with nothing new for 7 days"
-                            })
-                            .disabled(old == 0)
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.archive_old(window, cx))),
-                    )
-                    .child(self.new_session_menu("new-session", cx)),
+                    // Columns has no search field here: its buttons stay on the bar.
+                    .when(layout == Layout::Columns, |d| d.children(self.list_buttons(cx))),
             ))
-            .when(layout != Layout::Columns, |d| d.child(self.render_search_field(cx)))
+            .when(layout != Layout::Columns, |d| {
+                d.child(self.render_search_field(true, cx))
+            })
             .child(list)
             .child(
                 div().px_2().py_2().border_t_1().border_color(p.crust).child(
@@ -507,22 +625,98 @@ impl AppView {
             .into_any_element()
     }
 
-    fn render_search_field(&self, cx: &mut Context<Self>) -> AnyElement {
-        div()
-            .px_2()
+    /// Search, as a plain row, with the list's buttons at its end.
+    fn render_search_field(&self, buttons: bool, cx: &mut Context<Self>) -> AnyElement {
+        let p = Palette::of(cx);
+        h_flex()
+            .pl_3()
+            .pr_2()
             .pb_1()
+            .gap_0p5()
             .on_key_down(cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
                 if ev.keystroke.key == "escape" {
                     this.clear_search(window, cx);
                 }
             }))
+            .child(Icon::new(IconName::Search).small().text_color(p.overlay))
             .child(
-                Input::new(&self.search_input)
-                    .small()
-                    .cleanable(true)
-                    .prefix(Icon::new(IconName::Search).xsmall()),
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(Input::new(&self.search_input).small().appearance(false).cleanable(true)),
             )
+            .when(buttons, |d| d.children(self.list_buttons(cx)))
             .into_any_element()
+    }
+
+    /// The list's buttons: its layout and Archive old sessions, Add project,
+    /// and New Session.
+    fn list_buttons(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let layout = self.layout(cx);
+        let old = self.old_sessions(cx).len();
+        let this = cx.entity().downgrade();
+        let filter = Button::new("list-filter")
+            .ghost()
+            .small()
+            .icon(L::ListFilter)
+            .tooltip("View")
+            .dropdown_menu(move |mut menu, _, _| {
+                for (title, key, action) in [
+                    (
+                        "as Inbox",
+                        Layout::Inbox,
+                        Box::new(crate::LayoutInbox) as Box<dyn gpui_kit::Action>,
+                    ),
+                    ("as Projects", Layout::Projects, Box::new(crate::LayoutProjects)),
+                    ("as Columns", Layout::Columns, Box::new(crate::LayoutColumns)),
+                ] {
+                    menu = menu.item(
+                        PopupMenuItem::new(title)
+                            .checked(layout == key)
+                            .action(action)
+                            .on_click(move |_, _, cx| update_prefs(cx, |p| p.sidebar_layout = key.key().into())),
+                    );
+                }
+                let w = this.clone();
+                menu.separator().item(
+                    PopupMenuItem::new(if old == 0 {
+                        "No sessions older than 7 days".to_string()
+                    } else {
+                        "Archive sessions with nothing new for 7 days…".to_string()
+                    })
+                    .icon(Icon::new(L::Archive))
+                    .disabled(old == 0)
+                    .on_click(move |_, window, cx| {
+                        let _ = w.update(cx, |v, cx| v.archive_old(window, cx));
+                    }),
+                )
+            });
+        let add = Button::new("add-project")
+            .ghost()
+            .small()
+            .icon(L::FolderPlus)
+            .tooltip("Add Project…")
+            .disabled(self.target(cx).is_none())
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.add_project(window, cx)));
+        vec![
+            filter.into_any_element(),
+            add.into_any_element(),
+            self.new_session_menu("new-session", cx),
+        ]
+    }
+
+    /// Adds a folder as a project on the server New Session would use, and
+    /// starts a session there.
+    fn add_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ix) = self.target(cx) else { return };
+        let this = cx.entity().downgrade();
+        let window_handle = window.window_handle();
+        new_session::open_folder_browser(self.conns[ix].clone(), window, cx, move |project, cx| {
+            let this = this.clone();
+            let _ = window_handle.update(cx, |_, window, cx| {
+                let _ = this.update(cx, |v, cx| v.new_session_on(ix, Some(project.id.clone()), window, cx));
+            });
+        });
     }
 
     fn render_search(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -818,57 +1012,62 @@ impl AppView {
             let sid = server_id.clone();
             let failed = matches!(c.state, ConnState::Failed(_));
             let conn = self.conns[ix].clone();
-            list = list.child(
-                h_flex()
-                    .id(("server-head", ix))
-                    .gap_2()
-                    .px_2()
-                    .pt_3()
-                    .pb_1()
-                    .cursor_pointer()
-                    .child(
-                        Icon::new(if collapsed {
-                            IconName::ChevronRight
-                        } else {
-                            IconName::ChevronDown
-                        })
-                        .xsmall()
-                        .text_color(p.overlay),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(p.subtext)
-                            .child(c.name.clone()),
-                    )
-                    .when(collapsed, |d| {
-                        d.child(caption(active.len().to_string(), &p))
-                            .when(any_needs, |d| d.child(Icon::new(L::Hand).xsmall().text_color(p.yellow)))
-                            .when(!any_needs && any_unread, |d| {
-                                d.child(div().size(px(6.)).rounded_full().bg(p.accent))
-                            })
-                    })
-                    .child(div().size(px(7.)).rounded_full().bg(color))
-                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                        if failed {
-                            conn.read(cx).retry();
-                            return;
-                        }
-                        let sid = sid.clone();
-                        update_prefs(cx, |p| {
-                            if !p.collapsed_servers.contains(&sid) {
-                                p.collapsed_servers.push(sid);
+            // One server needs no header: its projects are the list.
+            let headed = self.conns.len() > 1;
+            let collapsed = collapsed && headed;
+            if headed {
+                list = list.child(
+                    h_flex()
+                        .id(("server-head", ix))
+                        .gap_2()
+                        .px_2()
+                        .pt_3()
+                        .pb_1()
+                        .cursor_pointer()
+                        .child(
+                            Icon::new(if collapsed {
+                                IconName::ChevronRight
                             } else {
-                                p.collapsed_servers.retain(|s| *s != sid);
+                                IconName::ChevronDown
+                            })
+                            .xsmall()
+                            .text_color(p.overlay),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_xs()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(p.subtext)
+                                .child(c.name.clone()),
+                        )
+                        .when(collapsed, |d| {
+                            d.child(caption(active.len().to_string(), &p))
+                                .when(any_needs, |d| d.child(Icon::new(L::Hand).xsmall().text_color(p.yellow)))
+                                .when(!any_needs && any_unread, |d| {
+                                    d.child(div().size(px(6.)).rounded_full().bg(p.accent))
+                                })
+                        })
+                        .child(div().size(px(7.)).rounded_full().bg(color))
+                        .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                            if failed {
+                                conn.read(cx).retry();
+                                return;
                             }
-                        });
-                    }))
-                    .context_menu(self.server_menu(ix, cx)),
-            );
+                            let sid = sid.clone();
+                            update_prefs(cx, |p| {
+                                if !p.collapsed_servers.contains(&sid) {
+                                    p.collapsed_servers.push(sid);
+                                } else {
+                                    p.collapsed_servers.retain(|s| *s != sid);
+                                }
+                            });
+                        }))
+                        .context_menu(self.server_menu(ix, cx)),
+                );
+            }
             if collapsed {
                 continue;
             }
@@ -887,15 +1086,18 @@ impl AppView {
                 let pressing = most_pressing(sessions.iter()).cloned();
                 let k = key.clone();
                 let has = !sessions.is_empty();
+                let (pid, name) = (project.id.clone(), project.name.clone());
                 list = list.child(
                     h_flex()
                         .id(SharedString::from(format!("project-{key}")))
+                        .group(PROJECT_GROUP)
                         .gap_2()
                         .px_2()
-                        .py_1()
+                        .py_1p5()
+                        .mt_1()
                         .rounded_md()
                         .when(has, |d| d.cursor_pointer().hover(|d| d.bg(p.surface0.opacity(0.5))))
-                        .child(Icon::new(L::Folder).small().text_color(p.overlay))
+                        .child(badges::project_badge(&project.name, 18., &p))
                         .child(
                             div()
                                 .flex_1()
@@ -904,8 +1106,39 @@ impl AppView {
                                 .text_sm()
                                 .child(project.name.clone()),
                         )
-                        .when_some(pressing.filter(|s| urgency(s) > 0), |d, s| d.child(status_dot(&s, &p)))
-                        .child(caption(sessions.len().to_string(), &p))
+                        // Folded, what's inside: its most pressing state and how many.
+                        .when(folded, |d| {
+                            d.when_some(pressing.filter(|s| urgency(s) > 0), |d, s| d.child(status_dot(&s, &p)))
+                                .when(has, |d| d.child(caption(sessions.len().to_string(), &p)))
+                        })
+                        .child(
+                            div()
+                                .invisible()
+                                .group_hover(PROJECT_GROUP, |d| d.visible())
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .child(
+                                    Button::new(SharedString::from(format!("new-in-{key}")))
+                                        .ghost()
+                                        .xsmall()
+                                        .icon(IconName::Plus)
+                                        .tooltip(format!("New Session in {name}"))
+                                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                            cx.stop_propagation();
+                                            this.new_session_on(ix, Some(pid.clone()), window, cx)
+                                        })),
+                                ),
+                        )
+                        .when(has, |d| {
+                            d.child(
+                                Icon::new(if folded {
+                                    IconName::ChevronRight
+                                } else {
+                                    IconName::ChevronDown
+                                })
+                                .xsmall()
+                                .text_color(p.overlay),
+                            )
+                        })
                         .when(has, |d| {
                             d.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                                 let k = k.clone();
@@ -929,11 +1162,8 @@ impl AppView {
                             session,
                         })
                         .collect();
-                    let mut inner = v_flex()
-                        .id(SharedString::from(format!("sessions-{key}")))
-                        .pl_4()
-                        .gap_0p5();
-                    inner = self.render_rows(&rows, selected.as_deref(), false, inner, cx);
+                    let mut inner = v_flex().id(SharedString::from(format!("sessions-{key}"))).gap_0p5();
+                    inner = self.render_rows_in(&rows, selected.as_deref(), false, PROJECT_INDENT, inner, cx);
                     list = list.child(inner);
                 }
             }
@@ -966,9 +1196,8 @@ impl AppView {
                         .collect();
                     let mut inner = v_flex()
                         .id(SharedString::from(format!("archived-list-{server_id}")))
-                        .pl_4()
                         .gap_0p5();
-                    inner = self.render_rows(&rows, selected.as_deref(), false, inner, cx);
+                    inner = self.render_rows_in(&rows, selected.as_deref(), false, PROJECT_INDENT, inner, cx);
                     list = list.child(inner);
                 }
             }
@@ -1242,7 +1471,7 @@ impl AppView {
                     )
                     .child(self.new_session_menu("new-session-col", cx)),
             ))
-            .child(self.render_search_field(cx))
+            .child(self.render_search_field(false, cx))
             .into_any_element()
     }
 
@@ -1327,4 +1556,123 @@ fn activity(s: &Session, c: &ServerConn, p: &Palette) -> AnyElement {
         .line_clamp(2)
         .child(text)
         .into_any_element()
+}
+
+/// The name the session rows' hover styles look up.
+const ROW_GROUP: &str = "session-row";
+
+/// The same for project headers.
+const PROJECT_GROUP: &str = "project-head";
+
+/// How far Projects indents its sessions: their titles line up with the
+/// project's name, past its badge.
+const PROJECT_INDENT: f32 = 24.;
+
+/// The session's state as a dot and the title's colour; none when there's
+/// nothing to say.
+fn row_state(s: &Session, p: &Palette) -> Option<(AnyElement, Hsla)> {
+    let dot = div().size(px(7.)).rounded_full().flex_shrink_0();
+    match s.status {
+        SessionStatus::AwaitingApproval => Some((dot.bg(p.yellow).into_any_element(), p.yellow)),
+        SessionStatus::Error => Some((dot.bg(p.red).into_any_element(), p.red)),
+        _ if is_busy(s) => Some((busy_dot(dot, p.blue), p.blue)),
+        _ if s.unread => Some((dot.bg(p.accent).into_any_element(), p.text)),
+        _ => None,
+    }
+}
+
+/// Archives a session at once: the row's ✓, which doesn't ask.
+fn archive_now(conn: Entity<ServerConn>, id: String, window: &mut Window, cx: &mut App) {
+    let call = conn
+        .read(cx)
+        .call("session.archive", json!({"sessionId": id, "removeWorktree": false}));
+    window
+        .spawn(cx, async move |cx| {
+            if let Err(e) = call.await {
+                let _ =
+                    cx.update(|window, cx| dialogs::alert(window, cx, "Couldn't archive the session", &explain(&e)));
+            }
+        })
+        .detach();
+}
+
+/// What a session row's hover card shows.
+struct Card {
+    title: String,
+    project: String,
+    server: String,
+    branch: Option<String>,
+    harness: String,
+    model: String,
+    context: Option<f64>,
+    pr: Option<(u32, String)>,
+}
+
+impl Card {
+    fn render(&self, cx: &App) -> AnyElement {
+        let p = Palette::of(cx);
+        let line = |icon: AnyElement, text: String| {
+            h_flex()
+                .gap_2()
+                .text_sm()
+                .text_color(p.subtext)
+                .child(div().w(px(16.)).flex().justify_center().child(icon))
+                .child(div().min_w_0().truncate().child(text))
+        };
+        let model = match self.context {
+            Some(pct) => format!("{} · {pct}% context", self.model),
+            None => self.model.clone(),
+        };
+        v_flex()
+            .w(px(320.))
+            .gap_1p5()
+            .p_1()
+            .child(
+                div()
+                    .pb_0p5()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(p.text)
+                    .line_clamp(2)
+                    .child(self.title.clone()),
+            )
+            .when(!self.project.is_empty(), |d| {
+                d.child(line(
+                    badges::project_badge(&self.project, 14., &p).into_any_element(),
+                    self.project.clone(),
+                ))
+            })
+            .child(line(
+                Icon::new(L::Server).small().text_color(p.overlay).into_any_element(),
+                self.server.clone(),
+            ))
+            .when_some(self.branch.clone(), |d, b| {
+                d.child(line(
+                    Icon::new(L::GitBranch).small().text_color(p.overlay).into_any_element(),
+                    b,
+                ))
+            })
+            .child(line(
+                badges::harness_icon(&self.harness, &p).small().into_any_element(),
+                model,
+            ))
+            .when_some(self.pr.clone(), |d, (n, title)| {
+                d.child(div().my_1().h(px(1.)).bg(p.surface0)).child(
+                    h_flex()
+                        .gap_2()
+                        .text_sm()
+                        .text_color(p.subtext)
+                        .child(
+                            div()
+                                .w(px(16.))
+                                .flex()
+                                .justify_center()
+                                .child(Icon::new(L::GitPullRequest).small().text_color(p.mauve)),
+                        )
+                        .child(div().flex_shrink_0().text_color(p.overlay).child(format!("#{n}")))
+                        .child(div().min_w_0().truncate().child(title)),
+                )
+            })
+            .into_any_element()
+    }
 }

@@ -864,11 +864,11 @@ impl Render for AppView {
             Detail::Session(view) => view.clone().into_any_element(),
             Detail::NewSession(view) => view.clone().into_any_element(),
         };
-        // The session has a bar of its own; the others get a bare one, to
-        // move the window by.
+        // A session and a new one have bars of their own; the others get a
+        // bare one, to move the window by.
         let hidden = prefs(cx).sidebar_hidden;
         let detail = match &self.detail {
-            Detail::Session(_) => detail,
+            Detail::Session(_) | Detail::NewSession(_) => detail,
             _ => v_flex()
                 .size_full()
                 .child(top_bar(

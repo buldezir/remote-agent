@@ -1,7 +1,7 @@
 //! Choosing an agent and its options: the agents the server has that can
 //! start a session, the others folded into one line that opens to what each
-//! lacks, the usage gauge, and the model, effort and permissions. New Session
-//! lays them out as small labelled pickers (`render_compact`), Fork as rows
+//! lacks, the usage gauge, and the model, effort and permissions. The prompt
+//! box shows them as pills (`pill`, `mode_pill`), Fork as rows
 //! (`render_agents`, `render_options`); Import takes the choice. As the Swift
 //! client's HarnessChoiceRows and HarnessOptionRows.
 
@@ -9,7 +9,7 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Entity, EventEmitter, FontWeight, InteractiveElement as _,
@@ -216,70 +216,6 @@ impl AgentPicker {
         Some(col.into_any_element())
     }
 
-    /// The agent and its options as labelled pickers, for a wrapping row of
-    /// them, and the lines that go under the row: the agent's usage, what
-    /// the chosen options mean, and the agents that can't be used.
-    pub fn render_compact(&self, cx: &mut Context<Self>) -> (Vec<AnyElement>, Vec<AnyElement>) {
-        let p = Palette::of(cx);
-        let list = self.harnesses(cx);
-        let mut fields = vec![field("Agent", self.agent_control(list.as_deref(), cx), &p)];
-        let mut notes = Vec::new();
-        if let Some(id) = &self.harness
-            && let Some(l) = self.conn.read(cx).index.limits.get(id)
-            && let Some(gauge) = limits_gauge_view(format!("gauge-{id}"), l, &p)
-        {
-            // In a row of its own, or the whole line would show its details.
-            notes.push(h_flex().child(gauge).into_any_element());
-        }
-        for o in self.options(cx) {
-            fields.push(field(o.label, o.control, &p));
-            if let Some((name, what)) = o.meaning {
-                notes.push(caption(format!("{name}: {what}"), &p).into_any_element());
-            }
-        }
-        match list {
-            Some(list) if list.is_empty() => notes.push(caption(NONE_INSTALLED, &p).into_any_element()),
-            Some(list) => notes.extend(self.render_unavailable(&list, &p, cx)),
-            None => {}
-        }
-        (fields, notes)
-    }
-
-    /// A menu of the agents that can start a session.
-    fn agent_control(&self, list: Option<&[HarnessInfo]>, cx: &mut Context<Self>) -> AnyElement {
-        let usable: Vec<(String, String)> = list
-            .unwrap_or_default()
-            .iter()
-            .filter(|h| h.usable())
-            .map(|h| (h.id.clone(), h.name.clone()))
-            .collect();
-        if usable.is_empty() {
-            let label = match list {
-                None => "Checking…",
-                Some([]) => "None installed",
-                Some(_) => "None ready",
-            };
-            return h_flex()
-                .child(Button::new("agent").small().outline().label(label).disabled(true))
-                .into_any_element();
-        }
-        let label = self.info(cx).map(|h| h.name).unwrap_or_else(|| "Choose…".into());
-        let this = cx.entity().downgrade();
-        field_picker(
-            "agent",
-            label,
-            usable,
-            self.harness.clone().unwrap_or_default(),
-            move |id, window, cx| {
-                let _ = this.update(cx, |v, cx| {
-                    if v.harness.as_deref() != Some(id.as_str()) {
-                        v.choose(&id, None, window, cx)
-                    }
-                });
-            },
-        )
-    }
-
     /// The agents that can't start a session, in one line. A click opens it
     /// to what each lacks; with no agent to use, it's open and stands out.
     fn render_unavailable(&self, list: &[HarnessInfo], p: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -430,6 +366,212 @@ impl AgentPicker {
         out
     }
 
+    /// "Opus 5.5 High": the model, else the agent, and the effort.
+    fn pill_label(&self, cx: &App) -> String {
+        let Some(h) = self.info(cx) else {
+            return match self.harnesses(cx) {
+                None => "Checking agents…".into(),
+                Some(l) if l.is_empty() => "No agents installed".into(),
+                Some(l) if !l.iter().any(|h| h.usable()) => "No agent ready".into(),
+                Some(_) => "Choose an agent".into(),
+            };
+        };
+        let model = match self.model_id(cx) {
+            Some(id) => h.model_name(&id),
+            None => h.name.clone(),
+        };
+        let effort = h
+            .efforts_for(self.model_id(cx).as_deref())
+            .iter()
+            .find(|e| e.id == self.effort)
+            .map(|e| e.name.clone());
+        match effort {
+            Some(e) => format!("{model} {e}"),
+            None => model,
+        }
+    }
+
+    /// The agent, its model and its effort, as one pill in the prompt box,
+    /// with a menu of all three; the agents that can't start a session are
+    /// in it too, greyed out with what they lack, and the agent's usage.
+    pub fn pill(&self, cx: &mut Context<Self>) -> AnyElement {
+        let p = Palette::of(cx);
+        let ready = self.usable(cx);
+        let icon = self
+            .harness
+            .as_deref()
+            .map(|id| crate::ui::badges::harness_icon(id, &p));
+        let label = self.pill_label(cx);
+        let this = cx.entity().downgrade();
+        let mut button = crate::ui::prompt_box::pill("agent-pill", icon, label);
+        if !ready {
+            button = button.text_color(p.yellow);
+        }
+        button
+            .dropdown_menu_with_anchor(gpui_kit::Anchor::BottomRight, move |mut menu, window, cx| {
+                menu = menu.max_w(px(380.)).min_w(px(220.));
+                let Some(view) = this.upgrade() else { return menu };
+                let v = view.read(cx);
+                let p = Palette::of(cx);
+                let list = v.harnesses(cx).unwrap_or_default();
+                if list.is_empty() {
+                    return menu.label(NONE_INSTALLED);
+                }
+                menu = menu.label("Agent");
+                for h in list.iter().filter(|h| h.usable()) {
+                    let (w, id) = (this.clone(), h.id.clone());
+                    menu = menu.item(
+                        PopupMenuItem::new(h.name.clone())
+                            .icon(crate::ui::badges::harness_icon(&h.id, &p))
+                            .checked(v.harness.as_deref() == Some(h.id.as_str()))
+                            .on_click(move |_, window, cx| {
+                                let _ = w.update(cx, |v, cx| {
+                                    if v.harness.as_deref() != Some(id.as_str()) {
+                                        v.choose(&id, None, window, cx)
+                                    }
+                                });
+                            }),
+                    );
+                }
+                for h in list.iter().filter(|h| !h.usable()) {
+                    let (name, lack) = (h.name.clone(), lack(h));
+                    menu = menu.item(
+                        PopupMenuItem::element(move |_, cx| {
+                            let p = Palette::of(cx);
+                            v_flex()
+                                .child(div().text_sm().child(name.clone()))
+                                .child(div().text_xs().text_color(p.overlay).child(lack.clone()))
+                        })
+                        .icon(crate::ui::badges::harness_icon(&h.id, &p))
+                        .disabled(true),
+                    );
+                }
+                let Some(h) = v.info(cx).filter(|h| h.usable()) else {
+                    return menu;
+                };
+                if let Some(l) = v.conn.read(cx).index.limits.get(&h.id) {
+                    let gauge = crate::store::limits::limits_gauge(l, chrono::Utc::now());
+                    if !gauge.is_empty() {
+                        menu = menu.label(format!("Usage: {gauge}"));
+                    }
+                }
+                // Model
+                let free = h.caps.free_model;
+                if !h.models.is_empty() {
+                    let mut choices: Vec<(String, String)> = vec![(String::new(), "Default".into())];
+                    choices.extend(h.models.iter().map(|m| (m.id.clone(), m.name.clone())));
+                    // A custom model checks none of them.
+                    let current = if v.model == CUSTOM {
+                        CUSTOM.to_string()
+                    } else {
+                        v.model.clone()
+                    };
+                    let w = this.clone();
+                    menu = crate::ui::prompt_box::choices(
+                        menu.separator().label("Model"),
+                        &choices,
+                        &current,
+                        std::rc::Rc::new(move |id, window, cx| {
+                            let _ = w.update(cx, |v, cx| v.set_model(id, window, cx));
+                        }),
+                    );
+                }
+                if free {
+                    let typed = v.custom.read(cx).value().trim().to_string();
+                    let custom = v.model == CUSTOM || h.models.is_empty();
+                    let label = if custom && !typed.is_empty() {
+                        format!("Custom: {typed}…")
+                    } else {
+                        "Custom…".into()
+                    };
+                    if h.models.is_empty() {
+                        menu = menu.separator().label("Model");
+                    }
+                    let w = this.clone();
+                    menu = menu.item(PopupMenuItem::new(label).checked(custom && !typed.is_empty()).on_click(
+                        move |_, window, cx| {
+                            let Some(view) = w.upgrade() else { return };
+                            let typed = view.read(cx).custom.read(cx).value().to_string();
+                            let w = w.clone();
+                            crate::ui::dialogs::prompt_text(
+                                window,
+                                cx,
+                                "Model",
+                                "The model's id, as the agent takes it.",
+                                "Model id",
+                                &typed,
+                                "Use",
+                                gpui_kit::component::button::ButtonVariant::Primary,
+                                move |text, window, cx| {
+                                    let _ = w.update(cx, |v, cx| {
+                                        v.custom.update(cx, |c, cx| c.set_value(text.clone(), window, cx));
+                                        let id = if text.is_empty() { String::new() } else { CUSTOM.into() };
+                                        v.set_model(id, window, cx);
+                                    });
+                                },
+                            );
+                        },
+                    ));
+                }
+                // Effort
+                let efforts: Vec<Choice> = h.efforts_for(v.model_id(cx).as_deref()).to_vec();
+                if !efforts.is_empty() {
+                    let mut choices: Vec<(String, String)> = vec![(String::new(), "Default".into())];
+                    choices.extend(efforts.iter().map(|e| (e.id.clone(), e.name.clone())));
+                    let w = this.clone();
+                    menu = crate::ui::prompt_box::choices(
+                        menu.separator().label("Effort"),
+                        &choices,
+                        &v.effort,
+                        std::rc::Rc::new(move |id, _, cx| {
+                            let _ = w.update(cx, |v, cx| {
+                                v.effort = id;
+                                cx.emit(AgentChanged);
+                                cx.notify();
+                            });
+                        }),
+                    );
+                }
+                let _ = window;
+                menu
+            })
+            .into_any_element()
+    }
+
+    /// The permissions as a pill, for the row under the prompt box.
+    pub fn mode_pill(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let h = self.info(cx).filter(|h| h.usable() && !h.modes.is_empty())?;
+        let choices: Vec<(String, String)> = h.modes.iter().map(|m| (m.id.clone(), m.name.clone())).collect();
+        let name = choices
+            .iter()
+            .find(|(id, _)| *id == self.mode)
+            .map(|(_, n)| n.clone())
+            .unwrap_or_else(|| self.mode.clone());
+        let tooltip = meaning(&h.modes, &self.mode).map(|(_, what)| what);
+        let (current, w) = (self.mode.clone(), cx.entity().downgrade());
+        Some(crate::ui::prompt_box::pill_menu(
+            "mode-pill",
+            Some(crate::ui::prompt_box::mode_icon(&self.mode)),
+            name,
+            tooltip,
+            move |menu, _, _| {
+                let w = w.clone();
+                crate::ui::prompt_box::choices(
+                    menu,
+                    &choices,
+                    &current,
+                    std::rc::Rc::new(move |id, _, cx| {
+                        let _ = w.update(cx, |v, cx| {
+                            v.mode = id;
+                            cx.emit(AgentChanged);
+                            cx.notify();
+                        });
+                    }),
+                )
+            },
+        ))
+    }
+
     fn set_model(&mut self, id: String, _: &mut Window, cx: &mut Context<Self>) {
         self.model = id;
         // An effort the model doesn't offer goes back to the default.
@@ -510,16 +652,6 @@ pub fn row(label: &str, control: AnyElement, description: Option<String>, p: &Pa
                 .child(div().flex_1().min_w_0().child(control)),
         )
         .when_some(description, |d, desc| d.child(caption(desc, p).pl(px(108.))))
-        .into_any_element()
-}
-
-/// A small label over its control: one of a wrapping row of them.
-pub fn field(label: &str, control: AnyElement, p: &Palette) -> AnyElement {
-    v_flex()
-        .flex_shrink_0()
-        .gap_1()
-        .child(caption(label.to_string(), p))
-        .child(control)
         .into_any_element()
 }
 

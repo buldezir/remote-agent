@@ -3,6 +3,7 @@
 pub mod actions;
 pub mod agent_picker;
 pub mod app;
+pub mod badges;
 pub mod build_update;
 pub mod commit;
 pub mod common;
@@ -13,6 +14,7 @@ pub mod fork;
 pub mod new_session;
 pub mod palette;
 pub mod panes;
+pub mod prompt_box;
 pub mod server_settings;
 pub mod session;
 pub mod settings;

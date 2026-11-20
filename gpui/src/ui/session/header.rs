@@ -7,14 +7,14 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{Icon, IconName, Selectable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Anchor, AnyElement, App, ClickEvent, Context, ExternalPaths, FontWeight, InteractiveElement as _, IntoElement,
-    KeyDownEvent, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
-    list, px,
+    Anchor, AnyElement, App, ClickEvent, Context, ExternalPaths, InteractiveElement as _, IntoElement, KeyDownEvent,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, list, px,
 };
 use serde_json::json;
 
 use super::SessionView;
 use crate::protocol::{SessionStatus, TurnStatus, WorkspaceKind};
+use crate::ui::badges::project_badge;
 use crate::ui::common::{busy_dot, caption, sidebar_toggle, top_bar};
 use crate::ui::palette::Palette;
 use crate::ui::state::prefs;
@@ -69,45 +69,6 @@ impl SessionView {
         }
     }
 
-    /// "{model} · {effort} · {mode} · NN% context", with the project before it.
-    fn subtitle(&self, cx: &App) -> String {
-        let conn = self.conn.read(cx);
-        let Some(s) = conn.session(&self.session_id) else {
-            return String::new();
-        };
-        let harness = conn.harness(&s.harness);
-        let info = s.model_info.clone().unwrap_or_default();
-        let model = info.name.clone().or_else(|| {
-            let id = info.id.clone().or_else(|| s.model.clone())?;
-            Some(harness.map(|h| h.model_name(&id)).unwrap_or(id))
-        });
-        let model = model
-            .or_else(|| harness.map(|h| h.name.clone()))
-            .unwrap_or_else(|| s.harness.clone());
-        let mut parts = vec![model];
-        if let Some(e) = info.effort.clone().or_else(|| s.effort.clone()) {
-            parts.push(e);
-        }
-        if let Some(m) = &s.mode {
-            parts.push(
-                harness
-                    .and_then(|h| h.modes.iter().find(|c| &c.id == m).map(|c| c.name.clone()))
-                    .unwrap_or_else(|| m.clone()),
-            );
-        }
-        if let Some(c) = &s.context
-            && let Some(w) = c.window.filter(|w| *w > 0)
-        {
-            let pct = ((c.used as f64 / w as f64).min(1.) * 100.).round();
-            parts.push(format!("{pct}% context"));
-        }
-        let tail = parts.join(" · ");
-        match conn.index.projects.get(&s.project_id) {
-            Some(p) => format!("{} — {tail}", p.name),
-            None => tail,
-        }
-    }
-
     /// The room the session has: the window without the sidebar's columns.
     fn width(&self, window: &Window, cx: &App) -> f32 {
         let prefs = prefs(cx);
@@ -140,10 +101,9 @@ impl SessionView {
             )
             .into_any_element();
         };
-        let subtitle = self.subtitle(cx);
-        let git = self.is_git(cx);
-        let worktree = s.workspace.kind == WorkspaceKind::Worktree;
+        let project = self.project(cx).map(|p| p.name.clone());
         let running = self.is_running(cx);
+        let git = self.is_git(cx);
         let (status, color) = match s.status {
             _ if s.archived => ("Archived", p.overlay),
             SessionStatus::Running => ("Working", p.blue),
@@ -154,13 +114,8 @@ impl SessionView {
             _ if self.last_turn_failed(cx) => ("Failed", p.red),
             _ => ("Idle", p.overlay),
         };
-        let path = s
-            .workspace
-            .agent_path
-            .clone()
-            .unwrap_or_else(|| s.workspace.path.clone());
-        // A narrow session keeps its title: first the folder and the state's
-        // name go, then the buttons, which the menu has too.
+        // A narrow session keeps its title: first the project and the
+        // state's name go, then the buttons, which the menu has too.
         let width = self.width(window, cx);
         let (roomy, buttons) = (width >= 620., width >= 470.);
         let dot = div().size(px(7.)).rounded_full().flex_shrink_0();
@@ -169,107 +124,90 @@ impl SessionView {
         } else {
             dot.bg(color).into_any_element()
         };
-        let content =
-            h_flex()
-                .w_full()
-                .gap_2()
-                .when(hidden, |d| d.child(sidebar_toggle(true)))
-                .child(
-                    v_flex()
-                        .flex_1()
-                        .min_w_0()
-                        // In line with the transcript under it.
-                        .when(!hidden, |d| d.pl_2())
-                        .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).truncate().child(
-                            if s.title.is_empty() {
+        let content = h_flex()
+            .w_full()
+            .gap_2()
+            .when(hidden, |d| d.child(sidebar_toggle(true)))
+            // "[L] project / title", as a path to the session.
+            .child(
+                h_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_2()
+                    .text_sm()
+                    // In line with the transcript under it.
+                    .when(!hidden, |d| d.pl_2())
+                    .when_some(project.filter(|_| roomy), |d, name| {
+                        d.child(project_badge(&name, 16., &p))
+                            .child(div().flex_shrink_0().text_color(p.subtext).child(name))
+                            .child(div().flex_shrink_0().text_color(p.overlay).child("/"))
+                    })
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(p.text)
+                            .child(if s.title.is_empty() {
                                 "Session".to_string()
                             } else {
                                 s.title.clone()
-                            },
-                        ))
-                        .child(div().text_xs().text_color(p.overlay).truncate().child(subtitle)),
-                )
-                .when(roomy && (git || worktree), |d| {
-                    d.child(
-                        h_flex()
-                            .id("workspace")
-                            .gap_1p5()
-                            .max_w(px(280.))
-                            .text_xs()
-                            .text_color(p.subtext)
-                            .when(worktree, |d| {
-                                d.child(Icon::new(L::SquareDashed).xsmall().text_color(p.overlay))
-                                    .child("Worktree")
-                            })
-                            .when(
-                                s.workspace.branch.is_some() || s.workspace.kind == WorkspaceKind::Root,
-                                |d| {
-                                    d.child(Icon::new(L::GitBranch).xsmall().text_color(p.overlay)).child(
-                                        div().truncate().child(
-                                            s.workspace.branch.clone().unwrap_or_else(|| "Detached HEAD".into()),
-                                        ),
-                                    )
-                                },
-                            )
-                            .tooltip(move |window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new(path.clone()).build(window, cx)
                             }),
-                    )
-                })
-                .child(
+                    ),
+            )
+            .child(
+                h_flex()
+                    .id("status")
+                    .gap_1p5()
+                    .flex_shrink_0()
+                    .child(dot)
+                    .when(roomy, |d| d.child(div().text_xs().text_color(p.subtext).child(status)))
+                    .when(!roomy, |d| {
+                        d.tooltip(move |window, cx| {
+                            gpui_kit::component::tooltip::Tooltip::new(status).build(window, cx)
+                        })
+                    }),
+            )
+            .when(buttons, |d| {
+                d.child(
                     h_flex()
-                        .id("status")
-                        .gap_1p5()
+                        .gap_0p5()
                         .flex_shrink_0()
-                        .child(dot)
-                        .when(roomy, |d| d.child(div().text_xs().text_color(p.subtext).child(status)))
-                        .when(!roomy, |d| {
-                            d.tooltip(move |window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new(status).build(window, cx)
-                            })
+                        .when(git, |d| d.child(self.changes_button(&p, cx)))
+                        .when(self.can_commit(cx), |d| {
+                            d.child(
+                                Button::new("commit")
+                                    .small()
+                                    .ghost()
+                                    .icon(L::GitCommitHorizontal)
+                                    .tooltip("Commit… (⌥⌘C)")
+                                    .disabled(running)
+                                    .on_click(
+                                        cx.listener(|this, _: &ClickEvent, window, cx| this.open_commit(window, cx)),
+                                    ),
+                            )
+                        })
+                        .when(self.can_terminal(cx), |d| {
+                            d.child(
+                                Button::new("terminal")
+                                    .small()
+                                    .ghost()
+                                    .icon(L::SquareTerminal)
+                                    .selected(self.terminal_shown)
+                                    .tooltip(if self.terminal_shown {
+                                        "Hide Terminal (⌘J)"
+                                    } else {
+                                        "Terminal (⌘J)"
+                                    })
+                                    .on_click(
+                                        cx.listener(|this, _: &ClickEvent, window, cx| {
+                                            this.toggle_terminal(window, cx)
+                                        }),
+                                    ),
+                            )
                         }),
                 )
-                .when(buttons, |d| {
-                    d.child(
-                        h_flex()
-                            .gap_0p5()
-                            .flex_shrink_0()
-                            .when(git, |d| d.child(self.changes_button(&p, cx)))
-                            .when(self.can_commit(cx), |d| {
-                                d.child(
-                                    Button::new("commit")
-                                        .small()
-                                        .ghost()
-                                        .icon(L::GitCommitHorizontal)
-                                        .tooltip("Commit… (⌥⌘C)")
-                                        .disabled(running)
-                                        .on_click(
-                                            cx.listener(|this, _: &ClickEvent, window, cx| {
-                                                this.open_commit(window, cx)
-                                            }),
-                                        ),
-                                )
-                            })
-                            .when(self.can_terminal(cx), |d| {
-                                d.child(
-                                    Button::new("terminal")
-                                        .small()
-                                        .ghost()
-                                        .icon(L::SquareTerminal)
-                                        .selected(self.terminal_shown)
-                                        .tooltip(if self.terminal_shown {
-                                            "Hide Terminal (⌘J)"
-                                        } else {
-                                            "Terminal (⌘J)"
-                                        })
-                                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                            this.toggle_terminal(window, cx)
-                                        })),
-                                )
-                            }),
-                    )
-                })
-                .child(self.render_menu(cx));
+            })
+            .child(self.render_menu(cx));
         top_bar("session-bar", hidden, p.base, Some(p.surface0), window, content).into_any_element()
     }
 

@@ -1,12 +1,13 @@
 //! The composer: the prompt, its images, slash-command suggestions,
-//! queueing and steering, drafts, dictation and Stop.
+//! queueing and steering, drafts, dictation and Stop, in the prompt box a
+//! new session has too, with the session's settings under it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui_kit::assets::IconName as L;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
-use gpui_kit::component::input::Textarea;
+use gpui_kit::component::input::{Paste, Textarea};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
@@ -20,11 +21,13 @@ use serde_json::json;
 
 use super::{AttachState, Attachment, SessionView, explain};
 use crate::images::{Loaded, Prepared, prepare};
-use crate::protocol::{CommandList, ImageRef};
+use crate::protocol::{CommandList, ImageRef, WorkspaceKind};
 use crate::store::search::{command_query, command_suggestions};
+use crate::ui::badges::{context_percent, harness_icon, model_name};
 use crate::ui::common::caption;
 use crate::ui::dialogs::{self, Choice};
 use crate::ui::palette::Palette;
+use crate::ui::prompt_box::{self, PromptBox};
 
 impl SessionView {
     fn draft_text(&self, cx: &App) -> String {
@@ -367,10 +370,6 @@ impl SessionView {
     pub(crate) fn composer_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let k = &ev.keystroke;
         let plain = !k.modifiers.platform && !k.modifiers.control && !k.modifiers.alt;
-        if k.key == "v" && k.modifiers.platform && self.paste_images(window, cx) {
-            cx.stop_propagation();
-            return;
-        }
         if !self.suggestions_shown(cx) || !plain {
             return;
         }
@@ -388,8 +387,10 @@ impl SessionView {
 
     // MARK: Images
 
-    /// ⌘V with images on the pasteboard and no text: attaches them.
-    fn paste_images(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    /// ⌘V or Edit › Paste with images on the pasteboard and no text:
+    /// attaches them. It catches the prompt's Paste action before the prompt
+    /// does, as GPUI runs a key's binding before any key-down listener.
+    pub(crate) fn paste_images(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(item) = cx.read_from_clipboard() else {
             return false;
         };
@@ -402,26 +403,14 @@ impl SessionView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let mut images: Vec<Vec<u8>> = Vec::new();
-        let mut paths: Vec<PathBuf> = Vec::new();
-        let mut text = false;
-        for e in item.entries() {
-            match e {
-                ClipboardEntry::Image(i) => images.push(i.bytes().to_vec()),
-                ClipboardEntry::ExternalPaths(p) => paths.extend(p.paths().iter().cloned()),
-                ClipboardEntry::String(s) => text |= !s.text().is_empty(),
+        match prompt_box::pasted_images(item) {
+            Some(prompt_box::Pasted::Files(paths)) => self.attach_paths(paths, window, cx),
+            Some(prompt_box::Pasted::Images(images)) => {
+                for bytes in images {
+                    self.attach_bytes(bytes, window, cx);
+                }
             }
-        }
-        let image_paths: Vec<PathBuf> = paths.iter().filter(|p| is_image_path(p)).cloned().collect();
-        if !image_paths.is_empty() && image_paths.len() == paths.len() {
-            self.attach_paths(image_paths, window, cx);
-            return true;
-        }
-        if images.is_empty() || text || !paths.is_empty() {
-            return false;
-        }
-        for bytes in images {
-            self.attach_bytes(bytes, window, cx);
+            None => return false,
         }
         true
     }
@@ -442,7 +431,12 @@ impl SessionView {
     }
 
     pub(crate) fn drop_paths(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
-        let images: Vec<PathBuf> = paths.paths().iter().filter(|p| is_image_path(p)).cloned().collect();
+        let images: Vec<PathBuf> = paths
+            .paths()
+            .iter()
+            .filter(|p| prompt_box::is_image_path(p))
+            .cloned()
+            .collect();
         self.attach_paths(images, window, cx);
     }
 
@@ -670,6 +664,133 @@ impl SessionView {
         )
     }
 
+    /// The agent, model and effort the session runs with, greyed out: they
+    /// stay as the session started.
+    fn agent_pill(&self, cx: &App) -> Option<AnyElement> {
+        let p = Palette::of(cx);
+        let conn = self.conn.read(cx);
+        let s = conn.session(&self.session_id)?;
+        let harness = conn.harness(&s.harness);
+        let model = model_name(&s, harness);
+        let effort_id = s
+            .model_info
+            .as_ref()
+            .and_then(|m| m.effort.clone())
+            .or_else(|| s.effort.clone());
+        let effort = effort_id.map(|e| {
+            harness
+                .and_then(|h| {
+                    h.efforts_for(s.model.as_deref())
+                        .iter()
+                        .find(|c| c.id == e)
+                        .map(|c| c.name.clone())
+                })
+                .unwrap_or(e)
+        });
+        let label = match effort {
+            Some(e) => format!("{model} {e}"),
+            None => model,
+        };
+        Some(prompt_box::fixed_pill(
+            "agent-pill",
+            Some(harness_icon(&s.harness, &p)),
+            label,
+        ))
+    }
+
+    /// The row under the box: where the session works, which it keeps, and
+    /// its permissions, which it can change.
+    fn footer(&self, cx: &mut Context<Self>) -> (Vec<AnyElement>, Vec<AnyElement>) {
+        let p = Palette::of(cx);
+        let Some(s) = self.session(cx) else {
+            return (Vec::new(), Vec::new());
+        };
+        let conn = self.conn.read(cx);
+        let server = conn.name.clone();
+        let harness = conn.harness(&s.harness).cloned();
+        let git = self.is_git(cx);
+        let worktree = s.workspace.kind == WorkspaceKind::Worktree;
+        let mut start = vec![prompt_box::fixed_pill(
+            "server-pill",
+            Some(Icon::new(L::Server)),
+            server,
+        )];
+        start.push(prompt_box::fixed_pill(
+            "place-pill",
+            Some(Icon::new(if worktree { L::FolderGit2 } else { L::Folder })),
+            if worktree {
+                "Worktree"
+            } else if git {
+                "Current checkout"
+            } else {
+                "Project folder"
+            },
+        ));
+        let mut end = Vec::new();
+        if git {
+            end.push(prompt_box::fixed_pill(
+                "branch-pill",
+                Some(Icon::new(L::GitBranch)),
+                s.workspace.branch.clone().unwrap_or_else(|| "Detached HEAD".into()),
+            ));
+        }
+        if let Some(pct) = context_percent(&s) {
+            end.push(
+                div()
+                    .px_1()
+                    .text_xs()
+                    .text_color(p.overlay)
+                    .child(format!("{pct}% context"))
+                    .into_any_element(),
+            );
+        }
+        if let Some(h) = harness.filter(|h| !h.modes.is_empty()) {
+            let current = s.mode.clone().unwrap_or_default();
+            let name = h
+                .modes
+                .iter()
+                .find(|m| m.id == current)
+                .map(|m| m.name.clone())
+                .unwrap_or_else(|| current.clone());
+            if self.read_only(cx) {
+                end.push(prompt_box::fixed_pill(
+                    "mode-pill",
+                    Some(prompt_box::mode_icon(&current)),
+                    name,
+                ));
+            } else {
+                let choices: Vec<(String, String)> = h.modes.iter().map(|m| (m.id.clone(), m.name.clone())).collect();
+                let tooltip = h
+                    .modes
+                    .iter()
+                    .find(|m| m.id == current)
+                    .and_then(|m| m.description.clone())
+                    .filter(|d| !d.is_empty());
+                let (w, sid) = (cx.entity().downgrade(), s.id.clone());
+                end.push(prompt_box::pill_menu(
+                    "mode-pill",
+                    Some(prompt_box::mode_icon(&current)),
+                    name,
+                    tooltip,
+                    move |menu, _, _| {
+                        let (w, sid) = (w.clone(), sid.clone());
+                        prompt_box::choices(
+                            menu,
+                            &choices,
+                            &current,
+                            std::rc::Rc::new(move |id, _, cx| {
+                                let _ = w.update(cx, |v, cx| {
+                                    v.run("session.setMode", json!({"sessionId": sid, "mode": id}), cx)
+                                });
+                            }),
+                        )
+                    },
+                ));
+            }
+        }
+        (start, end)
+    }
+
     pub(crate) fn render_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = Palette::of(cx);
         let running = self.is_running(cx);
@@ -682,171 +803,137 @@ impl SessionView {
         let can_send = self.can_send(cx) && !self.unarchiving;
         let steers = can_send && self.can_steer(&self.draft_text(cx), cx);
         let save_draft = self.can_save_draft(cx);
+        let drafting = save_draft && self.uploads_done() && !self.saving_draft;
         let attachments = self.render_attachments(&p, cx);
         let suggestions = self.render_suggestions(&p, cx);
         let this = cx.entity().downgrade();
-        let plus = Button::new("attach")
-            .small()
-            .ghost()
-            .icon(IconName::Plus)
-            .tooltip("Add images")
-            .disabled(read_only || removed)
-            .dropdown_menu(move |menu, _, cx| {
-                let has_image = cx
-                    .read_from_clipboard()
-                    .is_some_and(|i| i.entries().iter().any(|e| matches!(e, ClipboardEntry::Image(_))));
-                let (a, b) = (this.clone(), this.clone());
-                menu.item(
-                    PopupMenuItem::new("Files…")
-                        .icon(Icon::new(L::Image))
-                        .on_click(move |_, window, cx| {
-                            let _ = a.update(cx, |v, cx| v.pick_images(window, cx));
-                        }),
-                )
-                .item(
-                    PopupMenuItem::new("Paste Image")
-                        .icon(Icon::new(L::ClipboardPaste))
-                        .disabled(!has_image)
-                        .on_click(move |_, window, cx| {
-                            let _ = b.update(cx, |v, cx| {
-                                if let Some(item) = cx.read_from_clipboard() {
-                                    v.attach_clipboard(&item, window, cx);
-                                }
-                            });
-                        }),
-                )
-            });
-        let main: AnyElement = if dictating {
-            Button::new("dictate")
-                .small()
-                .danger()
-                .icon(L::AudioLines)
-                .tooltip("Stop dictation")
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_dictation(cx)))
-                .into_any_element()
-        } else if empty && dictation && !read_only {
-            Button::new("dictate")
+        let plus =
+            Button::new("attach")
                 .small()
                 .ghost()
-                .icon(L::Mic)
-                .tooltip("Dictate")
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_dictation(cx)))
-                .into_any_element()
-        } else {
-            Button::new("send")
-                .small()
-                .primary()
-                .icon(IconName::ArrowUp)
-                .label(if running { "Queue" } else { "Send" })
-                .tooltip(if steers {
+                .icon(IconName::Plus)
+                .tooltip("Add images, and more")
+                .disabled(read_only || removed)
+                .dropdown_menu_with_anchor(gpui_kit::Anchor::BottomLeft, move |mut menu, _, cx| {
+                    let has_image = cx
+                        .read_from_clipboard()
+                        .is_some_and(|i| i.entries().iter().any(|e| matches!(e, ClipboardEntry::Image(_))));
+                    let (a, b, c) = (this.clone(), this.clone(), this.clone());
+                    menu =
+                        menu.item(PopupMenuItem::new("Files…").icon(Icon::new(L::Image)).on_click(
+                            move |_, window, cx| {
+                                let _ = a.update(cx, |v, cx| v.pick_images(window, cx));
+                            },
+                        ))
+                        .item(
+                            PopupMenuItem::new("Paste Image")
+                                .icon(Icon::new(L::ClipboardPaste))
+                                .disabled(!has_image)
+                                .on_click(move |_, window, cx| {
+                                    let _ = b.update(cx, |v, cx| {
+                                        if let Some(item) = cx.read_from_clipboard() {
+                                            v.attach_clipboard(&item, window, cx);
+                                        }
+                                    });
+                                }),
+                        );
+                    if save_draft {
+                        menu = menu.separator().item(
+                            PopupMenuItem::new("Save as Draft")
+                                .icon(Icon::new(L::Download))
+                                .action(Box::new(crate::SaveDraft))
+                                .disabled(!drafting)
+                                .on_click(move |_, window, cx| {
+                                    let _ = c.update(cx, |v, cx| v.save_draft(window, cx));
+                                }),
+                        );
+                    }
+                    menu
+                });
+        let mut leading = vec![plus.into_any_element()];
+        if !connected {
+            leading.push(caption("Not connected", &p).into_any_element());
+        }
+        if read_only {
+            leading.push(caption("Archived", &p).into_any_element());
+        }
+        let mut trailing: Vec<AnyElement> = self.agent_pill(cx).into_iter().collect();
+        if running {
+            trailing.push(
+                Button::new("stop")
+                    .small()
+                    .outline()
+                    .icon(IconName::Square)
+                    .label("Stop")
+                    .tooltip("Stop (⌘.)")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.interrupt(false, cx)))
+                    .into_any_element(),
+            );
+        }
+        if steers {
+            trailing.push(
+                Button::new("steer")
+                    .small()
+                    .outline()
+                    .label("Steer")
+                    .tooltip("Steer into the turn (⇧⌘Return)")
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(true, window, cx)))
+                    .into_any_element(),
+            );
+        }
+        if dictation && !read_only && (empty || dictating) {
+            trailing.push(prompt_box::mic_button(
+                dictating,
+                true,
+                cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_dictation(cx)),
+            ));
+        }
+        if !dictating {
+            trailing.push(prompt_box::send_button(
+                can_send && connected && !removed,
+                if steers {
                     "Queue (Return) · Steer into the turn (⇧⌘Return)"
+                } else if running {
+                    "Queue (Return)"
                 } else {
                     "Send (Return)"
-                })
-                .disabled(!can_send || !connected || removed)
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(false, window, cx)))
-                .into_any_element()
-        };
-        let _ = window;
-        v_flex()
-            .px_5()
-            .pb_4()
-            .pt_1()
-            .gap_1()
+                },
+                cx.listener(|this, _: &ClickEvent, window, cx| this.send(false, window, cx)),
+            ));
+        }
+        let (footer_start, footer_end) = self.footer(cx);
+        let input = div()
+            .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| this.composer_key(ev, window, cx)))
+            .capture_action(cx.listener(|this, _: &Paste, window, cx| {
+                if this.paste_images(window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .child(
-                v_flex()
-                    .w_full()
-                    .gap_1()
-                    .when_some(suggestions, |d, s| d.child(s))
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .p_2()
-                            .rounded_lg()
-                            .border_1()
-                            .border_color(p.surface0)
-                            .bg(p.mantle)
-                            .when_some(attachments, |d, a| d.child(a))
-                            .child(
-                                div()
-                                    .font_family(crate::ui::fonts::message())
-                                    .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                                        this.composer_key(ev, window, cx)
-                                    }))
-                                    .child(
-                                        Textarea::new(&self.composer)
-                                            .appearance(false)
-                                            .disabled(read_only || removed),
-                                    ),
-                            )
-                            .child(
-                                h_flex()
-                                    .gap_2()
-                                    .child(plus)
-                                    .when(!connected, |d| d.child(caption("Not connected", &p)))
-                                    .when(read_only, |d| d.child(caption("Archived", &p)))
-                                    .child(div().flex_1())
-                                    .when(save_draft, |d| {
-                                        d.child(
-                                            Button::new("save-draft")
-                                                .small()
-                                                .ghost()
-                                                .icon(L::Download)
-                                                .tooltip("Save as Draft (⌘S)")
-                                                .disabled(!self.uploads_done() || self.saving_draft)
-                                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                                    this.save_draft(window, cx)
-                                                })),
-                                        )
-                                    })
-                                    .when(running, |d| {
-                                        d.child(
-                                            Button::new("stop")
-                                                .small()
-                                                .outline()
-                                                .icon(IconName::Square)
-                                                .label("Stop")
-                                                .tooltip("Stop (⌘.)")
-                                                .on_click(
-                                                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                                                        this.interrupt(false, cx)
-                                                    }),
-                                                ),
-                                        )
-                                    })
-                                    .when(steers, |d| {
-                                        d.child(
-                                            Button::new("steer")
-                                                .small()
-                                                .outline()
-                                                .label("Steer")
-                                                .tooltip("Steer into the turn (⇧⌘Return)")
-                                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                                                    this.send(true, window, cx)
-                                                })),
-                                        )
-                                    })
-                                    .child(main),
-                            ),
-                    ),
+                Textarea::new(&self.composer)
+                    .appearance(false)
+                    .disabled(read_only || removed),
             )
-            .into_any_element()
+            .into_any_element();
+        let _ = window;
+        let prompt = PromptBox {
+            above: suggestions,
+            attachments,
+            input: Some(input),
+            leading,
+            trailing,
+            footer_start,
+            footer_end,
+            wide: true,
+        }
+        .render(&p);
+        v_flex().px_5().pb_3().pt_1().child(prompt).into_any_element()
     }
 }
 
 /// An attachment as the strip draws it: its key, picture, id once
 /// uploaded, whether it uploads, and why it failed.
 type Shown = (u64, Option<Arc<Image>>, Option<String>, bool, Option<String>);
-
-fn is_image_path(p: &std::path::Path) -> bool {
-    matches!(
-        p.extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .as_deref(),
-        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "tiff" | "tif" | "bmp")
-    )
-}
 
 fn capitalize(s: &str) -> String {
     let mut c = s.chars();

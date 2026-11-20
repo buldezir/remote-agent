@@ -7,19 +7,22 @@
 //! has the same choices, as a form.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
 use gpui_kit::assets::IconName as L;
 use gpui_kit::component::WindowExt as _;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
+use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
+use gpui_kit::component::input::{InputEvent, Paste, Textarea, TextareaState};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::speech::{SpeechEvent, SpeechState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, AppContext as _, ClickEvent, ClipboardEntry, Context, Entity, EventEmitter, ExternalPaths,
+    Anchor, AnyElement, App, AppContext as _, ClickEvent, ClipboardEntry, Context, Entity, EventEmitter, ExternalPaths,
     FontWeight, Image, InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, PathPromptOptions, Render,
     SharedString, StatefulInteractiveElement as _, Styled as _, StyledImage as _, Subscription, Window, div, img, px,
 };
@@ -28,9 +31,11 @@ use serde_json::json;
 use crate::conn::ServerConn;
 use crate::images::{Prepared, prepare};
 use crate::protocol::{Branches, FsList, ImageRef, ImportableList, Project, ServerSettings, Session};
-use crate::ui::agent_picker::{AgentPicker, field, field_picker};
-use crate::ui::common::{caption, plural};
+use crate::ui::agent_picker::AgentPicker;
+use crate::ui::badges::project_badge;
+use crate::ui::common::{caption, plural, sidebar_toggle, top_bar};
 use crate::ui::palette::Palette;
+use crate::ui::prompt_box::{self, PromptBox};
 use crate::ui::session::explain;
 use crate::ui::state::{app_view, prefs, update_prefs};
 
@@ -71,13 +76,17 @@ pub struct NewSessionView {
     place: Place,
     /// "" for a new branch.
     branch: String,
-    branch_name: Entity<InputState>,
+    /// A new branch's name; empty for rad to name it.
+    branch_name: String,
     base_ref: String,
     prompt: Entity<TextareaState>,
     attachments: Vec<Attached>,
     next_key: u64,
     creating: bool,
     error: Option<String>,
+    speech: Entity<SpeechState>,
+    /// The prompt as it was when dictation started.
+    dictation_base: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -93,15 +102,19 @@ impl NewSessionView {
         let agent = cx.new(|cx| AgentPicker::new(conns[server_ix].clone(), window, cx));
         let prompt = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .placeholder("What should the agent do? (⌘Return starts)")
-                .auto_grow(4, 12)
+                .placeholder("What should the agent do?")
+                .auto_grow(2, 12)
+                .submit_on_enter(true)
         });
-        let branch_name = cx.new(|cx| InputState::new(window, cx).placeholder("auto"));
+        let speech = cx.new(SpeechState::new);
         let mut subscriptions = vec![
             cx.subscribe_in(&prompt, window, |this, _, event, window, cx| {
-                if let InputEvent::PressEnter { secondary: true, .. } = event {
+                if let InputEvent::PressEnter { shift: false, .. } = event {
                     this.create(false, window, cx);
                 }
+            }),
+            cx.subscribe_in(&speech, window, |this, _, event: &SpeechEvent, window, cx| {
+                this.dictation(event, window, cx)
             }),
             cx.observe(&agent, |_, _, cx| cx.notify()),
         ];
@@ -118,13 +131,15 @@ impl NewSessionView {
             branches: None,
             place: Place::Project,
             branch: String::new(),
-            branch_name,
+            branch_name: String::new(),
             base_ref: String::new(),
             prompt,
             attachments: Vec::new(),
             next_key: 0,
             creating: false,
             error: None,
+            speech,
+            dictation_base: None,
             _subscriptions: subscriptions,
         };
         this.load_server(window, cx);
@@ -228,6 +243,7 @@ impl NewSessionView {
     fn project_changed(&mut self, cx: &mut Context<Self>) {
         self.place = Place::Project;
         self.branch.clear();
+        self.branch_name.clear();
         self.base_ref.clear();
         self.branches = None;
         let Some(p) = self.project(cx).filter(|p| p.is_git_repo) else {
@@ -263,7 +279,7 @@ impl NewSessionView {
             Place::NewWorktree if !self.branch.is_empty() => json!({"kind": "worktree", "branch": self.branch}),
             Place::NewWorktree => {
                 let mut w = json!({"kind": "worktree"});
-                let name = self.branch_name.read(cx).value().trim().to_string();
+                let name = self.branch_name.trim().to_string();
                 if !name.is_empty() {
                     w["branch"] = json!(name);
                 }
@@ -450,20 +466,14 @@ impl NewSessionView {
         let Some(item) = cx.read_from_clipboard() else {
             return false;
         };
-        let mut images = Vec::new();
-        let mut text = false;
-        for e in item.entries() {
-            match e {
-                ClipboardEntry::Image(i) => images.push(i.bytes().to_vec()),
-                ClipboardEntry::String(s) => text |= !s.text().is_empty(),
-                ClipboardEntry::ExternalPaths(_) => {}
+        match prompt_box::pasted_images(&item) {
+            Some(prompt_box::Pasted::Files(paths)) => self.attach_paths(paths, window, cx),
+            Some(prompt_box::Pasted::Images(images)) => {
+                for bytes in images {
+                    self.attach_bytes(bytes, window, cx);
+                }
             }
-        }
-        if images.is_empty() || text {
-            return false;
-        }
-        for b in images {
-            self.attach_bytes(b, window, cx);
+            None => return false,
         }
         true
     }
@@ -510,14 +520,121 @@ impl NewSessionView {
         });
     }
 
-    // MARK: Fields
+    // MARK: Dictation
 
-    /// A wrapping row of labelled pickers.
-    fn fields() -> gpui_kit::Div {
-        h_flex().flex_wrap().items_start().gap_x_3().gap_y_2()
+    fn dictation(&mut self, event: &SpeechEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match event {
+            SpeechEvent::Started => self.dictation_base = Some(self.prompt.read(cx).value().to_string()),
+            SpeechEvent::Partial(text) | SpeechEvent::Final(text) => {
+                let base = self.dictation_base.clone().unwrap_or_default();
+                let joined = if base.is_empty() || base.ends_with(char::is_whitespace) || text.is_empty() {
+                    format!("{base}{text}")
+                } else {
+                    format!("{base} {text}")
+                };
+                self.prompt.update(cx, |c, cx| c.set_value(joined, window, cx));
+                if matches!(event, SpeechEvent::Final(_)) {
+                    self.dictation_base = None;
+                }
+            }
+            SpeechEvent::Cancelled => {
+                if let Some(base) = self.dictation_base.take() {
+                    self.prompt.update(cx, |c, cx| c.set_value(base, window, cx));
+                }
+            }
+            SpeechEvent::Error(e) => {
+                self.dictation_base = None;
+                self.error = Some(e.to_string());
+            }
+        }
+        cx.notify();
     }
 
-    fn server_field(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    // MARK: The bar
+
+    /// "[L] project ▾ / New session": the project, with a menu of the
+    /// others, adding a folder as one, and forgetting it.
+    fn render_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let p = Palette::of(cx);
+        let hidden = prefs(cx).sidebar_hidden;
+        let project = self.project(cx);
+        let projects: Vec<(String, String)> = self
+            .conn()
+            .read(cx)
+            .index
+            .projects_by_name()
+            .iter()
+            .map(|p| (p.id.clone(), p.name.clone()))
+            .collect();
+        let current = self.project_id.clone().unwrap_or_default();
+        let forget = project.as_ref().map(|p| p.name.clone());
+        let this = cx.entity().downgrade();
+        let trigger = Button::new("project-menu").ghost().small().child(
+            h_flex()
+                .gap_1p5()
+                .when_some(project.as_ref(), |d, pr| d.child(project_badge(&pr.name, 16., &p)))
+                .child(
+                    div().text_sm().text_color(p.subtext).child(
+                        project
+                            .as_ref()
+                            .map(|p| p.name.clone())
+                            .unwrap_or_else(|| "Choose a project".into()),
+                    ),
+                )
+                .child(Icon::new(IconName::ChevronDown).xsmall().text_color(p.overlay)),
+        );
+        let menu = trigger.dropdown_menu(move |menu, _, _| {
+            let w = this.clone();
+            let mut menu = prompt_box::choices(
+                menu.max_w(px(360.)),
+                &projects,
+                &current,
+                Rc::new(move |id, _, cx| {
+                    let _ = w.update(cx, |v, cx| v.set_project(Some(id), cx));
+                }),
+            );
+            if !projects.is_empty() {
+                menu = menu.separator();
+            }
+            let w = this.clone();
+            menu = menu.item(
+                PopupMenuItem::new("Add a folder…")
+                    .icon(Icon::new(L::FolderPlus))
+                    .on_click(move |_, window, cx| {
+                        let _ = w.update(cx, |v, cx| v.browse(window, cx));
+                    }),
+            );
+            if let Some(name) = &forget {
+                let w = this.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(format!("Forget {name}"))
+                        .icon(Icon::new(L::FolderMinus))
+                        .on_click(move |_, _, cx| {
+                            let _ = w.update(cx, |v, cx| v.forget_project(cx));
+                        }),
+                );
+            }
+            menu
+        });
+        top_bar(
+            "detail-bar",
+            hidden,
+            p.base,
+            None,
+            window,
+            h_flex()
+                .gap_1()
+                .when(hidden, |d| d.child(sidebar_toggle(true)))
+                .child(menu)
+                .child(div().text_sm().text_color(p.overlay).child("/"))
+                .child(div().pl_1().text_sm().text_color(p.text).child("New session")),
+        )
+        .into_any_element()
+    }
+
+    // MARK: The pickers
+
+    fn server_pill(&self, cx: &mut Context<Self>) -> AnyElement {
         let servers: Vec<(String, String)> = self
             .conns
             .iter()
@@ -525,94 +642,46 @@ impl NewSessionView {
             .map(|(i, c)| (i.to_string(), c.read(cx).name.clone()))
             .collect();
         let label = servers.get(self.server_ix).map(|(_, n)| n.clone()).unwrap_or_default();
+        let current = self.server_ix.to_string();
         let this = cx.entity().downgrade();
-        let picker = field_picker(
-            "server",
+        prompt_box::pill_menu(
+            "server-pill",
+            Some(Icon::new(L::Server)),
             label,
-            servers,
-            self.server_ix.to_string(),
-            move |id, window, cx| {
-                let _ = this.update(cx, |v, cx| {
-                    let ix: usize = id.parse().unwrap_or(0);
-                    if ix != v.server_ix {
-                        v.server_ix = ix;
-                        v.project_id = None;
-                        v.load_server(window, cx);
-                    }
-                });
-            },
-        );
-        field("Server", picker, p)
-    }
-
-    fn project_field(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let projects = self.conn().read(cx).index.projects_by_name();
-        let mut choices: Vec<(String, String)> = projects.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
-        if choices.is_empty() {
-            choices.push((String::new(), "No projects yet".into()));
-        }
-        let label = self
-            .project(cx)
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| "Choose…".into());
-        let this = cx.entity().downgrade();
-        let picker = field_picker(
-            "project",
-            label,
-            choices,
-            self.project_id.clone().unwrap_or_default(),
-            move |id, _, cx| {
-                let _ = this.update(cx, |v, cx| v.set_project((!id.is_empty()).then_some(id), cx));
-            },
-        );
-        field("Project", picker, p)
-    }
-
-    /// The project's folder, with Forget, and adding a folder as a project.
-    fn render_project_line(&self, project: Option<&Project>, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let line = h_flex().gap_2();
-        let line = match project {
-            Some(pr) => {
-                let path = pr.path.clone();
-                line.child(
-                    div()
-                        .id("project-path")
-                        .min_w_0()
-                        .truncate()
-                        .text_xs()
-                        .font_family(crate::ui::fonts::code())
-                        .text_color(p.subtext)
-                        .child(pr.path.clone())
-                        .tooltip(move |window, cx| Tooltip::new(path.clone()).build(window, cx)),
+            None,
+            move |menu, _, _| {
+                let w = this.clone();
+                prompt_box::choices(
+                    menu,
+                    &servers,
+                    &current,
+                    Rc::new(move |id, window, cx| {
+                        let _ = w.update(cx, |v, cx| {
+                            let ix: usize = id.parse().unwrap_or(0);
+                            if ix != v.server_ix {
+                                v.server_ix = ix;
+                                v.project_id = None;
+                                v.load_server(window, cx);
+                            }
+                        });
+                    }),
                 )
-                .child(
-                    Button::new("forget")
-                        .xsmall()
-                        .ghost()
-                        .label("Forget")
-                        .tooltip(format!("Take {} off the list of projects. The folder stays.", pr.name))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.forget_project(cx))),
-                )
-            }
-            None => line.child(caption("No project chosen.", p).flex_shrink_0()),
-        };
-        line.child(
-            Button::new("add-folder")
-                .xsmall()
-                .ghost()
-                .icon(Icon::new(L::FolderPlus))
-                .label("Add a folder…")
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.browse(window, cx))),
+            },
         )
-        .into_any_element()
     }
 
-    fn place_field(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+    /// Where the agent works: the project's own checkout, a new worktree,
+    /// or one there is.
+    fn place_pill(&self, git: bool, cx: &mut Context<Self>) -> AnyElement {
+        if !git {
+            return prompt_box::fixed_pill("place-pill", Some(Icon::new(L::Folder)), "Project folder");
+        }
         let mut places: Vec<(String, String)> = vec![
-            ("project".into(), "Project folder".into()),
+            ("project".into(), "Current checkout".into()),
             ("new".into(), "New worktree".into()),
         ];
-        if let Some(b) = &self.branches {
+        if let Some(b) = self.branches.as_ref().filter(|b| !b.worktrees.is_empty()) {
+            places.push(("-".into(), String::new()));
             for wt in &b.worktrees {
                 places.push((format!("path:{}", wt.path), wt.label()));
             }
@@ -627,73 +696,174 @@ impl NewSessionView {
             .find(|(id, _)| *id == current)
             .map(|(_, l)| l.clone())
             .unwrap_or_default();
+        let icon = if self.place == Place::Project {
+            L::Folder
+        } else {
+            L::FolderGit2
+        };
+        let tooltip = match self.project(cx) {
+            Some(pr) => format!("{}\n{}", self.place_note(), pr.path),
+            None => self.place_note(),
+        };
         let this = cx.entity().downgrade();
-        let picker = field_picker("place", label, places, current, move |id, _, cx| {
-            let _ = this.update(cx, |v, cx| {
-                v.place = match id.as_str() {
-                    "project" => Place::Project,
-                    "new" => Place::NewWorktree,
-                    path => Place::Existing(path.trim_start_matches("path:").to_string()),
-                };
-                cx.notify();
-            });
-        });
-        field("Work in", picker, p)
+        prompt_box::pill_menu(
+            "place-pill",
+            Some(Icon::new(icon)),
+            label,
+            Some(tooltip),
+            move |menu, _, _| {
+                let w = this.clone();
+                prompt_box::choices(
+                    menu,
+                    &places,
+                    &current,
+                    Rc::new(move |id, _, cx| {
+                        let _ = w.update(cx, |v, cx| {
+                            v.place = match id.as_str() {
+                                "project" => Place::Project,
+                                "new" => Place::NewWorktree,
+                                path => Place::Existing(path.trim_start_matches("path:").to_string()),
+                            };
+                            cx.notify();
+                        });
+                    }),
+                )
+            },
+        )
     }
 
-    /// A new worktree's branch, and a new branch's name and base.
-    fn worktree_fields(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let this = cx.entity().downgrade();
-        let available = self.branches.as_ref().map(|b| b.available()).unwrap_or_default();
-        let mut branches = vec![(String::new(), "New branch".to_string())];
-        branches.extend(available.iter().map(|b| (b.clone(), b.clone())));
-        let label = if self.branch.is_empty() {
-            "New branch".to_string()
-        } else {
-            self.branch.clone()
+    /// The branch: the checkout's own, or a new worktree's, which is a new
+    /// branch (named, or named by rad) from a base, or one not checked out.
+    fn branch_pills(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let branch_icon = || Some(Icon::new(L::GitBranch));
+        let Some(b) = self.branches.clone() else {
+            return Vec::new();
         };
-        let w = this.clone();
-        let mut fields = Self::fields().child(field(
-            "Branch",
-            field_picker("branch", label, branches, self.branch.clone(), move |id, _, cx| {
-                let _ = w.update(cx, |v, cx| {
-                    v.branch = id;
-                    cx.notify();
-                });
-            }),
-            p,
-        ));
-        if self.branch.is_empty() {
-            fields = fields.child(field(
-                "Name",
-                // An input is as wide as it's let.
-                div()
-                    .w(px(180.))
-                    .child(Input::new(&self.branch_name).small())
-                    .into_any_element(),
-                p,
-            ));
-            let mut bases = vec![(String::new(), "Current HEAD".to_string())];
-            if let Some(b) = &self.branches {
-                bases.extend(b.branches.iter().map(|x| (x.clone(), x.clone())));
+        match &self.place {
+            Place::Project => {
+                let name = if b.current.is_empty() {
+                    "Detached HEAD".to_string()
+                } else {
+                    b.current.clone()
+                };
+                vec![prompt_box::fixed_pill("branch-pill", branch_icon(), name)]
             }
-            let label = if self.base_ref.is_empty() {
-                "Current HEAD".to_string()
-            } else {
-                self.base_ref.clone()
-            };
-            fields = fields.child(field(
-                "Based on",
-                field_picker("base", label, bases, self.base_ref.clone(), move |id, _, cx| {
-                    let _ = this.update(cx, |v, cx| {
-                        v.base_ref = id;
-                        cx.notify();
-                    });
-                }),
-                p,
-            ));
+            Place::Existing(path) => {
+                let label = b
+                    .worktrees
+                    .iter()
+                    .find(|w| w.path == *path)
+                    .map(|w| w.branch.clone().unwrap_or_else(|| w.label()))
+                    .unwrap_or_default();
+                vec![prompt_box::fixed_pill("branch-pill", branch_icon(), label)]
+            }
+            Place::NewWorktree => {
+                let this = cx.entity().downgrade();
+                let label = if !self.branch.is_empty() {
+                    self.branch.clone()
+                } else if self.branch_name.is_empty() {
+                    "New branch".to_string()
+                } else {
+                    format!("New: {}", self.branch_name)
+                };
+                let available = b.available();
+                let (branch, name) = (self.branch.clone(), self.branch_name.clone());
+                let w = this.clone();
+                let mut pills = vec![prompt_box::pill_menu(
+                    "branch-pill",
+                    branch_icon(),
+                    label,
+                    Some("The worktree's branch".into()),
+                    move |mut menu, _, _| {
+                        let new = if name.is_empty() {
+                            "New branch, named by the agent".to_string()
+                        } else {
+                            format!("New branch: {name}")
+                        };
+                        let w2 = w.clone();
+                        menu = menu.item(PopupMenuItem::new(new).checked(branch.is_empty()).on_click(
+                            move |_, _, cx| {
+                                let _ = w2.update(cx, |v, cx| {
+                                    v.branch.clear();
+                                    cx.notify();
+                                });
+                            },
+                        ));
+                        let (w2, name2) = (w.clone(), name.clone());
+                        menu = menu.item(
+                            PopupMenuItem::new("Name the new branch…").on_click(move |_, window, cx| {
+                                let w3 = w2.clone();
+                                crate::ui::dialogs::prompt_text(
+                                    window,
+                                    cx,
+                                    "New branch",
+                                    "Leave it empty for rad to name it.",
+                                    "Branch name",
+                                    &name2,
+                                    "Use",
+                                    ButtonVariant::Primary,
+                                    move |text, _, cx| {
+                                        let _ = w3.update(cx, |v, cx| {
+                                            v.branch.clear();
+                                            v.branch_name = text;
+                                            cx.notify();
+                                        });
+                                    },
+                                );
+                            }),
+                        );
+                        if !available.is_empty() {
+                            let choices: Vec<(String, String)> =
+                                available.iter().map(|b| (b.clone(), b.clone())).collect();
+                            let w2 = w.clone();
+                            menu = prompt_box::choices(
+                                menu.separator().label("Branches not checked out"),
+                                &choices,
+                                &branch,
+                                Rc::new(move |id, _, cx| {
+                                    let _ = w2.update(cx, |v, cx| {
+                                        v.branch = id;
+                                        cx.notify();
+                                    });
+                                }),
+                            );
+                        }
+                        menu
+                    },
+                )];
+                if self.branch.is_empty() {
+                    let mut bases = vec![(String::new(), "Current HEAD".to_string())];
+                    bases.extend(b.branches.iter().map(|x| (x.clone(), x.clone())));
+                    let label = if self.base_ref.is_empty() {
+                        "from HEAD".to_string()
+                    } else {
+                        format!("from {}", self.base_ref)
+                    };
+                    let current = self.base_ref.clone();
+                    pills.push(prompt_box::pill_menu(
+                        "base-pill",
+                        Some(Icon::new(L::GitBranchPlus)),
+                        label,
+                        Some("What the new branch starts from".into()),
+                        move |menu, _, _| {
+                            let w = this.clone();
+                            prompt_box::choices(
+                                menu.label("Based on"),
+                                &bases,
+                                &current,
+                                Rc::new(move |id, _, cx| {
+                                    let _ = w.update(cx, |v, cx| {
+                                        v.base_ref = id;
+                                        cx.notify();
+                                    });
+                                }),
+                            )
+                        },
+                    ));
+                }
+                pills
+            }
         }
-        fields.into_any_element()
     }
 
     fn place_note(&self) -> String {
@@ -708,48 +878,65 @@ impl NewSessionView {
         }
     }
 
-    fn render_prompt(&self, drafts: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let attachments = self.render_attachments(p, cx);
-        v_flex()
-            .gap_1p5()
-            .child(
-                v_flex()
-                    .gap_2()
-                    .p_2()
-                    .rounded_lg()
-                    .border_1()
-                    .border_color(p.surface0)
-                    .bg(p.mantle)
-                    .child(
-                        div()
-                            .capture_key_down(cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
-                                if ev.keystroke.key == "v" && ev.keystroke.modifiers.platform && this.paste(window, cx) {
-                                    cx.stop_propagation();
-                                }
-                            }))
-                            .font_family(crate::ui::fonts::message())
-                            .child(Textarea::new(&self.prompt).appearance(false)),
+    /// The + menu: images, Save as Draft, and picking up a terminal session.
+    fn plus_menu(&self, drafts: bool, import: bool, cx: &mut Context<Self>) -> AnyElement {
+        let can_draft =
+            self.can_start(cx) && (!self.prompt.read(cx).value().trim().is_empty() || !self.attachments.is_empty());
+        let this = cx.entity().downgrade();
+        Button::new("ns-plus")
+            .small()
+            .ghost()
+            .icon(IconName::Plus)
+            .tooltip("Add images, and more")
+            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |mut menu, _, cx| {
+                let has_image = cx
+                    .read_from_clipboard()
+                    .is_some_and(|i| i.entries().iter().any(|e| matches!(e, ClipboardEntry::Image(_))));
+                let (a, b) = (this.clone(), this.clone());
+                menu = menu
+                    .item(
+                        PopupMenuItem::new("Files…")
+                            .icon(Icon::new(L::Image))
+                            .on_click(move |_, window, cx| {
+                                let _ = a.update(cx, |v, cx| v.pick_images(window, cx));
+                            }),
                     )
-                    .when_some(attachments, |d, a| d.child(a))
-                    .child(
-                        h_flex().child(
-                            Button::new("add-images")
-                                .xsmall()
-                                .ghost()
-                                .icon(Icon::new(L::ImagePlus))
-                                .label("Add Images")
-                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pick_images(window, cx))),
-                        ),
-                    ),
-            )
-            .child(caption(
+                    .item(
+                        PopupMenuItem::new("Paste Image")
+                            .icon(Icon::new(L::ClipboardPaste))
+                            .disabled(!has_image)
+                            .on_click(move |_, window, cx| {
+                                let _ = b.update(cx, |v, cx| {
+                                    v.paste(window, cx);
+                                });
+                            }),
+                    );
+                if drafts || import {
+                    menu = menu.separator();
+                }
                 if drafts {
-                    "Optional. Without one, the session starts empty. Save as Draft keeps the prompt unsent, to send later from any device."
-                } else {
-                    "Optional. Without one, the session starts empty."
-                },
-                p,
-            ))
+                    let w = this.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new("Save as Draft")
+                            .icon(Icon::new(L::Download))
+                            .disabled(!can_draft)
+                            .on_click(move |_, window, cx| {
+                                let _ = w.update(cx, |v, cx| v.create(true, window, cx));
+                            }),
+                    );
+                }
+                if import {
+                    let w = this.clone();
+                    menu = menu.item(
+                        PopupMenuItem::new("Continue a terminal session…")
+                            .icon(Icon::new(L::SquareTerminal))
+                            .on_click(move |_, window, cx| {
+                                let _ = w.update(cx, |v, cx| v.import(window, cx));
+                            }),
+                    );
+                }
+                menu
+            })
             .into_any_element()
     }
 
@@ -815,128 +1002,145 @@ impl NewSessionView {
         }
         Some(row.into_any_element())
     }
+
+    /// "What should we build in lemmary-app?"
+    fn render_heading(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let big = |d: gpui_kit::Div| d.text_size(px(26.)).line_height(px(34.));
+        match self.project(cx) {
+            Some(pr) => big(h_flex().flex_wrap().justify_center().gap(px(7.)))
+                .text_color(p.subtext)
+                .child("What should we build in")
+                .child(
+                    h_flex()
+                        .child(
+                            div()
+                                .text_color(p.text)
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(pr.name.clone()),
+                        )
+                        .child("?"),
+                )
+                .into_any_element(),
+            None => v_flex()
+                .items_center()
+                .gap_3()
+                .child(big(div()).text_color(p.subtext).child("Choose a project to start"))
+                .child(
+                    Button::new("add-folder")
+                        .small()
+                        .outline()
+                        .icon(Icon::new(L::FolderPlus))
+                        .label("Add a folder…")
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.browse(window, cx))),
+                )
+                .into_any_element(),
+        }
+    }
 }
 
-/// The form's column, and the footer's under it.
-const WIDTH: f32 = 680.;
-
 impl Render for NewSessionView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(cx);
         let drafts = self.conn().read(cx).info.as_ref().is_some_and(|i| i.drafts);
         let project = self.project(cx);
         let git = project.as_ref().is_some_and(|p| p.is_git_repo);
         let import = self.agent.read(cx).info(cx).is_some_and(|h| h.caps.import) && project.is_some();
-        let (agent_fields, agent_notes) = self.agent.update(cx, |a, cx| a.render_compact(cx));
         let can_start = self.can_start(cx);
-        let has_prompt = !self.prompt.read(cx).value().trim().is_empty() || !self.attachments.is_empty();
+        let listening = self.speech.read(cx).status().is_active();
+        let dictation = crate::ui::state::in_app_bundle() && self.speech.read(cx).is_available(cx);
+        let empty = self.prompt.read(cx).value().trim().is_empty() && self.attachments.is_empty();
 
-        let fields = Self::fields()
-            .when(self.conns.len() > 1, |d| d.child(self.server_field(&p, cx)))
-            .child(self.project_field(&p, cx))
-            .children(agent_fields)
-            .when(git, |d| d.child(self.place_field(&p, cx)));
-        // What the choices bring with them, each only when it applies.
-        let details = v_flex()
-            .gap_1p5()
-            .child(self.render_project_line(project.as_deref(), &p, cx))
-            .when(git, |d| d.child(caption(self.place_note(), &p)))
-            .children(agent_notes)
-            .when(import, |d| {
-                d.child(
-                    h_flex().pt_1().child(
-                        Button::new("import")
-                            .small()
-                            .outline()
-                            .icon(Icon::new(L::SquareTerminal))
-                            .label("Continue a terminal session…")
-                            .disabled(self.creating)
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.import(window, cx))),
-                    ),
-                )
-            });
-        let form = v_flex()
-            .w_full()
-            .max_w(px(WIDTH))
-            .gap_4()
-            .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child("New Session"))
-            .child(self.render_prompt(drafts, &p, cx))
-            .child(
-                v_flex()
-                    .gap_3()
-                    .child(fields)
-                    .when(git && self.place == Place::NewWorktree, |d| {
-                        d.child(self.worktree_fields(&p, cx))
-                    })
-                    .child(details),
-            );
-        let buttons = h_flex()
-            .gap_2()
-            .justify_end()
-            .child(
-                Button::new("cancel")
-                    .small()
-                    .outline()
-                    .label("Cancel")
-                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(NewSessionEvent::Cancelled))),
+        let mut trailing = vec![self.agent.update(cx, |a, cx| a.pill(cx))];
+        if dictation && (empty || listening) {
+            trailing.push(prompt_box::mic_button(
+                listening,
+                true,
+                cx.listener(|this, _: &ClickEvent, _, cx| this.speech.update(cx, |s, cx| s.toggle(cx))),
+            ));
+        }
+        trailing.push(if self.creating {
+            Spinner::new().small().into_any_element()
+        } else {
+            prompt_box::send_button(
+                can_start,
+                "Start (Return)",
+                cx.listener(|this, _: &ClickEvent, window, cx| this.create(false, window, cx)),
             )
-            .when(drafts, |d| {
-                d.child(
-                    Button::new("save-draft")
-                        .small()
-                        .outline()
-                        .icon(Icon::new(L::Download))
-                        .label("Save as Draft")
-                        .disabled(!can_start || !has_prompt)
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create(true, window, cx))),
-                )
-            })
-            .child(
-                Button::new("start")
-                    .small()
-                    .primary()
-                    .label("Start")
-                    .loading(self.creating)
-                    .disabled(!can_start)
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create(false, window, cx))),
-            );
+        });
+        let mut footer_start = Vec::new();
+        footer_start.push(self.server_pill(cx));
+        if project.is_some() {
+            footer_start.push(self.place_pill(git, cx));
+        }
+        let mut footer_end = if git { self.branch_pills(cx) } else { Vec::new() };
+        footer_end.extend(self.agent.update(cx, |a, cx| a.mode_pill(cx)));
+        let input = div()
+            // Before the prompt's own Paste: GPUI runs ⌘V's binding before
+            // any key-down listener.
+            .capture_action(cx.listener(|this, _: &Paste, window, cx| {
+                if this.paste(window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .child(Textarea::new(&self.prompt).appearance(false))
+            .into_any_element();
+        let prompt = PromptBox {
+            above: None,
+            attachments: self.render_attachments(&p, cx),
+            input: Some(input),
+            leading: vec![self.plus_menu(drafts, import, cx)],
+            trailing,
+            footer_start,
+            footer_end,
+            wide: false,
+        }
+        .render(&p);
+        let bar = self.render_bar(window, cx);
+        let heading = self.render_heading(&p, cx);
         v_flex()
             .size_full()
+            .key_context("NewSession")
+            .on_key_down(cx.listener(|_, ev: &gpui_kit::KeyDownEvent, _, cx| {
+                if ev.keystroke.key == "escape" {
+                    cx.emit(NewSessionEvent::Cancelled);
+                    cx.stop_propagation();
+                }
+            }))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
                 this.attach_paths(paths.paths().to_vec(), window, cx)
             }))
-            // The form is as tall as it is, with the buttons right under it;
-            // in a short window it scrolls and the buttons stay in sight.
+            .child(bar)
             .child(
                 v_flex()
                     .id("new-session")
-                    .w_full()
+                    .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
                     .items_center()
+                    .justify_end()
                     .px_6()
-                    .pt_8()
-                    .pb_2()
-                    .child(form),
+                    .pb_8()
+                    .child(heading),
             )
             .child(
                 v_flex()
                     .w_full()
                     .flex_shrink_0()
                     .items_center()
+                    .gap_2()
                     .px_6()
-                    .pt_3()
-                    .pb_5()
-                    .child(
-                        v_flex()
-                            .w_full()
-                            .max_w(px(WIDTH))
-                            .gap_2()
-                            .when_some(self.error.clone(), |d, e| {
-                                d.child(div().text_sm().text_color(p.red).child(e))
-                            })
-                            .child(buttons),
-                    ),
+                    .pb_4()
+                    .when_some(self.error.clone(), |d, e| {
+                        d.child(
+                            div()
+                                .w_full()
+                                .max_w(px(prompt_box::MAX_WIDTH))
+                                .text_sm()
+                                .text_color(p.red)
+                                .child(e),
+                        )
+                    })
+                    .child(prompt),
             )
     }
 }
