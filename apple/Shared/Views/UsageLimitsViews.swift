@@ -23,14 +23,11 @@ extension LimitLevel {
 }
 
 /// An agent's usage limits in a line, "5h 34% · week 61%", in the colour of
-/// the nearest limit, with the details behind it on hover on the Mac and on
-/// a tap on iOS (`UsageLimitsFormat`). It keeps itself current, as windows
+/// the nearest limit, with the details behind it on a tap (`UsageLimitsFormat`). It keeps itself current, as windows
 /// reset and limits lapse, and shows nothing while there's nothing to say.
 struct UsageLimitsGauge: View {
     let limits: UsageLimits
-    #if os(iOS)
     @State private var showingDetails = false
-    #endif
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -50,7 +47,6 @@ struct UsageLimitsGauge: View {
         .scaledFont(.caption)
         .foregroundStyle(level.color)
         .lineLimit(1)
-        #if os(iOS)
         Button { showingDetails = true } label: { label.contentShape(Rectangle()) }
             .buttonStyle(.borderless)
             .popover(isPresented: $showingDetails) {
@@ -61,13 +57,6 @@ struct UsageLimitsGauge: View {
             .accessibilityLabel("Usage limits")
             .accessibilityValue(text)
             .accessibilityHint(details.joined(separator: ", "))
-        #else
-        label
-            .help(details.joined(separator: "\n"))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Usage limits")
-            .accessibilityValue(([text] + details).joined(separator: ", "))
-        #endif
     }
 }
 

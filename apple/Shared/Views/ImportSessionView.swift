@@ -39,15 +39,11 @@ struct ImportSessionView: View {
                         rows.scaledFont(.body)
                     } footer: {
                         Text("Picks up a session \(harness.name) ran in this folder outside Remote Agent. Its next prompt goes on with it here, in the project folder.")
-                            .formFooterFont()
                     }
                 }
                 .paletteRows()
             }
             .compactForm()
-            #if os(macOS)
-            .frame(minWidth: 460, minHeight: 420)
-            #endif
             .navigationTitle("Terminal sessions")
             .inlineTitle()
             .toolbar {

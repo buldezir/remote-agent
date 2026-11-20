@@ -3,21 +3,14 @@
 @preconcurrency import SwiftTerm
 import RAKit
 import SwiftUI
-#if os(iOS)
 import UIKit
-#else
-import AppKit
-#endif
 
 /// SwiftTerm's terminal, showing a session's shell.
 @MainActor
 struct TerminalHost {
     let session: TerminalSession
-    let font: FontChoice
     let fontSize: CGFloat
     let dark: Bool
-    /// Copies what the pointer selects (the Mac's).
-    let copyOnSelect: Bool
     /// Whether the terminal has the keyboard, so the composer's Return
     /// shortcut leaves it alone.
     @Binding var focused: Bool
@@ -41,14 +34,10 @@ struct TerminalHost {
 
     private func update(_ view: HostTerminalView, _ coordinator: Coordinator) {
         coordinator.focused = $focused
-        #if os(macOS)
-        view.copyOnSelect = copyOnSelect
-        #endif
-        // Setting either clears the selection and redraws, so only on a change.
-        if coordinator.font != font || coordinator.fontSize != fontSize {
-            coordinator.font = font
+        // Setting it clears the selection and redraws, so only on a change.
+        if coordinator.fontSize != fontSize {
             coordinator.fontSize = fontSize
-            view.font = Self.platformFont(font, size: fontSize)
+            view.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         }
         if coordinator.dark != dark {
             coordinator.dark = dark
@@ -59,30 +48,16 @@ struct TerminalHost {
             view.nativeForegroundColor = .init(rgb: colors.foreground)
             view.caretColor = .init(rgb: colors.cursor)
             view.selectedTextBackgroundColor = .init(rgb: colors.selection)
-            #if os(iOS)
             // iOS paints the background on the layer, under clear cells.
             view.layer.backgroundColor = UIColor(rgb: colors.background).cgColor
             view.keyboardAppearance = dark ? .dark : .light
-            #else
-            view.nativeBackgroundColor = .init(rgb: colors.background)
-            #endif
         }
-    }
-
-    /// The code font, if it's fixed-pitch, else the system's monospaced one.
-    private static func platformFont(_ choice: FontChoice, size: CGFloat) -> PlatformFont {
-        if case .family = choice, let font = choice.platformFont(size: size),
-           CTFontGetSymbolicTraits(font).contains(.traitMonoSpace) {
-            return font as PlatformFont
-        }
-        return .monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
     @MainActor final class Coordinator: @preconcurrency TerminalViewDelegate {
         let session: TerminalSession
         weak var view: HostTerminalView?
         var focused: Binding<Bool>?
-        var font: FontChoice?
         var fontSize: CGFloat = 0
         var dark: Bool?
         private var started = false
@@ -119,22 +94,13 @@ struct TerminalHost {
 
         func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
             guard let url = URL(string: link), ["http", "https"].contains(url.scheme) else { return }
-            #if os(iOS)
             UIApplication.shared.open(url)
-            #else
-            NSWorkspace.shared.open(url)
-            #endif
         }
 
         /// A program in the shell copies text (OSC 52), as tmux and vim can.
         func clipboardCopy(source: TerminalView, content: Data) {
             guard let text = String(data: content, encoding: .utf8) else { return }
-            #if os(iOS)
             UIPasteboard.general.string = text
-            #else
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(text, forType: .string)
-            #endif
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {}
@@ -143,9 +109,6 @@ struct TerminalHost {
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
     }
 }
-
-#if os(iOS)
-typealias PlatformFont = UIFont
 
 extension TerminalHost: UIViewRepresentable {
     func makeUIView(context: Context) -> HostTerminalView { make(context.coordinator) }
@@ -197,69 +160,3 @@ final class HostTerminalView: SwiftTerm.TerminalView {
         }
     }
 }
-#else
-typealias PlatformFont = NSFont
-
-extension TerminalHost: NSViewRepresentable {
-    func makeNSView(context: Context) -> HostTerminalView { make(context.coordinator) }
-    func updateNSView(_ view: HostTerminalView, context: Context) { update(view, context.coordinator) }
-}
-
-/// The terminal view, telling its host about its focus and its first size.
-final class HostTerminalView: SwiftTerm.TerminalView {
-    var onFocus: ((Bool) -> Void)?
-    var onLayout: (() -> Void)?
-
-    // becomeFirstResponder and resignFirstResponder can't be overridden
-    // here; both set this.
-    override var hasFocus: Bool {
-        get { super.hasFocus }
-        set {
-            super.hasFocus = newValue
-            onFocus?(newValue)
-        }
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        onLayout?()
-    }
-
-    /// Takes the keyboard when it first appears.
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let window, !tookFocus else { return }
-        tookFocus = true
-        DispatchQueue.main.async { [weak self] in window.makeFirstResponder(self) }
-    }
-    private var tookFocus = false
-
-    /// Puts a selection on the pasteboard once the mouse lets go of it: after
-    /// a drag, a double or triple click, or a shift-click that extends it.
-    var copyOnSelect = false
-    private var selectionChangedSincePress = false
-
-    override func selectionChanged(source: Terminal) {
-        super.selectionChanged(source: source)
-        selectionChangedSincePress = true
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        selectionChangedSincePress = false
-        super.mouseDown(with: event)
-    }
-
-    override func mouseUp(with event: NSEvent) {
-        super.mouseUp(with: event)
-        // A click that only clears the selection, or goes to a program
-        // reading the mouse, leaves the pasteboard alone.
-        guard copyOnSelect, selectionChangedSincePress, let text = getSelection(), !text.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
-
-    func show(_ bytes: ArraySlice<UInt8>) {
-        feed(byteArray: bytes)
-    }
-}
-#endif

@@ -1,9 +1,5 @@
 import SwiftUI
-#if os(iOS)
 import UIKit
-#else
-import AppKit
-#endif
 
 /// The app's colours: Catppuccin (catppuccin.com/palette), Frappé in dark
 /// mode and Latte in light mode. Views take their colours from here rather
@@ -24,8 +20,7 @@ enum Palette {
     /// Text on an accent colour.
     static let onAccent = base
     /// The highlight over selected text in replies: the accent, see-through, so
-    /// it shows on code blocks and inline code too. The Mac's own colour, the
-    /// system's, is all but lost on Latte's crust.
+    /// it shows on code blocks and inline code too.
     static let selection = Color(latte: 0x8839ef, frappe: 0xca9ee6, latteAlpha: 0.28, frappeAlpha: 0.4)
 
     // Text, from the most to the least prominent.
@@ -43,9 +38,6 @@ enum Palette {
     static let mantle = Color(latte: 0xe6e9ef, frappe: 0x292c3c)
     /// Code and output, set into a card or the page.
     static let crust = Color(latte: 0xdce0e8, frappe: 0x232634)
-    /// A card raised over `base`, such as the Mac's composer: surface0 in
-    /// Frappé, and base in Latte, which has nothing lighter. Give it a border.
-    static let raised = Color(latte: 0xeff1f5, frappe: 0x414559)
 
     /// A terminal's colours, as fixed values: a terminal view takes them
     /// rather than colours that follow the appearance. Catppuccin's own
@@ -69,34 +61,18 @@ enum Palette {
 private extension Color {
     /// A colour that follows the appearance: `latte` in light mode, `frappe` in dark.
     init(latte: UInt32, frappe: UInt32, latteAlpha: CGFloat = 1, frappeAlpha: CGFloat = 1) {
-        #if os(iOS)
         self.init(uiColor: UIColor { traits in
             traits.userInterfaceStyle == .dark ? UIColor(rgb: frappe, alpha: frappeAlpha) : UIColor(rgb: latte, alpha: latteAlpha)
         })
-        #else
-        self.init(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-                ? NSColor(rgb: frappe, alpha: frappeAlpha) : NSColor(rgb: latte, alpha: latteAlpha)
-        })
-        #endif
     }
 }
 
-#if os(iOS)
 extension UIColor {
     convenience init(rgb: UInt32, alpha: CGFloat = 1) {
         self.init(red: CGFloat(rgb >> 16 & 0xff) / 255, green: CGFloat(rgb >> 8 & 0xff) / 255,
                   blue: CGFloat(rgb & 0xff) / 255, alpha: alpha)
     }
 }
-#else
-extension NSColor {
-    convenience init(rgb: UInt32, alpha: CGFloat = 1) {
-        self.init(srgbRed: CGFloat(rgb >> 16 & 0xff) / 255, green: CGFloat(rgb >> 8 & 0xff) / 255,
-                  blue: CGFloat(rgb & 0xff) / 255, alpha: alpha)
-    }
-}
-#endif
 
 /// Light or dark, from Settings, or as the system is: Latte or Frappé.
 enum Appearance: String, CaseIterable, Identifiable {
@@ -135,11 +111,7 @@ extension View {
     /// each row on the system's background. A list ignores a row background
     /// set on itself, so this goes on the rows, or on a Group around them.
     func paletteRows(_ color: Color = Palette.base) -> some View {
-        #if os(iOS)
         listRowBackground(color)
-        #else
-        self
-        #endif
     }
 
     /// Text in the palette's colours: the primary, secondary and tertiary
@@ -158,13 +130,6 @@ private struct AppAppearance: ViewModifier {
     // menus and alerts follow too.
     func body(content: Content) -> some View {
         content.onChange(of: appearance, initial: true) { _, appearance in
-            #if os(macOS)
-            NSApp.appearance = switch appearance {
-            case .system: nil
-            case .dark: NSAppearance(named: .darkAqua)
-            case .light: NSAppearance(named: .aqua)
-            }
-            #else
             let style: UIUserInterfaceStyle = switch appearance {
             case .system: .unspecified
             case .dark: .dark
@@ -173,7 +138,6 @@ private struct AppAppearance: ViewModifier {
             for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
                 for window in scene.windows { window.overrideUserInterfaceStyle = style }
             }
-            #endif
         }
     }
 }

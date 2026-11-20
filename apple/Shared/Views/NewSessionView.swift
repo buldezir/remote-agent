@@ -40,7 +40,6 @@ struct NewSessionView: View {
     /// Showing the agent's own sessions in the project, to pick one up.
     @State private var choosingImport = false
     @State private var attachments = Attachments()
-    @FocusState private var promptFocused: Bool
 
     /// Starts in `projectID` when given, else in the project used last.
     init(connection: ServerConnection, projectID: String = "", onCreated: @escaping (Session, _ empty: Bool) -> Void) {
@@ -89,13 +88,13 @@ struct NewSessionView: View {
                             }
                         }
                     } header: {
-                        Text("Project").formHeaderFont()
+                        Text("Project")
                     }
 
                     Section {
                         HarnessChoiceRows(connection: connection, harnessID: $harnessID)
                     } header: {
-                        Text("Agent").formHeaderFont()
+                        Text("Agent")
                     }
 
                     if let harness {
@@ -111,7 +110,7 @@ struct NewSessionView: View {
                                 .disabled(creating)
                             }
                         } header: {
-                            Text("Options").formHeaderFont()
+                            Text("Options")
                         }
                     }
 
@@ -130,7 +129,7 @@ struct NewSessionView: View {
                                     ForEach(branches.availableBranches, id: \.self) { Text($0).tag($0) }
                                 }
                                 if existingBranch.isEmpty {
-                                    TextField("Name", text: $branch, prompt: Text(branchPrompt))
+                                    TextField("Name", text: $branch, prompt: Text("Branch (auto)"))
                                         .plainTextInput()
                                     Picker("Based on", selection: $baseRef) {
                                         Text("Current HEAD").tag("")
@@ -139,9 +138,9 @@ struct NewSessionView: View {
                                 }
                             }
                         } header: {
-                            Text("Workspace").formHeaderFont()
+                            Text("Workspace")
                         } footer: {
-                            Text(workspaceFooter).formFooterFont()
+                            Text(workspaceFooter)
                         }
                     }
 
@@ -150,8 +149,6 @@ struct NewSessionView: View {
                             .labelsHidden()
                             .lineLimit(4...12)
                             .messageFont()
-                            .focused($promptFocused)
-                            .shiftReturnNewline()
                         if !attachments.isEmpty {
                             AttachmentStrip(attachments: attachments, connection: connection)
                         }
@@ -165,12 +162,11 @@ struct NewSessionView: View {
                             .disabled(!canStart || !hasPrompt || creating)
                         }
                     } header: {
-                        Text("Prompt").formHeaderFont()
+                        Text("Prompt")
                     } footer: {
                         Text(offersDrafts
                              ? "Optional. Without one, the session starts empty and you write the first prompt in it. Save as Draft keeps the prompt in the session, unsent, to send later from any device."
                              : "Optional. Without one, the session starts empty and you write the first prompt in it.")
-                            .formFooterFont()
                     }
 
                     if let error {
@@ -180,13 +176,10 @@ struct NewSessionView: View {
                 .paletteRows()
             }
             .compactForm()
-            .acceptsImages(attachments, via: connection, pasting: promptFocused)
+            .acceptsImages(attachments, via: connection)
             .onChange(of: attachments.error) { _, e in
                 if let e { error = e; attachments.error = nil }
             }
-            #if os(macOS)
-            .frame(minWidth: 480, minHeight: 600)
-            #endif
             .navigationTitle("New session")
             .inlineTitle()
             .toolbar {
@@ -214,9 +207,6 @@ struct NewSessionView: View {
                     }
                 }
                 .appStyle()
-                #if os(macOS)
-                .frame(minWidth: 420, minHeight: 460)
-                #endif
             }
             .sheet(isPresented: $choosingImport) {
                 if let project, let harness {
@@ -278,16 +268,6 @@ struct NewSessionView: View {
         } catch {
             forgetError = error.localizedDescription
         }
-    }
-
-    /// On the Mac the field's label, Name, is shown beside it, under the
-    /// Branch picker.
-    private var branchPrompt: String {
-        #if os(macOS)
-        "auto"
-        #else
-        "Branch (auto)"
-        #endif
     }
 
     private var workspaceFooter: String {

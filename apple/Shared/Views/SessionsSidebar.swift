@@ -1,7 +1,7 @@
 import RAKit
 import SwiftUI
 
-/// The iPad and Mac sidebar beside a session: the Inbox or the Projects
+/// The iPad sidebar beside a session: the Inbox or the Projects
 /// layout, under the search field. The Columns layout has its own
 /// (`CollectionsSidebar`), and its search field over the session list. The
 /// split view around it shows the sheets and confirmations its rows ask for.
@@ -21,7 +21,6 @@ struct SessionsSidebar: View {
         .sidebarList()
         .navigationTitle("Sessions")
         .toolbar { SidebarToolbar(selection: selection, showAdd: $showAdd) }
-        .pairServerFooter(showAdd: $showAdd)
     }
 }
 
@@ -30,29 +29,6 @@ extension View {
     func sidebarList() -> some View {
         modifier(SidebarList())
     }
-
-    /// On the Mac, a way to pair a server at the foot of the sidebar. iPad
-    /// has it in the sidebar's ⋯ menu, from `SidebarToolbar`.
-    func pairServerFooter(showAdd: Binding<Bool>) -> some View {
-        #if os(macOS)
-        safeAreaInset(edge: .bottom, spacing: 0) {
-            Button { showAdd.wrappedValue = true } label: {
-                Label("Pair a server", systemImage: "plus")
-                    .scaledFont(.body)
-                    .foregroundStyle(Palette.subtext)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            // The list scrolls under it.
-            .background(Palette.mantle)
-        }
-        #else
-        self
-        #endif
-    }
 }
 
 private struct SidebarList: ViewModifier {
@@ -60,11 +36,7 @@ private struct SidebarList: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            #if os(macOS)
-            .listStyle(.sidebar)
-            #else
             .listStyle(.plain)
-            #endif
             .listBackground(Palette.mantle)
             .refreshable { await store.refreshConnections() }
     }
@@ -76,8 +48,8 @@ private struct SidebarList: ViewModifier {
 struct SearchableSessions<Content: View>: View {
     @Environment(ServerStore.self) private var store
     @Environment(SessionSearch.self) private var search
-    /// Where SwiftUI puts the field; nil: the app's own field, atop the list.
-    let placement: SearchFieldPlacement?
+    /// Where SwiftUI puts the field.
+    let placement: SearchFieldPlacement
     /// The session open beside the list. The iPhone's Inbox has none.
     let selection: SessionRoute?
     let focused: FocusState<Bool>.Binding
@@ -85,7 +57,7 @@ struct SearchableSessions<Content: View>: View {
     let background: Color
     let content: Content
 
-    init(placement: SearchFieldPlacement?, selection: SessionRoute?, focused: FocusState<Bool>.Binding,
+    init(placement: SearchFieldPlacement, selection: SessionRoute?, focused: FocusState<Bool>.Binding,
          background: Color = Palette.mantle, @ViewBuilder content: () -> Content) {
         self.placement = placement
         self.selection = selection
@@ -103,77 +75,14 @@ struct SearchableSessions<Content: View>: View {
                 content
             }
         }
-        .modifier(SearchField(query: $search.query, placement: placement, focused: focused))
+        .searchable(text: $search.query, placement: placement, prompt: Text("Search sessions"))
+        .searchFocused(focused)
         // A server that connects, or comes back, is searched too.
         .onChange(of: searchingServers) { _, _ in search.refresh() }
     }
 
     private var searchingServers: [String] {
         store.connections.filter { $0.state == .connected && $0.searches }.map(\.server.id)
-    }
-}
-
-/// SwiftUI's search field where it has a place for one, else the app's own
-/// atop the list.
-private struct SearchField: ViewModifier {
-    @Binding var query: String
-    let placement: SearchFieldPlacement?
-    let focused: FocusState<Bool>.Binding
-
-    func body(content: Content) -> some View {
-        if let placement {
-            content
-                .searchable(text: $query, placement: placement, prompt: Text("Search sessions"))
-                .searchFocused(focused)
-        } else {
-            // Above the list, not in a bar of its scroll view, which would
-            // make the field anew, out of focus, as the results take the
-            // list's place.
-            VStack(spacing: 0) {
-                SessionSearchField(query: $query, focused: focused)
-                content
-            }
-        }
-    }
-}
-
-/// A search field drawn as the system's, for the Mac's Columns layout: there
-/// `.searchable` puts the session list's field over the window's last
-/// column, the session, whatever its placement.
-private struct SessionSearchField: View {
-    @Binding var query: String
-    let focused: FocusState<Bool>.Binding
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(Palette.subtext)
-                .accessibilityHidden(true)
-            TextField("Search sessions", text: $query, prompt: Text("Search sessions").foregroundStyle(Palette.overlay))
-                .textFieldStyle(.plain)
-                .plainTextInput()
-                .foregroundStyle(Palette.text)
-                .focused(focused)
-                // As the system's field: Esc empties it.
-                .onKeyPress(.escape) {
-                    guard !query.isEmpty else { return .ignored }
-                    query = ""
-                    return .handled
-                }
-            if !query.isEmpty {
-                Button("Clear", systemImage: "xmark.circle.fill") { query = "" }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(Palette.overlay)
-            }
-        }
-        .scaledFont(.body)
-        .padding(.horizontal, 10)
-        .frame(height: 30)
-        .glassEffect(.regular.interactive(), in: Capsule())
-        .padding(.horizontal, 10)
-        .padding(.top, 2)
-        .padding(.bottom, 8)
     }
 }
 
@@ -195,9 +104,7 @@ struct SessionSearchResults: View {
                 Toggle("Include archived", isOn: $search.includeArchived)
                     .scaledFont(.callout)
                     .foregroundStyle(Palette.subtext)
-                    #if os(iOS)
                     .listRowInsets(Metrics.rowInsets)
-                    #endif
                     .paletteRows(background)
                 ForEach(search.hits) { hit in
                     if let c = connection(hit.serverId) {
@@ -248,9 +155,7 @@ struct SessionSearchResults: View {
                 .environment(\.backgroundProminence, .standard)
         }
         .buttonStyle(.plain)
-        #if os(iOS)
         .listRowInsets(Metrics.rowInsets)
-        #endif
         .listRowBackground(SidebarSelection(selected: selection == route, background: background))
     }
 
@@ -258,17 +163,14 @@ struct SessionSearchResults: View {
         Text(text)
             .scaledFont(.footnote)
             .foregroundStyle(Palette.subtext)
-            #if os(iOS)
             .listRowInsets(Metrics.rowInsets)
-            #endif
             .listRowSeparator(.hidden)
             .paletteRows(background)
     }
 }
 
-/// The sidebar's toolbar: a new session, archiving old ones, and on iPad,
-/// pairing and Settings, which the Mac has at the foot of the sidebar and in
-/// the app menu.
+/// The sidebar's toolbar: a new session, then in its ⋯ menu, archiving old
+/// ones, pairing and Settings.
 struct SidebarToolbar: ToolbarContent {
     var selection: SessionRoute?
     /// In three columns the session list has the button instead.
@@ -276,17 +178,11 @@ struct SidebarToolbar: ToolbarContent {
     @Binding var showAdd: Bool
 
     var body: some ToolbarContent {
-        #if os(macOS)
-        ToolbarItem(placement: .primaryAction) {
-            ArchiveOldSessionsButton()
-        }
-        #endif
         if newSession {
             ToolbarItem(placement: .primaryAction) {
                 NewSessionButton(selection: selection)
             }
         }
-        #if os(iOS)
         ToolbarItem(placement: .secondaryAction) {
             ArchiveOldSessionsButton()
         }
@@ -296,7 +192,6 @@ struct SidebarToolbar: ToolbarContent {
         ToolbarItem(placement: .secondaryAction) {
             SettingsButton()
         }
-        #endif
     }
 }
 
@@ -343,17 +238,13 @@ struct NewSessionButton: View {
                 actions.startSession(target)
             }
             .help(help(target, server: true))
-            #if os(iOS)
-            .keyboardShortcut("n") // On the Mac, File › New Session has it.
-            #endif
+            .keyboardShortcut("n")
         } else {
             Button("New session", systemImage: "square.and.pencil") {
                 if let target { actions.startSession(target) }
             }
             .help(target.map { help($0, server: false) } ?? "New session")
-            #if os(iOS)
             .keyboardShortcut("n")
-            #endif
             .disabled(target == nil)
         }
     }
@@ -384,9 +275,7 @@ struct SessionLink<Content: View>: View {
                 // accent, so the row keeps the palette's text colours on it.
                 .environment(\.backgroundProminence, .standard)
         }
-        #if os(iOS)
         .listRowInsets(Metrics.rowInsets)
-        #endif
         .listRowBackground(SidebarSelection(selected: selected, background: background))
         .swipeActions {
             if !item.session.archived {
@@ -416,8 +305,7 @@ struct SessionLink<Content: View>: View {
 }
 
 /// A row's background: the sidebar's colour, which iOS would otherwise cover
-/// with the system's, and the selection, drawn in a surface colour. The Mac's
-/// own would be the system accent, and white text on Frappé's mauve is faint.
+/// with the system's, and the selection, drawn in a surface colour.
 struct SidebarSelection: View {
     let selected: Bool
     var background = Palette.mantle
@@ -495,13 +383,12 @@ struct ConnectionStatusRow: View {
 /// A server as a section header: its name, how its connection is doing, and
 /// while its rows are hidden, how many sessions it has and whether one needs
 /// you or is unread. A click shows or hides the rows, or tries again once the connection
-/// has given up. A + starts a session on it (on the Mac, on hover). Its other
-/// actions are in a ⋯ menu on iPad, and in the context menu on the Mac.
+/// has given up. A + starts a session on it. Its other actions are in a ⋯
+/// menu.
 struct ServerHeader: View {
     let connection: ServerConnection
     @Binding var expanded: Bool
     @Environment(\.sessionActions) private var actions
-    @State private var hovering = false
 
     private var name: String { connection.server.name }
     private var offline: Bool {
@@ -549,28 +436,16 @@ struct ServerHeader: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(Palette.subtext)
                     .help("New session on \(name)")
-                    #if os(macOS)
-                    .opacity(hovering ? 1 : 0)
-                    #endif
             }
-            #if os(iOS)
             // A long press goes to the button, so touch gets the actions here.
             Menu { ServerMenuItems(connection: connection) } label: {
                 Label("\(name) actions", systemImage: "ellipsis.circle")
                     .labelStyle(.iconOnly)
             }
             .foregroundStyle(Palette.subtext)
-            #endif
         }
-        .listHeaderStyle()
-        #if os(iOS)
         .scaledFont(.subheadline, weight: .semibold)
-        #endif
-        .onHover { hovering = $0 }
-        #if os(macOS)
-        .contextMenu { ServerMenuItems(connection: connection) }
-        #endif
-        // The header is one element to VoiceOver, which can't hover.
+        // The header is one element to VoiceOver.
         .accessibilityActions {
             if connected {
                 Button("New session on \(name)") { actions.newSession(connection) }

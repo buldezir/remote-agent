@@ -115,10 +115,7 @@ private struct GroupHeader: View {
                     }
             }
         }
-        .listHeaderStyle()
-        #if os(iOS)
         .scaledFont(.subheadline, weight: .semibold)
-        #endif
         .accessibilityElement(children: .combine)
     }
 }
@@ -149,9 +146,7 @@ private struct ArchivedToggle: View {
         .buttonStyle(.plain)
         .scaledFont(.callout)
         .accessibilityValue(shown ? "Shown" : "Hidden")
-        #if os(iOS)
         .listRowInsets(Metrics.rowInsets)
-        #endif
         .paletteRows(Palette.mantle)
     }
 }
@@ -187,16 +182,14 @@ private struct OfflineServerRow: View {
         }
         .buttonStyle(.plain)
         .contextMenu { ServerMenuItems(connection: connection) }
-        #if os(iOS)
         .listRowInsets(Metrics.rowInsets)
-        #endif
         .paletteRows(Palette.mantle)
     }
 }
 
 /// A server in the Inbox's list of them: its name, its sessions or how its
-/// connection is doing, and its actions in the context menu (and a ⋯ menu on
-/// iPad). On the Mac, a + takes the count's place on hover.
+/// connection is doing, and its actions in the context menu and a ⋯ menu.
+/// With a pointer, a + takes the count's place on hover.
 private struct InboxServerRow: View {
     let connection: ServerConnection
     @Environment(\.sessionActions) private var actions
@@ -235,21 +228,17 @@ private struct InboxServerRow: View {
             }
             ConnectionDot(state: connection.state)
                 .scaleEffect(0.7)
-            #if os(iOS)
             Menu { ServerMenuItems(connection: connection) } label: {
                 Label("\(connection.server.name) actions", systemImage: "ellipsis.circle")
                     .labelStyle(.iconOnly)
             }
             .foregroundStyle(Palette.subtext)
-            #endif
         }
         .scaledFont(.callout)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .contextMenu { ServerMenuItems(connection: connection) }
-        #if os(iOS)
         .listRowInsets(Metrics.rowInsets)
-        #endif
         .paletteRows(Palette.mantle)
     }
 }

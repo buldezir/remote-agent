@@ -8,7 +8,8 @@
 #
 # sign_update comes with the Sparkle package, which xcodebuild resolves into
 # build/SourcePackages or build/DerivedData/SourcePackages, and swift build
-# into .build/artifacts; SIGN_UPDATE names another copy.
+# into .build/artifacts; SIGN_UPDATE names another copy, such as the one
+# gpui/scripts/sparkle.sh fetches for the Mac client.
 set -eu
 
 app=$1 zip=$2 url=$3 page=$4 notes=${5:-}

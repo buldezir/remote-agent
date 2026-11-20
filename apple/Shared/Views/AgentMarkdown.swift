@@ -2,8 +2,7 @@ import RAKit
 import SwiftUI
 import Textual
 
-/// An agent's Markdown, in the message and code fonts and the message size
-/// from Settings. Textual draws it, so a selection runs across its
+/// An agent's Markdown, in the message size from Settings. Textual draws it, so a selection runs across its
 /// paragraphs, lists, tables and code blocks, which wrap rather than scroll
 /// to stay part of it. The images rad keeps for a reply (`rad-image:<id>`)
 /// stand between the texts, where a tap opens them; one in a line of text is
@@ -15,8 +14,6 @@ struct AgentMarkdown: View {
     var store: SessionStore?
 
     @Environment(\.messageTextSize) private var size
-    @Environment(\.messageFont) private var font
-    @Environment(\.codeFont) private var codeFont
     @Environment(\.displayScale) private var scale
     @Environment(\.findHighlight) private var highlight
 
@@ -41,9 +38,9 @@ struct AgentMarkdown: View {
                 }
             }
         }
-        .font(font.font(size: size))
+        .font(.system(size: size))
         .foregroundStyle(Palette.text)
-        .textual.structuredTextStyle(AgentTextStyle(size: size, codeFont: codeFont, codeScale: font.codeScale(codeFont)))
+        .textual.structuredTextStyle(AgentTextStyle(size: size, codeScale: TextSize.codeScale))
         .textual.highlighterTheme(.init(foregroundColor: DynamicColor(Palette.text), backgroundColor: DynamicColor(Palette.crust)))
         .textual.overflowMode(.wrap)
         .textual.imageAttachmentLoader(InlineImageLoader(store: store, scale: scale))
@@ -214,15 +211,14 @@ private struct InlineImage: Attachment {
 /// GitHub-like, sized for a transcript and in the palette's colours.
 private struct AgentTextStyle: StructuredText.Style {
     let size: CGFloat
-    let codeFont: FontChoice
     let codeScale: CGFloat
 
     var inlineStyle: InlineStyle { inlineStyle(scale: 1) }
 
-    /// Inline code takes the code font, as large as the text around it.
+    /// Inline code is monospaced, as large as the text around it.
     func inlineStyle(scale: CGFloat) -> InlineStyle {
         InlineStyle()
-            .code(.font(codeFont.font(size: size * scale * codeScale)), .backgroundColor(Palette.surface0))
+            .code(.font(.system(size: size * scale * codeScale, design: .monospaced)), .backgroundColor(Palette.surface0))
             .strong(.fontWeight(.semibold))
             .link(.foregroundColor(Palette.blue))
     }
@@ -230,7 +226,7 @@ private struct AgentTextStyle: StructuredText.Style {
     var headingStyle: AgentHeadingStyle { AgentHeadingStyle(text: self) }
     var paragraphStyle: AgentParagraphStyle { AgentParagraphStyle() }
     var blockQuoteStyle: AgentBlockQuoteStyle { AgentBlockQuoteStyle() }
-    var codeBlockStyle: AgentCodeBlockStyle { AgentCodeBlockStyle(font: codeFont.font(size: size * codeScale)) }
+    var codeBlockStyle: AgentCodeBlockStyle { AgentCodeBlockStyle(font: .system(size: size * codeScale, design: .monospaced)) }
     var listItemStyle: StructuredText.DefaultListItemStyle { .default }
     var unorderedListMarker: StructuredText.HierarchicalSymbolListMarker { .hierarchical(.disc, .circle, .square) }
     var orderedListMarker: StructuredText.DecimalListMarker { .decimal }
@@ -279,7 +275,7 @@ private struct AgentBlockQuoteStyle: StructuredText.BlockQuoteStyle {
     }
 }
 
-/// A fenced code block, in the code font.
+/// A fenced code block, monospaced.
 private struct AgentCodeBlockStyle: StructuredText.CodeBlockStyle {
     let font: Font
 

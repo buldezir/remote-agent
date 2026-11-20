@@ -1,7 +1,7 @@
 import RAKit
 import SwiftUI
 
-/// The iPad and Mac layout: every server's sessions in the sidebar, the
+/// The iPad layout: every server's sessions in the sidebar, the
 /// chosen session beside them, or in the Columns layout, a list of sessions
 /// between the two. In a narrow iPad window it collapses into a stack. The
 /// app has this one window, which opens again on the session that was open
@@ -34,11 +34,7 @@ struct ServerSplitView: View {
     @FocusState private var searchFocused: Bool
     @State private var columns = NavigationSplitViewVisibility.automatic
     @Environment(\.showSettings) private var showSettings
-    #if os(macOS)
-    @Environment(Notifier.self) private var notifier
-    #else
     @Environment(\.horizontalSizeClass) private var sizeClass
-    #endif
 
     /// The open session, while its server is still paired.
     private var route: SessionRoute? {
@@ -65,10 +61,8 @@ struct ServerSplitView: View {
     private func choose(_ c: SessionCollection) {
         guard c != current else { return }
         openCollection = c.stored
-        #if os(iOS)
         // Collapsed into a stack, a session would be pushed over the list.
         guard sizeClass == .regular else { return }
-        #endif
         selection.wrappedValue = c.sessionToOpen(in: store, recent: RecentSessions.routes(recentSessions))
     }
 
@@ -93,13 +87,6 @@ struct ServerSplitView: View {
         return c.indexSynced && c.projects[projectID] == nil
     }
 
-    /// Where a new session starts from the menu bar, as with the New Session
-    /// button: in the Columns layout's project, else on the open session's
-    /// server, else on the first one connected.
-    private var newSessionTarget: NewSessionRequest? {
-        store.newSessionTarget(in: layout == .columns ? current : nil, beside: route)
-    }
-
     /// In the Columns layout, a session asked for on the chosen project's
     /// server, as from its header, starts in that project.
     private func inChosenProject(_ request: NewSessionRequest) -> NewSessionRequest {
@@ -121,13 +108,11 @@ struct ServerSplitView: View {
                 delete: { deleting = $0 },
                 remove: { removing = $0 },
                 manage: { connection in
-                    #if os(iOS)
                     // A narrow window shows the server's settings on their own.
                     guard sizeClass == .regular else {
                         managing = ServerRequest(connection: connection)
                         return
                     }
-                    #endif
                     settingsServerID = connection.server.id
                     settingsServerRequest += 1
                     showSettings?.wrappedValue = true
@@ -156,11 +141,6 @@ struct ServerSplitView: View {
             .task(id: store.servers.map(\.id)) {
                 for c in store.connections where c.state == .idle { c.start() }
             }
-            .focusedSceneValue(\.newSession, newSessionTarget.map { target in
-                Binding { newSession != nil } set: { newSession = $0 ? target : nil }
-            })
-            .focusedSceneValue(\.pairServer, $showAdd)
-            .focusedSceneValue(\.searchSessions, Binding { searchFocused } set: { if $0 { focusSearch() } else { searchFocused = false } })
             .background { searchShortcut }
             .onChange(of: pendingLink) { _, link in
                 if link != nil { showAdd = true }
@@ -182,15 +162,6 @@ struct ServerSplitView: View {
                 if route != startedEmpty { startedEmpty = nil }
                 if itemFocus?.route != route { itemFocus = nil }
             }
-            #if os(macOS)
-            .onChange(of: route, initial: true) { _, route in notifier.shown = route }
-            .onChange(of: notifier.opened, initial: true) { _, route in
-                // A click on a notification, which may have launched the app.
-                guard let route else { return }
-                selection.wrappedValue = route
-                notifier.opened = nil
-            }
-            #endif
     }
 
     /// The confirmations go on the column their rows are in, which an iPad
@@ -202,22 +173,14 @@ struct ServerSplitView: View {
                 CollectionsSidebar(collection: collection, showAdd: $showAdd)
                     .removeServerDialog($removing)
                     .archiveOldSessionsDialog($archivingOld)
-                    #if os(macOS)
-                    .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 300)
-                    #else
                     .navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 360)
-                    #endif
             } content: {
                 SessionListColumn(collection: current, selection: selection, searchFocused: $searchFocused)
                     .renameSessionAlert($renaming)
                     .archiveSessionDialog($archiving)
                     .unarchiveSession($unarchiving)
                     .deleteSessionDialog($deleting)
-                    #if os(macOS)
-                    .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 460)
-                    #else
                     .navigationSplitViewColumnWidth(min: 300, ideal: 360, max: 460)
-                    #endif
             } detail: {
                 detail
             }
@@ -230,12 +193,8 @@ struct ServerSplitView: View {
                     .archiveOldSessionsDialog($archivingOld)
                     .deleteSessionDialog($deleting)
                     .removeServerDialog($removing)
-                    #if os(macOS)
-                    .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 420)
-                    #else
                     // As wide as an iPhone, which the rows and toolbar were laid out for.
                     .navigationSplitViewColumnWidth(min: 320, ideal: 390, max: 480)
-                    #endif
             } detail: {
                 detail
             }
@@ -255,23 +214,10 @@ struct ServerSplitView: View {
                 .id(route)
             } else {
                 placeholder
-                    #if os(macOS)
-                    // A detail column with nothing in the toolbar leaves its
-                    // part of it to the column beside it, whose New Session
-                    // button then moves to the window's corner.
-                    .toolbar { ToolbarSpacer(.flexible) }
-                    #endif
             }
         }
-        #if os(macOS)
-        // Room for the transcript and the composer: without it the window
-        // narrows the session to a sliver beside the sidebar's columns.
-        .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
-        #else
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        #endif
         .background(Palette.base)
-        .environment(\.inlineSessionTitle, layout == .columns)
     }
 
     @ViewBuilder private var placeholder: some View {
@@ -279,11 +225,7 @@ struct ServerSplitView: View {
             ContentUnavailableView {
                 Label("No servers", systemImage: "desktopcomputer")
             } description: {
-                #if os(macOS)
-                Text("Run `rad serve` on your computer, then `rad pair`, and paste the link it prints.")
-                #else
                 Text("Run `rad serve` on your computer, then `rad pair` and scan the QR code.")
-                #endif
             } actions: {
                 Button { showAdd = true } label: {
                     Text("Pair a server").foregroundStyle(Palette.onAccent)
@@ -310,15 +252,13 @@ struct ServerSplitView: View {
         }
     }
 
-    /// ⇧⌘F searches the sessions, from a keyboard on iPad. The Mac's Edit menu has it.
-    @ViewBuilder private var searchShortcut: some View {
-        #if os(iOS)
+    /// ⇧⌘F searches the sessions, from a keyboard.
+    private var searchShortcut: some View {
         Button("Search Sessions", action: focusSearch)
             .keyboardShortcut("f", modifiers: [.command, .shift])
             // hidden() would turn the shortcut off.
             .opacity(0)
             .accessibilityHidden(true)
-        #endif
     }
 
     /// The open session and whether it is archived, once the index has it.
@@ -328,7 +268,7 @@ struct ServerSplitView: View {
     }
 
     /// In three columns, a session opened from elsewhere, such as the one open
-    /// last, a notification or a new session, shows in the list: when the
+    /// last or a new session, shows in the list: when the
     /// collection doesn't have it, its project or Archived does.
     private func reveal() {
         guard layout == .columns, let route, let c = connection(route), let s = c.sessions[route.sessionID] else { return }

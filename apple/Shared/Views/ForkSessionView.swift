@@ -65,13 +65,13 @@ struct ForkSessionView: View {
                             }
                         }
                     } header: {
-                        Text("From").formHeaderFont()
+                        Text("From")
                     }
 
                     Section {
                         HarnessChoiceRows(connection: connection, harnessID: $harnessID)
                     } header: {
-                        Text("Agent").formHeaderFont()
+                        Text("Agent")
                     }
 
                     if let harness {
@@ -79,7 +79,7 @@ struct ForkSessionView: View {
                             HarnessOptionRows(harness: harness, model: $model, customModel: $customModel,
                                               effort: $effort, mode: $mode)
                         } header: {
-                            Text("Options").formHeaderFont()
+                            Text("Options")
                         }
                     }
 
@@ -93,13 +93,13 @@ struct ForkSessionView: View {
                                 }
                             }
                             if workIn == .newWorktree {
-                                TextField("Branch", text: $branch, prompt: Text(branchPrompt))
+                                TextField("Branch", text: $branch, prompt: Text("Branch (auto)"))
                                     .plainTextInput()
                             }
                         } header: {
-                            Text("Workspace").formHeaderFont()
+                            Text("Workspace")
                         } footer: {
-                            Text(workspaceFooter).formFooterFont()
+                            Text(workspaceFooter)
                         }
                     }
 
@@ -108,12 +108,10 @@ struct ForkSessionView: View {
                             .labelsHidden()
                             .lineLimit(4...12)
                             .messageFont()
-                            .shiftReturnNewline()
                     } header: {
-                        Text("Prompt").formHeaderFont()
+                        Text("Prompt")
                     } footer: {
                         Text("Optional. Without one, the fork opens with the conversation so far, and you write the next prompt in it. The same agent picks up its own conversation; another agent gets it as a transcript with the first prompt.")
-                            .formFooterFont()
                     }
 
                     if let error {
@@ -123,9 +121,6 @@ struct ForkSessionView: View {
                 .paletteRows()
             }
             .compactForm()
-            #if os(macOS)
-            .frame(minWidth: 480, minHeight: 560)
-            #endif
             .navigationTitle("Fork session")
             .inlineTitle()
             .toolbar {
@@ -181,15 +176,6 @@ struct ForkSessionView: View {
                 + (source.workspace.branch.map { ", on \($0)," } ?? "")
                 + " with the files as they are now."
         }
-    }
-
-    /// On the Mac the field's label, Branch, is shown beside it.
-    private var branchPrompt: String {
-        #if os(macOS)
-        "auto"
-        #else
-        "Branch (auto)"
-        #endif
     }
 
     /// With the source's agent, its model, effort and mode, if the agent

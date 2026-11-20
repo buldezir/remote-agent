@@ -7,8 +7,8 @@ struct SessionRoute: Hashable {
     let sessionID: String
 }
 
-/// A session in the iPhone's list of a server's sessions, or in the iPad and
-/// Mac sidebar.
+/// A session in the iPhone's list of a server's sessions, or in the iPad
+/// sidebar.
 struct SessionRow: View {
     let session: Session
     let project: Project?
@@ -165,12 +165,9 @@ private struct RenameSessionAlert: ViewModifier {
                    presenting: request) { r in
                 TextField("Title", text: $title)
                 Button("Cancel", role: .cancel) {}
+                // No default action: iOS renames on Return without it, and
+                // would draw the palette's accent on the system's blue.
                 Button("Rename") { rename(r) }
-                    // iOS renames on Return without it, and would draw the
-                    // palette's accent on the system's blue.
-                    #if os(macOS)
-                    .keyboardShortcut(.defaultAction)
-                    #endif
             } message: { _ in
                 Text("Leave it empty to name it automatically.")
             }

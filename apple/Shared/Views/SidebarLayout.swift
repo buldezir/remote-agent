@@ -1,8 +1,7 @@
 import RAKit
 import SwiftUI
 
-/// How the iPad and the Mac lay out sessions: chosen in View › Sidebar on the
-/// Mac, and in Settings.
+/// How the iPad lays out sessions, chosen in Settings.
 enum SidebarLayout: String, CaseIterable, Identifiable {
     /// Every server's sessions by state: what needs you or is unread, then the rest.
     case inbox
@@ -72,9 +71,6 @@ struct NewSessionRequest: Identifiable {
 
 extension EnvironmentValues {
     @Entry var sessionActions = SessionActions()
-    /// The session's title heads its transcript: in three columns the Mac's
-    /// toolbar title is the session list's, as in Mail.
-    @Entry var inlineSessionTitle = false
 }
 
 /// A session and the server it is on, for the lists that mix servers.

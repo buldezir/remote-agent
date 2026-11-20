@@ -1,4 +1,4 @@
-//! Remote Agent for macOS, in GPUI: an experimental client. It pairs with
+//! Remote Agent for macOS, in GPUI. It pairs with
 //! rad by link, lists every server's sessions in the Inbox, Projects or
 //! Columns layout, and shows a session with everything the other clients
 //! do with it: its transcript, approvals, composer, diffs, commits, forks
@@ -87,9 +87,13 @@ fn main() {
                 KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
             ]);
             ui::terminal::bind_keys(cx);
-            // A bundle scripts/bundle.sh built updates from the Mac that built it.
+            // The release build updates through Sparkle; the development
+            // bundle from the Mac that built it, over ssh.
+            ui::sparkle::start();
             let mut app_menu = vec![MenuItem::action("Settings…", OpenSettings)];
-            if ui::build_update::available() {
+            if ui::sparkle::available() {
+                app_menu.push(MenuItem::action("Check for Updates…", CheckForUpdate));
+            } else if ui::build_update::available() {
                 app_menu.push(MenuItem::action("Check for Update…", CheckForUpdate));
             }
             app_menu.extend([MenuItem::separator(), MenuItem::action("Quit Remote Agent", Quit)]);
@@ -173,7 +177,7 @@ fn main() {
                 window_bounds: Some(bounds),
                 display_id,
                 window_min_size: Some(size(px(min_w), px(min_h))),
-                app_id: Some("dev.remote-agent.gpui".into()),
+                app_id: Some(store::identity::current().id.clone()),
                 // The traffic lights sit in the first column's bar, centred in it.
                 titlebar: Some(gpui_kit::TitlebarOptions {
                     traffic_light_position: Some(gpui_kit::point(px(14.), px(16.))),

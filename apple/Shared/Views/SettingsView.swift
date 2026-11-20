@@ -3,22 +3,13 @@ import SwiftUI
 
 /// App preferences and, in a wide window, the saved servers.
 struct SettingsView: View {
-    #if os(macOS)
-    var wide = true
-    #else
     var wide = false
-    #endif
     @Environment(ServerStore.self) private var store
     @AppStorage("settingsServerID") private var selected = ""
     @AppStorage("settingsServerRequest") private var serverRequest = 0
     @State private var servers = false
     @State private var adding = false
     @State private var removing: SavedServer?
-    #if os(macOS)
-    /// The size the sheet's content takes: most of the window it is over.
-    @State private var size: CGSize?
-    @Environment(\.dismiss) private var dismiss
-    #endif
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,10 +24,6 @@ struct SettingsView: View {
             }
             tab
         }
-        #if os(macOS)
-        .frame(width: size?.width ?? 840, height: size?.height ?? 620)
-        .background(SheetSize { size = $0 })
-        #endif
         .background(Palette.mantle)
         .navigationTitle("Settings")
         .onAppear { servers = !selected.isEmpty }
@@ -53,16 +40,9 @@ struct SettingsView: View {
         }
         .removeServerDialog($removing) { selected = "" }
         .toolbar {
-            #if os(macOS)
-            // A sheet over the window; Escape closes it too.
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
-            }
-            #else
             if wide && servers {
                 ToolbarItem(placement: .confirmationAction) { SettingsDoneButton() }
             }
-            #endif
         }
     }
 
@@ -102,11 +82,7 @@ struct SettingsView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            #if os(macOS)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            #else
             .frame(minHeight: 620)
-            #endif
         } else {
             GeneralSettingsView()
         }
@@ -130,14 +106,12 @@ struct SettingsView: View {
     }
 }
 
-#if os(iOS)
 private struct SettingsDoneButton: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View { Button("Done") { dismiss() } }
 }
-#endif
 
-/// The app's settings, in a sheet over the window (⌘, on the Mac).
+/// The app's settings, in a sheet over the window.
 private struct GeneralSettingsView: View {
     @AppStorage(TextSize.interfaceKey) private var interface = TextSize.defaultInterface
     @AppStorage(TextSize.messagesKey) private var messages = TextSize.defaultMessages
@@ -145,37 +119,11 @@ private struct GeneralSettingsView: View {
     @AppStorage(TerminalPlacement.key) private var terminalPlacement = TerminalPlacement.over
     @AppStorage(SidebarLayout.key) private var sidebarLayout = SidebarLayout.inbox
     @AppStorage(ToolRunRow.groupKey) private var groupToolCalls = true
-    #if os(macOS)
-    @AppStorage(FontChoice.messageKey) private var messageFont = ""
-    @AppStorage(FontChoice.codeKey) private var codeFont = ""
-    @AppStorage(TerminalPanel.copyOnSelectKey) private var copyOnSelect = true
-    #else
     @AppStorage(TextSize.followsSystemKey) private var followsSystem = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.dismiss) private var dismiss
-    #endif
 
     var body: some View {
-        #if os(macOS)
-        // Two columns, the text beside the rest, as wide as the sheet; one
-        // when it's too narrow for two.
-        ScrollView {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 0) {
-                    column { textSections }
-                    column { otherSections }
-                }
-                VStack(spacing: 0) {
-                    column { textSections }
-                    column { otherSections }
-                }
-            }
-        }
-        .scrollBounceBehavior(.basedOnSize)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.mantle)
-        .navigationTitle("Settings")
-        #else
         Form {
             Group {
                 textSections
@@ -191,59 +139,35 @@ private struct GeneralSettingsView: View {
                 Button("Done") { dismiss() }
             }
         }
-        #endif
     }
 
-    #if os(macOS)
-    /// A column of sections: a form of its own, as tall as they are, which
-    /// the sheet's scroll view scrolls. Two fit side by side from 760 points.
-    private func column(@ViewBuilder _ sections: () -> some View) -> some View {
-        Form { sections() }
-            .compactForm()
-            .scrollDisabled(true)
-            // The form can come out a fraction of a point taller than its
-            // sections, which would show a scroller.
-            .scrollIndicators(.never)
-            .frame(minWidth: 320, idealWidth: 380, maxWidth: .infinity)
-    }
-    #endif
-
-    /// The theme and the text: its sizes, fonts and a preview.
+    /// The theme and the text: its sizes and a preview.
     @ViewBuilder private var textSections: some View {
         Section {
-            // A pop-up, like the font pickers: a Mac segmented control
-            // writes its selected label in white on the accent.
             Picker("Theme", selection: $appearance) {
                 ForEach(Appearance.allCases) { Text($0.title).tag($0) }
             }
         } header: {
-            Text("Appearance").formHeaderFont()
+            Text("Appearance")
         } footer: {
-            Text("Catppuccin Latte when light, Frappé when dark.").formFooterFont()
+            Text("Catppuccin Latte when light, Frappé when dark.")
         }
 
         Section {
-            #if os(iOS)
             Toggle("Match System", isOn: matchSystem)
             if !followsSystem { interfaceSlider }
-            #else
-            interfaceSlider
-            #endif
         } header: {
-            Text("Interface").formHeaderFont()
+            Text("Interface")
         } footer: {
-            Text(interfaceFooter).formFooterFont()
+            Text(interfaceFooter)
         }
 
         Section {
-            #if os(macOS)
-            fontPickers
-            #endif
             SizeSlider(value: $messages, range: TextSize.messageSizes, text: "\(Int(TextSize.messages(messages))) pt")
         } header: {
-            Text("Messages").formHeaderFont()
+            Text("Messages")
         } footer: {
-            Text(messagesFooter).formFooterFont()
+            Text(messagesFooter)
         }
 
         Section {
@@ -254,20 +178,19 @@ private struct GeneralSettingsView: View {
             .padding(.vertical, 4)
             .paletteText()
         } header: {
-            Text("Preview").formHeaderFont()
+            Text("Preview")
         }
     }
 
-    /// The transcript, the sidebar, the terminal, notifications and updates,
-    /// and the way back to the defaults.
+    /// The transcript, the sidebar, the terminal, and the way back to the
+    /// defaults.
     @ViewBuilder private var otherSections: some View {
         Section {
             Toggle("Group tool calls", isOn: $groupToolCalls)
         } header: {
-            Text("Transcript").formHeaderFont()
+            Text("Transcript")
         } footer: {
             Text("Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them.")
-                .formFooterFont()
         }
 
         if offersSplitView {
@@ -276,9 +199,9 @@ private struct GeneralSettingsView: View {
                     ForEach(SidebarLayout.allCases) { Text($0.title).tag($0) }
                 }
             } header: {
-                Text("Sidebar").formHeaderFont()
+                Text("Sidebar")
             } footer: {
-                Text(sidebarFooter).formFooterFont()
+                Text(sidebarFooter)
             }
         }
 
@@ -287,21 +210,12 @@ private struct GeneralSettingsView: View {
                 Picker("Opens", selection: $terminalPlacement) {
                     ForEach(TerminalPlacement.allCases) { Text($0.title).tag($0) }
                 }
-                #if os(macOS)
-                Toggle("Copy on select", isOn: $copyOnSelect)
-                #endif
             } header: {
-                Text("Terminal").formHeaderFont()
+                Text("Terminal")
             } footer: {
-                Text(terminalFooter).formFooterFont()
+                Text(terminalFooter)
             }
         }
-
-        #if os(macOS)
-        NotificationsSection()
-        DockSection()
-        UpdatesSection()
-        #endif
 
         Section {
             Button("Restore Defaults", action: restoreDefaults)
@@ -309,32 +223,17 @@ private struct GeneralSettingsView: View {
         }
     }
 
-    /// The sidebar's layout and where the terminal opens: for iPad and the
-    /// Mac. An iPhone shows a server's sessions in a list of their own, and the
+    /// The sidebar's layout and where the terminal opens: for iPad. An
+    /// iPhone shows a server's sessions in a list of their own, and the
     /// terminal in place of the messages, as there's no room beside them.
     private var offersSplitView: Bool {
-        #if os(iOS)
         UIDevice.current.userInterfaceIdiom == .pad
-        #else
-        true
-        #endif
     }
 
-    private var sidebarFooter: String {
-        #if os(macOS)
-        "\(sidebarLayout.summary) The View menu switches them too, with ⌘1, ⌘2 and ⌘3."
-        #else
-        sidebarLayout.summary
-        #endif
-    }
+    private var sidebarFooter: String { sidebarLayout.summary }
 
     private var terminalFooter: String {
-        let placement = "Where a session's terminal opens. In a narrow window it takes the place of the messages."
-        #if os(macOS)
-        return placement + " Copy on select puts the text you select on the clipboard."
-        #else
-        return placement
-        #endif
+        "Where a session's terminal opens. In a narrow window it takes the place of the messages."
     }
 
     private var interfaceSlider: some View {
@@ -344,43 +243,8 @@ private struct GeneralSettingsView: View {
                           text: "\(Int(TextSize.interfaceSizes[step])) pt")
     }
 
-    #if os(macOS)
-    private var fontPickers: some View {
-        Group {
-            Picker("Font", selection: fontBinding($messageFont, fallback: .message)) {
-                Text("System").tag("")
-                Text("System Serif").tag("system:serif")
-                Text("System Rounded").tag("system:rounded")
-                Text("System Mono").tag("system:monospaced")
-                Divider()
-                ForEach(FontChoice.installedFamilies, id: \.self) { Text($0).tag($0) }
-            }
-            Picker("Code font", selection: fontBinding($codeFont, fallback: .code)) {
-                Text("System Mono").tag("")
-                Divider()
-                ForEach(FontChoice.monospacedFamilies, id: \.self) { Text($0).tag($0) }
-            }
-        }
-    }
-
-    /// Reads a family that is no longer installed as the default, so the
-    /// picker always has a selection.
-    private func fontBinding(_ stored: Binding<String>, fallback: FontChoice) -> Binding<String> {
-        Binding {
-            FontChoice(stored: stored.wrappedValue, fallback: fallback).stored(fallback: fallback)
-        } set: {
-            stored.wrappedValue = $0
-        }
-    }
-
-    private var messagesFooter: String {
-        "Your prompts, the agent's replies and its tool calls. Tool calls and diffs use the code font."
-    }
-    #else
     private var messagesFooter: String { "Your prompts, the agent's replies and its tool calls." }
-    #endif
 
-    #if os(iOS)
     /// Turning it off starts the slider at the system's size.
     private var matchSystem: Binding<Bool> {
         Binding {
@@ -402,15 +266,6 @@ private struct GeneralSettingsView: View {
         appearance == .system && followsSystem && messages == TextSize.defaultMessages && terminalPlacement == .over
             && sidebarLayout == .inbox && groupToolCalls
     }
-    #else
-    private var interfaceFooter: String { "Lists and labels." }
-
-    private var isDefault: Bool {
-        appearance == .system && interface == TextSize.defaultInterface && messages == TextSize.defaultMessages
-            && messageFont.isEmpty && codeFont.isEmpty && terminalPlacement == .over && copyOnSelect && sidebarLayout == .inbox
-            && groupToolCalls
-    }
-    #endif
 
     private func restoreDefaults() {
         appearance = .system
@@ -419,13 +274,7 @@ private struct GeneralSettingsView: View {
         groupToolCalls = true
         interface = TextSize.defaultInterface
         messages = TextSize.defaultMessages
-        #if os(iOS)
         followsSystem = true
-        #else
-        messageFont = ""
-        codeFont = ""
-        copyOnSelect = true
-        #endif
     }
 }
 
@@ -436,22 +285,10 @@ private struct SizeSlider: View {
     let text: String
 
     var body: some View {
-        #if os(macOS)
-        LabeledContent("Text size") {
-            HStack {
-                slider
-                Text(text)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 40, alignment: .trailing)
-            }
-        }
-        #else
         VStack(spacing: 4) {
             LabeledContent("Text size", value: text)
             slider
         }
-        #endif
     }
 
     private var slider: some View {
@@ -467,162 +304,12 @@ private struct SizeSlider: View {
     }
 }
 
-#if os(macOS)
-/// Turns notifications on and off, and says when macOS holds them back.
-private struct NotificationsSection: View {
-    @Environment(Notifier.self) private var notifier
-    @AppStorage(Notifier.enabledKey) private var enabled = true
-
-    var body: some View {
-        Section {
-            Toggle("Show notifications", isOn: $enabled)
-            if blocked {
-                Button("Open System Settings") { openNotificationSettings() }
-            }
-        } header: {
-            Text("Notifications").formHeaderFont()
-        } footer: {
-            Text(blocked ? "Remote Agent's notifications are turned off in System Settings."
-                         : "When a session needs you, finishes or fails, unless the window shows it.")
-                .formFooterFont()
-        }
-        .onChange(of: enabled) { _, on in
-            if on { Task { await notifier.requestAuthorization() } }
-        }
-        .task { await notifier.refreshAuthorization() }
-    }
-
-    private var blocked: Bool { enabled && notifier.authorization == .denied }
-}
-
-/// What the Dock icon shows when sessions need the user, and when macOS
-/// holds the badge back.
-private struct DockSection: View {
-    @Environment(Notifier.self) private var notifier
-    @AppStorage(Notifier.dockBadgeKey) private var badge = false
-    @AppStorage(Notifier.dockBounceKey) private var bounce = DockBounce.off
-
-    var body: some View {
-        Section {
-            Toggle("Count sessions that need you", isOn: $badge)
-            if blocked {
-                Button("Open System Settings") { openNotificationSettings() }
-            }
-            Picker("Bounce", selection: $bounce) {
-                ForEach(DockBounce.allCases) { Text($0.title).tag($0) }
-            }
-        } header: {
-            Text("Dock").formHeaderFont()
-        } footer: {
-            Text(blocked ? "Badges for Remote Agent are turned off in System Settings, under Notifications."
-                         : "The badge counts the sessions on every server that wait for an answer, failed or have a reply you haven't read. The icon bounces once when a session needs you, finishes or fails while Remote Agent is in the background. With “Keep bouncing when stuck”, a session that waits for an answer or failed keeps it bouncing until you switch to Remote Agent or deal with it on another device.")
-                .formFooterFont()
-        }
-        .onChange(of: badge) { _, on in
-            if on { Task { await notifier.requestAuthorization() } }
-        }
-    }
-
-    /// Denied, or allowed without badges: also when the app was allowed
-    /// notifications before it asked for badges, which then stay off.
-    private var blocked: Bool {
-        guard badge else { return false }
-        switch notifier.authorization {
-        case .denied: return true
-        case .notDetermined: return false
-        default: return notifier.badgeSetting != .enabled
-        }
-    }
-}
-
-/// The app's page in System Settings › Notifications.
-@MainActor private func openNotificationSettings() {
-    let id = Bundle.main.bundleIdentifier ?? ""
-    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)")!)
-}
-
-/// Whether the app looks for updates, and installs them by itself.
-private struct UpdatesSection: View {
-    @Environment(AppUpdater.self) private var updater
-
-    var body: some View {
-        @Bindable var updater = updater
-        if updater.isRelease {
-            Section {
-                Toggle("Check for updates automatically", isOn: $updater.checksAutomatically)
-                Toggle("Download and install automatically", isOn: $updater.downloadsAutomatically)
-                    .disabled(!updater.checksAutomatically)
-            } header: {
-                Text("Updates").formHeaderFont()
-            } footer: {
-                Text(updater.downloadsAutomatically && updater.checksAutomatically
-                     ? "Once a day. A new version installs when you quit Remote Agent."
-                     : "Once a day. Remote Agent asks before installing a new version.")
-                    .formFooterFont()
-            }
-        }
-    }
-}
-
-/// Reports the size the view behind it takes in a sheet: 90% of the window
-/// the sheet is over, less the sheet's own bars. As the sheet lays out and
-/// when the window resizes.
-private struct SheetSize: NSViewRepresentable {
-    let changed: @MainActor (CGSize) -> Void
-
-    func makeNSView(context: Context) -> SizeView { SizeView() }
-
-    func updateNSView(_ view: SizeView, context: Context) {
-        view.changed = changed
-    }
-
-    final class SizeView: NSView {
-        var changed: (@MainActor (CGSize) -> Void)?
-
-        override func viewDidMoveToWindow() {
-            NotificationCenter.default.removeObserver(self)
-            guard let window else { return }
-            for w in Set([window, parent(of: window) ?? window]) {
-                NotificationCenter.default.addObserver(self, selector: #selector(report),
-                                                       name: NSWindow.didResizeNotification, object: w)
-            }
-            report()
-        }
-
-        /// The window the sheet is over. The sheet lays out before AppKit
-        /// attaches it, while that window is still the main one.
-        private func parent(of sheet: NSWindow) -> NSWindow? {
-            sheet.sheetParent ?? NSApp.mainWindow.flatMap { $0 === sheet ? nil : $0 }
-        }
-
-        // Once laid out, the bars around it are known.
-        override func setFrameSize(_ newSize: NSSize) {
-            super.setFrameSize(newSize)
-            report()
-        }
-
-        @objc private func report() {
-            guard let window, let changed, let parent = parent(of: window) else { return }
-            // The sheet hangs below the window's toolbar, so it's no taller
-            // than the content below it, with a margin.
-            let width = (parent.frame.width * 0.9).rounded()
-            let height = min(parent.frame.height * 0.9, parent.contentLayoutRect.height - 2 * Metrics.margin).rounded()
-            let size = CGSize(width: width - (window.frame.width - frame.width),
-                              height: height - (window.frame.height - frame.height))
-            // Not while SwiftUI is updating the view.
-            Task { @MainActor in changed(size) }
-        }
-    }
-}
-#endif
-
 extension EnvironmentValues {
     /// Shows the Settings sheet over the window.
     @Entry var showSettings: Binding<Bool>?
 }
 
-#if os(iOS)
-/// Opens Settings. The Mac has it in the app menu instead.
+/// Opens Settings.
 struct SettingsButton: View {
     @Environment(\.showSettings) private var showSettings
 
@@ -631,4 +318,3 @@ struct SettingsButton: View {
             .keyboardShortcut(",")
     }
 }
-#endif

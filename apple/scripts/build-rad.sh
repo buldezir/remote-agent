@@ -12,7 +12,7 @@ go=$(PATH="$PATH:/opt/homebrew/bin:/usr/local/go/bin:/usr/local/bin" command -v 
 out="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH/rad"
 tmp="$DERIVED_FILE_DIR/rad"
 mkdir -p "$tmp"
-slices=""
+set --
 for arch in $ARCHS; do
 	case "$arch" in
 	arm64) goarch=arm64 ;;
@@ -21,10 +21,10 @@ for arch in $ARCHS; do
 	esac
 	CGO_ENABLED=0 GOOS=darwin GOARCH=$goarch "$go" -C "$SRCROOT/../server" build -trimpath \
 		-ldflags "-X remote-agent/internal/api.Version=$MARKETING_VERSION" -o "$tmp/rad-$arch" ./cmd/rad
-	slices="$slices $tmp/rad-$arch"
+	set -- "$@" "$tmp/rad-$arch"
 done
-# shellcheck disable=SC2086
-lipo -create $slices -output "$out"
+# Quoted: derived data may sit under a path with spaces (Application Support).
+lipo -create "$@" -output "$out"
 
 # rad sends Apple Events for agents (osascript), so it carries the app's
 # entitlements; codesign refuses to sign an app around unsigned code.

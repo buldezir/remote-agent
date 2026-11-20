@@ -12,9 +12,7 @@ struct CommitView: View {
     let sessionID: String
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
-    #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
-    #endif
     /// How far the last commit went, which the next one starts at.
     @AppStorage("commitScope") private var savedScope = ""
 
@@ -53,9 +51,6 @@ struct CommitView: View {
                 .paletteRows()
             }
             .compactForm()
-            #if os(macOS)
-            .frame(minWidth: 480, minHeight: 520)
-            #endif
             .navigationTitle("Commit")
             .inlineTitle()
             .toolbar { toolbar }
@@ -86,11 +81,7 @@ struct CommitView: View {
     /// A phone's navigation bar, where the whole of the longest title would
     /// squeeze the sheet's own to a letter. Opening a pull request pushes.
     private var narrow: Bool {
-        #if os(iOS)
         sizeClass == .compact
-        #else
-        false
-        #endif
     }
 
     private var canStart: Bool {
@@ -111,7 +102,7 @@ struct CommitView: View {
                 Label("Pull request into \(p.base ?? "the default branch")", systemImage: "arrow.triangle.pull")
             }
         } header: {
-            Text("Branch").formHeaderFont()
+            Text("Branch")
         }
 
         Section {
@@ -124,11 +115,11 @@ struct CommitView: View {
             ForEach(p.files) { FileRow(file: $0) }
         } header: {
             if p.files.isEmpty {
-                Text("Changes").formHeaderFont()
+                Text("Changes")
             } else {
                 let adds = p.files.reduce(0) { $0 + $1.additions }
                 let dels = p.files.reduce(0) { $0 + $1.deletions }
-                Text("\(p.files.count) file\(p.files.count == 1 ? "" : "s") changed  +\(adds) −\(dels)").formHeaderFont()
+                Text("\(p.files.count) file\(p.files.count == 1 ? "" : "s") changed  +\(adds) −\(dels)")
             }
         }
 
@@ -138,11 +129,10 @@ struct CommitView: View {
                     .labelsHidden()
                     .lineLimit(3...12)
                     .messageFont()
-                    .shiftReturnNewline()
             } header: {
-                Text("Message").formHeaderFont()
+                Text("Message")
             } footer: {
-                Text("Leave it empty and rad writes one.").formFooterFont()
+                Text("Leave it empty and rad writes one.")
             }
         }
 
@@ -153,28 +143,24 @@ struct CommitView: View {
                     ForEach(choices, id: \.self) { Text(label($0, files: !p.files.isEmpty)).tag($0) }
                 }
                 .labelsHidden()
-                #if os(macOS)
-                .pickerStyle(.radioGroup)
-                #else
                 .pickerStyle(.inline)
-                #endif
             } else if let only = choices.first {
                 Text(label(only, files: !p.files.isEmpty))
             } else {
                 Text("Nothing to commit or push.").foregroundStyle(Palette.subtext)
             }
         } header: {
-            Text("Do").formHeaderFont()
+            Text("Do")
         } footer: {
             if p.branch != nil, p.remote == nil {
-                Text("The repository has no remote to push to.").formFooterFont()
+                Text("The repository has no remote to push to.")
             } else if p.branch == nil {
-                Text("HEAD is detached: check out a branch to push it.").formFooterFont()
+                Text("HEAD is detached: check out a branch to push it.")
             } else if let why = p.noPullRequest {
                 // Why the choices end at a push.
-                Text(why.hasSuffix(".") ? why : "\(why).").formFooterFont()
+                Text(why.hasSuffix(".") ? why : "\(why).")
             } else if scope == .pullRequest {
-                Text("GitHub's gh opens it on the computer, with a title and description written from the branch's commits.").formFooterFont()
+                Text("GitHub's gh opens it on the computer, with a title and description written from the branch's commits.")
             }
         }
 
@@ -197,7 +183,7 @@ struct CommitView: View {
                 }
             }
         } header: {
-            Text("Steps").formHeaderFont()
+            Text("Steps")
         }
 
         Section {

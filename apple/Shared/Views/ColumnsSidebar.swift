@@ -50,7 +50,6 @@ struct CollectionsSidebar: View {
         .sidebarList()
         .navigationTitle("Sessions")
         .toolbar { SidebarToolbar(selection: nil, newSession: false, showAdd: $showAdd) }
-        .pairServerFooter(showAdd: $showAdd)
     }
 
     private func link(_ c: SessionCollection, _ title: String, symbol: String, count: Int,
@@ -75,12 +74,9 @@ struct CollectionsSidebar: View {
         }
         // A project shows that it has none; the others, as Mail's, nothing.
         .badge(count > 0 || c.isProject ? Text(count, format: .number) : nil)
-        // On the Mac a badge hides the link's value from the list, which then
-        // selects nothing when the row is clicked; the tag gives the value back.
+        // A badge can hide the link's value from the list; the tag gives it back.
         .tag(c)
-        #if os(iOS)
         .listRowInsets(Metrics.rowInsets)
-        #endif
         .listRowBackground(SidebarSelection(selected: collection == c))
     }
 
@@ -100,25 +96,12 @@ struct SessionListColumn: View {
     @Binding var selection: SessionRoute?
     var searchFocused: FocusState<Bool>.Binding
 
-    /// Over the list, as Mail's: in its navigation bar on iPad, which would
-    /// otherwise put it over the session. The Mac's toolbar puts it there
-    /// whatever the placement, so the list has the app's own field.
-    private var searchPlacement: SearchFieldPlacement? {
-        #if os(macOS)
-        nil
-        #else
-        .navigationBarDrawer(displayMode: .always)
-        #endif
-    }
-
     var body: some View {
         let items = collection.sessions(in: store)
-        SearchableSessions(placement: searchPlacement, selection: selection, focused: searchFocused, background: Palette.base) {
+        // Over the list, as Mail's: in its navigation bar, which would
+        // otherwise put it over the session.
+        SearchableSessions(placement: .navigationBarDrawer(displayMode: .always), selection: selection, focused: searchFocused, background: Palette.base) {
             List(selection: $selection) {
-                // On the Mac, a row added to a list without sections keeps the
-                // table's default height, one line, and the next row covers the
-                // rest: a new session, or one that starts running. In a section
-                // it is measured.
                 Section {
                     ForEach(items) { item in
                         SessionLink(item: item, selected: selection == item.id, background: Palette.base) {
@@ -132,17 +115,10 @@ struct SessionListColumn: View {
                 if items.isEmpty { empty }
             }
         }
-        #if os(macOS)
-        .listStyle(.inset)
-        #else
         .listStyle(.plain)
-        #endif
         .listBackground(Palette.base)
         .refreshable { await store.refreshConnections() }
         .navigationTitle(collection.title(in: store))
-        #if os(macOS)
-        .navigationSubtitle(items.count == 1 ? "1 session" : "\(items.count) sessions")
-        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 NewSessionButton(selection: selection, collection: collection)

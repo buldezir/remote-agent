@@ -123,13 +123,13 @@ struct ServerHomeView: View {
             Section {
                 ForEach(attention) { row($0) }
             } header: {
-                Text("Needs you").listHeaderStyle()
+                Text("Needs you")
             }
         }
         Section {
             ForEach(active.filter { $0.status != .awaitingApproval }) { row($0) }
         } header: {
-            Text("Sessions").listHeaderStyle()
+            Text("Sessions")
         }
         let archived = connection.archivedSessions
         if !archived.isEmpty {

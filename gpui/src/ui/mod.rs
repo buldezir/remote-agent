@@ -19,6 +19,7 @@ pub mod server_settings;
 pub mod session;
 pub mod settings;
 pub mod sidebar;
+pub mod sparkle;
 pub mod state;
 pub mod task;
 pub mod terminal;

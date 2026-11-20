@@ -3,7 +3,7 @@
 Drive coding agents running on your computer from your iPhone, iPad, Mac, an Android phone or tablet, or a browser.
 
 - **`rad`**: a Go server that runs on the dev machine. It spawns agent CLIs as child processes, normalizes what they do into one event model, persists it in SQLite, and serves it over a WebSocket.
-- **Remote Agent**: a native SwiftUI app for iPhone, iPad and Mac. Get it for iPhone and iPad on [TestFlight](https://testflight.apple.com/join/SHpGMtve). You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, one sidebar lists every server's sessions next to the one you have open; on iPhone, an Inbox tab lists them all, beside the Servers tab with each server's own. From the app you can:
+- **Remote Agent**: a native app for iPhone, iPad and Mac: SwiftUI on iPhone and iPad, Rust with [GPUI](https://gpui.rs) on the Mac. Get it for iPhone and iPad on [TestFlight](https://testflight.apple.com/join/SHpGMtve), and for the Mac from [Releases](https://github.com/buldezir/remote-agent/releases). You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, one sidebar lists every server's sessions next to the one you have open; on iPhone, an Inbox tab lists them all, beside the Servers tab with each server's own. From the app you can:
   - start sessions in any project
   - pick up a session you started with `claude`, `codex` or `pi` in a terminal, and carry on from your phone
   - save a session's first prompt as a draft, and send it later from any device
@@ -25,7 +25,6 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac, an And
   - rename a session, and rad keeps your name for it
 - **Web client**: the same app for a browser, in `web/` (React and TypeScript). In a wide window it has the iPad's sidebar of every server's sessions. For now you run it from its dev server on your computer; see [Running the web client](#running-the-web-client).
 - **Android app**: the same app, native, for Android 16 or later, in `android/` (Kotlin and Jetpack Compose). On a tablet, as on iPad, one sidebar lists every server's sessions next to the one you have open. See [Installing the app on Android](#installing-the-app-on-android).
-- **GPUI client (experimental)**: a Mac client in Rust with [GPUI](https://gpui.rs), Zed's UI framework, in `gpui/`. It does what the SwiftUI Mac client does, from the three sidebar layouts and search to diffs, commits, forks and the terminal; see [gpui/README.md](gpui/README.md) for the few gaps.
 - **`ra`**: a terminal client for the rad on the same machine, in Go with Bubble Tea, for when you'd rather stay in a terminal, or reach the computer over SSH. See [The terminal client](#the-terminal-client).
 
 <p>
@@ -192,23 +191,19 @@ cd apple && swift scripts/make-app-icon.swift Shared/Assets.xcassets/AppIcon.app
 
 ## Running the Mac app
 
-The Mac app is built from the same code as the iPhone app, as its own target, **RemoteAgent-macOS**. You need macOS 27 or later and Xcode.
+The Mac app is in `gpui/`, written in Rust with [GPUI](https://gpui.rs), Zed's UI framework. It runs on macOS 13 or later.
 
-1. Generate the project and build the app (commands here run from the repo root):
+- **From a release:** download `Remote-Agent-macOS-arm64.zip` from [Releases](https://github.com/buldezir/remote-agent/releases). Like the Server app's release build, it is signed with Developer ID and notarized, and updates itself with Sparkle: **Remote Agent › Check for Updates…**, and once a day unless you turn that off in Settings › General › Updates. As with the Server app, drag it into Applications on its own; if it says it can't be updated, quit it and run `xattr -dr com.apple.quarantine "/Applications/Remote Agent.app"`.
+- **From source:** you need Rust, Xcode's Metal toolchain (`xcodebuild -downloadComponent MetalToolchain`) and an Apple Development certificate in your login keychain (Xcode › Settings › Accounts › Manage Certificates), which keeps the pairing tokens readable from one build to the next.
 
-   ```bash
-   apple/scripts/install-macos-release.sh
-   ```
+  ```bash
+  gpui/scripts/bundle.sh                    # Remote Agent Dev.app, installed in /Applications
+  gpui/scripts/bundle.sh --release 0.12.0   # Remote Agent.app as a release builds it, in gpui/target/release
+  ```
 
-   The script builds the Release app, sets its version from the latest `v*` tag, and copies it to `/Applications`.
+  The development build is an app of its own, **Remote Agent Dev**, with its own servers, so it sits in Applications beside a release. Instead of Sparkle it updates from the Mac that built it, over ssh (**Check for Update…**); see [gpui/README.md](gpui/README.md).
 
-   Or open `apple/RemoteAgent.xcodeproj`, pick the **RemoteAgent-macOS** scheme and press ⌘R.
-
-   Or download `Remote-Agent-macOS-arm64.zip` from [Releases](https://github.com/buldezir/remote-agent/releases). Like the Server app's release build, it is signed with Developer ID and notarized, and updates itself: **Remote Agent › Check for Updates…**, and once a day unless you turn that off in Settings › Updates. As with the Server app, drag it into Applications on its own; if it says it can't be updated, quit it and run `xattr -dr com.apple.quarantine "/Applications/Remote Agent.app"`.
-2. Signing uses the team saved in `apple/Local.xcconfig` (step 3 for the iPhone). Without one, the app is signed to run on this Mac only. That works, but macOS may ask you to let each new build read the pairing tokens it saved in your keychain.
-3. Pair it: run `server/bin/rad pair`, then paste the link in **File › Pair a Server…**. When rad runs on the same Mac, `open "$(server/bin/rad pair --print-url)"` opens the link in the app.
-
-On the Mac, ⌘N starts a session on the server of the one you have open; the arrow beside the New Session button, or the + beside a server's name, starts one on another server. In the composer, Return sends, ⇧Return or ⌥Return starts a new line and ⌘. stops the agent. ⌘V pastes an image you copied, and you can drop image files on the session. The sidebar lists every paired server with its sessions, those waiting for you first. Click a server's name to hide or show its sessions; right-click it to reconnect or remove it. The app has one window, which opens again on the session you had open last. Dictation listens in your preferred languages from System Settings.
+Pair it: run `server/bin/rad pair --print-url`, and paste the link in **File › Pair a Server…**, or pass it at launch: `open -a "Remote Agent" --args "$(server/bin/rad pair --print-url)"`. Given an ssh host instead of a link, the same page installs rad on that computer and pairs with it. [gpui/README.md](gpui/README.md) lists what the app does and its shortcuts.
 
 ## Installing the app on Android
 
@@ -447,11 +442,15 @@ server/                  Go module for rad
   internal/api           HTTP pairing and images + WebSocket JSON-RPC
   internal/update        finds, checks and installs rad's GitHub releases
 protocol/                PROTOCOL.md + golden fixtures shared by the Go, Swift, web and Android tests
-apple/                   XcodeGen project for the iPhone, iPad and Mac apps
+apple/                   XcodeGen project for the iPhone and iPad app, and the Server app
   RAKit/                 Swift package: protocol, network client, stores
-  Shared/                SwiftUI app code both apps build
-  iOS/  macOS/           what only one platform uses: Info.plist, QR scanner, Mac menu bar…
+  Shared/                the SwiftUI app
+  iOS/                   its Info.plist and the iPhone's views: QR scanner, tabs…
   ServerApp/             Remote Agent Server, the menu bar app that runs rad on a Mac
+gpui/                    the Mac app: Rust, GPUI and GPUI Kit
+  src/store/             protocol, stores and sync rules (ported from RAKit)
+  src/ui/                the views
+  scripts/bundle.sh      builds Remote Agent Dev.app, or the release build
 web/                     the web client: Vite, React and TypeScript
   src/protocol/          wire types, the WebSocket client, pairing
   src/store/             connection, session and server stores (ported from RAKit)
@@ -473,7 +472,7 @@ cd apple/RAKit && swift test                  # client protocol and sync tests
 cd web && npm run typecheck && npm test       # web client types, protocol and sync tests
 cd android && ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug   # Android client
 cd apple && xcodegen && xcodebuild -scheme RemoteAgent-iOS -destination 'platform=iOS Simulator,name=iPhone 17' build
-cd apple && xcodebuild -scheme RemoteAgent-macOS -destination 'platform=macOS' build
+cd gpui && cargo fmt --check && cargo clippy --all-targets && cargo test   # Mac app
 cd apple && xcodebuild -scheme RemoteAgentServer -destination 'platform=macOS' build
 ```
 
@@ -520,7 +519,7 @@ gh secret set NOTARY_API_KEY_ID
 gh secret set NOTARY_API_ISSUER_ID
 ```
 
-The Mac apps update themselves with [Sparkle](https://sparkle-project.org). Each release carries a feed for each app (`Remote-Agent-macOS-appcast.xml`, `Remote-Agent-Server-macOS-appcast.xml`) that says where its zip is, signed with an EdDSA key. The apps install only updates signed with that key, so make it once and keep a backup of the private half; its public half is `SPARKLE_PUBLIC_KEY` in `apple/project.yml`.
+The Mac apps update themselves with [Sparkle](https://sparkle-project.org). Each release carries a feed for each app (`Remote-Agent-macOS-appcast.xml`, `Remote-Agent-Server-macOS-appcast.xml`) that says where its zip is, signed with an EdDSA key. The apps install only updates signed with that key, so make it once and keep a backup of the private half; its public half is `SPARKLE_PUBLIC_KEY` in `apple/project.yml`, and in `gpui/scripts/bundle.sh`.
 
 ```bash
 mkdir -p ~/sparkle && curl -fsSL https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz | tar -xf - -C ~/sparkle

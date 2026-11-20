@@ -59,9 +59,8 @@ struct DiffView: View {
                         let adds = diff.files.reduce(0) { $0 + $1.additions }
                         let dels = diff.files.reduce(0) { $0 + $1.deletions }
                         Text("\(diff.files.count) file\(diff.files.count == 1 ? "" : "s")  +\(adds) −\(dels)")
-                            .listHeaderStyle()
                     } footer: {
-                        if diff.truncated { Text("The patch was truncated; some files may show no lines.").listHeaderStyle() }
+                        if diff.truncated { Text("The patch was truncated; some files may show no lines.") }
                     }
                 } else if loading {
                     ProgressView().frame(maxWidth: .infinity)
@@ -75,7 +74,7 @@ struct DiffView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             if canRevert {
-                ToolbarItem(placement: revertPlacement) {
+                ToolbarItem(placement: .bottomBar) {
                     Menu {
                         ForEach(store.sortedTurns.filter { $0.checkpointBefore != nil }.reversed()) { t in
                             Button("Before turn \(t.n)") { revertTurn = t }
@@ -88,7 +87,7 @@ struct DiffView: View {
                 }
             }
             if let onCommit {
-                ToolbarItem(placement: commitPlacement) {
+                ToolbarItem(placement: .bottomBar) {
                     Button(action: onCommit) {
                         Label("Commit…", systemImage: "arrow.triangle.pull")
                             .labelStyle(.titleAndIcon)
@@ -107,22 +106,6 @@ struct DiffView: View {
         }
         .task(id: scope) { await load() }
         .refreshable { await load() }
-    }
-
-    private var revertPlacement: ToolbarItemPlacement {
-        #if os(iOS)
-        .bottomBar
-        #else
-        .automatic
-        #endif
-    }
-
-    private var commitPlacement: ToolbarItemPlacement {
-        #if os(iOS)
-        .bottomBar
-        #else
-        .primaryAction
-        #endif
     }
 
     private func load() async {

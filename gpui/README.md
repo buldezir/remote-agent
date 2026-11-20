@@ -1,10 +1,10 @@
-# Remote Agent for macOS, in GPUI (experimental)
+# Remote Agent for macOS
 
-A Mac client for rad written in Rust with [GPUI](https://gpui.rs), Zed's GPU-accelerated UI framework, and [GPUI Kit](https://gpui-kit.com)'s components. It's an experiment beside the SwiftUI Mac app in `apple/`, not a replacement for it.
+The Mac client for rad, written in Rust with [GPUI](https://gpui.rs), Zed's GPU-accelerated UI framework, and [GPUI Kit](https://gpui-kit.com)'s components. It replaced the SwiftUI Mac app that `apple/` used to build, and keeps its release feed, so that app's copies update to it.
 
 ## What it does
 
-It does what the SwiftUI Mac client does, with the gaps listed below.
+It does what the iPad app and the other clients do, with the gaps listed below.
 
 - **Pairing:** paste the link `rad pair --print-url` prints, or pass it on the command line. Settings › Servers reconnects, removes (unpairs) and adds servers.
 - **Install on a server over SSH:** the pairing page also takes an ssh host (`user@host`, or a `Host` from `~/.ssh/config`; `ssh <host>` must work without a password) and lists the steps as it goes (`src/store/ssh_install.rs`). A server without rad (on its login shell's PATH or in `~/.local/bin`) gets the latest release for its OS and CPU (Linux or macOS, x86-64 or arm64), downloaded on this Mac, checked against the release's `SHA256SUMS` and unpacked into the server's `~/.local/bin`. Unless rad already answers there, `rad install-service` starts it, with the login shell's PATH so that it finds the agents. On Linux it turns on lingering first where it can without a password (`sudo -n`); otherwise it says to run `sudo loginctl enable-linger <user>`, since systemd would stop rad when the ssh session ends. Then it pairs, at the link's addresses (loopback left out) and then the address ssh connects to (`ssh -G`). A host never seen before is trusted the first time (`StrictHostKeyChecking=accept-new`). `RA_GPUI_SSH` names a stand-in for `/usr/bin/ssh`, for testing.
@@ -27,7 +27,9 @@ It does what the SwiftUI Mac client does, with the gaps listed below.
 
 Sessions don't carry their pull request yet: `RA_GPUI_FAKE_PR=1` gives every worktree session a made-up one, to try the rows and cards with it.
 
-Not yet: the Dock badge and bounce, the Photo Library, and app updates for anyone else (Sparkle). The fonts are installed families only: GPUI loads a font by family name, so the system font's other designs (New York, SF Pro Rounded, SF Mono) aren't offered, and code is Menlo unless you pick another. Notifications reach Notification Center only from the app bundle; a bare build shows them in the window. The terminal draws with the code font, at the code size; Menlo lacks Nerd Font glyphs, so pick a Nerd Font there for them.
+- **Updates:** the release build updates itself with Sparkle, as the SwiftUI Mac app did: once a day, or Remote Agent › Check for Updates…, from the latest release's `Remote-Agent-macOS-appcast.xml`; Settings › General › Updates turns the daily check and installing by itself on and off (`src/ui/sparkle.rs`). The development build updates from the Mac that builds it, over ssh (see below).
+
+Not yet: the Dock badge and bounce, and the Photo Library. The fonts are installed families only: GPUI loads a font by family name, so the system font's other designs (New York, SF Pro Rounded, SF Mono) aren't offered, and code is Menlo unless you pick another. Notifications reach Notification Center only from the app bundle; a bare build shows them in the window. The terminal draws with the code font, at the code size; Menlo lacks Nerd Font glyphs, so pick a Nerd Font there for them.
 
 ## Building and running
 
@@ -35,19 +37,23 @@ It needs Rust (stable, edition 2024), Xcode's Metal toolchain, which GPUI uses t
 
 ```bash
 cd gpui
-scripts/bundle.sh                                  # target/release/Remote Agent GPUI.app, and /Applications
+scripts/bundle.sh                                  # target/release/Remote Agent Dev.app, and /Applications
+scripts/bundle.sh --release 0.12.0                 # target/release/Remote Agent.app, as a release
 cargo run --release                                # or run it from cargo
 cargo run --release -- "$(rad pair --print-url)"   # pairs at launch
 cargo test
 ```
 
-- **The app:** `scripts/bundle.sh` builds `target/release/Remote Agent GPUI.app`, with the Mac app's icon, signed. Open it from Finder, or drag it to Applications. Double-click the app, not `target/release/remote-agent-gpui`: Finder opens a bare executable in Terminal. Pass a pairing link with `open "target/release/Remote Agent GPUI.app" --args "$(rad pair --print-url)"`.
-- **/Applications:** `bundle.sh` also installs the app in `/Applications` (`RA_GPUI_INSTALL_DIR` names another folder, or none when empty), so every worktree's build lands in the same place.
-- **Updating another Mac:** a bundle offers Remote Agent › Check for Update… (and the same in Settings › Updates). It asks once for the ssh host of the Mac that builds it (`ssh <host>` must work without a password), reads that Mac's `Contents/Resources/build.json` (the commit, branch and build time `bundle.sh` writes), and on Install and Restart pulls the bundle from the same path with tar over ssh, checks that it's signed as the running app is (`codesign -R` with its designated requirement), quits, and a small helper swaps it in and opens it (`src/store/build_update.rs`). The app must run from a folder you can write to, and not translocated. `cargo run` and bare builds have no `build.json`, so they don't offer it.
-- **Signing:** `cargo run` signs the app before it runs it (`.cargo/config.toml` makes `scripts/run-signed.sh` its runner), and `bundle.sh` signs the bundle. Both use your Apple Development identity, or the one `RA_GPUI_SIGN_IDENTITY` names, and the identifier `dev.remote-agent.gpui`, so the bundle and `cargo run`'s builds share their tokens. To run a bare build some other way, sign it first: `scripts/sign.sh target/release/remote-agent-gpui`.
+- **Two apps:** `scripts/bundle.sh` builds one of two apps, which sit side by side in /Applications (`src/store/identity.rs`):
+  - **Remote Agent Dev** (`dev.remote-agent.gpui`), the development build, which `cargo run`'s builds are too. Its servers are in `~/Library/Application Support/Remote Agent GPUI/servers.json` (0600), without the tokens, which are generic passwords for the Keychain service `dev.remote-agent.gpui`, one per server id. It pairs as "Remote Agent Dev on <host>".
+  - **Remote Agent** (`dev.remote-agent.app`), the release build, which the release workflow builds with `--release <version>` and signs with Developer ID, with the hardened runtime (`scripts/release.entitlements`). With a version it embeds Sparkle (`scripts/sparkle.sh` downloads it, pinned and checked) and its feed; without one it doesn't update. Its servers are in `~/Library/Application Support/dev.remote-agent.app`, its tokens under the service `dev.remote-agent.app`, so it never shares a pairing with the development build. `RA_BUNDLE_ID` gives it another bundle ID, and its own servers, for trying updates; `SPARKLE_PUBLIC_KEY`, a scratch key.
+- **The app:** Open it from Finder. Double-click the app, not `target/release/remote-agent-gpui`: Finder opens a bare executable in Terminal. Pass a pairing link with `open "target/release/Remote Agent Dev.app" --args "$(rad pair --print-url)"`.
+- **/Applications:** `bundle.sh` installs the development build in `/Applications` (`RA_GPUI_INSTALL_DIR` names another folder, or none when empty), so every worktree's build lands in the same place. The release build goes only where `RA_GPUI_INSTALL_DIR` says.
+- **Updating another Mac with the development build:** it offers Remote Agent › Check for Update… (and the same in Settings › Updates). It asks once for the ssh host of the Mac that builds it (`ssh <host>` must work without a password), reads that Mac's `Contents/Resources/build.json` (the commit, branch and build time `bundle.sh` writes), and on Install and Restart pulls the bundle from the same path with tar over ssh, checks that it's signed as the running app is (`codesign -R` with its designated requirement), quits, and a small helper swaps it in and opens it (`src/store/build_update.rs`). The app must run from a folder you can write to, and not translocated. `cargo run`, bare builds and the release build have no `build.json`, so they don't offer it.
+- **Trying Sparkle updates:** build two release apps under a test bundle ID with a scratch key pair (CryptoKit's `Curve25519.Signing.PrivateKey`; the private key is its `rawRepresentation` in base64): `RA_BUNDLE_ID=dev.remote-agent.updatetest SPARKLE_PUBLIC_KEY=<public> RA_GPUI_INSTALL_DIR=<dir> scripts/bundle.sh --release 0.0.1`, then `0.0.2` into another folder. Zip the newer with `ditto -c -k --keepParent`, write its feed with `SIGN_UPDATE=$(scripts/sparkle.sh)/bin/sign_update SPARKLE_PRIVATE_KEY=<private> ../apple/scripts/appcast.sh <app> <zip> <zip url> <page url>`, serve both on 127.0.0.1, and open the older with `--args -SUFeedURL http://127.0.0.1:<port>/<feed>`. Sparkle relaunches the new one without `RA_GPUI_HOME`; delete `~/Library/Application Support/<test id>`, `~/Library/Caches/<test id>` and `defaults delete <test id>` afterwards.
+- **Signing:** `cargo run` signs the app before it runs it (`.cargo/config.toml` makes `scripts/run-signed.sh` its runner), and `bundle.sh` signs the bundle. Both use your Apple Development identity, or the one `RA_GPUI_SIGN_IDENTITY` names; a bare build gets the identifier `dev.remote-agent.gpui`, so the development bundle and `cargo run`'s builds share their tokens. To run a bare build some other way, sign it first: `scripts/sign.sh target/release/remote-agent-gpui`.
 - **Why it's signed:** the device tokens live in your login keychain. macOS lets a new build read, replace and delete the items an earlier build saved without asking only when both are signed with the same Apple-issued certificate (a Team ID). An ad hoc or self-signed build is a new app each time, and macOS asks for your login password. Without an Apple Development identity, `sign.sh` signs ad hoc and says so.
-- **Where it keeps servers:** in `~/Library/Application Support/Remote Agent GPUI/servers.json` (0600), without the tokens. The tokens are generic passwords for the service `dev.remote-agent.gpui`, one per server id. A file from before the Keychain held its tokens itself: the first launch moves them into the Keychain.
-- **`RA_GPUI_HOME`:** keeps that file in another folder, such as a scratch one for testing. Its tokens get a service of their own, `dev.remote-agent.gpui (<folder>)`, so they never mix with yours.
+- **`RA_GPUI_HOME`:** keeps the servers file in another folder, such as a scratch one for testing. Its tokens get a service of their own, `<service> (<folder>)`, so they never mix with yours.
 - **`RA_GPUI_APPEARANCE=light|dark`:** tries a theme without changing the Mac's appearance.
 
 ## How it's laid out
@@ -59,7 +65,8 @@ cargo test
 | `src/net.rs` | The socket to one rad. It runs on a tokio runtime of its own, reconnects, and matches responses to requests. The UI gets what it hears over a channel. |
 | `src/store/` | The client logic, free of UI and ported from RAKit and ra's `internal/client`: the streams' sync rules (`sync.rs`), the index and sessions, tool runs (with the shared test vectors), the sidebar's layouts and collections, search, find and slash commands (`search.rs`), usage limits (`limits.rs`, with the shared vectors), commit scopes, alerts, the app's prefs (`prefs.rs`), the saved servers, and their tokens in the Keychain (`tokens.rs`; tests use an in-memory store). |
 | `src/store/ssh.rs`, `ssh_install.rs` | Running commands over ssh (for Check for Update too), and installing rad on a server and pairing with it. |
-| `scripts/` | `bundle.sh` builds the signed app bundle; `sign.sh` signs a build; `run-signed.sh` is cargo's runner, which signs the app and runs it. |
+| `src/store/identity.rs` | Which app this is, the release build or Remote Agent Dev, and so where its servers and tokens live. |
+| `scripts/` | `bundle.sh` builds the signed app bundle, the development or the release one; `sign.sh` signs a build; `run-signed.sh` is cargo's runner, which signs the app and runs it; `sparkle.sh` fetches Sparkle for a release build. |
 | `src/conn.rs` | A GPUI entity per server: it applies events to the stores, and subscribes to a session while a view shows it. |
 | `src/ui/` | The window (`app.rs`, `sidebar.rs`), the session (`session/`: its state, transcript, composer and header), the terminal (`terminal.rs`, alacritty's emulator on its own socket), the dialogs (`diff.rs`, `commit.rs`, `fork.rs`, `settings.rs`, `server_settings.rs`, `viewer.rs`), the new session form with its folder browser and import, the shared agent picker, task progress, and the palette. `assets/theme.json` holds the kit's theme, in the same colours. |
 

@@ -1,8 +1,6 @@
 import RAKit
 import SwiftUI
-#if os(iOS)
 import VisionKit
-#endif
 
 struct AddServerView: View {
     @Environment(ServerStore.self) private var store
@@ -23,7 +21,6 @@ struct AddServerView: View {
             Form {
                 Group {
                     Section {
-                        #if os(iOS)
                         if DataScannerViewController.isSupported {
                             Button {
                                 scanning = true
@@ -31,7 +28,6 @@ struct AddServerView: View {
                                 Label("Scan QR code", systemImage: "qrcode.viewfinder")
                             }
                         }
-                        #endif
                         HStack {
                             TextField("Pairing link", text: $linkText, prompt: Text("remoteagent://pair?…"), axis: .vertical)
                                 .labelsHidden()
@@ -44,9 +40,9 @@ struct AddServerView: View {
                             .labelStyle(.iconOnly)
                         }
                     } header: {
-                        Text("Pairing link").formHeaderFont()
+                        Text("Pairing link")
                     } footer: {
-                        Text(footer).formFooterFont()
+                        Text(footer)
                     }
 
                     if let link {
@@ -56,14 +52,14 @@ struct AddServerView: View {
                                 Text(url.absoluteString).scaledFont(.footnote, design: .monospaced).foregroundStyle(.secondary)
                             }
                         } header: {
-                            Text("Server").formHeaderFont()
+                            Text("Server")
                         }
                     }
 
                     Section {
                         TextField("Device name", text: $deviceName)
                     } header: {
-                        Text("This device").formHeaderFont()
+                        Text("This device")
                     }
 
                     if let error {
@@ -91,7 +87,6 @@ struct AddServerView: View {
                     }
                 }
             }
-            #if os(iOS)
             .fullScreenCover(isPresented: $scanning) {
                 QRScannerView { payload in
                     if PairingLink(string: payload) != nil {
@@ -104,9 +99,6 @@ struct AddServerView: View {
                 }
                 .ignoresSafeArea()
             }
-            #else
-            .frame(minWidth: 460, minHeight: 420)
-            #endif
             .onAppear {
                 if let initialLink, linkText.isEmpty {
                     linkText = rebuild(initialLink)
@@ -116,11 +108,7 @@ struct AddServerView: View {
     }
 
     private var footer: LocalizedStringKey {
-        #if os(iOS)
         "On your computer run `rad pair`. The code is valid for 10 minutes and works once."
-        #else
-        "On the computer with rad, run `rad pair` and paste the link it prints. The code is valid for 10 minutes and works once."
-        #endif
     }
 
     private func rebuild(_ l: PairingLink) -> String {

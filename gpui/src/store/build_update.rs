@@ -50,15 +50,11 @@ impl BuildInfo {
     }
 }
 
-/// The running app's bundle, when it runs from one.
-pub fn bundle() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let app = exe.parent()?.parent()?.parent()?;
-    (app.extension()? == "app").then(|| app.to_path_buf())
-}
+pub use crate::store::identity::bundle;
 
-/// The running build's `build.json`: a bundle `bundle.sh` made. Without it
-/// (`cargo run`, a bare binary) there's nothing to update.
+/// The running build's `build.json`: a development bundle `bundle.sh` made.
+/// Without it (`cargo run`, a bare binary, the release build) there's nothing
+/// to update from.
 pub fn current() -> Option<BuildInfo> {
     let b = bundle()?;
     let bytes = std::fs::read(info_path(&b)).ok()?;

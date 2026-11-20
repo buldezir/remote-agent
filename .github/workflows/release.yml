@@ -1,7 +1,7 @@
 # Builds rad and ra, its terminal client, for Linux and macOS (arm64 and
-# x86-64), the Mac apps, Remote Agent and Remote Agent Server, for Apple
-# silicon, signed with Developer ID and notarized, and the Android app,
-# signed with the key in the repository's secrets. Checks that the web
+# x86-64), the Mac apps, Remote Agent (the GPUI client in gpui/) and Remote
+# Agent Server, for Apple silicon, signed with Developer ID and notarized,
+# and the Android app, signed with the key in the repository's secrets. Checks that the web
 # client builds; it isn't published yet. Pushing a tag like v0.2.0 publishes
 # them as that tag's release, with the Mac apps' update feeds; running the
 # workflow by hand only keeps them as run artifacts.
@@ -82,18 +82,21 @@ jobs:
 
   mac:
     name: ${{ matrix.app }}
-    # The apps target macOS 27, which needs Xcode 27; the macos-26 image only
-    # has Xcode 26. xcode-27 runs on Apple silicon, and so does macOS 27.
+    # The Server app targets macOS 27, which needs Xcode 27; the macos-26
+    # image only has Xcode 26. xcode-27 runs on Apple silicon, and so does
+    # macOS 27. The client is the GPUI one, built by gpui/scripts/bundle.sh.
     runs-on: xcode-27
     strategy:
       matrix:
         include:
-          - scheme: RemoteAgent-macOS
+          - scheme: gpui
             app: Remote Agent
+            path: gpui/target/release/Remote Agent.app
             asset: Remote-Agent-macOS-arm64.zip
-            appcast: Remote-Agent-macOS-appcast.xml   # the app's SUFeedURL
+            appcast: Remote-Agent-macOS-appcast.xml   # the app's SUFeedURL (bundle.sh)
           - scheme: RemoteAgentServer
             app: Remote Agent Server
+            path: apple/build/Build/Products/Release/Remote Agent Server.app
             asset: Remote-Agent-Server-macOS-arm64.zip
             appcast: Remote-Agent-Server-macOS-appcast.xml
     steps:
@@ -103,7 +106,16 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.scheme == 'gpui'
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.scheme == 'gpui'
+        with:
+          workspaces: gpui
       - name: Install XcodeGen
+        if: matrix.scheme != 'gpui'
         run: brew install xcodegen
       - name: Import the signing certificate
         env:
@@ -134,7 +146,28 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           security find-identity -v -p codesigning "$keychain"
           echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+      - name: Build the client
+        if: matrix.scheme == 'gpui'
+        run: |
+          # Tags set the app's version, and bundle.sh a build number for
+          # Sparkle that only grows (0.3.0-beta.2 → 30002, 0.3.0 → 30099). A
+          # run by hand without a version builds an app that doesn't update.
+          v=$INPUT_VERSION
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then v=${GITHUB_REF_NAME#v}; fi
+          if [ -n "$INPUT_BUNDLE_ID" ]; then export RA_BUNDLE_ID=$INPUT_BUNDLE_ID; fi
+          # sign.sh turns on the hardened runtime and timestamps for Developer ID.
+          if [ -n "$SIGNING_KEYCHAIN" ]; then export RA_GPUI_SIGN_IDENTITY="Developer ID Application"; else export RA_GPUI_SIGN_IDENTITY=-; fi
+          # GPUI compiles its shaders with Xcode's Metal toolchain.
+          xcodebuild -downloadComponent MetalToolchain
+          (cd gpui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)
+          RA_GPUI_INSTALL_DIR= gpui/scripts/bundle.sh --release $v
+          # appcast.sh signs the update with the same Sparkle's sign_update.
+          echo "SIGN_UPDATE=$(gpui/scripts/sparkle.sh)/bin/sign_update" >> "$GITHUB_ENV"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUNDLE_ID: ${{ inputs.bundle_id }}
       - name: Build
+        if: matrix.scheme != 'gpui'
         working-directory: apple
         run: |
           xcodebuild -version
@@ -164,10 +197,8 @@ jobs:
             signing=(DEVELOPMENT_TEAM= CODE_SIGN_IDENTITY=-)
           fi
           xcodegen
-          # SwiftTerm, the client's terminal, has Metal shaders and a build plugin.
-          xcodebuild -downloadComponent MetalToolchain
           xcodebuild -project RemoteAgent.xcodeproj -scheme "$SCHEME" -configuration Release \
-            -destination 'generic/platform=macOS' -derivedDataPath build -skipPackagePluginValidation \
+            -destination 'generic/platform=macOS' -derivedDataPath build \
             ARCHS=arm64 "${signing[@]}" "${version[@]}" build
         env:
           SCHEME: ${{ matrix.scheme }}
@@ -176,7 +207,7 @@ jobs:
           INPUT_BUNDLE_ID: ${{ inputs.bundle_id }}
       - name: Package
         run: |
-          app="apple/build/Build/Products/Release/$APP.app"
+          app=$APP_PATH
           codesign --verify --deep --strict "$app"
           for exe in "$app"/Contents/MacOS/*; do lipo -archs "$exe"; done
           plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist"
@@ -226,7 +257,7 @@ jobs:
             cat "dist/$APPCAST"
           fi
         env:
-          APP: ${{ matrix.app }}
+          APP_PATH: ${{ matrix.path }}
           ASSET: ${{ matrix.asset }}
           APPCAST: ${{ matrix.appcast }}
           NOTARY_KEY_BASE64: ${{ secrets.NOTARY_API_KEY_BASE64 }}
@@ -314,12 +345,12 @@ jobs:
           NOTES: |
             - **rad** (`rad-<os>-<arch>.tar.gz`): the server for Linux and macOS. Unpack it, put `rad` on your PATH and run `rad serve`. From then on, `rad update` installs new releases.
             - **ra** (`ra-<os>-<arch>.tar.gz`): the terminal client, for the rad on the same machine. `rad install-ra` puts it next to `rad`, or unpack it there yourself, and run `ra`. From then on, `ra update` installs new releases.
-            - **Remote Agent** (`Remote-Agent-macOS-arm64.zip`): the client app for the Mac.
+            - **Remote Agent** (`Remote-Agent-macOS-arm64.zip`): the client app for the Mac, for macOS 13 or later.
             - **Remote Agent Server** (`Remote-Agent-Server-macOS-arm64.zip`): the menu bar app that runs rad on a Mac.
             - **Remote Agent for Android** (`Remote-Agent-Android.apk`): the client app for Android 16 or later. Open it on the phone and allow installing from your browser; later releases install over it.
             - **Web client**: the Docker image `ghcr.io/buldezir/remote-agent-web`, tagged `latest` and with the version, such as `0.2.0`. `web/compose.example.yaml` runs it.
 
-            Both Mac apps need macOS 27 on Apple silicon. They are signed with Developer ID and notarized by Apple, and update themselves: **Check for Updates…** is in the Remote Agent menu, and in the Server app's menu bar menu. Drag each app into Applications on its own: macOS runs apps dragged in together from a temporary copy, which can't update itself. If an app says it can't be updated, quit it and run `xattr -dr com.apple.quarantine` on it in Applications.
+            Both Mac apps run on Apple silicon; the Server app needs macOS 27. They are signed with Developer ID and notarized by Apple, and update themselves: **Check for Updates…** is in the Remote Agent menu, and in the Server app's menu bar menu. Drag each app into Applications on its own: macOS runs apps dragged in together from a temporary copy, which can't update itself. If an app says it can't be updated, quit it and run `xattr -dr com.apple.quarantine` on it in Applications.
         run: |
           sums=$(sha256sum *) && echo "$sums" > SHA256SUMS
           # The Mac apps' update feeds go up last, so that an app that reads

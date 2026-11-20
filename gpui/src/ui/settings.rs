@@ -290,7 +290,9 @@ impl SettingsView {
                 p,
             ),
         ];
-        if let Some(build) = crate::store::build_update::current() {
+        if crate::ui::sparkle::available() {
+            groups.push(sparkle_updates(p));
+        } else if let Some(build) = crate::store::build_update::current() {
             let from = if prefs.update_host.is_empty() {
                 "Check for Update asks which Mac to pull builds from.".to_string()
             } else {
@@ -710,6 +712,65 @@ fn switch(id: &'static str, on: bool, set: fn(&mut Prefs, bool)) -> AnyElement {
             update_prefs(cx, |p| set(p, v))
         })
         .into_any_element()
+}
+
+/// The release build's Updates, which Sparkle keeps (`ui::sparkle`).
+fn sparkle_updates(p: &Palette) -> AnyElement {
+    use crate::ui::sparkle;
+    let checks = sparkle::checks_automatically();
+    let downloads = sparkle::downloads_automatically();
+    let version = crate::store::identity::current()
+        .version
+        .clone()
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+    let footer = if checks && downloads {
+        "Once a day. A new version installs when you quit Remote Agent."
+    } else {
+        "Once a day. Remote Agent asks before installing a new version."
+    };
+    group(
+        "Updates",
+        vec![
+            setting(
+                "Remote Agent",
+                Some(&format!("Version {version}")),
+                Button::new("check-updates")
+                    .small()
+                    .outline()
+                    .label("Check for Updates…")
+                    .on_click(|_: &ClickEvent, _, _| sparkle::check())
+                    .into_any_element(),
+                p,
+            ),
+            setting(
+                "Check for updates automatically",
+                None,
+                Switch::new("sparkle-checks")
+                    .checked(checks)
+                    .on_change(|v: &bool, window, _| {
+                        sparkle::set_checks_automatically(*v);
+                        window.refresh();
+                    })
+                    .into_any_element(),
+                p,
+            ),
+            setting(
+                "Download and install automatically",
+                None,
+                Switch::new("sparkle-downloads")
+                    .checked(checks && downloads)
+                    .disabled(!checks)
+                    .on_change(|v: &bool, window, _| {
+                        sparkle::set_downloads_automatically(*v);
+                        window.refresh();
+                    })
+                    .into_any_element(),
+                p,
+            ),
+        ],
+        Some(footer.to_string()),
+        p,
+    )
 }
 
 /// A slider and its value in points.

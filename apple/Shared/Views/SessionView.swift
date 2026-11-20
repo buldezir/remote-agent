@@ -40,10 +40,8 @@ struct SessionView: View {
     @State private var height: CGFloat = 0
     @AppStorage(TerminalPlacement.key) private var placementSetting = TerminalPlacement.over
     @AppStorage("terminalHeight") private var terminalHeight: Double = 280
-    #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dismiss) private var dismiss
-    #endif
     @State private var dictation = Dictation()
     @State private var attachments = Attachments()
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
@@ -64,12 +62,7 @@ struct SessionView: View {
     @AppStorage(ToolRunRow.groupKey) private var groupToolCalls = true
     /// Where the prompt's cursor goes, when it's set from here.
     @State private var promptSelection: TextSelection?
-    #if os(macOS)
-    @Environment(\.inlineSessionTitle) private var inlineTitle
-    @Environment(\.appearsActive) private var appearsActive
-    #else
     @Environment(\.scenePhase) private var phase
-    #endif
 
     private var session: Session? { store.session ?? connection.sessions[store.sessionID] }
     /// The session was deleted, here or on another device.
@@ -81,14 +74,8 @@ struct SessionView: View {
     /// nothing can be sent. On one that can, a prompt asks to unarchive it.
     private var readOnly: Bool { archived && !connection.unarchives }
 
-    /// The window is in front: on the Mac the active one, on iOS on screen.
-    private var inFront: Bool {
-        #if os(macOS)
-        appearsActive
-        #else
-        phase == .active
-        #endif
-    }
+    /// The window is in front, on screen.
+    private var inFront: Bool { phase == .active }
 
     /// The index says the session is unread while it shows here, in front: a
     /// turn ended while the window was behind, or just now, in view.
@@ -117,25 +104,12 @@ struct SessionView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
         .background { terminalShortcuts }
         .background { findShortcuts(canStep: !matches.isEmpty) }
-        #if os(macOS)
-        .focusedSceneValue(\.sessionFind, SessionFindCommands(
-            open: openFind, next: { stepFind(1) }, previous: { stepFind(-1) }, canStep: findShown && !matches.isEmpty))
-        .focusedSceneValue(\.sessionMenu, sessionMenu)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if inlineTitle, let s = session { titleHeader(s) }
-        }
-        #endif
-        #if os(iOS)
         .onChange(of: deleted, initial: true) { _, deleted in
             // An iPhone pushed the session, so it goes back to the list. The
             // iPad's split view drops the session from its selection.
             if deleted && UIDevice.current.userInterfaceIdiom == .phone { dismiss() }
         }
-        #endif
         .navigationTitle(session?.title ?? "Session")
-        #if os(macOS)
-        .navigationSubtitle(session.map(macSubtitle) ?? "")
-        #endif
         .inlineTitle()
         .toolbar { toolbar }
         .sheet(isPresented: $showDiff) {
@@ -161,7 +135,6 @@ struct SessionView: View {
             }
         }
         .inspector(isPresented: terminalShown(.right)) {
-            // The Mac builds a hidden inspector's content too; it would connect.
             if showTerminal, placement == .right, let s = session {
                 terminalPanel(s)
                     .inspectorColumnWidth(min: 320, ideal: 440, max: 900)
@@ -176,11 +149,9 @@ struct SessionView: View {
         .alert("Unarchive session?", isPresented: .init(get: { confirmUnarchive != nil }, set: { if !$0 { confirmUnarchive = nil } }),
                presenting: confirmUnarchive) { send in
             Button("Cancel", role: .cancel) {}
+            // No default action, as Rename's: iOS would draw the palette's
+            // accent on the system's blue.
             Button("Unarchive and Send") { unarchiveAndSend(send) }
-                // As Rename's: iOS would draw the palette's accent on the system's blue.
-                #if os(macOS)
-                .keyboardShortcut(.defaultAction)
-                #endif
         } message: { _ in
             Text("This session is archived. Unarchive it to send your prompt.")
         }
@@ -258,7 +229,7 @@ struct SessionView: View {
             }
         }
         .safeAreaInset(edge: .bottom) { composer }
-        .acceptsImages(attachments, via: connection, pasting: composerFocused)
+        .acceptsImages(attachments, via: connection)
     }
 
     // MARK: Terminal
@@ -266,9 +237,7 @@ struct SessionView: View {
     /// Where the terminal shows: on an iPhone or in a narrow window always
     /// in place of the messages, otherwise where Settings says.
     private var placement: TerminalPlacement {
-        #if os(iOS)
         if UIDevice.current.userInterfaceIdiom == .phone || sizeClass == .compact { return .over }
-        #endif
         return placementSetting
     }
 
@@ -298,17 +267,6 @@ struct SessionView: View {
     private var canCommit: Bool {
         connection.commits && project?.isGitRepo == true && session?.archived == false
     }
-
-    #if os(macOS)
-    /// The Session menu: as the ⋯ menu, which hides what the session can't do.
-    private var sessionMenu: SessionMenuCommands {
-        SessionMenuCommands(
-            rename: connection.renames ? session.map { s in { renaming = SessionRequest(session: s, connection: connection) } } : nil,
-            changes: project?.isGitRepo == true ? { showDiff = true } : nil,
-            commit: canCommit && !store.isRunning ? { showCommit = true } : nil,
-            fork: canFork ? { showFork = true } : nil)
-    }
-    #endif
 
     /// The server forks, and a turn ended to fork after. Archived sessions too.
     private var canFork: Bool {
@@ -365,10 +323,6 @@ struct SessionView: View {
         findQuery = ""
         findCurrent = nil
         findFocused = false
-        #if os(macOS)
-        // The keyboard goes back to the prompt, as it was before.
-        composerFocused = true
-        #endif
     }
 
     /// The next match down the transcript, or with -1 the one before, round
@@ -396,9 +350,8 @@ struct SessionView: View {
     }
 
     /// ⌘F opens the find bar, and ⌘G and ⇧⌘G go to the next and previous
-    /// match, from a keyboard on iPad. The Mac's Edit menu has them.
-    @ViewBuilder private func findShortcuts(canStep: Bool) -> some View {
-        #if os(iOS)
+    /// match, from a keyboard.
+    private func findShortcuts(canStep: Bool) -> some View {
         Group {
             Button("Find in Session", action: openFind).keyboardShortcut("f")
             if findShown && canStep {
@@ -409,7 +362,6 @@ struct SessionView: View {
         // hidden() would turn the shortcuts off.
         .opacity(0)
         .accessibilityHidden(true)
-        #endif
     }
 
     /// The session as the split view or the Inbox opens it.
@@ -465,35 +417,6 @@ struct SessionView: View {
 
     // MARK: Composer
 
-    #if os(macOS)
-    /// A card over the foot of the transcript, around the prompt and its buttons.
-    private var composer: some View {
-        let card = RoundedRectangle(cornerRadius: Metrics.Corner.composer)
-        return VStack(alignment: .leading, spacing: 10) {
-            commandSuggestions
-            if !attachments.isEmpty {
-                AttachmentStrip(attachments: attachments, connection: connection)
-            }
-            ComposerLayout {
-                attachMenu
-                promptField
-                actionButtons
-            }
-        }
-        .padding(Metrics.margin)
-        .background {
-            // A click in the card's margins goes to the prompt.
-            card.fill(Palette.raised).onTapGesture { composerFocused = true }
-        }
-        .overlay { card.strokeBorder(composerFocused ? Palette.accent : Palette.surface1) }
-        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-        .padding([.horizontal, .bottom], Metrics.margin)
-        .padding(.top, 4)
-        .frame(maxWidth: Metrics.readableWidth)
-        .frame(maxWidth: .infinity)
-        .background(Palette.base)
-    }
-    #else
     private var composer: some View {
         VStack(alignment: .leading, spacing: 4) {
             commandSuggestions
@@ -519,7 +442,6 @@ struct SessionView: View {
             if focused { dictation.stop() }
         }
     }
-    #endif
 
     private var wantsCommands: Bool {
         composerFocused && store.isConnected && session?.archived != true && SlashCommand.query(store.draft) != nil
@@ -594,11 +516,7 @@ struct SessionView: View {
             .textFieldStyle(.plain)
             .messageFont()
             .paletteText()
-            #if os(macOS)
-            .lineLimit(1...12)
-            #else
             .lineLimit(1...6)
-            #endif
             .focused($composerFocused)
             .onKeyPress(.downArrow) {
                 guard !suggestions.isEmpty else { return .ignored }
@@ -623,10 +541,6 @@ struct SessionView: View {
                 } else { completeCommand(selected) }
                 return .handled
             }
-            .shiftReturnNewline()
-            #if os(macOS)
-            .onSubmit { if mainAction == .send && canSend { mainButtonTapped() } }
-            #endif
     }
 
     private var attachMenu: some View {
@@ -643,7 +557,6 @@ struct SessionView: View {
                 Image(systemName: "stop.circle.fill").font(.system(size: Metrics.roundButton))
             }
             .buttonStyle(.borderless)
-            .roundButtonFrame()
             .tint(Palette.red)
             .keyboardShortcut(".")
             .accessibilityLabel("Stop")
@@ -657,7 +570,6 @@ struct SessionView: View {
                 }
             }
             .buttonStyle(.borderless)
-            .roundButtonFrame()
             .tint(Palette.subtext)
             .keyboardShortcut("s")
             .disabled(!attachments.ready || savingDraft)
@@ -673,7 +585,6 @@ struct SessionView: View {
                 .symbolEffect(.variableColor.iterative, isActive: dictation.phase == .listening)
         }
         .buttonStyle(.borderless)
-        .roundButtonFrame()
         .tint(mainAction == .stopDictation ? Palette.red : Palette.accent)
         .keyboardShortcut(mainAction == .send && !terminalHasKeys ? KeyboardShortcut(.return) : nil)
         // While dictation finishes, the final pass is still rewriting the draft.
@@ -720,14 +631,10 @@ struct SessionView: View {
     }
 
     /// The mic is the main button until the keyboard is up or there is text to
-    /// send. On the Mac the field keeps focus, so only the text counts.
+    /// send.
     private var mainAction: MainAction {
         if dictation.phase != .idle { return .stopDictation }
-        #if os(macOS)
-        return nothingToSend ? .dictate : .send
-        #else
         return composerFocused || !nothingToSend ? .send : .dictate
-        #endif
     }
 
     private var nothingToSend: Bool {
@@ -835,8 +742,7 @@ struct SessionView: View {
                 store.draft = [draft.text, store.draft].filter { !$0.isEmpty }.joined(separator: "\n")
                 attachments.restore(draft.images ?? [], via: connection)
                 composerFocused = true
-                // On the Mac a field that takes focus selects its text, which
-                // the next key would replace: the cursor goes to its end.
+                // The cursor goes to the end of the text.
                 await Task.yield()
                 promptSelection = TextSelection(insertionPoint: store.draft.endIndex)
             } catch {
@@ -876,7 +782,6 @@ struct SessionView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        #if os(iOS)
         ToolbarItem(placement: .principal) {
             VStack(spacing: 0) {
                 Text(session?.title ?? "").scaledFont(.subheadline, weight: .semibold).lineLimit(1)
@@ -891,15 +796,6 @@ struct SessionView: View {
                 }
             }
         }
-        #else
-        // In three columns the title over the transcript has it.
-        if !inlineTitle, let s = session, showsWorkspace(s) {
-            ToolbarItem(placement: .primaryAction) {
-                WorkspaceLabel(workspace: s.workspace)
-            }
-            .sharedBackgroundVisibility(.hidden)
-        }
-        #endif
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 if let modes = harness?.modes, !modes.isEmpty {
@@ -958,7 +854,6 @@ struct SessionView: View {
         }
     }
 
-    #if os(iOS)
     /// The line under the title: the project and branch, then the agent.
     private func titleDetails(_ s: Session, branch: Bool) -> some View {
         HStack(spacing: 4) {
@@ -975,7 +870,6 @@ struct SessionView: View {
         }
         .lineLimit(1)
     }
-    #endif
 
     /// "weather-api · main", or "weather-api · worktree ra/fix-cache": where
     /// the agent works, which nothing else shows once the sidebar is hidden.
@@ -1000,49 +894,6 @@ struct SessionView: View {
             .filter { !$0.isEmpty }
             .joined(separator: " · ")
     }
-
-    #if os(macOS)
-    /// The title and subtitle over the transcript, where the toolbar's title
-    /// is the session list's: in three columns, as in Mail.
-    private func titleHeader(_ s: Session) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(s.title)
-                    .scaledFont(.headline)
-                    .foregroundStyle(Palette.text)
-                Text(macSubtitle(s))
-                    .scaledFont(.caption)
-                    .foregroundStyle(Palette.subtext)
-            }
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if showsWorkspace(s) {
-                WorkspaceLabel(workspace: s.workspace)
-            }
-        }
-        .padding(.horizontal, Metrics.margin)
-        .padding(.vertical, 8)
-        .background(Palette.base)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Palette.surface0).frame(height: 1)
-        }
-    }
-
-    /// The branch is worth showing: the project is a git repo, or the session
-    /// has a worktree of its own.
-    private func showsWorkspace(_ s: Session) -> Bool {
-        project?.isGitRepo == true || s.workspace.kind == .worktree
-    }
-
-    /// The subtitle under the window title: the project, then the agent, with
-    /// the context use at the end. The branch has a place of its own beside
-    /// the title (`WorkspaceLabel`).
-    private func macSubtitle(_ s: Session) -> String {
-        let context = s.context?.fraction.map { "\($0.formatted(.percent.precision(.fractionLength(0)))) context" }
-        let agent = [subtitle(s), context].compactMap { $0 }.joined(separator: " · ")
-        return [place(s, branch: false), agent].compactMap { $0 }.joined(separator: " — ")
-    }
-    #endif
 
     private var modeName: String? {
         guard let m = session?.mode, !m.isEmpty else { return nil }
@@ -1191,98 +1042,6 @@ private struct TranscriptRows: View, Equatable {
 private final class TranscriptOverflow {
     var scrolls = false
 }
-
-#if os(macOS)
-/// The Mac composer's prompt between its buttons while it fits on one line;
-/// longer, it spans the card with the buttons in a row under it. A layout
-/// rather than two stacks, so the field keeps its focus when it switches.
-///
-/// Subviews: the add menu, the prompt, then the buttons on the right.
-private struct ComposerLayout: Layout {
-    var spacing: CGFloat = 8
-    var rowSpacing: CGFloat = 10
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.replacingUnspecifiedDimensions().width
-        return CGSize(width: width, height: arrange(width: width, subviews).height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for (subview, frame) in zip(subviews, arrange(width: bounds.width, subviews).frames) {
-            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
-                          proposal: ProposedViewSize(frame.size))
-        }
-    }
-
-    private func arrange(width: CGFloat, _ subviews: Subviews) -> (frames: [CGRect], height: CGFloat) {
-        guard subviews.count >= 2 else { return ([], 0) }
-        let field = subviews[1]
-        let left = subviews[0].sizeThatFits(.unspecified)
-        let right = subviews.dropFirst(2).map { $0.sizeThatFits(.unspecified) }
-        let rightWidth = right.reduce(0) { $0 + $1.width + spacing }
-        let buttonsHeight = ([left] + right).map(\.height).max() ?? 0
-
-        // The buttons in a row of their own height, from `y`.
-        func buttons(centeredIn rowHeight: CGFloat, at y: CGFloat) -> [CGRect] {
-            var x = width - rightWidth
-            return [CGRect(origin: CGPoint(x: 0, y: y + (rowHeight - left.height) / 2), size: left)]
-                + right.map { size in
-                    defer { x += size.width + spacing }
-                    return CGRect(origin: CGPoint(x: x + spacing, y: y + (rowHeight - size.height) / 2), size: size)
-                }
-        }
-
-        let between = max(width - left.width - spacing - rightWidth, 0)
-        let inRow = field.dimensions(in: ProposedViewSize(width: between, height: nil))
-        if abs(inRow[.lastTextBaseline] - inRow[.firstTextBaseline]) < 1 {
-            let height = max(buttonsHeight, inRow.height)
-            var frames = buttons(centeredIn: height, at: 0)
-            frames.insert(CGRect(x: left.width + spacing, y: (height - inRow.height) / 2,
-                                 width: between, height: inRow.height), at: 1)
-            return (frames, height)
-        }
-        let fieldHeight = field.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
-        var frames = buttons(centeredIn: buttonsHeight, at: fieldHeight + rowSpacing)
-        frames.insert(CGRect(x: 0, y: 0, width: width, height: fieldHeight), at: 1)
-        return (frames, fieldHeight + rowSpacing + buttonsHeight)
-    }
-}
-
-/// The branch the agent works on, and that it is a worktree when it is one,
-/// across from the session's title: in the toolbar, or in three columns, in
-/// the header over the transcript. The path is its help.
-private struct WorkspaceLabel: View {
-    let workspace: Workspace
-
-    var body: some View {
-        HStack(spacing: 10) {
-            if workspace.kind == .worktree {
-                Label("Worktree", systemImage: "square.on.square.dashed")
-            }
-            if workspace.branch != nil || workspace.kind == .root {
-                Label(workspace.branch ?? "Detached HEAD", systemImage: "arrow.triangle.branch")
-                    .truncationMode(.middle)
-            }
-        }
-        .labelStyle(WorkspaceLabelStyle())
-        .lineLimit(1)
-        .scaledFont(.callout)
-        .foregroundStyle(Palette.subtext)
-        .frame(maxWidth: 360, alignment: .trailing)
-        .help(workspace.path)
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private struct WorkspaceLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 4) {
-            configuration.icon.foregroundStyle(Palette.overlay)
-            configuration.title
-        }
-    }
-}
-#endif
 
 /// What the agent left running after its turn, at the foot of the
 /// transcript. The agent reports back when each task ends.

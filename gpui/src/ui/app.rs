@@ -961,7 +961,13 @@ impl Render for AppView {
             .on_action(cx.listener(|this, _: &NewSession, window, cx| this.new_session(window, cx)))
             .on_action(cx.listener(|this, _: &PairServer, _, cx| this.show_pairing(cx)))
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(None, window, cx)))
-            .on_action(cx.listener(|_, _: &CheckForUpdate, window, cx| crate::ui::build_update::check(window, cx)))
+            .on_action(cx.listener(|_, _: &CheckForUpdate, window, cx| {
+                if crate::ui::sparkle::available() {
+                    crate::ui::sparkle::check();
+                } else {
+                    crate::ui::build_update::check(window, cx);
+                }
+            }))
             .on_action(cx.listener(|this, _: &SearchSessions, window, cx| this.focus_search(window, cx)))
             .on_action(cx.listener(|this, _: &FindInSession, window, cx| {
                 if let Some(v) = this.session_view() {

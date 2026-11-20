@@ -49,11 +49,6 @@ struct ServerSettingsView: View {
             .paletteRows()
         }
         .compactForm()
-        #if os(macOS)
-        // A sheet of its own. In Settings it takes the room it's given, which
-        // the window the sheet is over may make less.
-        .frame(minWidth: 500, minHeight: embedded ? nil : 620)
-        #endif
         .navigationTitle(embedded ? "Settings" : connection.server.name)
         .navigationSubtitle(embedded ? "" : "Server")
         .inlineTitle()
@@ -103,9 +98,9 @@ struct ServerSettingsView: View {
                     .disabled(checking || progress[""]?.isActive == true)
             }
         } header: {
-            Text("rad").formHeaderFont()
+            Text("rad")
         } footer: {
-            if let footer = updateFooter { Text(footer).formFooterFont() }
+            if let footer = updateFooter { Text(footer) }
         }
     }
 
@@ -166,11 +161,10 @@ struct ServerSettingsView: View {
                 HStack { ProgressView().controlSize(.small); Text("Checking installed agents…").foregroundStyle(.secondary) }
             }
         } header: {
-            Text("Agents").formHeaderFont()
+            Text("Agents")
         } footer: {
             if connection.harnesses?.contains(where: { $0.caps.update == true || $0.caps.login == true }) == true {
                 Text("Update runs the agent's own updater on the server. Sign In shows the agent's sign-in page here, and takes the code it gives you.")
-                    .formFooterFont()
             }
         }
     }
@@ -215,9 +209,6 @@ struct ServerSettingsView: View {
                     }
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    #if os(macOS)
-                    .menuStyle(.borderlessButton)
-                    #endif
                 }
             }
         }
@@ -300,9 +291,9 @@ struct ServerSettingsView: View {
                 Label(settingsError, systemImage: "exclamationmark.triangle").foregroundStyle(Palette.red)
             }
         } header: {
-            Text(header).formHeaderFont()
+            Text(header)
         } footer: {
-            Text(footer).formFooterFont()
+            Text(footer)
         }
     }
 
@@ -475,9 +466,6 @@ struct ServerTaskView: View {
             .padding(Metrics.margin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Palette.base)
-            #if os(macOS)
-            .frame(minWidth: 520, minHeight: 420)
-            #endif
             .navigationTitle(title)
             .inlineTitle()
             .toolbar {

@@ -86,8 +86,8 @@ mod tests {
     #[test]
     fn quotes_for_the_remote_shell() {
         assert_eq!(
-            quote("/Applications/Remote Agent GPUI.app"),
-            "'/Applications/Remote Agent GPUI.app'"
+            quote("/Applications/Remote Agent Dev.app"),
+            "'/Applications/Remote Agent Dev.app'"
         );
         assert_eq!(quote("it's"), r"'it'\''s'");
     }

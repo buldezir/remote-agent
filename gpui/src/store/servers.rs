@@ -1,8 +1,8 @@
 //! Paired servers, and pairing.
 //!
-//! The servers live in `servers.json` in `~/Library/Application
-//! Support/Remote Agent GPUI` (or `$RA_GPUI_HOME`), and their tokens in the
-//! login keychain (`tokens.rs`). A file from before the Keychain held its
+//! The servers live in `servers.json` in the app's folder in
+//! `~/Library/Application Support` (`identity.rs`; or `$RA_GPUI_HOME`), and
+//! their tokens in the login keychain (`tokens.rs`). A file from before the Keychain held its
 //! tokens itself; loading it moves them over.
 
 use std::path::{Path, PathBuf};
@@ -44,7 +44,8 @@ pub fn home_dir() -> PathBuf {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    home.join("Library/Application Support/Remote Agent GPUI")
+    home.join("Library/Application Support")
+        .join(crate::store::identity::current().data_folder())
 }
 
 pub struct ServerStore {
@@ -182,16 +183,13 @@ fn is_base_url(u: &str) -> bool {
     rest.is_some_and(|r| !r.is_empty() && !r.contains('/'))
 }
 
-/// The name this client pairs as: "GPUI on <host>", without the host's
-/// domain (`.local`, `.internal`, …).
+/// The name this client pairs as: "Remote Agent on <host>" ("Remote Agent
+/// Dev on …" for the development app), without the host's domain (`.local`,
+/// `.internal`, …).
 pub fn device_name() -> String {
     let full = gethostname::gethostname().to_string_lossy().into_owned();
     let host = full.split('.').next().unwrap_or_default();
-    if host.is_empty() {
-        "Remote Agent GPUI".into()
-    } else {
-        format!("GPUI on {host}")
-    }
+    crate::store::identity::current().device_name(host)
 }
 
 /// Redeems the link's code at each of its URLs in order (blocking), and

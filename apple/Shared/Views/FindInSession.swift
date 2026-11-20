@@ -11,24 +11,6 @@ struct ItemFocus: Equatable {
     let id = UUID()
 }
 
-/// What the Mac's Edit › Find menu asks of the open session's find bar.
-struct SessionFindCommands {
-    var open: () -> Void
-    var next: () -> Void
-    var previous: () -> Void
-    /// The find bar is open, with matches to step through.
-    var canStep: Bool
-}
-
-/// What the Mac's Session menu asks of the open session: the sheets and the
-/// alert of its ⋯ menu. Nil where the session can't do one now.
-struct SessionMenuCommands {
-    var rename: (() -> Void)?
-    var changes: (() -> Void)?
-    var commit: (() -> Void)?
-    var fork: (() -> Void)?
-}
-
 extension EnvironmentValues {
     /// The find bar's query, on the transcript's items that hold it, which
     /// mark it in their text. Nil elsewhere, so the other items don't change.

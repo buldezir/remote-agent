@@ -29,20 +29,9 @@ struct TerminalPanel: View {
     /// Hides the panel; the shell keeps running.
     let hide: () -> Void
 
-    /// Whether text selected with the pointer goes to the clipboard, from the
-    /// Mac's Settings. iOS selects with taps, and offers Copy in its menu.
-    static let copyOnSelectKey = "terminalCopyOnSelect"
-
     @State private var session: TerminalSession?
     @Environment(\.colorScheme) private var scheme
-    @Environment(\.codeFont) private var codeFont
-    @ScaledMetric(relativeTo: .body) private var size: CGFloat = 12
-    #if os(macOS)
-    @Environment(\.textScale) private var scale
-    @AppStorage(TerminalPanel.copyOnSelectKey) private var copyOnSelect = true
-    #else
-    private let copyOnSelect = false
-    #endif
+    @ScaledMetric(relativeTo: .body) private var fontSize: CGFloat = 12
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,8 +39,7 @@ struct TerminalPanel: View {
             Divider()
             ZStack {
                 if let session {
-                    TerminalHost(session: session, font: codeFont, fontSize: fontSize, dark: scheme == .dark,
-                                 copyOnSelect: copyOnSelect, focused: $focused)
+                    TerminalHost(session: session, fontSize: fontSize, dark: scheme == .dark, focused: $focused)
                         .id(ObjectIdentifier(session))
                         .padding(4)
                 }
@@ -68,14 +56,6 @@ struct TerminalPanel: View {
             focused = false
         }
         .onChange(of: connection.state) { _, state in session?.connectionChanged(state) }
-    }
-
-    private var fontSize: CGFloat {
-        #if os(macOS)
-        size * scale
-        #else
-        size
-        #endif
     }
 
     private var header: some View {
@@ -173,12 +153,7 @@ struct PanelResizeHandle: View {
             Palette.mantle
             Capsule().fill(Palette.surface1).frame(width: 36, height: 4)
         }
-        #if os(macOS)
-        .frame(height: 8)
-        .pointerStyle(.rowResize)
-        #else
         .frame(height: 16)
-        #endif
         .overlay(alignment: .top) { Divider() }
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)

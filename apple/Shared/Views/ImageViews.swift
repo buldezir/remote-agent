@@ -3,9 +3,6 @@ import QuickLook
 import RAKit
 import SwiftUI
 import UniformTypeIdentifiers
-#if os(macOS)
-import AppKit
-#endif
 
 // MARK: Attaching
 
@@ -45,44 +42,23 @@ extension AttachMenu {
                 .buttonStyle(.borderless)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                #if os(macOS)
-                .tint(Palette.overlay) // The symbol's colour; iOS sets it on the image.
-                #endif
-                .roundButtonFrame()
         }
     }
 
     @ViewBuilder private var items: some View {
         Button("Photo Library", systemImage: "photo.on.rectangle") { pickingPhotos = true }
         Button("Files", systemImage: "folder") { pickingFiles = true }
-        #if os(iOS)
         // A paste button doesn't make iOS ask before pasting.
         PasteButton(supportedContentTypes: [.image]) { providers in
             Task { await attachments.add(providers, via: connection) }
         }
-        #else
-        Button("Paste Image", systemImage: "doc.on.clipboard") {
-            if let images = Platform.pasteboardImages() {
-                Task { await attachments.add(images, via: connection) }
-            }
-        }
-        .disabled(!Platform.pasteboardHasImages)
-        #endif
     }
 
-    /// The size of the round send and mic buttons beside it. A Mac menu draws
-    /// its label as an image and drops SwiftUI's font and colour, so it gets a
-    /// sized one, in the menu's tint.
-    @ViewBuilder private var plus: some View {
-        #if os(macOS)
-        let config = NSImage.SymbolConfiguration(pointSize: Metrics.roundButton, weight: .regular)
-        Image(nsImage: NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: nil)!
-            .withSymbolConfiguration(config)!)
-        #else
+    /// The size of the round send and mic buttons beside it.
+    private var plus: some View {
         Image(systemName: "plus.circle.fill")
             .font(.system(size: Metrics.roundButton))
             .foregroundStyle(Palette.overlay)
-        #endif
     }
 }
 
@@ -158,66 +134,20 @@ struct AttachmentStrip: View {
 }
 
 extension View {
-    /// Attaches images dropped on the view, and, on the Mac, images pasted
-    /// with ⌘V while `pasting` (the prompt field has focus).
-    func acceptsImages(_ attachments: Attachments, via connection: ServerConnection, pasting: Bool) -> some View {
-        self
-            .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
-                Task { await attachments.add(providers, via: connection) }
-                return true
-            }
-        #if os(macOS)
-            .background {
-                PasteCatcher(enabled: pasting) { images in
-                    Task { await attachments.add(images, via: connection) }
-                }
-            }
-        #endif
-    }
-}
-
-#if os(macOS)
-/// Catches ⌘V when the pasteboard holds only images. A text field ignores
-/// those, and it handles the paste before any SwiftUI view could see it.
-private struct PasteCatcher: NSViewRepresentable {
-    var enabled: Bool
-    var onPaste: ([Data]) -> Void
-
-    func makeNSView(context: Context) -> CatcherView { CatcherView() }
-
-    func updateNSView(_ view: CatcherView, context: Context) {
-        view.enabled = enabled
-        view.onPaste = onPaste
-    }
-
-    final class CatcherView: NSView {
-        var enabled = false
-        var onPaste: (([Data]) -> Void)?
-        private var monitor: Any?
-
-        override func viewDidMoveToWindow() {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            monitor = nil
-            guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, enabled, event.window === window,
-                      event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                      event.charactersIgnoringModifiers == "v",
-                      let images = Platform.pasteboardImages(unlessText: true) else { return event }
-                onPaste?(images)
-                return nil
-            }
+    /// Attaches images dropped on the view.
+    func acceptsImages(_ attachments: Attachments, via connection: ServerConnection) -> some View {
+        onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+            Task { await attachments.add(providers, via: connection) }
+            return true
         }
     }
 }
-#endif
 
 // MARK: Showing
 
 /// An item's images as thumbnails that wrap onto more lines; a tap opens one
-/// in Quick Look, which zooms and shares it: full screen on iOS, where a
-/// swipe down closes it, and in a window that resizes on the Mac. The item's
-/// other images are a swipe or an arrow key away.
+/// in Quick Look, which zooms and shares it, full screen, where a swipe down
+/// closes it. The item's other images are a swipe or an arrow key away.
 struct ImageGallery: View {
     let images: [ImageRef]
     let store: SessionStore
@@ -236,9 +166,7 @@ struct ImageGallery: View {
                     Task { await open(ref) }
                 } label: {
                     RemoteImage(ref: ref, store: store, height: height)
-                        #if os(iOS)
                         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { preview?.thumbnails[ref.id] = $0 }
-                        #endif
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Image")
@@ -272,30 +200,19 @@ struct ImageGallery: View {
 /// preview to close.
 @MainActor @Observable
 final class ImagePreview {
-    #if os(macOS)
-    var files: [URL] = []
-    var shown: URL?
-    #else
     /// Where each image's thumbnail is in the window, by id, for Quick Look to
     /// zoom from and back to. Not observed: it changes as the transcript scrolls.
     @ObservationIgnored var thumbnails: [String: CGRect] = [:]
     @ObservationIgnored private let presenter = QuickLookPresenter()
-    #endif
 
     /// Shows `url` among `files`, the images with those `ids`.
     func show(_ url: URL, among files: [URL], ids: [String]) {
-        #if os(macOS)
-        self.files = files
-        shown = url
-        #else
         var sources: [URL: CGRect] = [:]
         for (file, id) in zip(files, ids) { sources[file] = thumbnails[id] }
         presenter.show(url, among: files, from: sources)
-        #endif
     }
 }
 
-#if os(iOS)
 /// Presents Quick Look from UIKit, zooming from the image's thumbnail and back
 /// to it. The zoom also lets a swipe down close it; SwiftUI's
 /// `quickLookPreview` has neither.
@@ -337,7 +254,6 @@ private final class QuickLookPresenter: NSObject, @MainActor QLPreviewController
         item.previewItemURL.flatMap { UIImage(contentsOfFile: $0.path) }
     }
 }
-#endif
 
 extension EnvironmentValues {
     @Entry var imagePreview: ImagePreview? = nil
@@ -345,8 +261,7 @@ extension EnvironmentValues {
 
 extension View {
     /// Shows the images that the galleries inside open, in one Quick Look
-    /// preview. On the Mac, Esc or a click in the window closes it; on iOS, a
-    /// swipe down.
+    /// preview, which a swipe down closes.
     func imagePreviews() -> some View { modifier(ImagePreviewHost()) }
 }
 
@@ -356,50 +271,8 @@ private struct ImagePreviewHost: ViewModifier {
     func body(content: Content) -> some View {
         content
             .environment(\.imagePreview, preview)
-            #if os(macOS)
-            .quickLookPreview(Bindable(preview).shown, in: preview.files)
-            .background { PreviewCloser(preview: preview) }
-            #endif
     }
 }
-
-#if os(macOS)
-/// Closes the preview on Esc, or on a click anywhere in the window before the
-/// click does what it would; a click on another image then opens that one.
-/// Quick Look's panel takes Esc only while it is the key window, which a
-/// click back in the window takes from it.
-private struct PreviewCloser: NSViewRepresentable {
-    let preview: ImagePreview
-
-    func makeNSView(context: Context) -> CloserView { CloserView() }
-
-    func updateNSView(_ view: CloserView, context: Context) {
-        view.preview = preview
-    }
-
-    final class CloserView: NSView {
-        var preview: ImagePreview?
-        private var monitor: Any?
-
-        override func viewDidMoveToWindow() {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            monitor = nil
-            guard window != nil else { return }
-            let events: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
-            monitor = NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in
-                guard let self, let preview, preview.shown != nil, event.window === window else { return event }
-                if event.type == .keyDown {
-                    guard event.keyCode == 53 else { return event } // Esc
-                    preview.shown = nil
-                    return nil
-                }
-                preview.shown = nil
-                return event
-            }
-        }
-    }
-}
-#endif
 
 /// An image an agent's reply links to: as large as fits the transcript's
 /// width, up to a height that leaves the text around it in view.

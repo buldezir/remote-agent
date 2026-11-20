@@ -14,7 +14,7 @@ packages:
   SwiftTerm:  # exact: 1.99 is the 2.0 preview, with a different API. Needs Xcode's Metal toolchain.
     url: https://github.com/migueldeicaza/SwiftTerm
     exactVersion: 1.20.0
-  Sparkle:  # the Mac apps' updater; scripts/appcast.sh writes its feeds
+  Sparkle:  # the Server app's updater; scripts/appcast.sh writes its feed
     url: https://github.com/sparkle-project/Sparkle
     minorVersion: 2.10.0
 settings:
@@ -25,14 +25,14 @@ settings:
     # Sparkle installs only updates signed with the private half, which is
     # the SPARKLE_PRIVATE_KEY secret (README.md › Development).
     SPARKLE_PUBLIC_KEY: WQontbp7coFEQwc0h6w4Or5DMoyvPz535n1amUTZNqc=
-    # The Mac apps' hardened runtime, which notarization needs, is on when
-    # they are signed with a team. Signed ad hoc, without one, it would stop
-    # them from loading Sparkle.framework: library validation wants the app
-    # and the framework to share a Team ID, and ad hoc code has none.
+    # The Server app's hardened runtime, which notarization needs, is on when
+    # it is signed with a team. Signed ad hoc, without one, it would stop it
+    # from loading Sparkle.framework: library validation wants the app and
+    # the framework to share a Team ID, and ad hoc code has none.
     HARDENED_RUNTIME_WITHOUT_TEAM: NO
-# Both client apps build Shared/ plus their own folder. Small differences
-# inside a shared file sit in #if os(iOS) / #if os(macOS). RemoteAgentServer
-# is the Mac menu bar app that runs rad; it shares no code with them.
+# The client app, for iPhone and iPad, builds Shared/ plus iOS/. The Mac's
+# client is the GPUI app in gpui/. RemoteAgentServer is the Mac menu bar app
+# that runs rad; it shares no code with the client.
 targets:
   RemoteAgent-iOS:
     type: application
@@ -56,7 +56,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false  # one window on iPad, as on the Mac
+          UIApplicationSupportsMultipleScenes: false  # one window on iPad
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         NSCameraUsageDescription: Scan the pairing QR code printed by `rad pair`.
@@ -86,71 +86,6 @@ targets:
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_PREVIEWS: YES
-  RemoteAgent-macOS:
-    type: application
-    platform: macOS
-    sources:
-      - Shared
-      - path: macOS
-        excludes: [Info.plist, RemoteAgent.entitlements]
-    dependencies:
-      - package: RAKit
-      - package: Textual
-      - package: SwiftTerm
-      - package: Sparkle
-    info:
-      path: macOS/Info.plist
-      properties:
-        CFBundleDisplayName: Remote Agent
-        CFBundleShortVersionString: $(MARKETING_VERSION)
-        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        # Sparkle: the feed is the latest release's (scripts/appcast.sh). The
-        # sandboxed app installs through Sparkle's installer service.
-        SUFeedURL: https://github.com/buldezir/remote-agent/releases/latest/download/Remote-Agent-macOS-appcast.xml
-        SUPublicEDKey: $(SPARKLE_PUBLIC_KEY)
-        SUEnableAutomaticChecks: true
-        SUEnableInstallerLauncherService: true
-        LSApplicationCategoryType: public.app-category.developer-tools
-        NSLocalNetworkUsageDescription: Connect to rad running on your computer.
-        NSMicrophoneUsageDescription: Dictate messages to your agents.
-        NSSpeechRecognitionUsageDescription: Turn your dictation into text.
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
-          NSExceptionDomains:
-            ts.net:
-              NSIncludesSubdomains: true
-              NSExceptionAllowsInsecureHTTPLoads: true
-        CFBundleURLTypes:
-          - CFBundleURLName: dev.remote-agent.pair
-            CFBundleURLSchemes: [remoteagent]
-    entitlements:
-      path: macOS/RemoteAgent.entitlements
-      properties:
-        com.apple.security.app-sandbox: true
-        com.apple.security.network.client: true
-        com.apple.security.device.audio-input: true
-        com.apple.security.files.user-selected.read-only: true   # images attached from Files
-        # Sparkle's installer service, which replaces the app outside its sandbox.
-        com.apple.security.temporary-exception.mach-lookup.global-name:
-          - $(PRODUCT_BUNDLE_IDENTIFIER)-spks
-          - $(PRODUCT_BUNDLE_IDENTIFIER)-spki
-    configFiles:
-      Debug: Signing.xcconfig
-      Release: Signing.xcconfig
-    settings:
-      base:
-        PRODUCT_NAME: Remote Agent
-        PRODUCT_MODULE_NAME: RemoteAgent
-        MARKETING_VERSION: "0.1"
-        SWIFT_VERSION: "6.0"
-        CODE_SIGN_STYLE: Automatic
-        ENABLE_HARDENED_RUNTIME: "$(HARDENED_RUNTIME_$(DEVELOPMENT_TEAM:default=WITHOUT_TEAM):default=YES)"
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ENABLE_PREVIEWS: YES
-    postBuildScripts:
-      - name: Sign Sparkle
-        script: exec "$SRCROOT/scripts/sign-sparkle.sh"
-        basedOnDependencyAnalysis: false
   RemoteAgentServer:
     type: application
     platform: macOS
@@ -213,12 +148,6 @@ schemes:
     build:
       targets:
         RemoteAgent-iOS: all
-    run:
-      config: Debug
-  RemoteAgent-macOS:
-    build:
-      targets:
-        RemoteAgent-macOS: all
     run:
       config: Debug
   RemoteAgentServer:

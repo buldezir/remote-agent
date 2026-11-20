@@ -1,6 +1,6 @@
 //! Where device tokens live: the login keychain, one generic password per
-//! server (service `dev.remote-agent.gpui`, account the server's id), as the
-//! other clients keep theirs.
+//! server (service the app's bundle ID, `identity.rs`, account the server's
+//! id), as the other clients keep theirs.
 //!
 //! macOS lets a later build read, update and delete these items without
 //! asking only when every build is signed with the same Apple-issued
@@ -16,7 +16,6 @@ use std::rc::Rc;
 use security_framework::os::macos::keychain::SecKeychain;
 use security_framework::os::macos::passwords::find_generic_password;
 
-const SERVICE: &str = "dev.remote-agent.gpui";
 const NOT_FOUND: i32 = -25300; // errSecItemNotFound
 
 pub enum Tokens {
@@ -32,9 +31,10 @@ impl Tokens {
     /// The login keychain. A home of its own (`RA_GPUI_HOME`, as for a
     /// scratch rad) gets a service of its own, so that its tokens stay apart.
     pub fn keychain(custom_home: Option<&str>) -> Self {
+        let service = &crate::store::identity::current().id;
         let service = match custom_home {
-            Some(home) => format!("{SERVICE} ({home})"),
-            None => SERVICE.to_string(),
+            Some(home) => format!("{service} ({home})"),
+            None => service.clone(),
         };
         Tokens::Keychain { service }
     }
