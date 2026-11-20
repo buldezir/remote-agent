@@ -1,6 +1,6 @@
 # Screenshots
 
-Real Claude Code, Codex, Cursor and Pi sessions on a demo server running rad 0.3.0, in the iPhone, iPad and Mac apps, the web client and the Server app. Light mode uses Catppuccin Latte; dark mode uses Frappé.
+Real Claude Code, Codex, Cursor and Pi sessions on a demo server running rad 0.3.0, in the iPhone and iPad apps, the web client and the Server app. The Mac app's are newer: Claude Code and Cursor sessions in the GPUI client. Light mode uses Catppuccin Latte; dark mode uses Frappé.
 
 Back to the [README](../README.md).
 
@@ -40,13 +40,23 @@ The server's sessions stay in a sidebar next to the open one.
 
 ## Mac
 
+The Mac app, in Rust with GPUI: every server's sessions in the sidebar, those that need you first, beside the open one.
+
 | A finished session | An image in a reply |
 |---|---|
-| ![Mac: the sessions sidebar and a finished Claude Code session](screenshots/mac-transcript.webp) | ![Mac: Claude showing a screenshot it took](screenshots/mac-image.webp) |
+| ![Mac: the Inbox sidebar and a finished Claude Code session, with a run of tool calls opened](screenshots/mac-transcript.webp) | ![Mac: Claude showing a phone-sized screenshot of a landing page it took](screenshots/mac-image.webp) |
 
-| A plan, in dark mode | Settings |
+| Changes | A new session |
 |---|---|
-| ![Mac in dark mode: a plan waiting for approval](screenshots/mac-dark-plan.webp) | <img src="screenshots/mac-settings.webp" width="300" alt="Mac Settings: theme, text sizes, message font and code font"> |
+| ![Mac: the session's changed files and the diff of one](screenshots/mac-changes.webp) | ![Mac: a new session's prompt, in a new worktree on a new branch](screenshots/mac-new-session.webp) |
+
+| A plan, in dark mode | A question, in dark mode |
+|---|---|
+| ![Mac in dark mode: a plan waiting for approval](screenshots/mac-dark-plan.webp) | ![Mac in dark mode: Claude asking how tags should be stored, with an answer picked](screenshots/mac-dark-question.webp) |
+
+| The Columns layout, in dark mode | Settings |
+|---|---|
+| ![Mac in dark mode: collections, their sessions and the open session in three columns](screenshots/mac-dark-columns.webp) | ![Mac Settings: theme, interface and message text sizes, message and code fonts](screenshots/mac-settings.webp) |
 
 ## Web client
 
