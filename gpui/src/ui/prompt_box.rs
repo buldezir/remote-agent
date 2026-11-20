@@ -9,7 +9,8 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Anchor, AnyElement, App, ClickEvent, Context, IntoElement, ParentElement as _, Styled as _, Window, div, px, rems,
+    Anchor, AnyElement, App, ClickEvent, Context, InteractiveElement as _, IntoElement, ParentElement as _,
+    Styled as _, Window, deferred, div, px, rems,
 };
 
 use crate::ui::palette::Palette;
@@ -26,7 +27,8 @@ pub fn max_width(cx: &App) -> Option<f32> {
 
 #[derive(Default)]
 pub struct PromptBox {
-    /// Over the box, such as the slash commands' suggestions.
+    /// Over the box, floating over what's above it, such as the slash
+    /// commands' suggestions.
     pub above: Option<AnyElement>,
     pub attachments: Option<AnyElement>,
     pub input: Option<AnyElement>,
@@ -48,9 +50,9 @@ impl PromptBox {
             .w_full()
             .when_some(self.max_width, |d, w| d.max_w(px(w)))
             .gap_1()
-            .when_some(self.above, |d, a| d.child(a))
             .child(
                 v_flex()
+                    .relative()
                     .w_full()
                     .gap_2()
                     .px_3()
@@ -60,6 +62,20 @@ impl PromptBox {
                     .border_1()
                     .border_color(p.surface0)
                     .bg(p.mantle)
+                    // Over the transcript, not in its way: pinned to the
+                    // box's top, drawn last so that it covers what's under it.
+                    .when_some(self.above, |d, a| {
+                        d.child(deferred(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .right_0()
+                                .bottom_full()
+                                .mb_1()
+                                .occlude()
+                                .child(a),
+                        ))
+                    })
                     .when_some(self.attachments, |d, a| d.child(a))
                     .when_some(self.input, |d, i| {
                         d.child(div().font_family(crate::ui::fonts::message()).child(i))
