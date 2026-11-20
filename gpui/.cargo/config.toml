@@ -1,0 +1,7 @@
+# Sign the app before running it, so the Keychain knows each build
+# (scripts/sign.sh).
+[target.aarch64-apple-darwin]
+runner = "scripts/run-signed.sh"
+
+[target.x86_64-apple-darwin]
+runner = "scripts/run-signed.sh"

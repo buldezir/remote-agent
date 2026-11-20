@@ -1,0 +1,35 @@
+[package]
+name = "remote-agent-gpui"
+version = "0.1.0"
+edition = "2024"
+description = "An experimental Remote Agent client for macOS, built with GPUI"
+publish = false
+
+[[bin]]
+name = "remote-agent-gpui"
+path = "src/main.rs"
+
+[dependencies]
+# GPUI and its component library, as one crate. It pins its own GPUI snapshot
+# (gpui-pre); bump the two together.
+gpui-kit = "=0.10.0"
+anyhow = "1"
+async-channel = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+gethostname = "1"
+security-framework = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros"] }
+tokio-tungstenite = "0.30"
+ureq = { version = "3", default-features = false, features = ["json"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.dev]
+# GPUI is slow unoptimized; keep our own crate quick to rebuild.
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

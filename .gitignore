@@ -31,3 +31,6 @@ DerivedData/
 *.keystore
 
 .DS_Store
+
+# GPUI client (experimental)
+/gpui/target/

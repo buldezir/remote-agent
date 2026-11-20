@@ -25,6 +25,7 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac, an And
   - rename a session, and rad keeps your name for it
 - **Web client**: the same app for a browser, in `web/` (React and TypeScript). In a wide window it has the iPad's sidebar of every server's sessions. For now you run it from its dev server on your computer; see [Running the web client](#running-the-web-client).
 - **Android app**: the same app, native, for Android 16 or later, in `android/` (Kotlin and Jetpack Compose). On a tablet, as on iPad, one sidebar lists every server's sessions next to the one you have open. See [Installing the app on Android](#installing-the-app-on-android).
+- **GPUI client (experimental)**: a Mac client in Rust with [GPUI](https://gpui.rs), Zed's UI framework, in `gpui/`. It pairs, lists sessions, shows transcripts, answers approvals and sends prompts; see [gpui/README.md](gpui/README.md) for what it does and doesn't do yet.
 - **`ra`**: a terminal client for the rad on the same machine, in Go with Bubble Tea, for when you'd rather stay in a terminal, or reach the computer over SSH. See [The terminal client](#the-terminal-client).
 
 <p>
