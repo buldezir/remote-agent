@@ -1,9 +1,9 @@
 //! Updating the app from the Mac that builds it, for development: no feed and
 //! no Sparkle, only ssh. `scripts/bundle.sh` writes `build.json` into the
 //! bundle and installs it in /Applications. The app on another Mac reads that
-//! Mac's `build.json` over ssh, pulls the bundle from the same path with tar,
-//! checks that its signature is the running app's, and swaps it in once the
-//! app has quit.
+//! Mac's `build.json` over ssh, from the development app in the folder this
+//! app is in, pulls that bundle with tar, checks that its signature is the
+//! running app's, and swaps it in once the app has quit.
 
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
@@ -65,20 +65,62 @@ fn info_path(bundle: &Path) -> PathBuf {
     bundle.join("Contents/Resources/build.json")
 }
 
-/// The build at the same path on `host`.
-pub fn remote(host: &str, bundle: &Path) -> Result<BuildInfo, String> {
-    let path = info_path(bundle);
-    let out = ssh::command(host, &format!("cat {}", quote(&path.to_string_lossy())))
+/// The development app's name, as `bundle.sh` installs it.
+pub const APP_NAME: &str = "Remote Agent Dev.app";
+
+/// Where to look for the build on the host: the development app beside this
+/// one, then this one's own path. A build installed under an earlier name
+/// ("Remote Agent GPUI.app") would otherwise keep reading a copy there that
+/// `bundle.sh` no longer writes.
+fn candidates(bundle: &Path) -> Vec<PathBuf> {
+    let current = bundle.with_file_name(APP_NAME);
+    if current == bundle {
+        vec![current]
+    } else {
+        vec![current, bundle.to_path_buf()]
+    }
+}
+
+/// A build on the host, and where it is there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoteBuild {
+    pub info: BuildInfo,
+    pub path: PathBuf,
+}
+
+/// The first of `candidates` that holds a build on `host`.
+pub fn remote(host: &str, bundle: &Path) -> Result<RemoteBuild, String> {
+    let paths = candidates(bundle);
+    // Prints the build's path on a line of its own, then its build.json.
+    let script = paths
+        .iter()
+        .map(|p| {
+            let p = quote(&p.to_string_lossy());
+            format!("if [ -f {p}/Contents/Resources/build.json ]; then echo {p}; cat {p}/Contents/Resources/build.json; exit 0; fi; ")
+        })
+        .collect::<String>()
+        + "exit 1";
+    let out = ssh::script(host, &script)
         .output()
         .map_err(|e| format!("Couldn't run ssh: {e}"))?;
     match out.status.code() {
-        Some(0) => serde_json::from_slice(&out.stdout).map_err(|e| format!("{host}'s build.json: {e}")),
+        Some(0) => parse_remote(&out.stdout).map_err(|e| format!("{host}'s build.json: {e}")),
         Some(ssh::FAILED) => Err(format!("ssh {host} failed: {}", tail(&out.stderr))),
         _ => Err(format!(
             "{host} has no build at {}. Build it there with gpui/scripts/bundle.sh.",
-            bundle.display()
+            paths[0].display()
         )),
     }
+}
+
+fn parse_remote(out: &[u8]) -> Result<RemoteBuild, String> {
+    let text = String::from_utf8_lossy(out);
+    let (path, json) = text.split_once('\n').ok_or("no build")?;
+    let info = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    Ok(RemoteBuild {
+        info,
+        path: PathBuf::from(path),
+    })
 }
 
 /// The folder a build is unpacked into, beside the app so that moving it in
@@ -90,8 +132,9 @@ fn staging(bundle: &Path) -> PathBuf {
         .join(".remote-agent-gpui-update")
 }
 
-/// Copies the bundle from `host` and checks it. Returns the new bundle.
-fn fetch(host: &str, bundle: &Path) -> Result<PathBuf, String> {
+/// Copies the bundle at `from` on `host` and checks it against the running
+/// `bundle`. Returns the new bundle.
+fn fetch(host: &str, from: &Path, bundle: &Path) -> Result<PathBuf, String> {
     if bundle.to_string_lossy().contains("/AppTranslocation/") {
         return Err(
             "macOS runs this app from a temporary copy (App Translocation), which can't be replaced. \
@@ -100,9 +143,12 @@ fn fetch(host: &str, bundle: &Path) -> Result<PathBuf, String> {
         );
     }
     let requirement = designated_requirement(bundle)?;
-    let (parent, name) = match (bundle.parent(), bundle.file_name()) {
+    let Some(parent) = bundle.parent() else {
+        return Err(format!("{} isn't in a folder", bundle.display()));
+    };
+    let (from_parent, name) = match (from.parent(), from.file_name()) {
         (Some(p), Some(n)) => (p, n.to_string_lossy().to_string()),
-        _ => return Err(format!("{} isn't in a folder", bundle.display())),
+        _ => return Err(format!("{host}'s {} isn't in a folder", from.display())),
     };
     let dir = staging(bundle);
     let _ = std::fs::remove_dir_all(&dir);
@@ -113,7 +159,7 @@ fn fetch(host: &str, bundle: &Path) -> Result<PathBuf, String> {
             host,
             &format!(
                 "COPYFILE_DISABLE=1 tar -czf - -C {} {}",
-                quote(&parent.to_string_lossy()),
+                quote(&from_parent.to_string_lossy()),
                 quote(&name)
             ),
         )
@@ -197,32 +243,44 @@ fn verify(new: &Path, requirement: &str) -> Result<(), String> {
     }
 }
 
-/// `fetch`, then `relaunch`.
-pub fn install(host: &str, bundle: &Path) -> Result<(), String> {
-    let new = fetch(host, bundle)?;
-    relaunch(&new, bundle)
+/// `fetch`, then `relaunch`. The build goes in beside the running app under
+/// its name on the host, and takes the running app's place.
+pub fn install(host: &str, from: &Path, bundle: &Path) -> Result<(), String> {
+    let new = fetch(host, from, bundle)?;
+    let target = match from.file_name() {
+        Some(name) => bundle.with_file_name(name),
+        None => bundle.to_path_buf(),
+    };
+    relaunch(&new, &target, bundle)
 }
 
-/// Starts a helper that waits for this process to end, moves `new` in place
-/// of `bundle` (putting the old one back if that fails) and opens the app.
-/// The caller quits the app next.
-fn relaunch(new: &Path, bundle: &Path) -> Result<(), String> {
+/// Starts a helper that waits for this process to end, moves `new` to
+/// `target` (putting what was there back if that fails), removes the running
+/// `bundle` when it's elsewhere, and opens the app. The caller quits the app
+/// next.
+fn relaunch(new: &Path, target: &Path, bundle: &Path) -> Result<(), String> {
     use std::os::unix::process::CommandExt as _;
     const SCRIPT: &str = r#"
 while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
 old="$3.old"
 rm -rf "$old"
-if mv "$3" "$old"; then
-    if mv "$2" "$3"; then rm -rf "$old"; else mv "$old" "$3"; fi
+if [ ! -e "$3" ] || mv "$3" "$old"; then
+    if mv "$2" "$3"; then
+        rm -rf "$old"
+        [ "$5" != "$3" ] && rm -rf "$5"
+    elif [ -e "$old" ]; then
+        mv "$old" "$3"
+    fi
 fi
 rm -rf "$4"
-open "$3"
+if [ -e "$3" ]; then open "$3"; else open "$5"; fi
 "#;
     Command::new("/bin/sh")
         .args(["-c", SCRIPT, "sh", &std::process::id().to_string()])
         .arg(new)
-        .arg(bundle)
+        .arg(target)
         .arg(staging(bundle))
+        .arg(bundle)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -250,5 +308,25 @@ mod tests {
         let clean: BuildInfo =
             serde_json::from_str(r#"{"commit":"3f2a1c4","builtAt":"2026-11-20T10:00:00Z"}"#).unwrap();
         assert_eq!(clean.summary(just), "3f2a1c4, built just now");
+    }
+
+    #[test]
+    fn looks_for_the_build_under_its_current_name_first() {
+        let old = Path::new("/Applications/Remote Agent GPUI.app");
+        assert_eq!(
+            candidates(old),
+            vec![PathBuf::from("/Applications/Remote Agent Dev.app"), old.to_path_buf()]
+        );
+        let current = Path::new("/Users/me/Apps/Remote Agent Dev.app");
+        assert_eq!(candidates(current), vec![current.to_path_buf()]);
+    }
+
+    #[test]
+    fn reads_where_the_build_is_and_its_info() {
+        let out = b"/Applications/Remote Agent Dev.app\n{\"commit\":\"f491983\",\"branch\":\"main\",\"builtAt\":\"2026-11-20T21:27:26Z\"}\n";
+        let build = parse_remote(out).unwrap();
+        assert_eq!(build.path, PathBuf::from("/Applications/Remote Agent Dev.app"));
+        assert_eq!(build.info.branch, "main");
+        assert!(parse_remote(b"").is_err());
     }
 }

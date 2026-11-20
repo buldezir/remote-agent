@@ -6,7 +6,7 @@ use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::{App, AppContext as _, ParentElement as _, Styled as _, Window, div, px};
 
-use crate::store::build_update::{self, BuildInfo};
+use crate::store::build_update::{self, BuildInfo, RemoteBuild};
 use crate::ui::dialogs::{self, Choice};
 use crate::ui::palette::Palette;
 use crate::ui::state::{prefs, update_prefs};
@@ -66,7 +66,13 @@ pub fn check(window: &mut Window, cx: &mut App) {
         .detach();
 }
 
-fn show_result(host: String, current: BuildInfo, result: Result<BuildInfo, String>, window: &mut Window, cx: &mut App) {
+fn show_result(
+    host: String,
+    current: BuildInfo,
+    result: Result<RemoteBuild, String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let now = chrono::Utc::now();
     match result {
         Err(e) => dialogs::confirm(
@@ -76,7 +82,7 @@ fn show_result(host: String, current: BuildInfo, result: Result<BuildInfo, Strin
             &e,
             vec![Choice::new("Change Host…", ButtonVariant::Primary, ask_host)],
         ),
-        Ok(remote) if remote == current => dialogs::confirm(
+        Ok(remote) if remote.info == current => dialogs::confirm(
             window,
             cx,
             "This Is the Latest Build",
@@ -87,7 +93,7 @@ fn show_result(host: String, current: BuildInfo, result: Result<BuildInfo, Strin
             let message = format!(
                 "{}: {}.\nThis one: {}.\n\nThe app quits, installs it and opens again.",
                 host,
-                remote.summary(now),
+                remote.info.summary(now),
                 current.summary(now)
             );
             dialogs::confirm(
@@ -105,11 +111,11 @@ fn show_result(host: String, current: BuildInfo, result: Result<BuildInfo, Strin
     }
 }
 
-fn install(host: String, remote: BuildInfo, window: &mut Window, cx: &mut App) {
+fn install(host: String, remote: RemoteBuild, window: &mut Window, cx: &mut App) {
     let Some(bundle) = build_update::bundle() else {
         return;
     };
-    let text = format!("Copying {} from {host}…", remote.commit);
+    let text = format!("Copying {} from {host}…", remote.info.commit);
     window.open_dialog(cx, move |dialog, _, cx| {
         let p = Palette::of(cx);
         dialog
@@ -120,7 +126,7 @@ fn install(host: String, remote: BuildInfo, window: &mut Window, cx: &mut App) {
             .keyboard(false)
             .child(div().text_sm().text_color(p.subtext).child(text.clone()))
     });
-    let task = cx.background_spawn(async move { build_update::install(&host, &bundle) });
+    let task = cx.background_spawn(async move { build_update::install(&host, &remote.path, &bundle) });
     window
         .spawn(cx, async move |cx| {
             let result = task.await;
