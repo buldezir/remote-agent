@@ -137,7 +137,7 @@ pub fn code_block(title: Option<&str>, text: &str, p: &Palette) -> Div {
         })
         .child(
             div()
-                .text_xs()
+                .text_size(px(crate::ui::fonts::code_size()))
                 .font_family(crate::ui::fonts::code())
                 .text_color(p.subtext)
                 .child(text.to_string()),

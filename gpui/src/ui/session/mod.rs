@@ -928,10 +928,11 @@ pub fn rename_session(conn: Entity<ServerConn>, s: Rc<Session>, window: &mut Win
 fn look(cx: &App) -> String {
     let p = prefs(cx);
     format!(
-        "{} {} {} {} {} {:?}",
+        "{} {} {} {} {} {} {:?}",
         p.group_tool_calls,
         p.text_size,
         p.message_size,
+        p.code_size,
         crate::ui::fonts::message(),
         crate::ui::fonts::code(),
         gpui_kit::component::ActiveTheme::theme(cx).mode

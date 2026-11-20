@@ -170,7 +170,7 @@ impl AgentPicker {
                     .cursor_pointer()
                     .hover(|d| d.bg(p.surface0.opacity(0.5)))
                     .when(selected, |d| d.bg(p.surface0))
-                    .child(Icon::new(IconName::Bot).small().text_color(p.overlay))
+                    .child(crate::ui::badges::harness_icon(&h.id, &p).small())
                     .child(
                         v_flex()
                             .flex_1()

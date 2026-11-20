@@ -417,7 +417,7 @@ impl ServerSettingsView {
                 h_flex()
                     .gap_2()
                     .items_start()
-                    .child(Icon::new(IconName::Bot).small().text_color(p.overlay))
+                    .child(crate::ui::badges::harness_icon(&h.id, p).small())
                     .child(
                         v_flex()
                             .flex_1()
@@ -660,18 +660,14 @@ impl ServerSettingsView {
     }
 }
 
+/// A section, in the card General's groups have.
 fn section(title: &'static str, body: AnyElement, p: &Palette) -> AnyElement {
-    v_flex()
-        .gap_2()
-        .child(
-            div()
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(p.overlay)
-                .child(title),
-        )
-        .child(body)
-        .into_any_element()
+    crate::ui::settings::group(
+        title,
+        vec![div().px_3().py_2p5().child(body).into_any_element()],
+        None,
+        p,
+    )
 }
 
 impl Render for ServerSettingsView {

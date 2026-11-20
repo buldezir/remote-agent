@@ -19,7 +19,7 @@ use gpui_kit::{
 use crate::conn::{ConnState, ServerConn};
 use crate::store::prefs::Prefs;
 use crate::store::sidebar::Layout;
-use crate::ui::agent_picker::{picker, row};
+use crate::ui::agent_picker::picker;
 use crate::ui::common::caption;
 use crate::ui::dialogs::{self, Choice};
 use crate::ui::fonts;
@@ -54,6 +54,7 @@ pub struct SettingsView {
     servers: HashMap<String, Entity<ServerSettingsView>>,
     text_size: Entity<SliderState>,
     message_size: Entity<SliderState>,
+    code_size: Entity<SliderState>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -68,7 +69,19 @@ impl SettingsView {
                 .step(1.)
                 .default_value(p.message_size)
         });
+        let code_size = cx.new(|_| {
+            SliderState::new()
+                .min(fonts::CODE_SIZES.0)
+                .max(fonts::CODE_SIZES.1)
+                .step(1.)
+                .default_value(p.code_size)
+        });
         let subs = vec![
+            cx.subscribe_in(&code_size, window, |_, _, ev: &SliderEvent, _, cx| {
+                let (SliderEvent::Change(v) | SliderEvent::Release(v)) = ev;
+                let v = v.start();
+                update_prefs(cx, |p| p.code_size = v);
+            }),
             cx.subscribe_in(&text_size, window, |_, _, ev: &SliderEvent, _, cx| {
                 let (SliderEvent::Change(v) | SliderEvent::Release(v)) = ev;
                 let v = v.start();
@@ -87,6 +100,7 @@ impl SettingsView {
             servers: HashMap::new(),
             text_size,
             message_size,
+            code_size,
             _subscriptions: subs,
         }
     }
@@ -99,6 +113,7 @@ impl SettingsView {
             && prefs.message_size == defaults.message_size
             && prefs.message_font == defaults.message_font
             && prefs.code_font == defaults.code_font
+            && prefs.code_size == defaults.code_size
             && prefs.group_tool_calls == defaults.group_tool_calls
             && prefs.limit_prompt_width == defaults.limit_prompt_width
             && prefs.sidebar_layout == defaults.sidebar_layout
@@ -195,178 +210,184 @@ impl SettingsView {
             code_font,
             |id, _, cx| update_prefs(cx, |p| p.code_font = id),
         );
-        let section = |title: &'static str, body: AnyElement, footer: Option<String>| {
-            v_flex()
-                .w_full()
-                .min_w_0()
-                .gap_2()
-                .child(
-                    div()
-                        .text_xs()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(p.overlay)
-                        .child(title),
-                )
-                .child(body)
-                .when_some(footer, |d, f| d.child(caption(f, p)))
+        let switch = |id: &'static str, on: bool, set: fn(&mut Prefs, bool)| {
+            Switch::new(id)
+                .checked(on)
+                .on_change(move |v: &bool, _, cx| {
+                    let v = *v;
+                    update_prefs(cx, |p| set(p, v))
+                })
+                .into_any_element()
         };
-        v_flex()
+        let slider = |state: &Entity<SliderState>, value: f32| {
+            h_flex()
+                .gap_3()
+                .child(div().w(px(180.)).child(Slider::new(state)))
+                .child(caption(format!("{value} pt"), p).w(px(36.)))
+                .into_any_element()
+        };
+        let mut col = v_flex()
             .w_full()
             .min_w_0()
             .gap_5()
-            .child(section(
+            .child(group(
                 "Appearance",
-                row("Theme", theme, None, p),
+                vec![setting("Theme", theme, p)],
                 Some("Catppuccin Latte when light, Frappé when dark.".into()),
+                p,
             ))
-            .child(section(
+            .child(group(
                 "Interface",
-                row(
-                    "Text size",
-                    h_flex()
-                        .gap_2()
-                        .child(div().w(px(220.)).child(Slider::new(&self.text_size)))
-                        .child(caption(format!("{} pt", prefs.text_size), p))
-                        .into_any_element(),
-                    None,
-                    p,
-                ),
-                Some("Lists and labels.".into()),
+                vec![setting("Text size", slider(&self.text_size, prefs.text_size), p)],
+                Some("Lists, labels and the controls under the prompt.".into()),
+                p,
             ))
-            .child(section(
+            .child(group(
                 "Messages",
-                v_flex()
-                    .gap_2()
-                    .child(row(
-                        "Text size",
-                        h_flex()
-                            .gap_2()
-                            .child(div().w(px(220.)).child(Slider::new(&self.message_size)))
-                            .child(caption(format!("{} pt", prefs.message_size), p))
-                            .into_any_element(),
-                        None,
-                        p,
-                    ))
-                    .child(row("Font", message_font_picker, None, p))
-                    .child(row("Code font", code_font_picker, None, p))
-                    .into_any_element(),
-                Some("Your prompts, the agent's replies and its tool calls. Tool calls, diffs and the terminal use the code font.".into()),
+                vec![
+                    setting("Font", message_font_picker, p),
+                    setting("Text size", slider(&self.message_size, prefs.message_size), p),
+                ],
+                Some("Your prompts and the agent's replies.".into()),
+                p,
             ))
-            .child(section(
+            .child(group(
+                "Code",
+                vec![
+                    setting("Font", code_font_picker, p),
+                    setting("Text size", slider(&self.code_size, prefs.code_size), p),
+                ],
+                Some("Code in replies, tool calls, diffs and the terminal.".into()),
+                p,
+            ))
+            .child(group(
                 "Transcript",
-                Switch::new("group-tools")
-                    .checked(prefs.group_tool_calls)
-                    .label("Group tool calls")
-                    .on_change(|v: &bool, _, cx| {
-                        let v = *v;
-                        update_prefs(cx, |p| p.group_tool_calls = v)
-                    })
-                    .into_any_element(),
+                vec![setting(
+                    "Group tool calls",
+                    switch("group-tools", prefs.group_tool_calls, |p, v| p.group_tool_calls = v),
+                    p,
+                )],
                 Some("Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them.".into()),
+                p,
             ))
-            .child(section(
+            .child(group(
                 "Prompt",
-                Switch::new("limit-prompt-width")
-                    .checked(prefs.limit_prompt_width)
-                    .label("Limit its width")
-                    .on_change(|v: &bool, _, cx| {
-                        let v = *v;
-                        update_prefs(cx, |p| p.limit_prompt_width = v)
-                    })
-                    .into_any_element(),
+                vec![setting(
+                    "Limit its width",
+                    switch("limit-prompt-width", prefs.limit_prompt_width, |p, v| p.limit_prompt_width = v),
+                    p,
+                )],
                 Some(format!(
                     "Keeps the prompt box, in a session and a new one, to {} points: as wide as on a 13-inch laptop, centred in a wider window. Off, it's as wide as the window.",
                     crate::ui::prompt_box::LIMITED_WIDTH as u32
                 )),
+                p,
             ))
-            .child(section(
+            .child(group(
                 "Sidebar",
-                row("Layout", layout_picker, None, p),
+                vec![setting("Layout", layout_picker, p)],
                 Some(format!("{summary} The View menu switches them too, with ⌘1, ⌘2 and ⌘3.")),
+                p,
             ))
-            .child(section(
+            .child(group(
                 "Terminal",
-                v_flex()
-                    .gap_2()
-                    .child(row("Opens", placement, None, p))
-                    .child(
-                        Switch::new("copy-on-select")
-                            .checked(prefs.terminal_copy_on_select)
-                            .label("Copy on select")
-                            .on_change(|v: &bool, _, cx| {
-                                let v = *v;
-                                update_prefs(cx, |p| p.terminal_copy_on_select = v)
-                            }),
-                    )
-                    .into_any_element(),
-                Some("Where a session's terminal opens. In a narrow window it takes the place of the messages. Copy on select puts the text you select on the clipboard.".into()),
+                vec![
+                    setting("Opens", placement, p),
+                    setting(
+                        "Copy on select",
+                        switch("copy-on-select", prefs.terminal_copy_on_select, |p, v| {
+                            p.terminal_copy_on_select = v
+                        }),
+                        p,
+                    ),
+                ],
+                Some("Where a session's terminal opens; in a narrow window it takes the place of the messages. Copy on select puts the text you select on the clipboard.".into()),
+                p,
             ))
-            .child(section(
+            .child(group(
                 "Notifications",
-                Switch::new("notifications")
-                    .checked(prefs.notifications)
-                    .label("Show notifications")
-                    .on_change(|v: &bool, _, cx| {
-                        let v = *v;
-                        update_prefs(cx, |p| p.notifications = v)
-                    })
-                    .into_any_element(),
+                vec![setting(
+                    "Show notifications",
+                    switch("notifications", prefs.notifications, |p, v| p.notifications = v),
+                    p,
+                )],
                 Some("When a session needs you, finishes or fails, unless the window shows it.".into()),
-            ))
-            .when_some(crate::store::build_update::current(), |d, build| {
-                let from = if prefs.update_host.is_empty() {
-                    "Check for Update asks which Mac to pull builds from.".to_string()
-                } else {
-                    format!("Builds come from {} over ssh.", prefs.update_host)
-                };
-                d.child(section(
-                    "Updates",
-                    v_flex()
-                        .gap_2()
-                        .child(div().text_sm().child(format!("This build: {}", build.summary(chrono::Utc::now()))))
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(Button::new("check-update").small().outline().label("Check for Update…").on_click(
-                                    |_: &ClickEvent, window, cx| crate::ui::build_update::check(window, cx),
-                                ))
-                                .child(Button::new("update-host").small().ghost().label("Change Host…").on_click(
-                                    |_: &ClickEvent, window, cx| crate::ui::build_update::ask_host(window, cx),
-                                )),
-                        )
-                        .into_any_element(),
-                    Some(from),
-                ))
-            })
-            .child(
-                h_flex().child(
-                    Button::new("restore")
-                        .small()
-                        .outline()
-                        .label("Restore Defaults")
-                        .disabled(at_defaults)
-                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                            let d = Prefs::default();
-                            update_prefs(cx, |p| {
-                                p.appearance = d.appearance;
-                                p.text_size = d.text_size;
-                                p.message_size = d.message_size;
-                                p.message_font = d.message_font;
-                                p.code_font = d.code_font;
-                                p.group_tool_calls = d.group_tool_calls;
-                                p.limit_prompt_width = d.limit_prompt_width;
-                                p.sidebar_layout = d.sidebar_layout;
-                                p.terminal_placement = d.terminal_placement;
-                                p.terminal_copy_on_select = d.terminal_copy_on_select;
-                                p.notifications = d.notifications;
-                            });
-                            apply_appearance(window, cx);
-                            this.text_size.update(cx, |s, cx| s.set_value(d.text_size, window, cx));
-                            this.message_size.update(cx, |s, cx| s.set_value(d.message_size, window, cx));
-                        })),
-                ),
-            )
-            .into_any_element()
+                p,
+            ));
+        if let Some(build) = crate::store::build_update::current() {
+            let from = if prefs.update_host.is_empty() {
+                "Check for Update asks which Mac to pull builds from.".to_string()
+            } else {
+                format!("Builds come from {} over ssh.", prefs.update_host)
+            };
+            col = col.child(group(
+                "Updates",
+                vec![
+                    setting(
+                        "This build",
+                        caption(build.summary(chrono::Utc::now()), p).into_any_element(),
+                        p,
+                    ),
+                    setting(
+                        "Builds",
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Button::new("update-host")
+                                    .small()
+                                    .ghost()
+                                    .label("Change Host…")
+                                    .on_click(|_: &ClickEvent, window, cx| {
+                                        crate::ui::build_update::ask_host(window, cx)
+                                    }),
+                            )
+                            .child(
+                                Button::new("check-update")
+                                    .small()
+                                    .outline()
+                                    .label("Check for Update…")
+                                    .on_click(|_: &ClickEvent, window, cx| crate::ui::build_update::check(window, cx)),
+                            )
+                            .into_any_element(),
+                        p,
+                    ),
+                ],
+                Some(from),
+                p,
+            ));
+        }
+        col.child(
+            h_flex().justify_end().child(
+                Button::new("restore")
+                    .small()
+                    .ghost()
+                    .label("Restore Defaults")
+                    .disabled(at_defaults)
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        let d = Prefs::default();
+                        update_prefs(cx, |p| {
+                            p.appearance = d.appearance;
+                            p.text_size = d.text_size;
+                            p.message_size = d.message_size;
+                            p.message_font = d.message_font;
+                            p.code_font = d.code_font;
+                            p.code_size = d.code_size;
+                            p.group_tool_calls = d.group_tool_calls;
+                            p.limit_prompt_width = d.limit_prompt_width;
+                            p.sidebar_layout = d.sidebar_layout;
+                            p.terminal_placement = d.terminal_placement;
+                            p.terminal_copy_on_select = d.terminal_copy_on_select;
+                            p.notifications = d.notifications;
+                        });
+                        apply_appearance(window, cx);
+                        this.text_size.update(cx, |s, cx| s.set_value(d.text_size, window, cx));
+                        this.message_size
+                            .update(cx, |s, cx| s.set_value(d.message_size, window, cx));
+                        this.code_size.update(cx, |s, cx| s.set_value(d.code_size, window, cx));
+                    })),
+            ),
+        )
+        .into_any_element()
     }
 
     fn render_servers(&mut self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
@@ -489,6 +510,59 @@ impl SettingsView {
     }
 }
 
+/// A group of settings, as System Settings has them: its title, a card of
+/// rows divided by rules, and what they do under it.
+pub fn group(title: &str, rows: Vec<AnyElement>, footer: Option<String>, p: &Palette) -> AnyElement {
+    let mut card = v_flex()
+        .w_full()
+        .rounded_lg()
+        .border_1()
+        .border_color(p.surface0)
+        .bg(p.mantle);
+    for (i, row) in rows.into_iter().enumerate() {
+        card = card.child(
+            div()
+                .when(i > 0, |d| d.border_t_1().border_color(p.surface0))
+                .child(row),
+        );
+    }
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .gap_1p5()
+        .child(
+            div()
+                .px_1()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(p.subtext)
+                .child(title.to_string()),
+        )
+        .child(card)
+        .when_some(footer, |d, f| d.child(caption(f, p).px_1()))
+        .into_any_element()
+}
+
+/// A row of a group: its label at the start, its control at the end.
+pub fn setting(label: &str, control: AnyElement, p: &Palette) -> AnyElement {
+    h_flex()
+        .w_full()
+        .min_h(px(40.))
+        .gap_4()
+        .px_3()
+        .py_1p5()
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_sm()
+                .text_color(p.text)
+                .child(label.to_string()),
+        )
+        .child(div().flex_shrink_0().child(control))
+        .into_any_element()
+}
+
 /// "Remove {name}?": unpairs it and forgets it.
 pub fn remove_server(conn: Entity<ServerConn>, window: &mut Window, cx: &mut App) {
     let name = conn.read(cx).name.clone();
@@ -514,33 +588,38 @@ impl Render for SettingsView {
             Tab::General => self.render_general(&p, cx),
             Tab::Servers => self.render_servers(&p, cx),
         };
+        // A segmented control: the chosen tab raised on a sunken track.
         let tab = |id: &'static str, label: &'static str, t: Tab, current: Tab| {
-            let b = Button::new(id).small().label(label);
-            if t == current { b.primary() } else { b.ghost() }
+            let b = Button::new(id).small().ghost().label(label).px_4();
+            if t == current { b.bg(p.base).shadow_sm() } else { b }
         };
         v_flex()
             .size_full()
             .gap_3()
             .child(
-                h_flex()
-                    .gap_1()
-                    .justify_center()
-                    .child(
-                        tab("tab-general", "General", Tab::General, self.tab).on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                this.tab = Tab::General;
-                                cx.notify();
-                            },
-                        )),
-                    )
-                    .child(
-                        tab("tab-servers", "Servers", Tab::Servers, self.tab).on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                this.tab = Tab::Servers;
-                                cx.notify();
-                            },
-                        )),
-                    ),
+                h_flex().justify_center().child(
+                    h_flex()
+                        .gap_0p5()
+                        .p_0p5()
+                        .rounded_lg()
+                        .bg(p.crust)
+                        .child(
+                            tab("tab-general", "General", Tab::General, self.tab).on_click(cx.listener(
+                                |this, _: &ClickEvent, _, cx| {
+                                    this.tab = Tab::General;
+                                    cx.notify();
+                                },
+                            )),
+                        )
+                        .child(
+                            tab("tab-servers", "Servers", Tab::Servers, self.tab).on_click(cx.listener(
+                                |this, _: &ClickEvent, _, cx| {
+                                    this.tab = Tab::Servers;
+                                    cx.notify();
+                                },
+                            )),
+                        ),
+                ),
             )
             .child(
                 div()

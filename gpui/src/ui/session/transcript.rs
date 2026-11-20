@@ -933,7 +933,7 @@ pub(crate) fn input_preview(name: &str, input: &Value, p: &Palette) -> AnyElemen
             col = col.child(
                 div()
                     .w_full()
-                    .text_xs()
+                    .text_size(px(crate::ui::fonts::code_size()))
                     .font_family(crate::ui::fonts::code())
                     .bg(if *added {
                         p.green.opacity(0.15)

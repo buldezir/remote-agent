@@ -79,16 +79,28 @@ pub fn code_font(cx: &App) -> SharedString {
     resolve(&prefs(cx).code_font, MONO, installed_families(cx))
 }
 
+/// The smallest and largest code size Settings offers.
+pub const CODE_SIZES: (f32, f32) = (9., 24.);
+
 thread_local! {
-    /// The fonts as last applied, for views that draw without the app at hand.
-    static CURRENT: RefCell<(SharedString, SharedString)> =
-        const { RefCell::new((SharedString::new_static(SYSTEM), SharedString::new_static(MONO))) };
+    /// The fonts and code size as last applied, for views that draw without
+    /// the app at hand.
+    static CURRENT: RefCell<(SharedString, SharedString, f32)> =
+        const { RefCell::new((SharedString::new_static(SYSTEM), SharedString::new_static(MONO), 13.)) };
 }
 
-/// Takes the prefs' fonts for `message()` and `code()`.
+/// Takes the prefs' fonts and code size for `message()`, `code()` and
+/// `code_size()`.
 pub fn apply(cx: &App) {
-    let fonts = (message_font(cx), code_font(cx));
+    let size = prefs(cx).code_size.clamp(CODE_SIZES.0, CODE_SIZES.1);
+    let fonts = (message_font(cx), code_font(cx), size);
     CURRENT.with(|c| *c.borrow_mut() = fonts);
+}
+
+/// The code size, as last applied: replies' code, tool calls, diffs and the
+/// terminal.
+pub fn code_size() -> f32 {
+    CURRENT.with(|c| c.borrow().2)
 }
 
 /// The message font, as last applied.

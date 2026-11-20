@@ -35,7 +35,6 @@ use crate::ui::common::caption;
 use crate::ui::palette::Palette;
 use crate::ui::state::prefs;
 
-const FONT_SIZE: f32 = 12.5;
 const SCROLLBACK: usize = 5000;
 const CHUNK: usize = 16 * 1024;
 
@@ -107,6 +106,8 @@ pub struct TerminalView {
     size: Size,
     sent: (u16, u16),
     bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// Settings' code size, which sets the cells' size.
+    font_size: f32,
     focus: FocusHandle,
     selecting: bool,
     generation: u64,
@@ -160,11 +161,17 @@ impl TerminalView {
             size,
             sent: (0, 0),
             bounds: Rc::new(Cell::new(None)),
+            font_size: crate::ui::fonts::code_size(),
             focus: cx.focus_handle(),
             selecting: false,
             generation: 0,
             resize_task: None,
-            _subscriptions: vec![sub],
+            // A new code size or font changes the cells, and so the rows
+            // and columns the shell is told.
+            _subscriptions: vec![
+                sub,
+                cx.observe_global::<crate::ui::state::AppPrefs>(|_, cx| cx.notify()),
+            ],
         }
     }
 
@@ -384,10 +391,10 @@ impl TerminalView {
         let id = window.text_system().resolve_font(&f);
         let width = window
             .text_system()
-            .advance(id, px(FONT_SIZE), 'm')
+            .advance(id, px(self.font_size), 'm')
             .map(|s| s.width)
-            .unwrap_or(px(FONT_SIZE * 0.6));
-        (width, px((FONT_SIZE * 1.3).round()))
+            .unwrap_or(px(self.font_size * 0.6));
+        (width, px((self.font_size * 1.3).round()))
     }
 
     fn fit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -773,6 +780,7 @@ async fn socket(
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(cx);
+        self.font_size = crate::ui::fonts::code_size();
         self.fit(window, cx);
         let focused = self.focus.is_focused(window);
         let theme = ansi(gpui_kit::component::ActiveTheme::theme(&**cx).is_dark());
@@ -804,7 +812,7 @@ impl Render for TerminalView {
         let mut grid = v_flex()
             .px_2()
             .py_1()
-            .text_size(px(FONT_SIZE))
+            .text_size(px(self.font_size))
             .line_height(lh)
             .font_family(crate::ui::fonts::code());
         for l in lines {

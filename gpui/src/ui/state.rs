@@ -27,8 +27,8 @@ pub fn update_prefs(cx: &mut App, f: impl FnOnce(&mut Prefs)) {
 pub fn apply_text_size(cx: &mut App) {
     use gpui_kit::component::Theme;
     let size = prefs(cx).text_size.clamp(10., 20.);
-    let code_size = (prefs(cx).message_size - 1.).clamp(9., 23.);
     crate::ui::fonts::apply(cx);
+    let code_size = crate::ui::fonts::code_size();
     let code = crate::ui::fonts::code();
     let theme = Theme::global_mut(cx);
     let changed =

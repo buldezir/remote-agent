@@ -246,7 +246,10 @@ impl DiffView {
         let wrap = prefs(cx).diff_wrap;
         let patch = file_patch(&diff.patch, path);
         let stat = diff.files.iter().find(|f| f.path == path);
-        let mut lines = v_flex().w_full().font_family(crate::ui::fonts::code()).text_xs();
+        let mut lines = v_flex()
+            .w_full()
+            .font_family(crate::ui::fonts::code())
+            .text_size(px(crate::ui::fonts::code_size()));
         let mut count = 0;
         for line in patch_lines(&patch) {
             count += 1;
