@@ -31,6 +31,12 @@ ureq = { version = "3", default-features = false, features = ["json"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 
+[profile.release]
+# Cargo strips the standard library's debug info from a release build, about
+# 70 KB of 37 MB here, with the toolchain's rust-objcopy. Rust 1.100's can't
+# find its libLLVM.dylib on macOS, so every build warned that stripping failed.
+strip = "none"
+
 [profile.dev]
 # GPUI is slow unoptimized; keep our own crate quick to rebuild.
 opt-level = 1
