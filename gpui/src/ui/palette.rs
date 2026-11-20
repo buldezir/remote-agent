@@ -108,23 +108,34 @@ pub fn install_theme(cx: &mut App) {
         theme.font_size = px(14.);
         theme.mono_font_size = px(12.5);
     });
-    let mode = forced_mode().unwrap_or_else(|| cx.window_appearance().into());
+    let mode = forced_mode(cx).unwrap_or_else(|| cx.window_appearance().into());
     Theme::change(mode, None, cx);
 }
 
-/// `RA_GPUI_APPEARANCE=light|dark` tries a theme without changing the Mac's appearance.
-fn forced_mode() -> Option<ThemeMode> {
-    match std::env::var("RA_GPUI_APPEARANCE").ok()?.as_str() {
+/// `RA_GPUI_APPEARANCE=light|dark` tries a theme without changing the Mac's
+/// appearance; else the Theme setting, unless it follows the system.
+fn forced_mode(cx: &App) -> Option<ThemeMode> {
+    let chosen = std::env::var("RA_GPUI_APPEARANCE").ok().or_else(|| {
+        cx.try_global::<crate::ui::state::AppPrefs>()
+            .map(|p| p.0.prefs.appearance.clone())
+    })?;
+    match chosen.as_str() {
         "light" => Some(ThemeMode::Light),
         "dark" => Some(ThemeMode::Dark),
         _ => None,
     }
 }
 
-/// Follows the system's appearance as it changes.
+/// Follows the system's appearance as it changes, or the Theme setting.
 pub fn follow_appearance(window: &mut Window, cx: &mut App) {
-    let mode = forced_mode().unwrap_or_else(|| window.appearance().into());
+    let mode = forced_mode(cx).unwrap_or_else(|| window.appearance().into());
     if cx.theme().mode != mode {
-        Theme::change(mode, None, cx);
+        Theme::change(mode, Some(window), cx);
     }
+}
+
+/// The Theme setting changed.
+pub fn apply_appearance(window: &mut Window, cx: &mut App) {
+    follow_appearance(window, cx);
+    cx.refresh_windows();
 }

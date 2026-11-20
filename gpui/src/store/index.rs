@@ -77,6 +77,13 @@ impl IndexState {
         out
     }
 
+    /// Archived sessions, the latest first.
+    pub fn archived_sessions(&self) -> Vec<Rc<Session>> {
+        let mut out: Vec<Rc<Session>> = self.sessions.values().filter(|s| s.archived).cloned().collect();
+        out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at).then_with(|| a.id.cmp(&b.id)));
+        out
+    }
+
     /// Projects by name.
     pub fn projects_by_name(&self) -> Vec<Rc<Project>> {
         let mut out: Vec<Rc<Project>> = self.projects.values().cloned().collect();

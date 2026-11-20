@@ -8,14 +8,17 @@ use std::future::Future;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui_kit::{Context, EventEmitter, Task};
+use gpui_kit::{AppContext as _, Context, EventEmitter, Task};
 use serde_json::{Value, json};
 
+use crate::images::{Images, Prepared};
 use crate::net::{CALL_TIMEOUT, NetEvent, Rpc};
+use crate::protocol::ImageRef;
 use crate::protocol::{
     HarnessInfo, HarnessList, INDEX_STREAM, Notification, RpcError, ServerInfo, Session, session_id_of_stream,
     session_stream,
 };
+use crate::store::alert::{SessionAlert, alert};
 use crate::store::index::IndexState;
 use crate::store::servers::SavedServer;
 use crate::store::session::SessionState;
@@ -31,6 +34,8 @@ pub enum ConnState {
 pub enum ConnEvent {
     /// This URL connected; the app saves it first.
     UrlWorked(String),
+    /// A session changed in a way the user wants to hear about.
+    Alert { session: Rc<Session>, alert: SessionAlert },
 }
 
 pub struct ServerConn {
@@ -42,6 +47,11 @@ pub struct ServerConn {
     /// None until loaded.
     pub harnesses: Option<Vec<HarnessInfo>>,
     pub stores: HashMap<String, SessionState>,
+    /// The base URL that connected last, for images and the terminal.
+    pub base_url: Option<String>,
+    pub token: String,
+    /// The sockets' runtime, which the terminal's socket runs on too.
+    pub runtime: tokio::runtime::Handle,
     rpc: Rpc,
     _events: Task<()>,
 }
@@ -66,6 +76,9 @@ impl ServerConn {
             index: IndexState::default(),
             harnesses: None,
             stores: HashMap::new(),
+            base_url: saved.urls.first().cloned(),
+            token: saved.token.clone(),
+            runtime: runtime.clone(),
             rpc,
             _events: task,
         }
@@ -116,6 +129,7 @@ impl ServerConn {
                 self.name = info.name.clone();
                 self.info = Some(info);
                 self.state = ConnState::Connected;
+                self.base_url = Some(url.clone());
                 cx.emit(ConnEvent::UrlWorked(url));
                 // The index first, then each store a view shows.
                 self.subscribe(INDEX_STREAM.to_string(), cx);
@@ -154,8 +168,25 @@ impl ServerConn {
         match n {
             Notification::Events { stream, events } => {
                 let gap = if stream == INDEX_STREAM {
+                    // Live changes only: a replay is old news.
+                    let before: HashMap<String, Rc<Session>> = if self.index.sync.live {
+                        events
+                            .iter()
+                            .filter_map(|e| e.session.as_ref())
+                            .filter_map(|s| self.index.sessions.get(&s.id).map(|old| (s.id.clone(), old.clone())))
+                            .collect()
+                    } else {
+                        HashMap::new()
+                    };
                     let gap = self.index.apply(events);
                     self.copy_index_sessions();
+                    for (id, old) in before {
+                        if let Some(next) = self.index.sessions.get(&id).cloned()
+                            && let Some(alert) = alert(&old, &next)
+                        {
+                            cx.emit(ConnEvent::Alert { session: next, alert });
+                        }
+                    }
                     gap
                 } else if let Some(store) = session_id_of_stream(&stream).and_then(|id| self.stores.get_mut(id)) {
                     store.apply(events)
@@ -241,7 +272,16 @@ impl ServerConn {
     }
 
     pub fn refresh_harnesses(&mut self, cx: &mut Context<Self>) {
-        let call = self.call_with_timeout("harness.list", json!({}), Duration::from_secs(45));
+        self.load_harnesses(false, cx);
+    }
+
+    /// Asks the agents again, as after one was updated or signed in.
+    pub fn refresh_harnesses_now(&mut self, cx: &mut Context<Self>) {
+        self.load_harnesses(true, cx);
+    }
+
+    fn load_harnesses(&mut self, refresh: bool, cx: &mut Context<Self>) {
+        let call = self.call_with_timeout("harness.list", json!({"refresh": refresh}), Duration::from_secs(45));
         cx.spawn(async move |this, cx| {
             if let Ok(value) = call.await
                 && let Ok(list) = serde_json::from_value::<HarnessList>(value)
@@ -256,22 +296,29 @@ impl ServerConn {
     }
 
     /// Sends a prompt: it shows in the outbox until the transcript has it,
-    /// and leaves it again if rad never takes it.
+    /// and leaves it again if rad never takes it. `steer` gives it to the
+    /// running turn where the agent takes that.
     pub fn send_prompt(
         &mut self,
         session_id: &str,
         text: String,
+        images: Vec<ImageRef>,
+        steer: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<(), RpcError>> {
         let command_id = uuid::Uuid::new_v4().to_string();
         if let Some(store) = self.stores.get_mut(session_id) {
-            store.add_outgoing(&command_id, &text, Vec::new());
+            store.add_outgoing(&command_id, &text, images.clone());
         }
         cx.notify();
-        let call = self.call(
-            "session.prompt",
-            json!({"commandId": command_id, "sessionId": session_id, "text": text}),
-        );
+        let mut params = json!({"commandId": command_id, "sessionId": session_id, "text": text});
+        if !images.is_empty() {
+            params["images"] = json!(images.iter().map(|i| i.id.clone()).collect::<Vec<_>>());
+        }
+        if steer {
+            params["steer"] = json!(true);
+        }
+        let call = self.call("session.prompt", params);
         let session_id = session_id.to_string();
         cx.spawn(async move |this, cx| {
             let result = call.await.map(|_| ());
@@ -285,5 +332,25 @@ impl ServerConn {
             }
             result
         })
+    }
+
+    /// Uploads an image the user attached; it's in the cache once it's in.
+    pub fn upload_image(&self, prepared: Prepared, cx: &mut Context<Self>) -> Task<Result<ImageRef, RpcError>> {
+        let Some(base) = self.base_url.clone() else {
+            return Task::ready(Err(RpcError::new("disconnected", "Not connected to rad.")));
+        };
+        let token = self.token.clone();
+        let bytes = prepared.bytes.clone();
+        let upload = cx.background_spawn(async move { crate::images::upload(&base, &token, &bytes) });
+        cx.spawn(async move |_, cx| {
+            let image = upload.await?;
+            cx.update(|cx| Images::store(&image.id, &prepared, cx));
+            Ok(image)
+        })
+    }
+
+    /// Loads an image of this server's (`Images::get`).
+    pub fn image(&self, id: &str, cx: &mut gpui_kit::App) -> crate::images::Loaded {
+        Images::get(id, self.base_url.as_deref(), &self.token, cx)
     }
 }

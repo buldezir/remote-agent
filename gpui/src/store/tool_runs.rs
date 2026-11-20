@@ -198,7 +198,6 @@ pub fn transcript_rows(
 }
 
 /// The runs that fold, in order.
-#[cfg(test)]
 pub fn tool_runs(items: &[Rc<Item>], turns: &HashMap<String, Rc<Turn>>) -> Vec<Rc<ToolRun>> {
     segments(items, turns)
         .into_iter()

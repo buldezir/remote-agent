@@ -1,0 +1,858 @@
+//! The composer: the prompt, its images, slash-command suggestions,
+//! queueing and steering, drafts, dictation and Stop.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use gpui_kit::assets::IconName as L;
+use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
+use gpui_kit::component::input::Textarea;
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::{
+    AnyElement, App, AppContext as _, ClickEvent, ClipboardEntry, ClipboardItem, Context, ExternalPaths, FontWeight,
+    Image, InteractiveElement as _, IntoElement, KeyDownEvent, ObjectFit, ParentElement as _, PathPromptOptions,
+    SharedString, StatefulInteractiveElement as _, Styled as _, StyledImage as _, Window, div, img, px, rems,
+};
+use serde_json::json;
+
+use super::{AttachState, Attachment, SessionView, explain};
+use crate::images::{Loaded, Prepared, prepare};
+use crate::protocol::{CommandList, ImageRef};
+use crate::store::search::{command_query, command_suggestions};
+use crate::ui::common::{MONO, caption};
+use crate::ui::dialogs::{self, Choice};
+use crate::ui::palette::Palette;
+
+impl SessionView {
+    fn draft_text(&self, cx: &App) -> String {
+        self.composer.read(cx).value().to_string()
+    }
+
+    fn has_something(&self, cx: &App) -> bool {
+        !self.draft_text(cx).trim().is_empty() || !self.attachments.is_empty()
+    }
+
+    fn uploads_done(&self) -> bool {
+        self.attachments.iter().all(|a| matches!(a.state, AttachState::Done(_)))
+    }
+
+    pub(crate) fn can_send(&self, cx: &App) -> bool {
+        self.has_something(cx) && self.uploads_done() && self.conn.read(cx).is_connected() && !self.read_only(cx)
+    }
+
+    pub(crate) fn update_placeholder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let status = self.speech.read(cx).status();
+        let archived = self.session(cx).is_some_and(|s| s.archived);
+        let text = if status.is_active() {
+            "Listening…"
+        } else if archived && !self.read_only(cx) {
+            "Archived. Send to unarchive"
+        } else if archived {
+            "Archived"
+        } else if self.is_running(cx) {
+            "Queue a follow-up…"
+        } else {
+            "Prompt"
+        };
+        if self.placeholder != text {
+            self.placeholder = text;
+            self.composer.update(cx, |c, cx| c.set_placeholder(text, window, cx));
+        }
+    }
+
+    // MARK: Sending
+
+    pub(crate) fn composer_enter(&mut self, shift: bool, secondary: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.suggestions_shown(cx) && !shift {
+            self.accept_suggestion(true, window, cx);
+            return;
+        }
+        if shift && secondary {
+            let steer = self.can_steer(&self.draft_text(cx), cx);
+            self.send(steer, window, cx);
+        } else if !shift {
+            self.send(false, window, cx);
+        }
+    }
+
+    pub fn send(&mut self, steer: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.can_send(cx) {
+            return;
+        }
+        if self.session(cx).is_some_and(|s| s.archived) {
+            self.unarchive_then(window, cx, move |this, window, cx| this.send(steer, window, cx));
+            return;
+        }
+        let text = self.draft_text(cx).trim().to_string();
+        let images: Vec<ImageRef> = self
+            .attachments
+            .iter()
+            .filter_map(|a| match &a.state {
+                AttachState::Done(r) => Some(r.clone()),
+                _ => None,
+            })
+            .collect();
+        let taken = std::mem::take(&mut self.attachments);
+        self.composer.update(cx, |c, cx| c.set_value("", window, cx));
+        self.error = None;
+        self.list.scroll_to_end();
+        let id = self.session_id.clone();
+        let task = self
+            .conn
+            .update(cx, |c, cx| c.send_prompt(&id, text.clone(), images, steer, cx));
+        cx.spawn_in(window, async move |this, cx| {
+            if let Err(e) = task.await {
+                let _ = this.update_in(cx, |this, window, cx| {
+                    // Give the prompt back, so it isn't lost.
+                    let now = this.draft_text(cx);
+                    let back = [text, now]
+                        .into_iter()
+                        .filter(|t| !t.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    this.composer.update(cx, |c, cx| c.set_value(back, window, cx));
+                    let mut taken = taken;
+                    taken.append(&mut this.attachments);
+                    this.attachments = taken;
+                    dialogs::alert(window, cx, "Error", &explain(&e));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Asks to unarchive the session first, then goes on.
+    fn unarchive_then(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        let this = cx.entity().downgrade();
+        let then = std::rc::Rc::new(then);
+        dialogs::confirm(
+            window,
+            cx,
+            "Unarchive session?",
+            "This session is archived. Unarchive it to send your prompt.",
+            vec![Choice::new(
+                "Unarchive and Send",
+                ButtonVariant::Primary,
+                move |window, cx| {
+                    let then = then.clone();
+                    let _ = this.update(cx, |this, cx| {
+                        this.unarchiving = true;
+                        let call = this
+                            .conn
+                            .read(cx)
+                            .call("session.unarchive", json!({"sessionId": this.session_id}));
+                        cx.spawn_in(window, async move |this, cx| {
+                            let result = call.await;
+                            let _ = this.update_in(cx, |this, window, cx| {
+                                this.unarchiving = false;
+                                match result {
+                                    Ok(v) => {
+                                        // The session as it is now, before its event comes.
+                                        if let Ok(s) = serde_json::from_value::<crate::protocol::Session>(v) {
+                                            let id = this.session_id.clone();
+                                            this.conn.update(cx, |c, _| {
+                                                if let Some(store) = c.stores.get_mut(&id) {
+                                                    store.set_session(std::rc::Rc::new(s));
+                                                }
+                                            });
+                                        }
+                                        then(this, window, cx);
+                                    }
+                                    Err(e) => {
+                                        dialogs::alert(window, cx, "Couldn't unarchive the session", &explain(&e))
+                                    }
+                                }
+                                cx.notify();
+                            });
+                        })
+                        .detach();
+                    });
+                },
+            )],
+        );
+    }
+
+    pub(crate) fn send_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.session(cx).is_some_and(|s| s.archived) {
+            self.unarchive_then(window, cx, |this, window, cx| this.send_draft(window, cx));
+            return;
+        }
+        self.run(
+            "session.sendDraft",
+            json!({"commandId": uuid::Uuid::new_v4().to_string(), "sessionId": self.session_id}),
+            cx,
+        );
+    }
+
+    /// Takes the session's draft back into the prompt.
+    pub(crate) fn edit_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(draft) = self.session(cx).and_then(|s| s.draft.clone()) else {
+            return;
+        };
+        let now = self.draft_text(cx);
+        let text = [draft.text.clone(), now]
+            .into_iter()
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.composer.update(cx, |c, cx| {
+            c.set_value(text, window, cx);
+            c.focus(window, cx);
+        });
+        for image in draft.images {
+            let key = self.next_key();
+            self.attachments.push(Attachment {
+                key,
+                prepared: None,
+                state: AttachState::Done(image),
+            });
+        }
+        self.run(
+            "session.saveDraft",
+            json!({"sessionId": self.session_id, "text": ""}),
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// Save as Draft: offered in a session nothing was sent to yet.
+    pub(crate) fn can_save_draft(&self, cx: &App) -> bool {
+        let conn = self.conn.read(cx);
+        let drafts = conn.info.as_ref().is_some_and(|i| i.drafts);
+        let Some(store) = conn.stores.get(&self.session_id) else {
+            return false;
+        };
+        let Some(s) = &store.session else { return false };
+        drafts
+            && !s.archived
+            && s.draft.is_none()
+            && store.sync.synced
+            && store.transcript.is_empty()
+            && store.outbox.is_empty()
+            && self.has_something(cx)
+    }
+
+    pub fn save_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.can_save_draft(cx) || !self.uploads_done() || self.saving_draft {
+            return;
+        }
+        let text = self.draft_text(cx).trim().to_string();
+        let ids: Vec<String> = self
+            .attachments
+            .iter()
+            .filter_map(|a| match &a.state {
+                AttachState::Done(r) => Some(r.id.clone()),
+                _ => None,
+            })
+            .collect();
+        let keys: Vec<u64> = self.attachments.iter().map(|a| a.key).collect();
+        self.saving_draft = true;
+        let call = self.conn.read(cx).call(
+            "session.saveDraft",
+            json!({"sessionId": self.session_id, "text": text, "images": ids}),
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            let result = call.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.saving_draft = false;
+                match result {
+                    Ok(_) => {
+                        if this.draft_text(cx).trim() == text {
+                            this.composer.update(cx, |c, cx| c.set_value("", window, cx));
+                        }
+                        this.attachments.retain(|a| !keys.contains(&a.key));
+                    }
+                    Err(e) => this.error = Some(explain(&e)),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    // MARK: Slash commands
+
+    pub(crate) fn update_commands(&mut self, cx: &mut Context<Self>) {
+        let draft = self.draft_text(cx);
+        if self.commands_dismissed.as_ref().is_some_and(|d| *d != draft) {
+            self.commands_dismissed = None;
+        }
+        self.command_index = 0;
+        let active = command_query(&draft).is_some();
+        if !active {
+            // Looked up again when the picker opens again.
+            self.commands.fetched = false;
+            return;
+        }
+        if self.commands.fetched || !self.conn.read(cx).is_connected() {
+            return;
+        }
+        self.commands.fetched = true;
+        self.commands.loading = true;
+        self.commands.failed = false;
+        let call = self.conn.read(cx).call_with_timeout(
+            "session.commands",
+            json!({"sessionId": self.session_id}),
+            std::time::Duration::from_secs(80),
+        );
+        cx.spawn(async move |this, cx| {
+            let result = call.await;
+            let _ = this.update(cx, |this, cx| {
+                this.commands.loading = false;
+                match result {
+                    Ok(v) => this.commands.list = serde_json::from_value::<CommandList>(v).unwrap_or_default().commands,
+                    Err(e) if e.code == "method_not_found" => this.commands.list.clear(),
+                    Err(_) => this.commands.failed = true,
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn suggestions(&self, cx: &App) -> Vec<crate::protocol::Command> {
+        let draft = self.draft_text(cx);
+        if self.commands_dismissed.as_deref() == Some(draft.as_str()) || self.session(cx).is_some_and(|s| s.archived) {
+            return Vec::new();
+        }
+        let conn = self.conn.read(cx);
+        let mut all = self.commands.list.clone();
+        if let Some(h) = conn.session(&self.session_id).and_then(|s| conn.harness(&s.harness)) {
+            all.extend(h.commands.iter().cloned());
+        }
+        command_suggestions(&draft, &all)
+    }
+
+    fn suggestions_shown(&self, cx: &App) -> bool {
+        command_query(&self.draft_text(cx)).is_some()
+            && self.commands_dismissed.as_deref() != Some(self.draft_text(cx).as_str())
+            && !self.suggestions(cx).is_empty()
+    }
+
+    /// Tab or Return on a suggestion: completes the prompt to it, or sends
+    /// it when the prompt is that command already.
+    fn accept_suggestion(&mut self, enter: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let list = self.suggestions(cx);
+        let Some(c) = list.get(self.command_index.min(list.len().saturating_sub(1))) else {
+            return;
+        };
+        let prompt = format!("/{}", c.name);
+        if enter && self.draft_text(cx).trim() == prompt {
+            self.send(false, window, cx);
+            return;
+        }
+        let text = format!("{prompt} ");
+        self.composer.update(cx, |c, cx| {
+            c.set_value(text.clone(), window, cx);
+            c.set_cursor_position(
+                gpui_kit::component::input::Position::new(0, text.len() as u32),
+                window,
+                cx,
+            );
+        });
+    }
+
+    /// The suggestions' keys, before the prompt sees them.
+    pub(crate) fn composer_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let k = &ev.keystroke;
+        let plain = !k.modifiers.platform && !k.modifiers.control && !k.modifiers.alt;
+        if k.key == "v" && k.modifiers.platform && self.paste_images(window, cx) {
+            cx.stop_propagation();
+            return;
+        }
+        if !self.suggestions_shown(cx) || !plain {
+            return;
+        }
+        let n = self.suggestions(cx).len();
+        match k.key.as_str() {
+            "down" => self.command_index = (self.command_index + 1).min(n - 1),
+            "up" => self.command_index = self.command_index.saturating_sub(1),
+            "tab" => self.accept_suggestion(false, window, cx),
+            "escape" => self.commands_dismissed = Some(self.draft_text(cx)),
+            _ => return,
+        }
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    // MARK: Images
+
+    /// ⌘V with images on the pasteboard and no text: attaches them.
+    fn paste_images(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(item) = cx.read_from_clipboard() else {
+            return false;
+        };
+        self.attach_clipboard(&item, window, cx)
+    }
+
+    pub(crate) fn attach_clipboard(
+        &mut self,
+        item: &ClipboardItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mut images: Vec<Vec<u8>> = Vec::new();
+        let mut paths: Vec<PathBuf> = Vec::new();
+        let mut text = false;
+        for e in item.entries() {
+            match e {
+                ClipboardEntry::Image(i) => images.push(i.bytes().to_vec()),
+                ClipboardEntry::ExternalPaths(p) => paths.extend(p.paths().iter().cloned()),
+                ClipboardEntry::String(s) => text |= !s.text().is_empty(),
+            }
+        }
+        let image_paths: Vec<PathBuf> = paths.iter().filter(|p| is_image_path(p)).cloned().collect();
+        if !image_paths.is_empty() && image_paths.len() == paths.len() {
+            self.attach_paths(image_paths, window, cx);
+            return true;
+        }
+        if images.is_empty() || text || !paths.is_empty() {
+            return false;
+        }
+        for bytes in images {
+            self.attach_bytes(bytes, window, cx);
+        }
+        true
+    }
+
+    pub(crate) fn pick_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Attach".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = rx.await {
+                let _ = this.update_in(cx, |this, window, cx| this.attach_paths(paths, window, cx));
+            }
+        })
+        .detach();
+    }
+
+    pub(crate) fn drop_paths(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
+        let images: Vec<PathBuf> = paths.paths().iter().filter(|p| is_image_path(p)).cloned().collect();
+        self.attach_paths(images, window, cx);
+    }
+
+    fn attach_paths(&mut self, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+        for path in paths {
+            let read = cx.background_spawn(async move { std::fs::read(&path) });
+            cx.spawn_in(window, async move |this, cx| {
+                if let Ok(bytes) = read.await {
+                    let _ = this.update_in(cx, |this, window, cx| this.attach_bytes(bytes, window, cx));
+                }
+            })
+            .detach();
+        }
+    }
+
+    fn attach_bytes(&mut self, bytes: Vec<u8>, window: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only(cx) {
+            return;
+        }
+        let task = cx.background_spawn(async move { prepare(&bytes) });
+        cx.spawn_in(window, async move |this, cx| {
+            let prepared = task.await;
+            let _ = this.update_in(cx, |this, _, cx| match prepared {
+                Ok(prepared) => {
+                    let image = Arc::new(Image::from_bytes(prepared.format, prepared.bytes.clone()));
+                    let key = this.next_key();
+                    this.attachments.push(Attachment {
+                        key,
+                        prepared: Some((prepared, image)),
+                        state: AttachState::Uploading,
+                    });
+                    this.upload(key, cx);
+                }
+                Err(e) => {
+                    this.error = Some(e);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn upload(&mut self, key: u64, cx: &mut Context<Self>) {
+        let Some(a) = self.attachments.iter_mut().find(|a| a.key == key) else {
+            return;
+        };
+        let Some((prepared, _)) = &a.prepared else { return };
+        let prepared: Prepared = prepared.clone();
+        a.state = AttachState::Uploading;
+        let task = self.conn.update(cx, |c, cx| c.upload_image(prepared, cx));
+        cx.spawn(async move |this, cx| {
+            let result = task.await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(a) = this.attachments.iter_mut().find(|a| a.key == key) {
+                    a.state = match result {
+                        Ok(r) => AttachState::Done(r),
+                        Err(e) => AttachState::Failed(e.to_string()),
+                    };
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    // MARK: Drawing
+
+    fn render_attachments(&mut self, p: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.attachments.is_empty() {
+            return None;
+        }
+        let mut row = h_flex().gap_1p5().flex_wrap();
+        let shown: Vec<Shown> = self
+            .attachments
+            .iter()
+            .map(|a| {
+                let id = match &a.state {
+                    AttachState::Done(r) => Some(r.id.clone()),
+                    _ => None,
+                };
+                let failed = match &a.state {
+                    AttachState::Failed(e) => Some(e.clone()),
+                    _ => None,
+                };
+                (
+                    a.key,
+                    a.prepared.as_ref().map(|(_, i)| i.clone()),
+                    id,
+                    matches!(a.state, AttachState::Uploading),
+                    failed,
+                )
+            })
+            .collect();
+        for (key, image, id, uploading, failed) in shown {
+            let image = image.or_else(|| {
+                let id = id?;
+                match self.conn.update(cx, |c, cx| c.image(&id, cx)) {
+                    Loaded::Ready(i) => Some(i),
+                    _ => None,
+                }
+            });
+            let mut thumb = div()
+                .id(SharedString::from(format!("attach-{key}")))
+                .relative()
+                .size(px(56.))
+                .rounded_md()
+                .overflow_hidden()
+                .bg(p.crust);
+            if let Some(image) = image {
+                thumb = thumb.child(img(image).size_full().object_fit(ObjectFit::Cover));
+            }
+            if uploading {
+                thumb = thumb.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(p.base.opacity(0.5))
+                        .child(Spinner::new().small()),
+                );
+            }
+            if let Some(e) = failed {
+                thumb = thumb
+                    .cursor_pointer()
+                    .tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(format!("{e} Click to try again.")).build(window, cx)
+                    })
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.upload(key, cx)))
+                    .child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(p.base.opacity(0.6))
+                            .child(Icon::new(L::RotateCw).text_color(p.red)),
+                    );
+            }
+            thumb = thumb.child(
+                div().absolute().top_0p5().right_0p5().child(
+                    Button::new(SharedString::from(format!("unattach-{key}")))
+                        .xsmall()
+                        .icon(IconName::Close)
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.attachments.retain(|a| a.key != key);
+                            cx.notify();
+                        })),
+                ),
+            );
+            row = row.child(thumb);
+        }
+        Some(row.into_any_element())
+    }
+
+    fn render_suggestions(&self, p: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if command_query(&self.draft_text(cx)).is_none()
+            || self.commands_dismissed.as_deref() == Some(self.draft_text(cx).as_str())
+        {
+            return None;
+        }
+        let list = self.suggestions(cx);
+        let status = if self.commands.loading {
+            Some("Loading skills…")
+        } else if self.commands.failed {
+            Some("Skills unavailable. Try typing / again.")
+        } else {
+            None
+        };
+        if list.is_empty() && status.is_none() {
+            return None;
+        }
+        let mut col = v_flex().id("suggestions").max_h(px(220.)).overflow_y_scroll().gap_0p5();
+        for (i, c) in list.iter().enumerate() {
+            let selected = i == self.command_index.min(list.len() - 1);
+            let name = c.name.clone();
+            col = col.child(
+                h_flex()
+                    .id(SharedString::from(format!("cmd-{i}")))
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .when(selected, |d| d.bg(p.surface0))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().text_xs().font_family(MONO).child(format!("/{}", c.name)))
+                            .when_some(c.description.clone(), |d, desc| {
+                                d.child(div().text_xs().text_color(p.subtext).line_clamp(2).child(desc))
+                            }),
+                    )
+                    .when_some(c.scope.clone(), |d, s| d.child(caption(capitalize(&s), p)))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        let text = format!("/{name} ");
+                        this.composer.update(cx, |c, cx| {
+                            c.set_value(text.clone(), window, cx);
+                            c.focus(window, cx);
+                        });
+                    })),
+            );
+        }
+        if let Some(s) = status {
+            col = col.child(caption(s, p).px_2().py_1());
+        }
+        Some(
+            div()
+                .p_1()
+                .rounded_lg()
+                .border_1()
+                .border_color(p.surface0)
+                .bg(p.mantle)
+                .child(col)
+                .into_any_element(),
+        )
+    }
+
+    pub(crate) fn render_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let p = Palette::of(cx);
+        let running = self.is_running(cx);
+        let connected = self.conn.read(cx).is_connected();
+        let read_only = self.read_only(cx);
+        let removed = self.store(cx).is_some_and(|s| s.removed);
+        let dictating = self.speech.read(cx).status().is_active();
+        let dictation = crate::ui::state::in_app_bundle() && self.speech.read(cx).is_available(cx);
+        let empty = !self.has_something(cx);
+        let can_send = self.can_send(cx) && !self.unarchiving;
+        let steers = can_send && self.can_steer(&self.draft_text(cx), cx);
+        let save_draft = self.can_save_draft(cx);
+        let attachments = self.render_attachments(&p, cx);
+        let suggestions = self.render_suggestions(&p, cx);
+        let this = cx.entity().downgrade();
+        let plus = Button::new("attach")
+            .small()
+            .ghost()
+            .icon(IconName::Plus)
+            .tooltip("Add images")
+            .disabled(read_only || removed)
+            .dropdown_menu(move |menu, _, cx| {
+                let has_image = cx
+                    .read_from_clipboard()
+                    .is_some_and(|i| i.entries().iter().any(|e| matches!(e, ClipboardEntry::Image(_))));
+                let (a, b) = (this.clone(), this.clone());
+                menu.item(
+                    PopupMenuItem::new("Files…")
+                        .icon(Icon::new(L::Image))
+                        .on_click(move |_, window, cx| {
+                            let _ = a.update(cx, |v, cx| v.pick_images(window, cx));
+                        }),
+                )
+                .item(
+                    PopupMenuItem::new("Paste Image")
+                        .icon(Icon::new(L::ClipboardPaste))
+                        .disabled(!has_image)
+                        .on_click(move |_, window, cx| {
+                            let _ = b.update(cx, |v, cx| {
+                                if let Some(item) = cx.read_from_clipboard() {
+                                    v.attach_clipboard(&item, window, cx);
+                                }
+                            });
+                        }),
+                )
+            });
+        let main: AnyElement = if dictating {
+            Button::new("dictate")
+                .small()
+                .danger()
+                .icon(L::AudioLines)
+                .tooltip("Stop dictation")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_dictation(cx)))
+                .into_any_element()
+        } else if empty && dictation && !read_only {
+            Button::new("dictate")
+                .small()
+                .ghost()
+                .icon(L::Mic)
+                .tooltip("Dictate")
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_dictation(cx)))
+                .into_any_element()
+        } else {
+            Button::new("send")
+                .small()
+                .primary()
+                .icon(IconName::ArrowUp)
+                .label(if running { "Queue" } else { "Send" })
+                .tooltip(if steers {
+                    "Queue (Return) · Steer into the turn (⇧⌘Return)"
+                } else {
+                    "Send (Return)"
+                })
+                .disabled(!can_send || !connected || removed)
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(false, window, cx)))
+                .into_any_element()
+        };
+        let _ = window;
+        v_flex()
+            .px_5()
+            .pb_4()
+            .pt_1()
+            .gap_1()
+            .child(
+                v_flex()
+                    .max_w(rems(52.))
+                    .w_full()
+                    .mx_auto()
+                    .gap_1()
+                    .when_some(suggestions, |d, s| d.child(s))
+                    .child(
+                        v_flex()
+                            .gap_2()
+                            .p_2()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(p.surface0)
+                            .bg(p.mantle)
+                            .when_some(attachments, |d, a| d.child(a))
+                            .child(
+                                div()
+                                    .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                                        this.composer_key(ev, window, cx)
+                                    }))
+                                    .child(
+                                        Textarea::new(&self.composer)
+                                            .appearance(false)
+                                            .disabled(read_only || removed),
+                                    ),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(plus)
+                                    .when(!connected, |d| d.child(caption("Not connected", &p)))
+                                    .when(read_only, |d| d.child(caption("Archived", &p)))
+                                    .child(div().flex_1())
+                                    .when(save_draft, |d| {
+                                        d.child(
+                                            Button::new("save-draft")
+                                                .small()
+                                                .ghost()
+                                                .icon(L::Download)
+                                                .tooltip("Save as Draft (⌘S)")
+                                                .disabled(!self.uploads_done() || self.saving_draft)
+                                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                                    this.save_draft(window, cx)
+                                                })),
+                                        )
+                                    })
+                                    .when(running, |d| {
+                                        d.child(
+                                            Button::new("stop")
+                                                .small()
+                                                .outline()
+                                                .icon(IconName::Square)
+                                                .label("Stop")
+                                                .tooltip("Stop (⌘.)")
+                                                .on_click(
+                                                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                                                        this.interrupt(false, cx)
+                                                    }),
+                                                ),
+                                        )
+                                    })
+                                    .when(steers, |d| {
+                                        d.child(
+                                            Button::new("steer")
+                                                .small()
+                                                .outline()
+                                                .label("Steer")
+                                                .tooltip("Steer into the turn (⇧⌘Return)")
+                                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                                    this.send(true, window, cx)
+                                                })),
+                                        )
+                                    })
+                                    .child(main),
+                            ),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
+/// An attachment as the strip draws it: its key, picture, id once
+/// uploaded, whether it uploads, and why it failed.
+type Shown = (u64, Option<Arc<Image>>, Option<String>, bool, Option<String>);
+
+fn is_image_path(p: &std::path::Path) -> bool {
+    matches!(
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "tiff" | "tif" | "bmp")
+    )
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => String::new(),
+    }
+}
+
+#[allow(dead_code)]
+fn bold() -> FontWeight {
+    FontWeight::SEMIBOLD
+}

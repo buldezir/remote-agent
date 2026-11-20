@@ -1,22 +1,51 @@
 //! Remote Agent for macOS, in GPUI: an experimental client. It pairs with
-//! rad by link, lists every server's sessions in the Inbox layout, and shows
-//! a session's transcript, approvals and composer. See README.md.
+//! rad by link, lists every server's sessions in the Inbox, Projects or
+//! Columns layout, and shows a session with everything the other clients
+//! do with it: its transcript, approvals, composer, diffs, commits, forks
+//! and terminal. See README.md.
 
 mod conn;
+mod images;
 mod net;
 mod protocol;
 mod store;
 mod ui;
 
 use gpui_kit::component::TitleBar;
+use gpui_kit::component::input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui_kit::{
-    App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, SharedString, WindowBounds, WindowOptions, actions, px,
-    size,
+    Action, App, AppContext as _, Bounds, KeyBinding, Menu, MenuItem, OsAction, SharedString, WindowBounds,
+    WindowOptions, actions, px, size,
 };
 
+use crate::store::prefs::PrefsStore;
+use crate::store::servers::home_dir;
 use crate::ui::app::AppView;
+use crate::ui::state::{AppHandle, AppPrefs, apply_text_size};
 
-actions!(remote_agent, [Quit, NewSession]);
+actions!(
+    remote_agent,
+    [
+        Quit,
+        NewSession,
+        PairServer,
+        OpenSettings,
+        SearchSessions,
+        FindInSession,
+        FindNext,
+        FindPrevious,
+        RenameSession,
+        ShowChanges,
+        CommitSession,
+        ForkSession,
+        ToggleTerminal,
+        StopAgent,
+        SaveDraft,
+        LayoutInbox,
+        LayoutProjects,
+        LayoutColumns,
+    ]
+);
 
 fn main() {
     // The sockets run on a runtime of their own; GPUI's executor drives the UI.
@@ -29,25 +58,97 @@ fn main() {
     let handle = runtime.handle().clone();
 
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
+            cx.set_global(AppPrefs(PrefsStore::load(&home_dir())));
             ui::palette::install_theme(cx);
+            apply_text_size(cx);
 
             cx.on_action(|_: &Quit, cx| cx.quit());
             cx.bind_keys([
                 KeyBinding::new("cmd-q", Quit, None),
                 KeyBinding::new("cmd-n", NewSession, None),
+                KeyBinding::new("cmd-,", OpenSettings, None),
+                KeyBinding::new("shift-cmd-f", SearchSessions, None),
+                KeyBinding::new("cmd-f", FindInSession, None),
+                KeyBinding::new("cmd-g", FindNext, None),
+                KeyBinding::new("shift-cmd-g", FindPrevious, None),
+                KeyBinding::new("alt-cmd-c", CommitSession, None),
+                KeyBinding::new("cmd-j", ToggleTerminal, None),
+                KeyBinding::new("cmd-`", ToggleTerminal, None),
+                KeyBinding::new("cmd-.", StopAgent, None),
+                KeyBinding::new("cmd-s", SaveDraft, None),
+                KeyBinding::new("cmd-1", LayoutInbox, None),
+                KeyBinding::new("cmd-2", LayoutProjects, None),
+                KeyBinding::new("cmd-3", LayoutColumns, None),
             ]);
             cx.set_menus(vec![
                 Menu {
                     name: "Remote Agent".into(),
-                    items: vec![MenuItem::action("Quit Remote Agent", Quit)],
+                    items: vec![
+                        MenuItem::action("Settings…", OpenSettings),
+                        MenuItem::separator(),
+                        MenuItem::action("Quit Remote Agent", Quit),
+                    ],
                     disabled: false,
                 },
                 Menu {
                     name: "File".into(),
-                    items: vec![MenuItem::action("New Session", NewSession)],
+                    items: vec![
+                        MenuItem::action("New Session", NewSession),
+                        MenuItem::separator(),
+                        MenuItem::action("Pair a Server…", PairServer),
+                    ],
+                    disabled: false,
+                },
+                Menu {
+                    name: "Edit".into(),
+                    items: vec![
+                        MenuItem::os_action("Undo", Undo, OsAction::Undo),
+                        MenuItem::os_action("Redo", Redo, OsAction::Redo),
+                        MenuItem::separator(),
+                        MenuItem::os_action("Cut", Cut, OsAction::Cut),
+                        MenuItem::os_action("Copy", Copy, OsAction::Copy),
+                        MenuItem::os_action("Paste", Paste, OsAction::Paste),
+                        MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
+                        MenuItem::separator(),
+                        MenuItem::submenu(Menu {
+                            name: "Find".into(),
+                            items: vec![
+                                MenuItem::action("Search Sessions", SearchSessions),
+                                MenuItem::separator(),
+                                MenuItem::action("Find in Session", FindInSession),
+                                MenuItem::action("Find Next", FindNext),
+                                MenuItem::action("Find Previous", FindPrevious),
+                            ],
+                            disabled: false,
+                        }),
+                    ],
+                    disabled: false,
+                },
+                Menu {
+                    name: "Session".into(),
+                    items: vec![
+                        MenuItem::action("Rename…", RenameSession),
+                        MenuItem::separator(),
+                        MenuItem::action("Changes", ShowChanges),
+                        MenuItem::action("Commit…", CommitSession),
+                        MenuItem::action("Fork…", ForkSession),
+                        MenuItem::separator(),
+                        MenuItem::action("Terminal", ToggleTerminal),
+                        MenuItem::action("Stop", StopAgent),
+                        MenuItem::action("Save as Draft", SaveDraft),
+                    ],
+                    disabled: false,
+                },
+                Menu {
+                    name: "View".into(),
+                    items: vec![
+                        MenuItem::action("as Inbox", LayoutInbox),
+                        MenuItem::action("as Projects", LayoutProjects),
+                        MenuItem::action("as Columns", LayoutColumns),
+                    ],
                     disabled: false,
                 },
             ]);
@@ -58,7 +159,7 @@ fn main() {
             })
             .detach();
 
-            let bounds = Bounds::centered(None, size(px(1180.), px(780.)), cx);
+            let bounds = Bounds::centered(None, size(px(1240.), px(800.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(720.), px(480.))),
@@ -71,11 +172,39 @@ fn main() {
                 cx.new(|cx| AppView::new(handle, window, cx))
             })
             .expect("failed to open the window");
-            // Also when nothing in the window has focus, as after a session closes.
-            cx.on_action(move |_: &NewSession, cx| {
-                let view = view.clone();
-                let _ = window.update(cx, |_, window, cx| view.update(cx, |v, cx| v.new_session(window, cx)));
-            });
+            cx.set_global(AppHandle(view.downgrade()));
+            // With nothing in the window focused, as after a session closes,
+            // the window's own view takes its commands.
+            fn forward<A: Action + Clone>(
+                window: gpui_kit::AnyWindowHandle,
+                view: gpui_kit::Entity<AppView>,
+                cx: &mut App,
+            ) {
+                cx.on_action(move |a: &A, cx| {
+                    let (a, view) = (a.clone(), view.clone());
+                    let _ = window.update(cx, |_, window, cx| {
+                        view.update(cx, |v, cx| v.focus_root(window, cx));
+                        window.dispatch_action(Box::new(a), cx);
+                    });
+                });
+            }
+            forward::<NewSession>(window, view.clone(), cx);
+            forward::<PairServer>(window, view.clone(), cx);
+            forward::<OpenSettings>(window, view.clone(), cx);
+            forward::<SearchSessions>(window, view.clone(), cx);
+            forward::<FindInSession>(window, view.clone(), cx);
+            forward::<FindNext>(window, view.clone(), cx);
+            forward::<FindPrevious>(window, view.clone(), cx);
+            forward::<RenameSession>(window, view.clone(), cx);
+            forward::<ShowChanges>(window, view.clone(), cx);
+            forward::<CommitSession>(window, view.clone(), cx);
+            forward::<ForkSession>(window, view.clone(), cx);
+            forward::<ToggleTerminal>(window, view.clone(), cx);
+            forward::<StopAgent>(window, view.clone(), cx);
+            forward::<SaveDraft>(window, view.clone(), cx);
+            forward::<LayoutInbox>(window, view.clone(), cx);
+            forward::<LayoutProjects>(window, view.clone(), cx);
+            forward::<LayoutColumns>(window, view.clone(), cx);
             cx.activate(true);
         });
     drop(runtime);

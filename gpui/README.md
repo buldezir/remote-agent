@@ -4,18 +4,25 @@ A Mac client for rad written in Rust with [GPUI](https://gpui.rs), Zed's GPU-acc
 
 ## What it does
 
-- **Pairing:** paste the link `rad pair --print-url` prints, or pass it on the command line.
-- **The sidebar:** every paired server's sessions in the Inbox layout, Needs You first, then Recent.
-- **A session:** its transcript, with runs of tool calls folded into one row ("Ran 4 commands, edited 3 files") as in the other clients. A tool call opens to show its command and output.
-- **Agent replies:** Markdown, with raw HTML kept as text.
-- **Approvals:** tool approvals, plans, and questions (options only).
-- **The composer:** Return sends and Shift-Return starts a new line. A prompt sent while the agent works waits in the queue, where Send now and Cancel act on it. Stop interrupts the turn, and a session's draft can be sent.
-- **New sessions (⌘N):** pick a project and an agent, and optionally a worktree. The form starts with the server's default agent.
-- **Unread state:** a session is marked read on rad while it shows in the window in front.
-- **Connections:** the client reconnects with backoff and resubscribes from where it left off.
-- **Appearance:** Catppuccin, Frappé when the Mac is dark and Latte when it's light.
+It does what the SwiftUI Mac client does, with the gaps listed below.
 
-Not yet: images (attaching, or showing the ones in replies and tool output), diffs and revert, forks, commits, the terminal, search, renaming and archiving, models, efforts and modes, answers to questions in your own words, Server Settings and usage limits, notifications, and the Projects and Columns layouts.
+- **Pairing:** paste the link `rad pair --print-url` prints, or pass it on the command line. Settings › Servers reconnects, removes (unpairs) and adds servers.
+- **The sidebar:** Inbox (Needs You, Recent, Archived, Servers), Projects (each server's projects with their sessions) or Columns (Needs You, Running, All Sessions, each project and the archive, beside their sessions). View › as Inbox, as Projects, as Columns (⌘1–3). Right-click a session to rename, archive, unarchive or delete it, a server for New Session, Reconnect, Server Settings and Remove, a project for New Session and Forget Project. "Archive old sessions" archives what had nothing new for a week.
+- **Search (⇧⌘F):** every connected server's sessions, merged round-robin, with snippets; a result opens its session at the item, which lights up for a moment. **Find in the session (⌘F, ⌘G, ⇧⌘G)** over the transcript, opening the run that holds the match.
+- **A session:** its transcript, with runs of tool calls folded into one row ("Ran 4 commands, edited 3 files"); a tool call opens to its command, edit, new content or input, and its output (30 lines, then "Show all"). Sub-agents' steps sit in their tool call. Replies are Markdown, with raw HTML kept as text, and their `rad-image:` pictures, the prompts' and the tools' images in a viewer. The header shows the model, effort, permissions and context, the worktree and branch; the foot, what runs in the background and a session's error.
+- **The ⋯ menu:** Permissions, Find, Changes, Commit…, Terminal, Rename…, Fork…, Archive…, Delete…, the branch, and Force stop while it runs. The Session menu has them too (⌥⌘C commits).
+- **Approvals:** tool approvals (Deny asks for a reason), plans, and questions with their options and an answer in your own words.
+- **The composer:** Return sends, Shift-Return starts a new line, ⇧⌘Return steers into the running turn for agents that take it. Slash commands are suggested as you type `/`. Images attach from Files…, ⌘V, Paste Image or a drop, scaled to 2048 px and uploaded at once. Queued prompts have Send now, Steer and Cancel; Stop (⌘.) interrupts. Save as Draft (⌘S) and a session's draft (Edit, Send). Sending to an archived session offers to unarchive it. A prompt you haven't sent stays for the next launch. Dictation, in the app bundle.
+- **Changes:** the session's diff or a turn's, file by file, and Revert files… to before a turn in a worktree.
+- **Commit:** the preview, the message, Commit, Commit & push, or Commit, push & open PR, and the steps as rad runs them.
+- **Fork:** after which turn, the agent and its options, the project folder, a new worktree or this session's.
+- **The terminal (⌘J):** the session's shell on the server, instead of the messages, below them or beside them, with copy on select. Hiding it leaves the shell running; it resumes where it left off.
+- **New sessions (⌘N):** the project (or a folder added as one, or Forget), the agent with its model, effort and permissions and its usage gauge, the project folder, a new worktree (a branch, its name and base) or an existing one, the prompt with images, Save as Draft, and "Continue a terminal session…" to import one. It starts with the server's default agent, else the one used last.
+- **Settings (⌘,):** theme, text sizes, grouping of tool calls, the sidebar layout, where the terminal opens, notifications; and each server's settings: rad's version and update, the agents with their versions, usage limits, Sign In and Update (with the sign-in page and its code), and the default and system agents.
+- **Notifications:** when a session needs you, finishes or fails and the window doesn't show it; clicking one opens the session.
+- **Unread state, connections, appearance:** a session is marked read while it shows in the window in front; the client reconnects with backoff and resubscribes from where it left off; Catppuccin, Frappé when dark and Latte when light.
+
+Not yet: the Dock badge and bounce, the message and code fonts, the Photo Library, and app updates (Sparkle). Notifications reach Notification Center only from the app bundle; a bare build shows them in the window. The terminal draws with Menlo, which lacks Nerd Font glyphs.
 
 ## Building and running
 
@@ -41,10 +48,11 @@ cargo test
 | File | What it holds |
 |---|---|
 | `src/protocol.rs` | The wire types. Enums are open, unknown fields are ignored, and the tests decode `protocol/fixtures`. |
+| `src/images.rs` | Uploading and fetching images (`/v1/images`), scaled for agents, and cached on disk and in memory. |
 | `src/net.rs` | The socket to one rad. It runs on a tokio runtime of its own, reconnects, and matches responses to requests. The UI gets what it hears over a channel. |
-| `src/store/` | The client logic, free of UI and ported from RAKit and ra's `internal/client`: the streams' sync rules (`sync.rs`), the index and sessions, tool runs (with the shared test vectors), the sidebar's grouping, the saved servers, and their tokens in the Keychain (`tokens.rs`; tests use an in-memory store). |
+| `src/store/` | The client logic, free of UI and ported from RAKit and ra's `internal/client`: the streams' sync rules (`sync.rs`), the index and sessions, tool runs (with the shared test vectors), the sidebar's layouts and collections, search, find and slash commands (`search.rs`), usage limits (`limits.rs`, with the shared vectors), commit scopes, alerts, the app's prefs (`prefs.rs`), the saved servers, and their tokens in the Keychain (`tokens.rs`; tests use an in-memory store). |
 | `scripts/` | `bundle.sh` builds the signed app bundle; `sign.sh` signs a build; `run-signed.sh` is cargo's runner, which signs the app and runs it. |
 | `src/conn.rs` | A GPUI entity per server: it applies events to the stores, and subscribes to a session while a view shows it. |
-| `src/ui/` | The window (`app.rs`), the session (`session_view.rs`), the new session form, and the palette. `assets/theme.json` holds the kit's theme, in the same colours. |
+| `src/ui/` | The window (`app.rs`, `sidebar.rs`), the session (`session/`: its state, transcript, composer and header), the terminal (`terminal.rs`, alacritty's emulator on its own socket), the dialogs (`diff.rs`, `commit.rs`, `fork.rs`, `settings.rs`, `server_settings.rs`, `viewer.rs`), the new session form with its folder browser and import, the shared agent picker, task progress, and the palette. `assets/theme.json` holds the kit's theme, in the same colours. |
 
 GPUI Kit pins its own GPUI snapshot (the `gpui-pre` crate), so `Cargo.toml` pins `gpui-kit` exactly. Bump them together.

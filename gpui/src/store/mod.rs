@@ -1,7 +1,12 @@
 //! Client state, free of UI: the streams' sync, the index, sessions, the
 //! sidebar's grouping, tool runs and paired servers.
 
+pub mod alert;
+pub mod commit;
 pub mod index;
+pub mod limits;
+pub mod prefs;
+pub mod search;
 pub mod servers;
 pub mod session;
 pub mod sidebar;

@@ -183,7 +183,7 @@ pub struct Turn {
     pub ended_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Hash, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemKind {
     UserMessage,
@@ -370,6 +370,63 @@ impl Item {
     pub fn turn(&self) -> &str {
         self.turn_id.as_deref().unwrap_or("")
     }
+
+    /// The text rad's search indexes of the item (`model.SearchText`), which
+    /// find in a session searches too: none for sub-agents' items.
+    pub fn search_text(&self) -> String {
+        if self.parent_item_id.as_deref().is_some_and(|p| !p.is_empty()) {
+            return String::new();
+        }
+        match self.kind {
+            ItemKind::UserMessage | ItemKind::AssistantMessage | ItemKind::Notice | ItemKind::Error => {
+                self.text.clone().unwrap_or_default()
+            }
+            ItemKind::ToolCall => {
+                let Some(tool) = &self.tool else { return String::new() };
+                let mut s = tool.title.clone().unwrap_or_default();
+                if let Some(cmd) = tool.input.as_ref().and_then(tool_command)
+                    && !cmd.is_empty()
+                    && !s.contains(&cmd)
+                {
+                    s.push('\n');
+                    s.push_str(&cmd);
+                }
+                s
+            }
+            ItemKind::Plan => {
+                let Some(plan) = &self.plan else { return String::new() };
+                let mut parts: Vec<&str> = plan.entries.iter().map(|e| e.content.as_str()).collect();
+                if let Some(t) = plan.text.as_deref().filter(|t| !t.is_empty()) {
+                    parts.push(t);
+                }
+                parts.join("\n")
+            }
+            ItemKind::Approval => {
+                let Some(a) = &self.approval else { return String::new() };
+                match a.special.as_deref() {
+                    Some("plan") => a.plan_text.clone().unwrap_or_default(),
+                    Some("question") => a
+                        .questions
+                        .iter()
+                        .map(|q| q.question.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                    _ => String::new(),
+                }
+            }
+            _ => String::new(),
+        }
+    }
+}
+
+/// The shell command in a tool's input, as most agents put it: a string, or
+/// its words.
+pub fn tool_command(input: &Value) -> Option<String> {
+    match input.get("command")? {
+        Value::String(s) => Some(s.clone()),
+        Value::Array(parts) => Some(parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -436,7 +493,35 @@ pub struct HarnessCaps {
     #[serde(default)]
     pub set_mode: bool,
     #[serde(default)]
+    pub free_model: bool,
+    #[serde(default)]
+    pub model_select: bool,
+    #[serde(default)]
+    pub update: bool,
+    #[serde(default)]
+    pub login: bool,
+    #[serde(default)]
+    pub one_shot: bool,
+    #[serde(default)]
     pub steer: bool,
+    #[serde(default)]
+    pub import: bool,
+}
+
+/// A slash command: the harness's, or one `session.commands` found.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Command {
+    pub name: String,
+    pub description: Option<String>,
+    pub kind: Option<String>,
+    pub scope: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+pub struct CommandList {
+    #[serde(default)]
+    pub commands: Vec<Command>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -458,12 +543,32 @@ pub struct HarnessInfo {
     pub modes: Vec<Choice>,
     pub default_mode: Option<String>,
     #[serde(default)]
+    pub commands: Vec<Command>,
+    #[serde(default)]
     pub caps: HarnessCaps,
 }
 
 impl HarnessInfo {
     pub fn usable(&self) -> bool {
         self.installed && self.auth_ok
+    }
+
+    /// The model's efforts, else the harness's.
+    pub fn efforts_for(&self, model: Option<&str>) -> &[Choice] {
+        model
+            .and_then(|m| self.models.iter().find(|c| c.id == m))
+            .filter(|c| !c.efforts.is_empty())
+            .map(|c| c.efforts.as_slice())
+            .unwrap_or(&self.efforts)
+    }
+
+    /// A model's name, else its id.
+    pub fn model_name(&self, id: &str) -> String {
+        self.models
+            .iter()
+            .find(|c| c.id == id)
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| id.to_string())
     }
 }
 
@@ -484,10 +589,12 @@ pub struct AgentSpec {
     pub effort: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub system_agent: Option<AgentSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<AgentSpec>,
 }
 
@@ -507,11 +614,315 @@ pub struct ServerInfo {
     #[serde(default)]
     pub device_id: String,
     #[serde(default)]
+    pub terminal: bool,
+    #[serde(default)]
     pub drafts: bool,
+    #[serde(default)]
+    pub forks: bool,
+    #[serde(default)]
+    pub fork_in_worktree: bool,
+    #[serde(default)]
+    pub commit: bool,
+    #[serde(default)]
+    pub search: bool,
     #[serde(default)]
     pub rename: bool,
     #[serde(default)]
     pub unarchive: bool,
+}
+
+/// What `git.branches` answers.
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Branches {
+    #[serde(default)]
+    pub branches: Vec<String>,
+    #[serde(default)]
+    pub current: String,
+    #[serde(default)]
+    pub worktrees: Vec<WorktreeInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeInfo {
+    pub path: String,
+    pub branch: Option<String>,
+}
+
+impl WorktreeInfo {
+    /// Its branch, else its folder's name, detached.
+    pub fn label(&self) -> String {
+        match &self.branch {
+            Some(b) if !b.is_empty() => b.clone(),
+            _ => format!(
+                "{} (detached)",
+                std::path::Path::new(&self.path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            ),
+        }
+    }
+}
+
+impl Branches {
+    /// The branches a new worktree can check out: those no checkout has.
+    pub fn available(&self) -> Vec<String> {
+        let mut taken: Vec<&str> = vec![self.current.as_str()];
+        taken.extend(self.worktrees.iter().filter_map(|w| w.branch.as_deref()));
+        self.branches
+            .iter()
+            .filter(|b| !taken.contains(&b.as_str()))
+            .cloned()
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FileStatus {
+    Added,
+    #[default]
+    Modified,
+    Deleted,
+    Renamed,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileStat {
+    pub path: String,
+    pub old_path: Option<String>,
+    #[serde(default)]
+    pub status: FileStatus,
+    #[serde(default)]
+    pub additions: i64,
+    #[serde(default)]
+    pub deletions: i64,
+    #[serde(default)]
+    pub binary: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Diff {
+    #[serde(default)]
+    pub from: String,
+    #[serde(default)]
+    pub to: String,
+    #[serde(default)]
+    pub files: Vec<FileStat>,
+    #[serde(default)]
+    pub patch: String,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RevertResult {
+    #[serde(default)]
+    pub files: Vec<FileStat>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitPreview {
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub files: Vec<FileStat>,
+    #[serde(default)]
+    pub message: String,
+    pub remote: Option<String>,
+    pub base: Option<String>,
+    #[serde(default)]
+    pub ahead: i64,
+    pub no_pull_request: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    #[default]
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StepStatus {
+    #[default]
+    Pending,
+    Running,
+    Succeeded,
+    Skipped,
+    Failed,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskStep {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub status: StepStatus,
+    pub detail: Option<String>,
+}
+
+/// A long job on the server: an update, a sign-in, a commit.
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerTask {
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    pub harness: Option<String>,
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub status: TaskStatus,
+    #[serde(default)]
+    pub steps: Vec<TaskStep>,
+    #[serde(default)]
+    pub output: String,
+    pub url: Option<String>,
+    #[serde(default)]
+    pub input: bool,
+    pub error: Option<String>,
+    pub version: Option<String>,
+    #[serde(default)]
+    pub started_at: String,
+    pub ended_at: Option<String>,
+}
+
+impl ServerTask {
+    pub fn running(&self) -> bool {
+        self.status == TaskStatus::Running
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+pub struct TaskList {
+    #[serde(default)]
+    pub tasks: Vec<ServerTask>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    #[serde(default)]
+    pub current: String,
+    pub latest: Option<String>,
+    pub url: Option<String>,
+    #[serde(default)]
+    pub available: bool,
+    pub via: Option<String>,
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub busy: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FsEntry {
+    pub name: String,
+    pub path: String,
+    #[serde(default)]
+    pub is_git_repo: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FsList {
+    #[serde(default)]
+    pub path: String,
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub entries: Vec<FsEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportableSession {
+    pub id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub messages: i64,
+    #[serde(default)]
+    pub updated_at: String,
+    #[serde(default)]
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+pub struct ImportableList {
+    #[serde(default)]
+    pub sessions: Vec<ImportableSession>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct SnippetPart {
+    #[serde(default)]
+    pub text: String,
+    #[serde(default, rename = "match")]
+    pub is_match: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResult {
+    pub session: Option<Session>,
+    pub item_id: Option<String>,
+    pub item_kind: Option<ItemKind>,
+    #[serde(default)]
+    pub snippet: Vec<SnippetPart>,
+    #[serde(default)]
+    pub matches: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResults {
+    #[serde(default)]
+    pub results: Vec<SearchResult>,
+    #[serde(default)]
+    pub more: bool,
+    #[serde(default)]
+    pub indexing: bool,
+}
+
+/// A text frame on the terminal's socket.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalMessage {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reset: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cols: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rows: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -755,6 +1166,56 @@ mod tests {
         };
         assert!(events.iter().any(|e| e.project.is_some()));
         assert!(events.iter().any(|e| e.session.is_some()));
+    }
+
+    #[test]
+    fn management_results() {
+        let b: Branches = result("response_branches.json");
+        assert_eq!(b.available(), vec!["feature/login".to_string()]);
+        assert_eq!(b.worktrees[1].label(), "spike (detached)");
+        let u: UpdateInfo = result("response_check_update.json");
+        assert!(u.available && u.busy.len() == 1);
+        let c: CommitPreview = result("response_commit_preview.json");
+        assert_eq!(c.files.len(), 2);
+        assert_eq!(c.base.as_deref(), Some("main"));
+        let d: CommitPreview = result("response_commit_preview_default_branch.json");
+        assert!(d.no_pull_request.is_some());
+        let diff: Diff = result("response_diff.json");
+        assert_eq!(diff.files[1].old_path.as_deref(), Some("old.go"));
+        assert!(diff.files[2].binary);
+        let fs: FsList = result("response_fs_list.json");
+        assert!(fs.entries[0].is_git_repo);
+        let cmds: CommandList = result("response_session_commands.json");
+        assert_eq!(cmds.commands[1].kind.as_deref(), Some("skill"));
+        let imp: ImportableList = result("response_session_importable.json");
+        assert!(imp.sessions[0].active);
+        let search: SearchResults = result("response_session_search.json");
+        assert!(search.results[0].session.is_some());
+        let task: ServerTask = result("response_task_commit.json");
+        assert_eq!(task.steps[0].status, StepStatus::Skipped);
+        assert_eq!(task.status, TaskStatus::Succeeded);
+        let tasks: TaskList = result("response_task_list.json");
+        assert!(!tasks.tasks.is_empty());
+        let t: ServerTask = result("response_task.json");
+        assert!(!t.id.is_empty());
+        let info: ServerInfo = result("response_server_info.json");
+        assert!(info.terminal && info.forks && info.fork_in_worktree && info.commit && info.search);
+    }
+
+    #[test]
+    fn terminal_messages() {
+        let a: TerminalMessage = serde_json::from_str(&fixture("terminal_attached.json")).unwrap();
+        assert_eq!(a.kind, "attached");
+        assert!(a.reset);
+        assert_eq!(a.offset, Some(262130));
+        let e: TerminalMessage = serde_json::from_str(&fixture("terminal_error.json")).unwrap();
+        assert_eq!(e.code.as_deref(), Some("gone"));
+        let x: TerminalMessage = serde_json::from_str(&fixture("terminal_exit.json")).unwrap();
+        assert!(x.exit_code.is_some());
+        let r: TerminalMessage = serde_json::from_str(&fixture("terminal_resize.json")).unwrap();
+        let back: Value = serde_json::to_value(&r).unwrap();
+        let want: Value = serde_json::from_str(&fixture("terminal_resize.json")).unwrap();
+        assert_eq!(back, want);
     }
 
     #[test]

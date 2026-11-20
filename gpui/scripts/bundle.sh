@@ -56,6 +56,10 @@ cat > "$app/Contents/Info.plist" <<PLIST
     <string>public.app-category.developer-tools</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Dictation turns what you say into a prompt.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Dictation recognizes your speech on this Mac to write a prompt.</string>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
 </dict>
