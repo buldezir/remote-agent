@@ -26,6 +26,7 @@ use crate::store::limits::{limit_notice, limited_now};
 use crate::store::tool_runs::ToolRun;
 use crate::ui::common::{caption, code_block, disclosure, markdown};
 use crate::ui::palette::Palette;
+use crate::ui::prompt_box;
 use crate::ui::state::prefs;
 
 /// What a tool call's output shows before "Show all".
@@ -118,22 +119,27 @@ impl SessionView {
             .child(body);
         // An open run's steps hang from a rail under its arrow, which runs
         // unbroken from one to the next.
-        if in_run {
-            return div()
-                .w_full()
-                .px_5()
-                .child(
-                    div()
-                        .ml(px(5.))
-                        .pl_3()
-                        .py_1()
-                        .border_l_1()
-                        .border_color(p.surface0)
-                        .child(body),
-                )
-                .into_any_element();
-        }
-        div().w_full().px_5().py_1().child(body).into_any_element()
+        let content = if in_run {
+            div().w_full().child(
+                div()
+                    .ml(px(5.))
+                    .pl_3()
+                    .py_1()
+                    .border_l_1()
+                    .border_color(p.surface0)
+                    .child(body),
+            )
+        } else {
+            div().w_full().py_1().child(body)
+        };
+        // Limited, the rows keep to the prompt box's column.
+        div()
+            .w_full()
+            .px_5()
+            .flex()
+            .justify_center()
+            .child(content.when_some(prompt_box::messages_max_width(cx), |d, w| d.max_w(px(w))))
+            .into_any_element()
     }
 
     /// A tool call that waits for the user's answer, while the approval that

@@ -936,8 +936,9 @@ pub fn rename_session(conn: Entity<ServerConn>, s: Rc<Session>, window: &mut Win
 fn look(cx: &App) -> String {
     let p = prefs(cx);
     format!(
-        "{} {} {} {} {} {} {:?}",
+        "{} {} {} {} {} {} {} {:?}",
         p.group_tool_calls,
+        p.limit_message_width,
         p.text_size,
         p.message_size,
         p.code_size,

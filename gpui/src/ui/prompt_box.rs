@@ -25,6 +25,12 @@ pub fn max_width(cx: &App) -> Option<f32> {
     crate::ui::state::prefs(cx).limit_prompt_width.then_some(LIMITED_WIDTH)
 }
 
+/// The transcript's messages' width: the window's, or `LIMITED_WIDTH`, in
+/// the same centred column as the prompt box, when Settings limit it.
+pub fn messages_max_width(cx: &App) -> Option<f32> {
+    crate::ui::state::prefs(cx).limit_message_width.then_some(LIMITED_WIDTH)
+}
+
 #[derive(Default)]
 pub struct PromptBox {
     /// Over the box, floating over what's above it, such as the slash

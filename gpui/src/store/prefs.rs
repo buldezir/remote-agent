@@ -91,6 +91,8 @@ pub struct Prefs {
     /// The prompt box keeps to `prompt_box::LIMITED_WIDTH`, in a centred
     /// column; otherwise it's as wide as the window lets it.
     pub limit_prompt_width: bool,
+    /// The transcript's messages keep to the same width, in the same column.
+    pub limit_message_width: bool,
     /// The window's frame when it last moved; none until it has.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowFrame>,
@@ -144,6 +146,7 @@ impl Default for Prefs {
             column_width: 330.,
             sidebar_hidden: false,
             limit_prompt_width: false,
+            limit_message_width: false,
             window: None,
             update_host: String::new(),
         }

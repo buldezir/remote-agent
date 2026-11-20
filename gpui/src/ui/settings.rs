@@ -95,7 +95,7 @@ impl Page {
             Page::Appearance => {
                 "theme dark light system catppuccin text size interface messages font code menlo monospaced"
             }
-            Page::Chat => "transcript group tool calls runs prompt box width limit composer",
+            Page::Chat => "transcript group tool calls runs messages prompt box width limit composer",
             Page::Terminal => "shell opens placement below right copy on select clipboard code font size",
             Page::Server(_) => {
                 "server rad version update agents sign in login usage limits default agent system agent new sessions"
@@ -214,6 +214,7 @@ impl SettingsView {
             && prefs.code_size == d.code_size
             && prefs.group_tool_calls == d.group_tool_calls
             && prefs.limit_prompt_width == d.limit_prompt_width
+            && prefs.limit_message_width == d.limit_message_width
             && prefs.sidebar_layout == d.sidebar_layout
             && prefs.terminal_placement == d.terminal_placement
             && prefs.terminal_copy_on_select == d.terminal_copy_on_select
@@ -232,6 +233,7 @@ impl SettingsView {
             p.code_size = d.code_size;
             p.group_tool_calls = d.group_tool_calls;
             p.limit_prompt_width = d.limit_prompt_width;
+            p.limit_message_width = d.limit_message_width;
             p.sidebar_layout = d.sidebar_layout.clone();
             p.terminal_placement = d.terminal_placement.clone();
             p.terminal_copy_on_select = d.terminal_copy_on_select;
@@ -443,14 +445,27 @@ impl SettingsView {
         vec![
             group(
                 "Transcript",
-                vec![setting(
-                    "Group tool calls",
-                    Some(
-                        "Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them.",
+                vec![
+                    setting(
+                        "Group tool calls",
+                        Some(
+                            "Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them.",
+                        ),
+                        switch("group-tools", prefs.group_tool_calls, |p, v| p.group_tool_calls = v),
+                        p,
                     ),
-                    switch("group-tools", prefs.group_tool_calls, |p, v| p.group_tool_calls = v),
-                    p,
-                )],
+                    setting(
+                        "Limit the messages' width",
+                        Some(&format!(
+                            "Keeps the messages to {} points, centred in a wider window, as the prompt box is when its width is limited. Off, they're as wide as the window.",
+                            crate::ui::prompt_box::LIMITED_WIDTH as u32
+                        )),
+                        switch("limit-message-width", prefs.limit_message_width, |p, v| {
+                            p.limit_message_width = v
+                        }),
+                        p,
+                    ),
+                ],
                 None,
                 p,
             ),
