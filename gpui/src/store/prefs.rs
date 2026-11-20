@@ -31,6 +31,9 @@ fn yes() -> bool {
 pub struct Prefs {
     /// "inbox", "projects" or "columns".
     pub sidebar_layout: String,
+    /// How a session row beside its project's badge shows its state: "dot",
+    /// a dot under the badge, or "ring", the badge ringed in its colour.
+    pub state_mark: String,
     /// Fold runs of tool calls into one row.
     #[serde(default = "yes")]
     pub group_tool_calls: bool,
@@ -123,6 +126,7 @@ impl Default for Prefs {
     fn default() -> Self {
         Self {
             sidebar_layout: "inbox".into(),
+            state_mark: "dot".into(),
             group_tool_calls: true,
             notifications: true,
             dock_badge: false,

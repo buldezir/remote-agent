@@ -93,7 +93,7 @@ impl Page {
     fn terms(self) -> &'static str {
         match self {
             Page::General => {
-                "notifications notify alerts dock badge bounce sidebar layout inbox projects columns updates build host"
+                "notifications notify alerts dock badge bounce sidebar layout inbox projects columns session state dot ring badge updates build host"
             }
             Page::Appearance => {
                 "theme dark light system catppuccin text size interface messages font code menlo monospaced"
@@ -245,6 +245,7 @@ impl SettingsView {
             && prefs.limit_prompt_width == d.limit_prompt_width
             && prefs.limit_message_width == d.limit_message_width
             && prefs.sidebar_layout == d.sidebar_layout
+            && prefs.state_mark == d.state_mark
             && prefs.terminal_placement == d.terminal_placement
             && prefs.terminal_copy_on_select == d.terminal_copy_on_select
             && prefs.notifications == d.notifications
@@ -266,6 +267,7 @@ impl SettingsView {
             p.limit_prompt_width = d.limit_prompt_width;
             p.limit_message_width = d.limit_message_width;
             p.sidebar_layout = d.sidebar_layout.clone();
+            p.state_mark = d.state_mark.clone();
             p.terminal_placement = d.terminal_placement.clone();
             p.terminal_copy_on_select = d.terminal_copy_on_select;
             p.notifications = d.notifications;
@@ -353,6 +355,20 @@ impl SettingsView {
             layout.key().into(),
             |id, _, cx| update_prefs(cx, |p| p.sidebar_layout = id),
         );
+        let mark_title = |key: &str| match key {
+            "ring" => "Ring around the badge",
+            _ => "Dot under the badge",
+        };
+        let mark_picker = picker(
+            "state-mark",
+            mark_title(&prefs.state_mark).into(),
+            ["dot", "ring"]
+                .iter()
+                .map(|k| (k.to_string(), mark_title(k).to_string()))
+                .collect(),
+            prefs.state_mark.clone(),
+            |id, _, cx| update_prefs(cx, |p| p.state_mark = id),
+        );
         let summary = match layout {
             Layout::Inbox => "Sessions from every server, those that need you first.",
             Layout::Projects => "Each server's projects, with their sessions under them.",
@@ -373,14 +389,25 @@ impl SettingsView {
             self.dock(&prefs, p, cx),
             group(
                 "Sidebar",
-                vec![setting(
-                    "Layout",
-                    Some(&format!(
-                        "{summary} The View menu switches them too, with ⌘1, ⌘2 and ⌘3."
-                    )),
-                    layout_picker,
-                    p,
-                )],
+                vec![
+                    setting(
+                        "Layout",
+                        Some(&format!(
+                            "{summary} The View menu switches them too, with ⌘1, ⌘2 and ⌘3."
+                        )),
+                        layout_picker,
+                        p,
+                    ),
+                    setting(
+                        "Session state",
+                        Some(
+                            "How a session shows that it needs you, works, failed or is unread, \
+                             beside its project's badge. In Projects, a dot before the title says it.",
+                        ),
+                        mark_picker,
+                        p,
+                    ),
+                ],
                 None,
                 p,
             ),

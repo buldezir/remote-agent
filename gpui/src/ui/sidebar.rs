@@ -305,6 +305,7 @@ impl AppView {
         // The title takes the state's colour, and the dot says it too.
         let state = row_state(s, &p);
         let title_color = state.as_ref().map(|(_, color)| *color).unwrap_or(p.text);
+        let dot = state.map(|(dot, _)| dot);
         let title = if s.title.is_empty() {
             "New session".to_string()
         } else {
@@ -377,8 +378,26 @@ impl AppView {
             });
         let second_line = !place.is_empty() || worktree;
         // The dot sits in a gutter left of the title, so titles line up
-        // with or without one.
-        let left = (10. + indent).max(25.);
+        // with or without one. A row with its project's badge has no
+        // gutter: the badge carries the state.
+        let badged = !project.is_empty();
+        let left = if badged { 6. + indent } else { (10. + indent).max(25.) };
+        let ring = prefs(cx).state_mark == "ring";
+        let (lead, gutter_dot) = if !badged {
+            (None, dot)
+        } else if ring {
+            (Some(state_ring(badges::project_badge(&project, 18., &p), s, &p)), None)
+        } else {
+            let lead = v_flex()
+                .flex_shrink_0()
+                .items_center()
+                // Its centre on the second line's.
+                .gap(px(7.))
+                .mt_px()
+                .child(badges::project_badge(&project, 18., &p))
+                .when_some(dot, |d, dot| d.child(dot));
+            (Some(lead.into_any_element()), None)
+        };
         let trigger = h_flex()
             .id(SharedString::from(format!("row-{}-{}", row.server_id, s.id)))
             .group(ROW_GROUP)
@@ -393,7 +412,8 @@ impl AppView {
             .items_start()
             .when(is_selected, |d| d.bg(p.surface0))
             .when(!is_selected, |d| d.hover(|d| d.bg(p.surface0.opacity(0.5))))
-            .when_some(state.map(|(dot, _)| dot), |d, dot| {
+            .when_some(lead, |d, lead| d.child(lead))
+            .when_some(gutter_dot, |d, dot| {
                 d.child(div().absolute().left(px(left - 14.)).top(px(14.)).child(dot))
             })
             .child(
@@ -1642,6 +1662,48 @@ fn row_state(s: &Session, p: &Palette) -> Option<(AnyElement, Hsla)> {
         _ if s.unread => Some((dot.bg(p.accent).into_any_element(), p.text)),
         _ => None,
     }
+}
+
+/// A project's badge in a ring of the session's state colour.
+fn state_ring(badge: gpui_kit::Div, s: &Session, p: &Palette) -> AnyElement {
+    let color = match s.status {
+        SessionStatus::AwaitingApproval => Some(p.yellow),
+        SessionStatus::Error => Some(p.red),
+        _ if is_busy(s) => Some(p.blue),
+        _ if s.unread => Some(p.accent),
+        _ => None,
+    };
+    let ring = div()
+        .absolute()
+        .inset_0()
+        .rounded(px(7.))
+        .border(px(1.5))
+        .border_color(color.unwrap_or(gpui_kit::transparent_black()));
+    let ring = if is_busy(s) && s.status != SessionStatus::AwaitingApproval && s.status != SessionStatus::Error {
+        gpui_kit::AnimationExt::with_animation(
+            ring,
+            "busy-ring",
+            gpui_kit::Animation::new(Duration::from_millis(1600))
+                .repeat()
+                .with_easing(gpui_kit::pulsating_between(0.3, 1.)),
+            |d, t| d.opacity(t),
+        )
+        .into_any_element()
+    } else {
+        ring.into_any_element()
+    };
+    // In the middle of the row's two lines.
+    div()
+        .relative()
+        .self_center()
+        .flex_shrink_0()
+        .size(px(24.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(badge)
+        .child(ring)
+        .into_any_element()
 }
 
 /// Archives a session at once: the row's ✓, which doesn't ask.
