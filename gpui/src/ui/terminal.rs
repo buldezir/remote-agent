@@ -426,8 +426,8 @@ impl TerminalView {
 
     // MARK: Input
 
-    /// What a key sends the shell. ⌘C and ⌘V copy and paste; ⌘ and the
-    /// rest are the app's. Tab, Shift-Tab and ⌘C reach here only because
+    /// What a key sends the shell. ⌘C and ⌘V copy and paste, ⌘ with an
+    /// arrow is Home, End or a page key; ⌘ and the rest are the app's. Tab, Shift-Tab and ⌘C reach here only because
     /// `bind_keys` takes them back from the kit's root view.
     fn key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let k = &ev.keystroke;
@@ -446,8 +446,21 @@ impl TerminalView {
                     }
                     cx.stop_propagation();
                 }
-                // ⌘J and the rest are the app's.
-                _ => {}
+                // ⌘← → ↑ ↓ are Home, End, Page Up and Page Down, as in
+                // Terminal.app's and iTerm's text editing; ⌘J and the rest
+                // are the app's.
+                _ => {
+                    let app_cursor = self.term.mode().contains(TermMode::APP_CURSOR);
+                    if self.state == State::Open
+                        && let Some(bytes) = key_bytes(&k.key, k.key_char.as_deref(), m, app_cursor)
+                    {
+                        self.term.scroll_display(Scroll::Bottom);
+                        self.term.selection = None;
+                        self.write(bytes);
+                        cx.stop_propagation();
+                        cx.notify();
+                    }
+                }
             }
             return;
         }
@@ -878,7 +891,12 @@ impl Render for TerminalView {
                             },
                             |_, _, _, _| {},
                         )
+                        // Pinned to the corner: an absolute element without
+                        // an inset sits where the flow would put it, under
+                        // the grid, and every click landed rows too high.
                         .absolute()
+                        .top_0()
+                        .left_0()
                         .size_full(),
                     )
                     .when(reconnecting, |d| {
@@ -972,6 +990,18 @@ pub fn key_bytes(key: &str, key_char: Option<&str>, m: gpui_kit::Modifiers, app_
             format!("\x1bO{c}").into_bytes()
         }
     };
+    // ⌘ with an arrow: the key it stands for, with the other modifiers.
+    if m.platform {
+        let key = match key {
+            "left" => "home",
+            "right" => "end",
+            "up" => "pageup",
+            "down" => "pagedown",
+            _ => return None,
+        };
+        let m = gpui_kit::Modifiers { platform: false, ..m };
+        return key_bytes(key, None, m, app_cursor);
+    }
     let bytes = match key {
         "enter" if m.alt => b"\x1b\r".to_vec(),
         "enter" => b"\r".to_vec(),
@@ -1080,6 +1110,23 @@ mod tests {
         assert_eq!(send("end", ""), b"\x1b[F");
         assert_eq!(send("pageup", ""), b"\x1b[5~");
         assert_eq!(send("pagedown", "s"), b"\x1b[6;2~");
+    }
+
+    #[test]
+    fn command_arrows_are_home_end_and_the_page_keys() {
+        let cmd = |spec: &str| Modifiers {
+            platform: true,
+            ..mods(spec)
+        };
+        assert_eq!(key_bytes("left", None, cmd(""), false).unwrap(), b"\x1b[H");
+        assert_eq!(key_bytes("right", None, cmd(""), false).unwrap(), b"\x1b[F");
+        assert_eq!(key_bytes("left", None, cmd(""), true).unwrap(), b"\x1bOH");
+        assert_eq!(key_bytes("up", None, cmd(""), false).unwrap(), b"\x1b[5~");
+        assert_eq!(key_bytes("down", None, cmd(""), false).unwrap(), b"\x1b[6~");
+        assert_eq!(key_bytes("right", None, cmd("s"), false).unwrap(), b"\x1b[1;2F");
+        // ⌘ with anything else is the app's.
+        assert_eq!(key_bytes("j", Some("j"), cmd(""), false), None);
+        assert_eq!(key_bytes("tab", None, cmd(""), false), None);
     }
 
     #[test]
