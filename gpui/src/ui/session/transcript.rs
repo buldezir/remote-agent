@@ -12,7 +12,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, ClickEvent, Context, Div, FontWeight, Hsla, InteractiveElement as _, IntoElement, ObjectFit,
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, StyledImage as _, Window, div, img,
-    px, rems,
+    px,
 };
 use serde_json::{Value, json};
 
@@ -52,6 +52,7 @@ impl SessionView {
                 (
                     v_flex()
                         .items_end()
+                        .pl(px(40.))
                         .gap_1()
                         .when_some(images, |d, g| d.child(g))
                         .when(!o.text.is_empty(), |d| d.child(user_bubble(&o.text, &p)))
@@ -106,8 +107,6 @@ impl SessionView {
             .py_1()
             .child(
                 div()
-                    .max_w(rems(52.))
-                    .mx_auto()
                     .rounded_md()
                     .when_some(lit_color, |d, c| d.bg(c).px_1p5().py_0p5())
                     .child(body),
@@ -200,6 +199,7 @@ impl SessionView {
         let images = self.gallery(&it.id, &it.images, 120., true, p, cx);
         let mut col = v_flex()
             .items_end()
+            .pl(px(40.))
             .gap_1()
             .when(faded, |d| d.opacity(0.75))
             .when_some(images, |d, g| d.child(g))
@@ -636,11 +636,11 @@ impl SessionView {
         let gallery = self.gallery("draft", images, 120., true, p, cx);
         v_flex()
             .items_end()
+            .pl(px(40.))
             .gap_1()
             .when_some(gallery, |d, g| d.child(g))
             .child(
                 v_flex()
-                    .max_w(rems(36.))
                     .gap_1()
                     .px_3()
                     .py_2()
@@ -902,7 +902,6 @@ pub(crate) fn input_preview(name: &str, input: &Value, p: &Palette) -> AnyElemen
 
 pub(crate) fn user_bubble(text: &str, p: &Palette) -> Div {
     v_flex()
-        .max_w(rems(36.))
         .gap_1()
         .px_3()
         .py_2()

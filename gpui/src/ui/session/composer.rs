@@ -14,7 +14,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, ClipboardEntry, ClipboardItem, Context, ExternalPaths, FontWeight,
     Image, InteractiveElement as _, IntoElement, KeyDownEvent, ObjectFit, ParentElement as _, PathPromptOptions,
-    SharedString, StatefulInteractiveElement as _, Styled as _, StyledImage as _, Window, div, img, px, rems,
+    SharedString, StatefulInteractiveElement as _, Styled as _, StyledImage as _, Window, div, img, px,
 };
 use serde_json::json;
 
@@ -750,9 +750,7 @@ impl SessionView {
             .gap_1()
             .child(
                 v_flex()
-                    .max_w(rems(52.))
                     .w_full()
-                    .mx_auto()
                     .gap_1()
                     .when_some(suggestions, |d, s| d.child(s))
                     .child(
