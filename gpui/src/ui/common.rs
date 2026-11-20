@@ -1,14 +1,19 @@
 //! Small pieces the views share: captions, code blocks, Markdown, status
 //! glyphs, file rows and the usage-limits gauge.
 
+use std::time::Duration;
+
 use chrono::Utc;
 use gpui_kit::assets::IconName as L;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::text::{MarkdownExtensions, TextView};
-use gpui_kit::component::{Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, TitleBar, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, Div, ElementId, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _, SharedString,
-    Stateful, StatefulInteractiveElement as _, Styled as _, div, px,
+    Animation, AnimationExt as _, AnyElement, App, ClickEvent, Div, ElementId, FontWeight, Hsla,
+    InteractiveElement as _, IntoElement, ParentElement as _, SharedString, Stateful, StatefulInteractiveElement as _,
+    Styled as _, Window, div, pulsating_between, px,
 };
 
 use crate::protocol::{FileStat, FileStatus, Session, SessionStatus, UsageLimits};
@@ -16,8 +21,52 @@ use crate::store::limits::{LimitLevel, limits_details, limits_gauge, limits_leve
 use crate::store::sidebar::is_busy;
 use crate::ui::palette::Palette;
 
+/// The height of the bar atop each of the window's columns.
+pub const BAR_HEIGHT: f32 = 46.;
+
 pub fn caption(text: impl Into<SharedString>, p: &Palette) -> Div {
     div().text_xs().text_color(p.overlay).child(text.into())
+}
+
+/// The bar atop a column: the window has no title bar of its own, so each
+/// column's bar holds its title and buttons, and moves the window when
+/// dragged. The window's first column leaves room for the traffic lights,
+/// which full screen hides.
+pub fn top_bar(
+    id: &'static str,
+    leading: bool,
+    bg: Hsla,
+    border: Option<Hsla>,
+    window: &Window,
+    content: impl IntoElement,
+) -> Stateful<Div> {
+    let lights = leading && !window.is_fullscreen();
+    // The id keeps each bar's own drag state.
+    div().id(id).flex_shrink_0().child(
+        TitleBar::new()
+            .h(px(BAR_HEIGHT))
+            .pl(px(if lights { 88. } else { 12. }))
+            .pr(px(10.))
+            .bg(bg)
+            .border_color(border.unwrap_or(bg))
+            .child(content),
+    )
+}
+
+/// Hides the sidebar, or shows it again.
+pub fn sidebar_toggle(hidden: bool) -> Button {
+    Button::new("toggle-sidebar")
+        .ghost()
+        .small()
+        .icon(L::PanelLeft)
+        .tooltip(if hidden {
+            "Show Sidebar (⌃⌘S)"
+        } else {
+            "Hide Sidebar (⌃⌘S)"
+        })
+        .on_click(|_: &ClickEvent, window: &mut Window, cx: &mut App| {
+            window.dispatch_action(Box::new(crate::ToggleSidebar), cx)
+        })
 }
 
 /// Agent Markdown, in the message font; its code takes the theme's
@@ -30,6 +79,18 @@ pub fn markdown(id: impl Into<SharedString>, text: &str) -> Div {
             SharedString::from(text.to_string()),
         )
         .markdown_extensions(MarkdownExtensions::default().raw_html(false))
+        // In the block's corner: its language, which otherwise takes a line
+        // of its own, and Copy.
+        .code_block_actions(|block, _, cx| {
+            let p = Palette::of(cx);
+            h_flex()
+                .gap_1()
+                .pl_1p5()
+                .when_some(block.lang().filter(|l| !l.is_empty()), |d, lang| {
+                    d.child(caption(lang, &p).font_family(cx.theme().font_family.clone()))
+                })
+                .child(Clipboard::new("copy").value(block.code()).xsmall().tooltip("Copy"))
+        })
         .selectable(true),
     )
 }
@@ -52,7 +113,8 @@ pub fn disclosure(id: impl Into<SharedString>, open: bool, title: &str, p: &Pale
             .xsmall()
             .text_color(p.overlay),
         )
-        .child(title.to_string())
+        // A long one, such as a run's summary, wraps in a narrow window.
+        .child(div().flex_1().min_w_0().child(title.to_string()))
 }
 
 /// Monospaced text on the crust colour, with an optional title.
@@ -82,21 +144,30 @@ pub fn code_block(title: Option<&str>, text: &str, p: &Palette) -> Div {
         )
 }
 
-/// The session's state at a glance: waiting for you, failed, working,
-/// unread, or nothing.
+/// The session's state at a glance: waiting for you, failed, working
+/// (which pulses), unread, or nothing.
 pub fn status_dot(s: &Session, p: &Palette) -> AnyElement {
-    let color = match s.status {
-        SessionStatus::AwaitingApproval => Some(p.yellow),
-        SessionStatus::Error => Some(p.red),
-        _ if is_busy(s) => Some(p.blue),
-        _ if s.unread => Some(p.accent),
-        _ => None,
-    };
     let dot = div().size(px(8.)).rounded_full().flex_shrink_0();
-    match color {
-        Some(c) => dot.bg(c).into_any_element(),
-        None => dot.into_any_element(),
+    match s.status {
+        SessionStatus::AwaitingApproval => dot.bg(p.yellow).into_any_element(),
+        SessionStatus::Error => dot.bg(p.red).into_any_element(),
+        _ if is_busy(s) => busy_dot(dot, p.blue),
+        _ if s.unread => dot.bg(p.accent).into_any_element(),
+        _ => dot.into_any_element(),
     }
+}
+
+/// A dot that pulses while an agent works.
+pub fn busy_dot(dot: Div, color: Hsla) -> AnyElement {
+    dot.bg(color)
+        .with_animation(
+            "busy",
+            Animation::new(Duration::from_millis(1600))
+                .repeat()
+                .with_easing(pulsating_between(0.3, 1.)),
+            |dot, t| dot.opacity(t),
+        )
+        .into_any_element()
 }
 
 pub fn file_icon(status: FileStatus, p: &Palette) -> Icon {

@@ -35,7 +35,7 @@ pub fn open(conns: Vec<Entity<ServerConn>>, server: Option<usize>, window: &mut 
     let size = window.viewport_size();
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
-            .w((size.width * 0.9).min(px(980.)))
+            .w((size.width * 0.9).min(px(720.)))
             .title("Settings")
             .child(div().h(size.height * 0.75).child(view.clone()))
     });
@@ -196,6 +196,8 @@ impl SettingsView {
         );
         let section = |title: &'static str, body: AnyElement, footer: Option<String>| {
             v_flex()
+                .w_full()
+                .min_w_0()
                 .gap_2()
                 .child(
                     div()
@@ -208,6 +210,8 @@ impl SettingsView {
                 .when_some(footer, |d, f| d.child(caption(f, p)))
         };
         v_flex()
+            .w_full()
+            .min_w_0()
             .gap_5()
             .child(section(
                 "Appearance",
@@ -324,7 +328,7 @@ impl SettingsView {
     }
 
     fn render_servers(&mut self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let mut list = v_flex().w(px(240.)).flex_shrink_0().gap_0p5();
+        let mut list = v_flex().w(px(190.)).flex_shrink_0().gap_0p5();
         for (i, conn) in self.conns.iter().enumerate() {
             let c = conn.read(cx);
             let color = match c.state {

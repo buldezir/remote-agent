@@ -1,8 +1,10 @@
-//! The new session form: a server (when there are several), a project (or
-//! a folder added as one), an agent with its options, where to work (the
-//! project folder, a new worktree, or one there is), the first prompt with
-//! its images, and Save as Draft. It starts with the server's default agent
-//! (`server.settings`), else the one used last. As `NewSessionView.swift`.
+//! The new session form: the first prompt with its images, then a block of
+//! small pickers for the server (when there are several), the project (or a
+//! folder added as one), the agent with its options, and where to work (the
+//! project folder, a new worktree, or one there is), with what a choice
+//! brings under it; and Save as Draft. It starts with the server's default
+//! agent (`server.settings`), else the one used last. `NewSessionView.swift`
+//! has the same choices, as a form.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -13,6 +15,7 @@ use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -25,7 +28,7 @@ use serde_json::json;
 use crate::conn::ServerConn;
 use crate::images::{Prepared, prepare};
 use crate::protocol::{Branches, FsList, ImageRef, ImportableList, Project, ServerSettings, Session};
-use crate::ui::agent_picker::{AgentChanged, AgentPicker, picker, row};
+use crate::ui::agent_picker::{AgentPicker, field, field_picker};
 use crate::ui::common::{caption, plural};
 use crate::ui::palette::Palette;
 use crate::ui::session::explain;
@@ -100,7 +103,7 @@ impl NewSessionView {
                     this.create(false, window, cx);
                 }
             }),
-            cx.subscribe(&agent, |_, _, _: &AgentChanged, cx| cx.notify()),
+            cx.observe(&agent, |_, _, cx| cx.notify()),
         ];
         for conn in &conns {
             subscriptions.push(cx.observe_in(conn, window, |this, _, window, cx| this.choose_agent(window, cx)));
@@ -140,8 +143,9 @@ impl NewSessionView {
         let conn = self.conn().clone();
         let server = conn.read(cx).server_id.clone();
         self.agent = cx.new(|cx| AgentPicker::new(conn.clone(), window, cx));
+        // Its own state too, such as the line of agents that aren't ready.
         self._subscriptions
-            .push(cx.subscribe(&self.agent, |_, _, _: &AgentChanged, cx| cx.notify()));
+            .push(cx.observe(&self.agent, |_, _, cx| cx.notify()));
         let projects = &conn.read(cx).index.projects;
         if self.project_id.as_ref().is_none_or(|p| !projects.contains_key(p)) {
             self.project_id = prefs(cx)
@@ -506,6 +510,249 @@ impl NewSessionView {
         });
     }
 
+    // MARK: Fields
+
+    /// A wrapping row of labelled pickers.
+    fn fields() -> gpui_kit::Div {
+        h_flex().flex_wrap().items_start().gap_x_3().gap_y_2()
+    }
+
+    fn server_field(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let servers: Vec<(String, String)> = self
+            .conns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (i.to_string(), c.read(cx).name.clone()))
+            .collect();
+        let label = servers.get(self.server_ix).map(|(_, n)| n.clone()).unwrap_or_default();
+        let this = cx.entity().downgrade();
+        let picker = field_picker(
+            "server",
+            label,
+            servers,
+            self.server_ix.to_string(),
+            move |id, window, cx| {
+                let _ = this.update(cx, |v, cx| {
+                    let ix: usize = id.parse().unwrap_or(0);
+                    if ix != v.server_ix {
+                        v.server_ix = ix;
+                        v.project_id = None;
+                        v.load_server(window, cx);
+                    }
+                });
+            },
+        );
+        field("Server", picker, p)
+    }
+
+    fn project_field(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let projects = self.conn().read(cx).index.projects_by_name();
+        let mut choices: Vec<(String, String)> = projects.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
+        if choices.is_empty() {
+            choices.push((String::new(), "No projects yet".into()));
+        }
+        let label = self
+            .project(cx)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| "Choose…".into());
+        let this = cx.entity().downgrade();
+        let picker = field_picker(
+            "project",
+            label,
+            choices,
+            self.project_id.clone().unwrap_or_default(),
+            move |id, _, cx| {
+                let _ = this.update(cx, |v, cx| v.set_project((!id.is_empty()).then_some(id), cx));
+            },
+        );
+        field("Project", picker, p)
+    }
+
+    /// The project's folder, with Forget, and adding a folder as a project.
+    fn render_project_line(&self, project: Option<&Project>, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let line = h_flex().gap_2();
+        let line = match project {
+            Some(pr) => {
+                let path = pr.path.clone();
+                line.child(
+                    div()
+                        .id("project-path")
+                        .min_w_0()
+                        .truncate()
+                        .text_xs()
+                        .font_family(crate::ui::fonts::code())
+                        .text_color(p.subtext)
+                        .child(pr.path.clone())
+                        .tooltip(move |window, cx| Tooltip::new(path.clone()).build(window, cx)),
+                )
+                .child(
+                    Button::new("forget")
+                        .xsmall()
+                        .ghost()
+                        .label("Forget")
+                        .tooltip(format!("Take {} off the list of projects. The folder stays.", pr.name))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.forget_project(cx))),
+                )
+            }
+            None => line.child(caption("No project chosen.", p).flex_shrink_0()),
+        };
+        line.child(
+            Button::new("add-folder")
+                .xsmall()
+                .ghost()
+                .icon(Icon::new(L::FolderPlus))
+                .label("Add a folder…")
+                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.browse(window, cx))),
+        )
+        .into_any_element()
+    }
+
+    fn place_field(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let mut places: Vec<(String, String)> = vec![
+            ("project".into(), "Project folder".into()),
+            ("new".into(), "New worktree".into()),
+        ];
+        if let Some(b) = &self.branches {
+            for wt in &b.worktrees {
+                places.push((format!("path:{}", wt.path), wt.label()));
+            }
+        }
+        let current = match &self.place {
+            Place::Project => "project".to_string(),
+            Place::NewWorktree => "new".into(),
+            Place::Existing(path) => format!("path:{path}"),
+        };
+        let label = places
+            .iter()
+            .find(|(id, _)| *id == current)
+            .map(|(_, l)| l.clone())
+            .unwrap_or_default();
+        let this = cx.entity().downgrade();
+        let picker = field_picker("place", label, places, current, move |id, _, cx| {
+            let _ = this.update(cx, |v, cx| {
+                v.place = match id.as_str() {
+                    "project" => Place::Project,
+                    "new" => Place::NewWorktree,
+                    path => Place::Existing(path.trim_start_matches("path:").to_string()),
+                };
+                cx.notify();
+            });
+        });
+        field("Work in", picker, p)
+    }
+
+    /// A new worktree's branch, and a new branch's name and base.
+    fn worktree_fields(&self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let this = cx.entity().downgrade();
+        let available = self.branches.as_ref().map(|b| b.available()).unwrap_or_default();
+        let mut branches = vec![(String::new(), "New branch".to_string())];
+        branches.extend(available.iter().map(|b| (b.clone(), b.clone())));
+        let label = if self.branch.is_empty() {
+            "New branch".to_string()
+        } else {
+            self.branch.clone()
+        };
+        let w = this.clone();
+        let mut fields = Self::fields().child(field(
+            "Branch",
+            field_picker("branch", label, branches, self.branch.clone(), move |id, _, cx| {
+                let _ = w.update(cx, |v, cx| {
+                    v.branch = id;
+                    cx.notify();
+                });
+            }),
+            p,
+        ));
+        if self.branch.is_empty() {
+            fields = fields.child(field(
+                "Name",
+                // An input is as wide as it's let.
+                div()
+                    .w(px(180.))
+                    .child(Input::new(&self.branch_name).small())
+                    .into_any_element(),
+                p,
+            ));
+            let mut bases = vec![(String::new(), "Current HEAD".to_string())];
+            if let Some(b) = &self.branches {
+                bases.extend(b.branches.iter().map(|x| (x.clone(), x.clone())));
+            }
+            let label = if self.base_ref.is_empty() {
+                "Current HEAD".to_string()
+            } else {
+                self.base_ref.clone()
+            };
+            fields = fields.child(field(
+                "Based on",
+                field_picker("base", label, bases, self.base_ref.clone(), move |id, _, cx| {
+                    let _ = this.update(cx, |v, cx| {
+                        v.base_ref = id;
+                        cx.notify();
+                    });
+                }),
+                p,
+            ));
+        }
+        fields.into_any_element()
+    }
+
+    fn place_note(&self) -> String {
+        match &self.place {
+            Place::Project => "The agent works directly in the project folder.".into(),
+            Place::NewWorktree => {
+                "The agent works on its own branch in a separate checkout. You can revert its turns.".into()
+            }
+            Place::Existing(path) => {
+                format!("The agent works in {path}, on its branch, beside any session already there.")
+            }
+        }
+    }
+
+    fn render_prompt(&self, drafts: bool, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let attachments = self.render_attachments(p, cx);
+        v_flex()
+            .gap_1p5()
+            .child(
+                v_flex()
+                    .gap_2()
+                    .p_2()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(p.surface0)
+                    .bg(p.mantle)
+                    .child(
+                        div()
+                            .capture_key_down(cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
+                                if ev.keystroke.key == "v" && ev.keystroke.modifiers.platform && this.paste(window, cx) {
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .font_family(crate::ui::fonts::message())
+                            .child(Textarea::new(&self.prompt).appearance(false)),
+                    )
+                    .when_some(attachments, |d, a| d.child(a))
+                    .child(
+                        h_flex().child(
+                            Button::new("add-images")
+                                .xsmall()
+                                .ghost()
+                                .icon(Icon::new(L::ImagePlus))
+                                .label("Add Images")
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pick_images(window, cx))),
+                        ),
+                    ),
+            )
+            .child(caption(
+                if drafts {
+                    "Optional. Without one, the session starts empty. Save as Draft keeps the prompt unsent, to send later from any device."
+                } else {
+                    "Optional. Without one, the session starts empty."
+                },
+                p,
+            ))
+            .into_any_element()
+    }
+
     fn render_attachments(&self, p: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.attachments.is_empty() {
             return None;
@@ -538,10 +785,7 @@ impl NewSessionView {
                     let e = e.clone();
                     thumb = thumb
                         .cursor_pointer()
-                        .tooltip(move |window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new(format!("{e} Click to try again."))
-                                .build(window, cx)
-                        })
+                        .tooltip(move |window, cx| Tooltip::new(format!("{e} Click to try again.")).build(window, cx))
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.upload(key, cx)))
                         .child(
                             div()
@@ -573,324 +817,125 @@ impl NewSessionView {
     }
 }
 
+/// The form's column, and the footer's under it.
+const WIDTH: f32 = 680.;
+
 impl Render for NewSessionView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(cx);
-        let conn = self.conn().read(cx);
-        let info = conn.info.clone().unwrap_or_default();
-        let projects = conn.index.projects_by_name();
+        let drafts = self.conn().read(cx).info.as_ref().is_some_and(|i| i.drafts);
         let project = self.project(cx);
         let git = project.as_ref().is_some_and(|p| p.is_git_repo);
         let import = self.agent.read(cx).info(cx).is_some_and(|h| h.caps.import) && project.is_some();
-        let section = |t: &'static str| {
-            div()
-                .text_xs()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(p.overlay)
-                .child(t)
-        };
-        let this = cx.entity().downgrade();
-
-        // Server
-        let servers: Vec<(String, String)> = self
-            .conns
-            .iter()
-            .enumerate()
-            .map(|(i, c)| (i.to_string(), c.read(cx).name.clone()))
-            .collect();
-        let server_label = servers.get(self.server_ix).map(|(_, n)| n.clone()).unwrap_or_default();
-        let w = this.clone();
-        let server_picker = picker(
-            "server",
-            server_label,
-            servers,
-            self.server_ix.to_string(),
-            move |id, window, cx| {
-                let _ = w.update(cx, |v, cx| {
-                    let ix: usize = id.parse().unwrap_or(0);
-                    if ix != v.server_ix {
-                        v.server_ix = ix;
-                        v.project_id = None;
-                        v.load_server(window, cx);
-                    }
-                });
-            },
-        );
-
-        // Project
-        let mut choices: Vec<(String, String)> = projects.iter().map(|p| (p.id.clone(), p.name.clone())).collect();
-        if choices.is_empty() {
-            choices.push((String::new(), "No projects yet".into()));
-        }
-        let label = project
-            .as_ref()
-            .map(|p| p.name.clone())
-            .unwrap_or_else(|| "Choose…".into());
-        let w = this.clone();
-        let project_picker = picker(
-            "project",
-            label,
-            choices,
-            self.project_id.clone().unwrap_or_default(),
-            move |id, _, cx| {
-                let _ = w.update(cx, |v, cx| v.set_project((!id.is_empty()).then_some(id), cx));
-            },
-        );
-
-        // Workspace
-        let workspace = git.then(|| {
-            let mut places: Vec<(String, String)> = vec![
-                ("project".into(), "Project folder".into()),
-                ("new".into(), "New worktree".into()),
-            ];
-            if let Some(b) = &self.branches {
-                for wt in &b.worktrees {
-                    places.push((format!("path:{}", wt.path), wt.label()));
-                }
-            }
-            let current = match &self.place {
-                Place::Project => "project".to_string(),
-                Place::NewWorktree => "new".into(),
-                Place::Existing(path) => format!("path:{path}"),
-            };
-            let label = places
-                .iter()
-                .find(|(id, _)| *id == current)
-                .map(|(_, l)| l.clone())
-                .unwrap_or_default();
-            let w = this.clone();
-            let mut col = v_flex().gap_2().child(row(
-                "Work in",
-                picker("place", label, places, current, move |id, _, cx| {
-                    let _ = w.update(cx, |v, cx| {
-                        v.place = match id.as_str() {
-                            "project" => Place::Project,
-                            "new" => Place::NewWorktree,
-                            path => Place::Existing(path.trim_start_matches("path:").to_string()),
-                        };
-                        cx.notify();
-                    });
-                }),
-                None,
-                &p,
-            ));
-            if self.place == Place::NewWorktree {
-                let available = self.branches.as_ref().map(|b| b.available()).unwrap_or_default();
-                let mut branches = vec![(String::new(), "New branch".to_string())];
-                branches.extend(available.iter().map(|b| (b.clone(), b.clone())));
-                let label = if self.branch.is_empty() {
-                    "New branch".to_string()
-                } else {
-                    self.branch.clone()
-                };
-                let w = this.clone();
-                col = col.child(row(
-                    "Branch",
-                    picker("branch", label, branches, self.branch.clone(), move |id, _, cx| {
-                        let _ = w.update(cx, |v, cx| {
-                            v.branch = id;
-                            cx.notify();
-                        });
-                    }),
-                    None,
-                    &p,
-                ));
-                if self.branch.is_empty() {
-                    col = col.child(row(
-                        "Name",
-                        Input::new(&self.branch_name).small().into_any_element(),
-                        None,
-                        &p,
-                    ));
-                    let mut bases = vec![(String::new(), "Current HEAD".to_string())];
-                    if let Some(b) = &self.branches {
-                        bases.extend(b.branches.iter().map(|x| (x.clone(), x.clone())));
-                    }
-                    let label = if self.base_ref.is_empty() {
-                        "Current HEAD".to_string()
-                    } else {
-                        self.base_ref.clone()
-                    };
-                    let w = this.clone();
-                    col = col.child(row(
-                        "Based on",
-                        picker("base", label, bases, self.base_ref.clone(), move |id, _, cx| {
-                            let _ = w.update(cx, |v, cx| {
-                                v.base_ref = id;
-                                cx.notify();
-                            });
-                        }),
-                        None,
-                        &p,
-                    ));
-                }
-            }
-            let footer = match &self.place {
-                Place::Project => "The agent works directly in the project folder.".to_string(),
-                Place::NewWorktree => {
-                    "The agent works on its own branch in a separate checkout. You can revert its turns.".into()
-                }
-                Place::Existing(path) => {
-                    format!("The agent works in {path}, on its branch, beside any session already there.")
-                }
-            };
-            col.child(caption(footer, &p))
-        });
-
-        let agents = self.agent.update(cx, |a, cx| a.render_agents(cx));
-        let options = self.agent.update(cx, |a, cx| a.render_options(cx));
-        let attachments = self.render_attachments(&p, cx);
+        let (agent_fields, agent_notes) = self.agent.update(cx, |a, cx| a.render_compact(cx));
         let can_start = self.can_start(cx);
         let has_prompt = !self.prompt.read(cx).value().trim().is_empty() || !self.attachments.is_empty();
-        let _ = window;
+
+        let fields = Self::fields()
+            .when(self.conns.len() > 1, |d| d.child(self.server_field(&p, cx)))
+            .child(self.project_field(&p, cx))
+            .children(agent_fields)
+            .when(git, |d| d.child(self.place_field(&p, cx)));
+        // What the choices bring with them, each only when it applies.
+        let details = v_flex()
+            .gap_1p5()
+            .child(self.render_project_line(project.as_deref(), &p, cx))
+            .when(git, |d| d.child(caption(self.place_note(), &p)))
+            .children(agent_notes)
+            .when(import, |d| {
+                d.child(
+                    h_flex().pt_1().child(
+                        Button::new("import")
+                            .small()
+                            .outline()
+                            .icon(Icon::new(L::SquareTerminal))
+                            .label("Continue a terminal session…")
+                            .disabled(self.creating)
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.import(window, cx))),
+                    ),
+                )
+            });
+        let form = v_flex()
+            .w_full()
+            .max_w(px(WIDTH))
+            .gap_4()
+            .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child("New Session"))
+            .child(self.render_prompt(drafts, &p, cx))
+            .child(
+                v_flex()
+                    .gap_3()
+                    .child(fields)
+                    .when(git && self.place == Place::NewWorktree, |d| {
+                        d.child(self.worktree_fields(&p, cx))
+                    })
+                    .child(details),
+            );
+        let buttons = h_flex()
+            .gap_2()
+            .justify_end()
+            .child(
+                Button::new("cancel")
+                    .small()
+                    .outline()
+                    .label("Cancel")
+                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(NewSessionEvent::Cancelled))),
+            )
+            .when(drafts, |d| {
+                d.child(
+                    Button::new("save-draft")
+                        .small()
+                        .outline()
+                        .icon(Icon::new(L::Download))
+                        .label("Save as Draft")
+                        .disabled(!can_start || !has_prompt)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create(true, window, cx))),
+                )
+            })
+            .child(
+                Button::new("start")
+                    .small()
+                    .primary()
+                    .label("Start")
+                    .loading(self.creating)
+                    .disabled(!can_start)
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create(false, window, cx))),
+            );
         v_flex()
-            .id("new-session")
             .size_full()
-            .overflow_y_scroll()
-            .items_center()
-            .pt_8()
-            .pb_8()
-            .px_6()
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
                 this.attach_paths(paths.paths().to_vec(), window, cx)
             }))
+            // The form is as tall as it is, with the buttons right under it;
+            // in a short window it scrolls and the buttons stay in sight.
+            .child(
+                v_flex()
+                    .id("new-session")
+                    .w_full()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .items_center()
+                    .px_6()
+                    .pt_8()
+                    .pb_2()
+                    .child(form),
+            )
             .child(
                 v_flex()
                     .w_full()
-                    .max_w(px(680.))
-                    .gap_5()
-                    .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child("New Session"))
-                    .when(self.conns.len() > 1, |d| d.child(row("Server", server_picker, None, &p)))
+                    .flex_shrink_0()
+                    .items_center()
+                    .px_6()
+                    .pt_3()
+                    .pb_5()
                     .child(
                         v_flex()
+                            .w_full()
+                            .max_w(px(WIDTH))
                             .gap_2()
-                            .child(section("Project"))
-                            .child(row("Project", project_picker, None, &p))
-                            .when_some(project.clone(), |d, pr| {
-                                d.child(
-                                    h_flex()
-                                        .gap_2()
-                                        .pl(px(108.))
-                                        .child(div().flex_1().min_w_0().truncate().text_xs().font_family(crate::ui::fonts::code()).text_color(p.subtext).child(pr.path.clone()))
-                                        .child(
-                                            Button::new("forget")
-                                                .xsmall()
-                                                .ghost()
-                                                .label("Forget")
-                                                .tooltip(format!("Take {} off the list of projects. The folder stays.", pr.name))
-                                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.forget_project(cx))),
-                                        ),
-                                )
+                            .when_some(self.error.clone(), |d, e| {
+                                d.child(div().text_sm().text_color(p.red).child(e))
                             })
-                            .child(
-                                h_flex().pl(px(108.)).child(
-                                    Button::new("add-folder")
-                                        .xsmall()
-                                        .ghost()
-                                        .icon(Icon::new(L::FolderPlus))
-                                        .label("Add a folder…")
-                                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.browse(window, cx))),
-                                ),
-                            ),
-                    )
-                    .child(v_flex().gap_2().child(section("Agent")).child(agents))
-                    .when_some(options, |d, o| {
-                        d.child(
-                            v_flex()
-                                .gap_2()
-                                .child(section("Options"))
-                                .child(o)
-                                .when(import, |d| {
-                                    d.child(
-                                        h_flex().child(
-                                            Button::new("import")
-                                                .small()
-                                                .ghost()
-                                                .icon(Icon::new(L::SquareTerminal))
-                                                .label("Continue a terminal session…")
-                                                .disabled(self.creating)
-                                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.import(window, cx))),
-                                        ),
-                                    )
-                                }),
-                        )
-                    })
-                    .when_some(workspace, |d, w| d.child(v_flex().gap_2().child(section("Workspace")).child(w)))
-                    .child(
-                        v_flex()
-                            .gap_2()
-                            .child(section("Prompt"))
-                            .child(
-                                v_flex()
-                                    .gap_2()
-                                    .p_2()
-                                    .rounded_lg()
-                                    .border_1()
-                                    .border_color(p.surface0)
-                                    .bg(p.mantle)
-                                    .child(
-                                        div()
-                                            .capture_key_down(cx.listener(|this, ev: &gpui_kit::KeyDownEvent, window, cx| {
-                                                if ev.keystroke.key == "v" && ev.keystroke.modifiers.platform && this.paste(window, cx) {
-                                                    cx.stop_propagation();
-                                                }
-                                            }))
-                                            .font_family(crate::ui::fonts::message())
-                                            .child(Textarea::new(&self.prompt).appearance(false)),
-                                    )
-                                    .when_some(attachments, |d, a| d.child(a))
-                                    .child(
-                                        h_flex().child(
-                                            Button::new("add-images")
-                                                .xsmall()
-                                                .ghost()
-                                                .icon(Icon::new(L::ImagePlus))
-                                                .label("Add Images")
-                                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pick_images(window, cx))),
-                                        ),
-                                    ),
-                            )
-                            .child(caption(
-                                if info.drafts {
-                                    "Optional. Without one, the session starts empty and you write the first prompt in it. Save as Draft keeps the prompt in the session, unsent, to send later from any device."
-                                } else {
-                                    "Optional. Without one, the session starts empty and you write the first prompt in it."
-                                },
-                                &p,
-                            )),
-                    )
-                    .when_some(self.error.clone(), |d, e| d.child(div().text_sm().text_color(p.red).child(e)))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .justify_end()
-                            .child(
-                                Button::new("cancel")
-                                    .small()
-                                    .ghost()
-                                    .label("Cancel")
-                                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.emit(NewSessionEvent::Cancelled))),
-                            )
-                            .when(info.drafts, |d| {
-                                d.child(
-                                    Button::new("save-draft")
-                                        .small()
-                                        .outline()
-                                        .icon(Icon::new(L::Download))
-                                        .label("Save as Draft")
-                                        .disabled(!can_start || !has_prompt)
-                                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create(true, window, cx))),
-                                )
-                            })
-                            .child(
-                                Button::new("start")
-                                    .small()
-                                    .primary()
-                                    .label("Start")
-                                    .loading(self.creating)
-                                    .disabled(!can_start)
-                                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.create(false, window, cx))),
-                            ),
+                            .child(buttons),
                     ),
             )
     }

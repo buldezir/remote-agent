@@ -43,6 +43,7 @@ actions!(
         LayoutInbox,
         LayoutProjects,
         LayoutColumns,
+        ToggleSidebar,
     ]
 );
 
@@ -74,13 +75,15 @@ fn main() {
                 KeyBinding::new("cmd-g", FindNext, None),
                 KeyBinding::new("shift-cmd-g", FindPrevious, None),
                 KeyBinding::new("alt-cmd-c", CommitSession, None),
-                KeyBinding::new("cmd-j", ToggleTerminal, None),
+                // The later one is what menus show.
                 KeyBinding::new("cmd-`", ToggleTerminal, None),
+                KeyBinding::new("cmd-j", ToggleTerminal, None),
                 KeyBinding::new("cmd-.", StopAgent, None),
                 KeyBinding::new("cmd-s", SaveDraft, None),
                 KeyBinding::new("cmd-1", LayoutInbox, None),
                 KeyBinding::new("cmd-2", LayoutProjects, None),
                 KeyBinding::new("cmd-3", LayoutColumns, None),
+                KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
             ]);
             cx.set_menus(vec![
                 Menu {
@@ -147,6 +150,8 @@ fn main() {
                         MenuItem::action("as Inbox", LayoutInbox),
                         MenuItem::action("as Projects", LayoutProjects),
                         MenuItem::action("as Columns", LayoutColumns),
+                        MenuItem::separator(),
+                        MenuItem::action("Show or Hide Sidebar", ToggleSidebar),
                     ],
                     disabled: false,
                 },
@@ -165,6 +170,11 @@ fn main() {
                 display_id,
                 window_min_size: Some(size(px(min_w), px(min_h))),
                 app_id: Some("dev.remote-agent.gpui".into()),
+                // The traffic lights sit in the first column's bar, centred in it.
+                titlebar: Some(gpui_kit::TitlebarOptions {
+                    traffic_light_position: Some(gpui_kit::point(px(14.), px(16.))),
+                    ..TitleBar::title_bar_options()
+                }),
                 ..TitleBar::window_options()
             };
             let handle = handle.clone();
@@ -206,6 +216,7 @@ fn main() {
             forward::<LayoutInbox>(window, view.clone(), cx);
             forward::<LayoutProjects>(window, view.clone(), cx);
             forward::<LayoutColumns>(window, view.clone(), cx);
+            forward::<ToggleSidebar>(window, view.clone(), cx);
             cx.activate(true);
         });
     drop(runtime);

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::notification::Notification;
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, TitleBar, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::{
     AnyElement, App, AppContext as _, Context, DragMoveEvent, Entity, FocusHandle, Focusable as _,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, SharedString, Styled as _, Subscription, Task,
@@ -24,6 +24,7 @@ use crate::store::search::{Hit, merge_search_results, search_active};
 use crate::store::servers::{SavedServer, ServerStore, custom_home, home_dir, pair, parse_pairing_link};
 use crate::store::sidebar::{Collection, Layout, OpenedSession, stands_out};
 use crate::store::tokens::Tokens;
+use crate::ui::common::{sidebar_toggle, top_bar};
 use crate::ui::new_session::{NewSessionEvent, NewSessionView};
 use crate::ui::palette::{Palette, follow_appearance};
 use crate::ui::panes::{self, PaneResize};
@@ -464,9 +465,17 @@ impl AppView {
         let Some(ix) = connected.iter().position(|c| *c == target) else {
             return;
         };
+        // Cancel goes back to the session that was open.
+        let before = match &self.detail {
+            Detail::Session(v) => {
+                let v = v.read(cx);
+                Some((v.conn().read(cx).server_id.clone(), v.session_id().to_string()))
+            }
+            _ => None,
+        };
         self.close_detail(cx);
         let view = cx.new(|cx| NewSessionView::new(connected, ix, project, window, cx));
-        let sub = cx.subscribe_in(&view, window, |this, _, event, window, cx| match event {
+        let sub = cx.subscribe_in(&view, window, move |this, _, event, window, cx| match event {
             NewSessionEvent::Created {
                 server_id, session_id, ..
             } => {
@@ -474,6 +483,9 @@ impl AppView {
             }
             NewSessionEvent::Cancelled => {
                 this.detail = Detail::Empty;
+                if let Some((server, session)) = &before {
+                    this.open_by_ids(server, session, None, window, cx);
+                }
                 cx.notify();
             }
         });
@@ -852,8 +864,26 @@ impl Render for AppView {
             Detail::Session(view) => view.clone().into_any_element(),
             Detail::NewSession(view) => view.clone().into_any_element(),
         };
-        let sidebar = self.render_sidebar(window, cx);
-        let middle = (layout == Layout::Columns).then(|| self.render_middle(window, cx));
+        // The session has a bar of its own; the others get a bare one, to
+        // move the window by.
+        let hidden = prefs(cx).sidebar_hidden;
+        let detail = match &self.detail {
+            Detail::Session(_) => detail,
+            _ => v_flex()
+                .size_full()
+                .child(top_bar(
+                    "detail-bar",
+                    hidden,
+                    p.base,
+                    None,
+                    window,
+                    h_flex().when(hidden, |d| d.child(sidebar_toggle(true))),
+                ))
+                .child(div().flex_1().min_h_0().child(detail))
+                .into_any_element(),
+        };
+        let sidebar = (!hidden).then(|| self.render_sidebar(window, cx));
+        let middle = (!hidden && layout == Layout::Columns).then(|| self.render_middle(window, cx));
         v_flex()
             .size_full()
             .track_focus(&self.focus)
@@ -913,19 +943,12 @@ impl Render for AppView {
             .on_action(
                 cx.listener(|_, _: &LayoutColumns, _, cx| update_prefs(cx, |p| p.sidebar_layout = "columns".into())),
             )
+            .on_action(
+                cx.listener(|_, _: &ToggleSidebar, _, cx| update_prefs(cx, |p| p.sidebar_hidden = !p.sidebar_hidden)),
+            )
             .bg(p.base)
             .text_color(p.text)
             .font_family(cx.theme().font_family.clone())
-            .child(
-                TitleBar::new().child(
-                    h_flex()
-                        .w_full()
-                        .justify_center()
-                        .text_sm()
-                        .text_color(p.subtext)
-                        .child("Remote Agent"),
-                ),
-            )
             .child(
                 h_flex()
                     .flex_1()
@@ -934,7 +957,7 @@ impl Render for AppView {
                     .on_drag_move(
                         cx.listener(|this, e: &DragMoveEvent<PaneResize>, window, cx| this.drag_pane(e, window, cx)),
                     )
-                    .child(sidebar)
+                    .when_some(sidebar, |d, s| d.child(s))
                     .when_some(middle, |d, m| d.child(m))
                     .child(div().flex_1().min_w_0().h_full().child(detail)),
             )

@@ -1,16 +1,20 @@
-//! Choosing an agent and its options: the agents the server has, each with
-//! its version, what's missing and its usage gauge; then its model, effort
-//! and permissions. New Session, Fork and Import share it, as the Swift
+//! Choosing an agent and its options: the agents the server has that can
+//! start a session, the others folded into one line that opens to what each
+//! lacks, the usage gauge, and the model, effort and permissions. New Session
+//! lays them out as small labelled pickers (`render_compact`), Fork as rows
+//! (`render_agents`, `render_options`); Import takes the choice. As the Swift
 //! client's HarnessChoiceRows and HarnessOptionRows.
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_kit::component::{Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, Context, Entity, EventEmitter, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    IntoElement, ParentElement as _, Pixels, Render, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Window, div, px,
 };
 
 use crate::conn::ServerConn;
@@ -20,6 +24,9 @@ use crate::ui::common::{caption, limits_gauge_view};
 use crate::ui::palette::Palette;
 
 const CUSTOM: &str = "__custom";
+
+const NONE_INSTALLED: &str =
+    "No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.";
 
 pub struct AgentChanged;
 
@@ -33,6 +40,16 @@ pub struct AgentPicker {
     custom: Entity<InputState>,
     effort: String,
     mode: String,
+    /// The agents that can't be used, opened to what each lacks.
+    unavailable_open: bool,
+}
+
+/// One of the chosen agent's options: its control, and the choice's name
+/// with what it means.
+struct AgentOption {
+    label: &'static str,
+    control: AnyElement,
+    meaning: Option<(String, String)>,
 }
 
 impl AgentPicker {
@@ -45,6 +62,7 @@ impl AgentPicker {
             custom,
             effort: String::new(),
             mode: String::new(),
+            unavailable_open: false,
         }
     }
 
@@ -121,28 +139,23 @@ impl AgentPicker {
         })
     }
 
-    /// The agents to choose from, the usable first in the server's order.
     fn harnesses(&self, cx: &App) -> Option<Vec<HarnessInfo>> {
         self.conn.read(cx).harnesses.clone()
     }
 
+    /// The agents that can start a session, as a list; the others in a line.
     pub fn render_agents(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = Palette::of(cx);
         let Some(list) = self.harnesses(cx) else {
             return caption("Checking installed agents…", &p).into_any_element();
         };
         if list.is_empty() {
-            return caption(
-                "No agents are installed on the server. Install Claude Code, Codex, Pi or an ACP agent there.",
-                &p,
-            )
-            .into_any_element();
+            return caption(NONE_INSTALLED, &p).into_any_element();
         }
         let limits = self.conn.read(cx).index.limits.clone();
         let mut col = v_flex().gap_0p5();
-        for h in list {
+        for h in list.iter().filter(|h| h.usable()) {
             let selected = self.harness.as_deref() == Some(h.id.as_str());
-            let usable = h.usable();
             let id = h.id.clone();
             let gauge = limits
                 .get(&h.id)
@@ -154,8 +167,8 @@ impl AgentPicker {
                     .px_2()
                     .py_1()
                     .rounded_md()
-                    .when(!usable, |d| d.opacity(0.5))
-                    .when(usable, |d| d.cursor_pointer().hover(|d| d.bg(p.surface0.opacity(0.5))))
+                    .cursor_pointer()
+                    .hover(|d| d.bg(p.surface0.opacity(0.5)))
                     .when(selected, |d| d.bg(p.surface0))
                     .child(Icon::new(IconName::Bot).small().text_color(p.overlay))
                     .child(
@@ -174,36 +187,168 @@ impl AgentPicker {
                                     )
                                 },
                             ))
-                            .when(!usable, |d| {
-                                d.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(p.yellow)
-                                        .child(h.hint.clone().unwrap_or_else(|| "Not signed in".into())),
-                                )
-                            })
                             .when_some(gauge, |d, g| d.child(g)),
                     )
                     .when(selected, |d| {
                         d.child(Icon::new(IconName::Check).small().text_color(p.accent))
                     })
-                    .when(usable, |d| {
-                        d.on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                            if this.harness.as_deref() != Some(id.as_str()) {
-                                this.choose(&id, None, window, cx)
-                            }
-                        }))
-                    }),
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        if this.harness.as_deref() != Some(id.as_str()) {
+                            this.choose(&id, None, window, cx)
+                        }
+                    })),
             );
         }
-        col.into_any_element()
+        col.children(self.render_unavailable(&list, &p, cx)).into_any_element()
     }
 
+    /// The agent's options as rows, each with what its choice means.
     pub fn render_options(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let p = Palette::of(cx);
-        let h = self.info(cx)?;
-        let this = cx.entity().downgrade();
+        let options = self.options(cx);
+        if options.is_empty() {
+            return None;
+        }
         let mut col = v_flex().gap_2();
+        for o in options {
+            col = col.child(row(o.label, o.control, o.meaning.map(|(_, what)| what), &p));
+        }
+        Some(col.into_any_element())
+    }
+
+    /// The agent and its options as labelled pickers, for a wrapping row of
+    /// them, and the lines that go under the row: the agent's usage, what
+    /// the chosen options mean, and the agents that can't be used.
+    pub fn render_compact(&self, cx: &mut Context<Self>) -> (Vec<AnyElement>, Vec<AnyElement>) {
+        let p = Palette::of(cx);
+        let list = self.harnesses(cx);
+        let mut fields = vec![field("Agent", self.agent_control(list.as_deref(), cx), &p)];
+        let mut notes = Vec::new();
+        if let Some(id) = &self.harness
+            && let Some(l) = self.conn.read(cx).index.limits.get(id)
+            && let Some(gauge) = limits_gauge_view(format!("gauge-{id}"), l, &p)
+        {
+            // In a row of its own, or the whole line would show its details.
+            notes.push(h_flex().child(gauge).into_any_element());
+        }
+        for o in self.options(cx) {
+            fields.push(field(o.label, o.control, &p));
+            if let Some((name, what)) = o.meaning {
+                notes.push(caption(format!("{name}: {what}"), &p).into_any_element());
+            }
+        }
+        match list {
+            Some(list) if list.is_empty() => notes.push(caption(NONE_INSTALLED, &p).into_any_element()),
+            Some(list) => notes.extend(self.render_unavailable(&list, &p, cx)),
+            None => {}
+        }
+        (fields, notes)
+    }
+
+    /// A menu of the agents that can start a session.
+    fn agent_control(&self, list: Option<&[HarnessInfo]>, cx: &mut Context<Self>) -> AnyElement {
+        let usable: Vec<(String, String)> = list
+            .unwrap_or_default()
+            .iter()
+            .filter(|h| h.usable())
+            .map(|h| (h.id.clone(), h.name.clone()))
+            .collect();
+        if usable.is_empty() {
+            let label = match list {
+                None => "Checking…",
+                Some([]) => "None installed",
+                Some(_) => "None ready",
+            };
+            return h_flex()
+                .child(Button::new("agent").small().outline().label(label).disabled(true))
+                .into_any_element();
+        }
+        let label = self.info(cx).map(|h| h.name).unwrap_or_else(|| "Choose…".into());
+        let this = cx.entity().downgrade();
+        field_picker(
+            "agent",
+            label,
+            usable,
+            self.harness.clone().unwrap_or_default(),
+            move |id, window, cx| {
+                let _ = this.update(cx, |v, cx| {
+                    if v.harness.as_deref() != Some(id.as_str()) {
+                        v.choose(&id, None, window, cx)
+                    }
+                });
+            },
+        )
+    }
+
+    /// The agents that can't start a session, in one line. A click opens it
+    /// to what each lacks; with no agent to use, it's open and stands out.
+    fn render_unavailable(&self, list: &[HarnessInfo], p: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let summary = unavailable_summary(list)?;
+        let none_usable = !list.iter().any(|h| h.usable());
+        let open = self.unavailable_open || none_usable;
+        let lacks: Vec<(String, String)> = list
+            .iter()
+            .filter(|h| !h.usable())
+            .map(|h| (h.name.clone(), lack(h)))
+            .collect();
+        let mut line = h_flex().id("agents-unavailable").gap_1().text_xs();
+        if none_usable {
+            line = line
+                .text_color(p.yellow)
+                .child(div().flex_1().min_w_0().child(format!("No agent is ready: {summary}")));
+        } else {
+            let hover = p.subtext;
+            line = line
+                .text_color(p.overlay)
+                .cursor_pointer()
+                .hover(move |d| d.text_color(hover))
+                .child(
+                    Icon::new(if open {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .xsmall()
+                    .text_color(p.overlay),
+                )
+                .child(div().flex_1().min_w_0().child(summary))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.unavailable_open = !this.unavailable_open;
+                    cx.notify();
+                }));
+            if !open {
+                let details = lacks
+                    .iter()
+                    .map(|(name, lack)| format!("{name}: {lack}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                line = line.tooltip(move |window, cx| Tooltip::new(details.clone()).build(window, cx));
+            }
+        }
+        let mut col = v_flex().gap_0p5().child(line);
+        if open {
+            for (name, lack) in lacks {
+                col = col.child(
+                    h_flex()
+                        .items_start()
+                        .gap_2()
+                        // Under the line's text, past its chevron.
+                        .when(!none_usable, |d| d.pl_4())
+                        .text_xs()
+                        .child(div().flex_shrink_0().text_color(p.subtext).child(name))
+                        .child(div().flex_1().min_w_0().text_color(p.overlay).child(lack)),
+                );
+            }
+        }
+        Some(col.into_any_element())
+    }
+
+    fn options(&self, cx: &mut Context<Self>) -> Vec<AgentOption> {
+        let Some(h) = self.info(cx) else {
+            return Vec::new();
+        };
+        let this = cx.entity().downgrade();
+        let mut out = Vec::new();
         // Model
         if !h.models.is_empty() || h.caps.free_model {
             let mut choices: Vec<(String, String)> = vec![(String::new(), "Default".into())];
@@ -218,22 +363,24 @@ impl AgentPicker {
                 .unwrap_or_else(|| "Default".into());
             if !h.models.is_empty() {
                 let w = this.clone();
-                col = col.child(row(
-                    "Model",
-                    picker("model", current, choices, self.model.clone(), move |id, window, cx| {
+                out.push(AgentOption {
+                    label: "Model",
+                    control: field_picker("model", current, choices, self.model.clone(), move |id, window, cx| {
                         let _ = w.update(cx, |v, cx| v.set_model(id, window, cx));
                     }),
-                    None,
-                    &p,
-                ));
+                    meaning: None,
+                });
             }
             if self.model == CUSTOM || h.models.is_empty() {
-                col = col.child(row(
-                    "Model id",
-                    Input::new(&self.custom).small().into_any_element(),
-                    None,
-                    &p,
-                ));
+                out.push(AgentOption {
+                    label: "Model id",
+                    // An input is as wide as it's let: room for an id.
+                    control: div()
+                        .w(px(240.))
+                        .child(Input::new(&self.custom).small())
+                        .into_any_element(),
+                    meaning: None,
+                });
             }
         }
         // Effort
@@ -246,23 +393,18 @@ impl AgentPicker {
                 .find(|(id, _)| *id == self.effort)
                 .map(|(_, n)| n.clone())
                 .unwrap_or_else(|| "Default".into());
-            let description = efforts
-                .iter()
-                .find(|e| e.id == self.effort)
-                .and_then(|e| e.description.clone());
             let w = this.clone();
-            col = col.child(row(
-                "Effort",
-                picker("effort", current, choices, self.effort.clone(), move |id, _, cx| {
+            out.push(AgentOption {
+                label: "Effort",
+                control: field_picker("effort", current, choices, self.effort.clone(), move |id, _, cx| {
                     let _ = w.update(cx, |v, cx| {
                         v.effort = id;
                         cx.emit(AgentChanged);
                         cx.notify();
                     });
                 }),
-                description,
-                &p,
-            ));
+                meaning: meaning(&efforts, &self.effort),
+            });
         }
         // Permissions
         if !h.modes.is_empty() {
@@ -272,26 +414,20 @@ impl AgentPicker {
                 .find(|(id, _)| *id == self.mode)
                 .map(|(_, n)| n.clone())
                 .unwrap_or_else(|| self.mode.clone());
-            let description = h
-                .modes
-                .iter()
-                .find(|m| m.id == self.mode)
-                .and_then(|m| m.description.clone());
             let w = this.clone();
-            col = col.child(row(
-                "Permissions",
-                picker("mode", current, choices, self.mode.clone(), move |id, _, cx| {
+            out.push(AgentOption {
+                label: "Permissions",
+                control: field_picker("mode", current, choices, self.mode.clone(), move |id, _, cx| {
                     let _ = w.update(cx, |v, cx| {
                         v.mode = id;
                         cx.emit(AgentChanged);
                         cx.notify();
                     });
                 }),
-                description,
-                &p,
-            ));
+                meaning: meaning(&h.modes, &self.mode),
+            });
         }
-        Some(col.into_any_element())
+        out
     }
 
     fn set_model(&mut self, id: String, _: &mut Window, cx: &mut Context<Self>) {
@@ -310,6 +446,52 @@ impl AgentPicker {
     }
 }
 
+/// The chosen one's name and what it means, where it says.
+fn meaning(choices: &[Choice], id: &str) -> Option<(String, String)> {
+    let c = choices.iter().find(|c| c.id == id)?;
+    let what = c.description.clone().filter(|d| !d.is_empty())?;
+    Some((c.name.clone(), what))
+}
+
+/// What keeps an agent from starting a session, in the server's words.
+fn lack(h: &HarnessInfo) -> String {
+    h.hint.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| {
+        if h.installed {
+            "Not signed in".into()
+        } else {
+            "Not installed".into()
+        }
+    })
+}
+
+/// The agents that can't start a session, in a line: "Claude Code and Codex
+/// aren't signed in; Pi isn't installed". None when every agent can.
+fn unavailable_summary(list: &[HarnessInfo]) -> Option<String> {
+    let part = |installed: bool, what: &str| {
+        let names: Vec<&str> = list
+            .iter()
+            .filter(|h| !h.usable() && h.installed == installed)
+            .map(|h| h.name.as_str())
+            .collect();
+        let verb = if names.len() == 1 { "isn't" } else { "aren't" };
+        (!names.is_empty()).then(|| format!("{} {verb} {what}", join_names(&names)))
+    };
+    let parts: Vec<String> = [part(true, "signed in"), part(false, "installed")]
+        .into_iter()
+        .flatten()
+        .collect();
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+
+/// "A", "A and B", "A, B and C".
+fn join_names(names: &[&str]) -> String {
+    match names {
+        [] => String::new(),
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
 /// A label, its control, and what the choice means.
 pub fn row(label: &str, control: AnyElement, description: Option<String>, p: &Palette) -> AnyElement {
     v_flex()
@@ -319,7 +501,7 @@ pub fn row(label: &str, control: AnyElement, description: Option<String>, p: &Pa
                 .gap_3()
                 .child(
                     div()
-                        .w(gpui_kit::px(96.))
+                        .w(px(96.))
                         .text_sm()
                         .text_color(p.subtext)
                         .font_weight(FontWeight::MEDIUM)
@@ -327,7 +509,17 @@ pub fn row(label: &str, control: AnyElement, description: Option<String>, p: &Pa
                 )
                 .child(div().flex_1().min_w_0().child(control)),
         )
-        .when_some(description, |d, desc| d.child(caption(desc, p).pl(gpui_kit::px(108.))))
+        .when_some(description, |d, desc| d.child(caption(desc, p).pl(px(108.))))
+        .into_any_element()
+}
+
+/// A small label over its control: one of a wrapping row of them.
+pub fn field(label: &str, control: AnyElement, p: &Palette) -> AnyElement {
+    v_flex()
+        .flex_shrink_0()
+        .gap_1()
+        .child(caption(label.to_string(), p))
+        .child(control)
         .into_any_element()
 }
 
@@ -340,31 +532,57 @@ pub fn picker(
     current: String,
     on_pick: impl Fn(String, &mut Window, &mut App) + 'static,
 ) -> AnyElement {
+    menu_button(id, label, choices, current, None, on_pick)
+}
+
+/// A picker for a row of fields. It cuts a long choice short, so that the
+/// row wraps before a field is wider than the form.
+pub fn field_picker(
+    id: &'static str,
+    label: String,
+    choices: Vec<(String, String)>,
+    current: String,
+    on_pick: impl Fn(String, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    menu_button(id, label, choices, current, Some(px(240.)), on_pick)
+}
+
+fn menu_button(
+    id: &'static str,
+    label: String,
+    choices: Vec<(String, String)>,
+    current: String,
+    max_width: Option<Pixels>,
+    on_pick: impl Fn(String, &mut Window, &mut App) + 'static,
+) -> AnyElement {
     let on_pick = std::rc::Rc::new(on_pick);
-    let button = Button::new(id)
+    let mut button = Button::new(id)
         .small()
         .outline()
         .label(label)
-        .icon(IconName::ChevronsUpDown)
-        .dropdown_menu(move |mut menu, _, _| {
-            // A long list, such as the fonts, scrolls.
-            if choices.len() > 16 {
-                menu = menu.scrollable(true).max_h(gpui_kit::px(420.));
+        .icon(IconName::ChevronsUpDown);
+    if let Some(w) = max_width {
+        button = button.max_w(w);
+    }
+    let button = button.dropdown_menu(move |mut menu, _, _| {
+        // A long list, such as the fonts, scrolls.
+        if choices.len() > 16 {
+            menu = menu.scrollable(true).max_h(px(420.));
+        }
+        for (cid, name) in &choices {
+            if cid == "-" {
+                menu = menu.separator();
+                continue;
             }
-            for (cid, name) in &choices {
-                if cid == "-" {
-                    menu = menu.separator();
-                    continue;
-                }
-                let (f, cid2) = (on_pick.clone(), cid.clone());
-                menu = menu.item(
-                    PopupMenuItem::new(name.clone())
-                        .checked(*cid == current)
-                        .on_click(move |_, window, cx| f(cid2.clone(), window, cx)),
-                );
-            }
-            menu
-        });
+            let (f, cid2) = (on_pick.clone(), cid.clone());
+            menu = menu.item(
+                PopupMenuItem::new(name.clone())
+                    .checked(*cid == current)
+                    .on_click(move |_, window, cx| f(cid2.clone(), window, cx)),
+            );
+        }
+        menu
+    });
     // As wide as its label, not the row.
     h_flex().child(button).into_any_element()
 }
@@ -374,5 +592,59 @@ impl Render for AgentPicker {
         let agents = self.render_agents(cx);
         let options = self.render_options(cx);
         v_flex().gap_3().child(agents).when_some(options, |d, o| d.child(o))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn agent(name: &str, installed: bool, auth_ok: bool) -> HarnessInfo {
+        serde_json::from_value(serde_json::json!({
+            "id": name.to_lowercase(),
+            "name": name,
+            "installed": installed,
+            "authOk": auth_ok,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn unavailable_agents_fold_into_a_line() {
+        let ready = agent("Fake", true, true);
+        assert_eq!(unavailable_summary(std::slice::from_ref(&ready)), None);
+        assert_eq!(
+            unavailable_summary(&[agent("Claude Code", true, false), ready.clone()]).as_deref(),
+            Some("Claude Code isn't signed in")
+        );
+        assert_eq!(
+            unavailable_summary(&[
+                agent("Claude Code", true, false),
+                agent("Codex", true, false),
+                ready.clone()
+            ])
+            .as_deref(),
+            Some("Claude Code and Codex aren't signed in")
+        );
+        assert_eq!(
+            unavailable_summary(&[
+                agent("Claude Code", true, false),
+                agent("Codex", false, false),
+                agent("Pi", false, false),
+                agent("Gemini", false, true),
+                ready,
+            ])
+            .as_deref(),
+            Some("Claude Code isn't signed in; Codex, Pi and Gemini aren't installed")
+        );
+    }
+
+    #[test]
+    fn an_agent_lacks_what_the_server_says() {
+        let mut h = agent("Codex", true, false);
+        assert_eq!(lack(&h), "Not signed in");
+        h.hint = Some("codex app-server failed: connection closed".into());
+        assert_eq!(lack(&h), "codex app-server failed: connection closed");
+        assert_eq!(lack(&agent("Pi", false, false)), "Not installed");
     }
 }

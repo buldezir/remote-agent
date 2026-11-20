@@ -13,8 +13,8 @@ use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, ClipboardItem, Context, Entity, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Subscription, Window, div,
-    px,
+    IntoElement, ParentElement as _, Pixels, Render, StatefulInteractiveElement as _, Styled as _, Subscription,
+    Window, div, px,
 };
 use serde_json::json;
 
@@ -27,16 +27,22 @@ use crate::ui::session::explain;
 use crate::ui::state::{prefs, update_prefs};
 use crate::ui::task::{Phase, TaskProgress};
 
+/// The dialog is as tall as what it shows, and scrolls what the window has
+/// no room for; its buttons stay in the footer.
 pub fn open(conn: Entity<ServerConn>, session_id: String, window: &mut Window, cx: &mut App) {
     let view = cx.new(|cx| CommitView::new(conn, session_id, window, cx));
-    let size = window.viewport_size();
-    window.open_dialog(cx, move |dialog, _, _| {
-        dialog
-            .w(px(560.))
-            .title("Commit")
-            .child(div().h((size.height * 0.7).min(px(640.))).child(view.clone()))
+    window.open_dialog(cx, move |dialog, _, cx| {
+        let dialog = dialog.w(px(560.)).title("Commit").child(view.clone());
+        match CommitView::footer(&view, cx) {
+            Some(footer) => dialog.footer(footer),
+            None => dialog,
+        }
     });
 }
+
+/// The files scroll past about eight of them, so that a large change leaves
+/// the message in sight. The ninth shows in part, to say there are more.
+const FILES_HEIGHT: Pixels = px(240.);
 
 pub struct CommitView {
     conn: Entity<ServerConn>,
@@ -178,6 +184,64 @@ impl CommitView {
         cx.notify();
     }
 
+    /// The buttons for where the commit stands, under the error if it didn't
+    /// start; none while the preview loads or fails.
+    fn footer(view: &Entity<Self>, cx: &App) -> Option<AnyElement> {
+        let p = Palette::of(cx);
+        let this = view.read(cx);
+        let mut buttons = h_flex().gap_2().justify_end();
+        if let Some(progress) = &this.progress {
+            if progress.read(cx).active() {
+                let progress = progress.clone();
+                buttons = buttons.child(
+                    Button::new("cancel-task")
+                        .small()
+                        .outline()
+                        .label("Cancel")
+                        .on_click(move |_: &ClickEvent, _, cx| progress.update(cx, |p, cx| p.cancel(cx))),
+                );
+            }
+            buttons = buttons.child(
+                Button::new("done")
+                    .small()
+                    .primary()
+                    .label("Done")
+                    .on_click(|_: &ClickEvent, window, cx| window.close_dialog(cx)),
+            );
+        } else if let Some(Ok(prev)) = &this.preview {
+            let allowed = Self::scopes(prev).contains(&this.scope);
+            let view = view.clone();
+            buttons = buttons
+                .child(
+                    Button::new("cancel")
+                        .small()
+                        .outline()
+                        .label("Cancel")
+                        .on_click(|_: &ClickEvent, window, cx| window.close_dialog(cx)),
+                )
+                .child(
+                    Button::new("start")
+                        .small()
+                        .primary()
+                        .label(this.scope.action(!prev.files.is_empty()))
+                        .loading(this.starting)
+                        .disabled(!allowed || this.starting)
+                        .on_click(move |_: &ClickEvent, _, cx| view.update(cx, |this, cx| this.start(cx))),
+                );
+        } else {
+            return None;
+        }
+        Some(
+            v_flex()
+                .gap_2()
+                .when_some(this.error.clone(), |d, e| {
+                    d.child(div().text_sm().text_color(p.red).child(e))
+                })
+                .child(buttons)
+                .into_any_element(),
+        )
+    }
+
     fn render_preview(&mut self, prev: &CommitPreview, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
         let scopes = Self::scopes(prev);
         let files = !prev.files.is_empty();
@@ -221,7 +285,16 @@ impl CommitView {
             },
             p,
         ));
-        if !files {
+        if files {
+            changes = changes.child(
+                v_flex()
+                    .id("commit-files")
+                    .max_h(FILES_HEIGHT)
+                    .overflow_y_scroll()
+                    .gap_0p5()
+                    .children(prev.files.iter().map(|f| file_row(f, p))),
+            );
+        } else {
             changes = changes.child(div().text_sm().child("Nothing to commit."));
             if prev.ahead > 0 {
                 changes = changes.child(caption(
@@ -229,9 +302,6 @@ impl CommitView {
                     p,
                 ));
             }
-        }
-        for f in &prev.files {
-            changes = changes.child(file_row(f, p));
         }
         col = col.child(changes);
         if files {
@@ -251,7 +321,7 @@ impl CommitView {
                     .child(caption("Leave it empty and rad writes one.", p)),
             );
         }
-        // Do
+        // Action
         let footer = if prev.branch.is_some() && prev.remote.is_none() {
             Some("The repository has no remote to push to.".to_string())
         } else if prev.branch.is_none() {
@@ -276,7 +346,7 @@ impl CommitView {
                 }
             }
         };
-        let mut doing = v_flex().gap_1().child(section("Do", p));
+        let mut doing = v_flex().gap_1().child(section("Action", p));
         if scopes.is_empty() {
             doing = doing.child(div().text_sm().child("Nothing to commit or push."));
         } else if scopes.len() == 1 {
@@ -425,87 +495,31 @@ fn section(title: impl Into<gpui_kit::SharedString>, p: &Palette) -> gpui_kit::D
 }
 
 impl Render for CommitView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(cx);
-        let mut footer = h_flex().gap_2().justify_end();
-        let body: AnyElement = if let Some(progress) = self.progress.clone() {
-            let active = progress.read(cx).active();
-            if active {
-                let pr = progress.clone();
-                footer = footer.child(
-                    Button::new("cancel-task")
+        if let Some(progress) = self.progress.clone() {
+            return self.render_progress(&progress, &p, cx);
+        }
+        match self.preview.clone() {
+            None => v_flex()
+                .gap_2()
+                .items_center()
+                .py_6()
+                .child(Spinner::new())
+                .child(caption("Looking at the changes…", &p))
+                .into_any_element(),
+            Some(Err(e)) => v_flex()
+                .gap_2()
+                .child(div().text_sm().text_color(p.red).child(e))
+                .child(
+                    Button::new("retry")
                         .small()
                         .outline()
-                        .label("Cancel")
-                        .on_click(move |_: &ClickEvent, _, cx| pr.update(cx, |p, cx| p.cancel(cx))),
-                );
-            }
-            footer = footer.child(
-                Button::new("done")
-                    .small()
-                    .primary()
-                    .label("Done")
-                    .on_click(|_: &ClickEvent, window, cx| window.close_dialog(cx)),
-            );
-            self.render_progress(&progress, &p, cx)
-        } else {
-            match self.preview.clone() {
-                None => v_flex()
-                    .gap_2()
-                    .items_center()
-                    .pt_10()
-                    .child(Spinner::new())
-                    .child(caption("Looking at the changes…", &p))
-                    .into_any_element(),
-                Some(Err(e)) => v_flex()
-                    .gap_2()
-                    .child(div().text_sm().text_color(p.red).child(e))
-                    .child(
-                        Button::new("retry")
-                            .small()
-                            .outline()
-                            .label("Retry")
-                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.load(window, cx))),
-                    )
-                    .into_any_element(),
-                Some(Ok(prev)) => {
-                    let allowed = Self::scopes(&prev).contains(&self.scope);
-                    footer = footer
-                        .child(
-                            Button::new("cancel")
-                                .small()
-                                .outline()
-                                .label("Cancel")
-                                .on_click(|_: &ClickEvent, window, cx| window.close_dialog(cx)),
-                        )
-                        .child(
-                            Button::new("start")
-                                .small()
-                                .primary()
-                                .label(self.scope.action(!prev.files.is_empty()))
-                                .loading(self.starting)
-                                .disabled(!allowed || self.starting)
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx))),
-                        );
-                    self.render_preview(&prev, &p, cx)
-                }
-            }
-        };
-        let _ = window;
-        v_flex()
-            .size_full()
-            .gap_3()
-            .child(
-                div()
-                    .id("commit-body")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(body),
-            )
-            .when_some(self.error.clone(), |d, e| {
-                d.child(div().text_sm().text_color(p.red).child(e))
-            })
-            .child(footer)
+                        .label("Retry")
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.load(window, cx))),
+                )
+                .into_any_element(),
+            Some(Ok(prev)) => self.render_preview(&prev, &p, cx),
+        }
     }
 }

@@ -81,6 +81,8 @@ pub struct Prefs {
     pub sidebar_width: f32,
     /// The Columns layout's middle column's width, in points.
     pub column_width: f32,
+    /// The sidebar, and the Columns layout's middle column, are hidden.
+    pub sidebar_hidden: bool,
     /// The window's frame when it last moved; none until it has.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowFrame>,
@@ -128,6 +130,7 @@ impl Default for Prefs {
             recent_sessions: Vec::new(),
             sidebar_width: 290.,
             column_width: 330.,
+            sidebar_hidden: false,
             window: None,
         }
     }

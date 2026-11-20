@@ -15,7 +15,7 @@ use crate::ui::state::{AppPrefs, prefs};
 
 pub const SIDEBAR: Limits = Limits {
     default: 290.,
-    min: 200.,
+    min: 230.,
     max: 480.,
 };
 pub const MIDDLE: Limits = Limits {
@@ -142,7 +142,7 @@ mod tests {
     #[test]
     fn keeps_a_width_within_its_limits_and_the_room() {
         assert_eq!(SIDEBAR.fit(320., f32::INFINITY), 320.);
-        assert_eq!(SIDEBAR.fit(90., f32::INFINITY), 200.);
+        assert_eq!(SIDEBAR.fit(90., f32::INFINITY), 230.);
         assert_eq!(SIDEBAR.fit(900., f32::INFINITY), 480.);
         // A narrow window leaves less room than the limit.
         assert_eq!(SIDEBAR.fit(450., 400.), 400.);

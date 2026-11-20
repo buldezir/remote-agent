@@ -15,8 +15,9 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Context, Entity, FontWeight, Hsla, InteractiveElement as _, IntoElement,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, px,
+    AnyElement, App, ClickEvent, Context, Entity, FontWeight, HighlightStyle, Hsla, InteractiveElement as _,
+    IntoElement, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, StyledText, Window,
+    div, px,
 };
 
 use crate::conn::{ConnState, ServerConn};
@@ -28,7 +29,7 @@ use crate::store::sidebar::{
 };
 use crate::ui::actions;
 use crate::ui::app::{AppView, Detail};
-use crate::ui::common::{caption, status_dot};
+use crate::ui::common::{caption, sidebar_toggle, status_dot, top_bar};
 use crate::ui::palette::Palette;
 use crate::ui::panes::{self, Pane};
 use crate::ui::session::rename_session;
@@ -388,7 +389,6 @@ impl AppView {
     pub(crate) fn render_sidebar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = Palette::of(cx);
         let layout = self.layout(cx);
-        let _any_connected = self.conns.iter().any(|c| c.read(cx).is_connected());
         let old = self.old_sessions(cx).len();
         let searching = search_active(&self.search.query) && layout != Layout::Columns;
         let list = if searching {
@@ -408,18 +408,25 @@ impl AppView {
             .bg(p.mantle)
             .border_r_1()
             .border_color(p.crust)
-            .child(
+            .child(top_bar(
+                "sidebar-bar",
+                true,
+                p.mantle,
+                None,
+                window,
                 h_flex()
-                    .px_3()
-                    .py_2()
+                    .w_full()
                     .gap_1()
                     .child(
                         div()
                             .flex_1()
+                            .min_w_0()
+                            .truncate()
                             .text_sm()
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(layout.title()),
                     )
+                    .child(sidebar_toggle(false))
                     .child(
                         Button::new("archive-old")
                             .ghost()
@@ -434,7 +441,7 @@ impl AppView {
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.archive_old(window, cx))),
                     )
                     .child(self.new_session_menu("new-session", cx)),
-            )
+            ))
             .when(layout != Layout::Columns, |d| d.child(self.render_search_field(cx)))
             .child(list)
             .child(
@@ -531,15 +538,17 @@ impl AppView {
             .gap_0p5();
         let archived = prefs(cx).search_archived;
         list = list.child(
-            gpui_kit::component::checkbox::Checkbox::new("search-archived")
-                .label("Include archived")
-                .checked(archived)
-                .small()
-                .on_click(cx.listener(|this, v: &bool, _, cx| {
-                    let v = *v;
-                    update_prefs(cx, |p| p.search_archived = v);
-                    this.rerun_search(cx);
-                })),
+            div().px_2().py_1().child(
+                gpui_kit::component::checkbox::Checkbox::new("search-archived")
+                    .label("Include archived")
+                    .checked(archived)
+                    .small()
+                    .on_click(cx.listener(|this, v: &bool, _, cx| {
+                        let v = *v;
+                        update_prefs(cx, |p| p.search_archived = v);
+                        this.rerun_search(cx);
+                    })),
+            ),
         );
         for (i, hit) in s.hits.iter().enumerate() {
             let Some(conn_ix) = self.conns.iter().position(|c| c.read(cx).server_id == hit.server_id) else {
@@ -572,65 +581,78 @@ impl AppView {
             if self.conns.len() > 1 {
                 place += &format!(" · {}", c.name);
             }
-            let mut snippet = gpui_kit::component::h_flex()
-                .flex_wrap()
+            // One text, so that it wraps as a sentence does, not at each match.
+            let mut text = String::new();
+            let mut matches = Vec::new();
+            for part in &hit.result.snippet {
+                let start = text.len();
+                text.push_str(&part.text.replace('\n', " "));
+                if part.is_match {
+                    matches.push((
+                        start..text.len(),
+                        HighlightStyle {
+                            color: Some(p.text),
+                            font_weight: Some(FontWeight::SEMIBOLD),
+                            background_color: Some(p.yellow.opacity(0.35)),
+                            ..Default::default()
+                        },
+                    ));
+                }
+            }
+            let snippet = div()
                 .text_xs()
                 .text_color(p.subtext)
-                .line_clamp(2);
-            for part in &hit.result.snippet {
-                let text = part.text.replace('\n', " ");
-                snippet = snippet.child(if part.is_match {
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(p.text)
-                        .bg(p.yellow.opacity(0.35))
-                        .child(text)
-                } else {
-                    div().child(text)
-                });
-            }
+                .line_clamp(2)
+                .child(StyledText::new(text).with_highlights(matches));
             let (id, item) = (session.id.clone(), hit.result.item_id.clone());
             let is_selected = selected.as_deref() == Some(session.id.as_str());
             list = list.child(
-                v_flex()
+                h_flex()
                     .id(("hit", i))
-                    .gap_0p5()
+                    .gap_2()
                     .px_2()
                     .py_1p5()
                     .rounded_md()
                     .cursor_pointer()
+                    .items_start()
                     .when(is_selected, |d| d.bg(p.surface0))
                     .when(!is_selected, |d| d.hover(|d| d.bg(p.surface0.opacity(0.5))))
+                    .child(div().pt_1p5().child(status_dot(&session, &p)))
                     .child(
-                        h_flex()
-                            .gap_2()
-                            .child(status_dot(&session, &p))
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_0p5()
                             .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_sm()
-                                    .when(stands_out(&session), |d| d.font_weight(FontWeight::SEMIBOLD))
-                                    .child(session.title.clone()),
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .truncate()
+                                            .text_sm()
+                                            .when(stands_out(&session), |d| d.font_weight(FontWeight::SEMIBOLD))
+                                            .child(session.title.clone()),
+                                    )
+                                    .when(session.archived, |d| {
+                                        d.child(
+                                            div()
+                                                .px_1p5()
+                                                .rounded_full()
+                                                .bg(p.surface0)
+                                                .text_xs()
+                                                .text_color(p.subtext)
+                                                .child("Archived"),
+                                        )
+                                    }),
                             )
-                            .when(session.archived, |d| {
-                                d.child(
-                                    div()
-                                        .px_1p5()
-                                        .rounded_full()
-                                        .bg(p.surface0)
-                                        .text_xs()
-                                        .text_color(p.subtext)
-                                        .child("Archived"),
-                                )
+                            .child(caption(place, &p).truncate())
+                            .child(snippet)
+                            .when(hit.result.matches > 1, |d| {
+                                d.child(caption(format!("{} matches", hit.result.matches), &p))
                             }),
                     )
-                    .child(caption(place, &p).truncate())
-                    .child(snippet)
-                    .when(hit.result.matches > 1, |d| {
-                        d.child(caption(format!("{} matches", hit.result.matches), &p))
-                    })
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.open_session_at(conn_ix, &id, item.clone(), window, cx)
                     })),
@@ -1107,7 +1129,7 @@ impl AppView {
     }
 
     /// The Columns layout's middle column: the collection's sessions.
-    pub(crate) fn render_middle(&self, _: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn render_middle(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = Palette::of(cx);
         let (server, column) = self.column(cx);
         let title = match (&column, &server) {
@@ -1142,7 +1164,7 @@ impl AppView {
                 .flex_shrink_0()
                 .border_r_1()
                 .border_color(p.crust)
-                .child(self.middle_header(title, rows.len(), &p, cx))
+                .child(self.middle_header(title, rows.len(), &p, window, cx))
                 .child(self.render_search(cx))
                 .child(panes::edge(Pane::Middle, &p, cx))
                 .into_any_element();
@@ -1174,19 +1196,29 @@ impl AppView {
             .flex_shrink_0()
             .border_r_1()
             .border_color(p.crust)
-            .child(self.middle_header(title, rows.len(), &p, cx))
+            .child(self.middle_header(title, rows.len(), &p, window, cx))
             .child(list)
             .child(panes::edge(Pane::Middle, &p, cx))
             .into_any_element()
     }
 
-    fn middle_header(&self, title: String, n: usize, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
-        let _any_connected = self.conns.iter().any(|c| c.read(cx).is_connected());
+    fn middle_header(
+        &self,
+        title: String,
+        n: usize,
+        p: &Palette,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         v_flex()
-            .child(
+            .child(top_bar(
+                "middle-bar",
+                false,
+                p.base,
+                None,
+                window,
                 h_flex()
-                    .px_3()
-                    .py_2()
+                    .w_full()
                     .gap_2()
                     .child(
                         v_flex()
@@ -1209,7 +1241,7 @@ impl AppView {
                             )),
                     )
                     .child(self.new_session_menu("new-session-col", cx)),
-            )
+            ))
             .child(self.render_search_field(cx))
             .into_any_element()
     }

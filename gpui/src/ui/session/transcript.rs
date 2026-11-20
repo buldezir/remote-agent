@@ -37,7 +37,10 @@ impl SessionView {
             return div().into_any_element();
         };
         let p = Palette::of(cx);
+        let in_run = matches!(&row, Row::Item(it) if self.run_steps.contains(&it.id));
         let (body, lit) = match row {
+            // Its approval, just under it, shows what the tool call would do.
+            Row::Item(it) if self.asked_about(&it, cx) => return div().into_any_element(),
             Row::Item(it) => {
                 let lit = self.highlight(&it.id);
                 (self.render_item(&it, &p, window, cx), lit)
@@ -46,7 +49,15 @@ impl SessionView {
                 let lit = run.items.iter().map(|i| self.highlight(&i.id)).max().unwrap_or(0);
                 (self.render_run(&run, expanded, &p, cx), if expanded { 0 } else { lit })
             }
-            Row::TurnEnd(t) => (render_turn_end(&t, &p), 0),
+            Row::TurnEnd(t) => {
+                // An error in the turn has said why it failed.
+                let told = self.store(cx).is_some_and(|s| {
+                    s.transcript
+                        .iter()
+                        .any(|i| i.kind == ItemKind::Error && i.turn() == t.id)
+                });
+                (render_turn_end(&t, told, &p), 0)
+            }
             Row::Outgoing(o) => {
                 let images = self.gallery("out", &o.images, 120., true, &p, cx);
                 (
@@ -101,17 +112,42 @@ impl SessionView {
             1 => Some(p.yellow.opacity(0.08)),
             _ => None,
         };
-        div()
-            .w_full()
-            .px_5()
-            .py_1()
-            .child(
-                div()
-                    .rounded_md()
-                    .when_some(lit_color, |d, c| d.bg(c).px_1p5().py_0p5())
-                    .child(body),
-            )
-            .into_any_element()
+        let body = div()
+            .rounded_md()
+            .when_some(lit_color, |d, c| d.bg(c).px_1p5().py_0p5())
+            .child(body);
+        // An open run's steps hang from a rail under its arrow, which runs
+        // unbroken from one to the next.
+        if in_run {
+            return div()
+                .w_full()
+                .px_5()
+                .child(
+                    div()
+                        .ml(px(5.))
+                        .pl_3()
+                        .py_1()
+                        .border_l_1()
+                        .border_color(p.surface0)
+                        .child(body),
+                )
+                .into_any_element();
+        }
+        div().w_full().px_5().py_1().child(body).into_any_element()
+    }
+
+    /// A tool call that waits for the user's answer, while the approval that
+    /// asks for it is in the transcript.
+    pub(crate) fn asked_about(&self, it: &Item, cx: &App) -> bool {
+        it.kind == ItemKind::ToolCall
+            && it.status == ItemStatus::Pending
+            && self.store(cx).is_some_and(|s| {
+                s.transcript.iter().any(|a| {
+                    a.kind == ItemKind::Approval
+                        && a.status == ItemStatus::Pending
+                        && a.approval.as_ref().and_then(|a| a.tool_item_id.as_deref()) == Some(it.id.as_str())
+                })
+            })
     }
 
     fn render_item(&mut self, it: &Rc<Item>, p: &Palette, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
@@ -346,7 +382,9 @@ impl SessionView {
         let images = self.gallery(&it.id, &it.images, 160., false, p, cx);
         let mut body = v_flex().ml_6().mt_1().gap_1();
         if open {
-            if let Some(input) = tool.input.as_ref().filter(|v| !v.is_null()) {
+            // The row itself shows a command that fits on its line.
+            let said = tool.input.as_ref().and_then(tool_command).is_some_and(|c| c == title);
+            if let Some(input) = tool.input.as_ref().filter(|v| !v.is_null() && !said) {
                 body = body.child(input_preview(&tool.name, input, p));
             }
             if let Some(out) = tool.output.as_ref().filter(|o| !o.trim().is_empty()) {
@@ -390,7 +428,7 @@ impl SessionView {
                     .text_sm()
                     .text_color(p.subtext)
                     .child(Icon::new(tool_icon(tool.kind)).small().text_color(p.overlay))
-                    .child(div().flex_1().min_w_0().truncate().child(title))
+                    .child(div().min_w_0().truncate().child(title))
                     .when(!children.is_empty() && !open, |d| {
                         d.child(caption(
                             if children.len() == 1 {
@@ -402,8 +440,9 @@ impl SessionView {
                         ))
                     })
                     .when_some(status_text, |d, s| {
-                        d.child(div().text_xs().text_color(status_color).child(s))
+                        d.child(div().flex_shrink_0().text_xs().text_color(status_color).child(s))
                     })
+                    // Beside the title, not across the window from it.
                     .child(
                         Icon::new(if open {
                             IconName::ChevronDown
@@ -413,6 +452,7 @@ impl SessionView {
                         .xsmall()
                         .text_color(p.overlay),
                     )
+                    .child(div().flex_1())
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_item(id.clone(), cx))),
             )
             .when(open, |d| d.child(body))
@@ -465,6 +505,7 @@ impl SessionView {
         if it.status != ItemStatus::Pending {
             return render_decided(it, a, p);
         }
+        let question = a.special.as_deref() == Some("question");
         let mut card = v_flex()
             .gap_2()
             .p_3()
@@ -475,7 +516,15 @@ impl SessionView {
             .child(
                 h_flex()
                     .gap_2()
-                    .child(Icon::new(IconName::TriangleAlert).small().text_color(p.yellow))
+                    .child(
+                        if question {
+                            Icon::new(L::CircleQuestionMark)
+                        } else {
+                            Icon::new(IconName::TriangleAlert)
+                        }
+                        .small()
+                        .text_color(p.yellow),
+                    )
                     .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(a.title.clone())),
             )
             .when_some(a.detail.clone().filter(|d| !d.is_empty()), |d, detail| {
@@ -500,7 +549,9 @@ impl SessionView {
                 }
             }
         }
-        let mut buttons = h_flex().gap_2().flex_wrap().justify_end();
+        // Under what they answer, the first to allow it the default.
+        let mut buttons = h_flex().gap_2().flex_wrap();
+        let mut allowed = false;
         for opt in &a.options {
             let (approval, option) = (it.id.clone(), opt.id.clone());
             let deny = opt.kind == OptionKind::Deny;
@@ -514,10 +565,12 @@ impl SessionView {
                         this.respond(&approval, &option, None, None, cx);
                     }
                 }));
-            buttons = buttons.child(match opt.kind {
-                OptionKind::Deny => button.danger(),
-                OptionKind::AllowSession => button.info(),
-                _ => button.success(),
+            buttons = buttons.child(if deny {
+                button.danger()
+            } else if !std::mem::replace(&mut allowed, true) {
+                button.primary()
+            } else {
+                button.outline()
             });
         }
         card.child(buttons).into_any_element()
@@ -593,17 +646,19 @@ impl SessionView {
                     .when_some(q.header.clone(), |d, h| d.child(caption(h, p)))
                     .child(div().text_sm().child(q.question.clone()))
                     .when(!q.options.is_empty(), |d| d.child(options))
-                    .when_some(own, |d, input| d.child(Input::new(&input).small())),
+                    .when_some(own, |d, input| {
+                        d.child(div().w_full().max_w(px(480.)).child(Input::new(&input).small()))
+                    }),
             );
         }
-        let mut buttons = h_flex().gap_2().justify_end();
+        let mut buttons = h_flex().gap_2().flex_wrap();
         for opt in &a.options {
             let (approval, option) = (it.id.clone(), opt.id.clone());
             if opt.kind == OptionKind::Deny {
                 buttons = buttons.child(
                     Button::new(SharedString::from(format!("deny-{}", it.id)))
                         .small()
-                        .danger()
+                        .outline()
                         .label(opt.label.clone())
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.respond(&approval, &option, None, None, cx)
@@ -614,7 +669,7 @@ impl SessionView {
                 buttons = buttons.child(
                     Button::new(SharedString::from(format!("answer-{}-{}", it.id, opt.id)))
                         .small()
-                        .success()
+                        .primary()
                         .label(if opt.kind == OptionKind::AllowOnce {
                             "Answer".to_string()
                         } else {
@@ -1011,12 +1066,13 @@ fn render_decided(it: &Item, a: &Approval, p: &Palette) -> AnyElement {
     col.into_any_element()
 }
 
-fn render_turn_end(t: &Turn, p: &Palette) -> AnyElement {
+/// How a turn ended, when not well; `told` when an error above says why.
+fn render_turn_end(t: &Turn, told: bool, p: &Palette) -> AnyElement {
     let failed = t.status == TurnStatus::Failed;
     let text = if failed {
         match &t.error {
-            Some(e) => format!("Failed: {e}"),
-            None => "Failed".to_string(),
+            Some(e) if !told => format!("Failed: {e}"),
+            _ => "Failed".to_string(),
         }
     } else {
         "Interrupted".to_string()

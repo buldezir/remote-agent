@@ -4,7 +4,7 @@ use gpui_kit::assets::IconName as L;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
-use gpui_kit::component::{Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{Icon, IconName, Selectable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Anchor, AnyElement, App, ClickEvent, Context, ExternalPaths, FontWeight, InteractiveElement as _, IntoElement,
@@ -14,8 +14,8 @@ use gpui_kit::{
 use serde_json::json;
 
 use super::SessionView;
-use crate::protocol::{SessionStatus, WorkspaceKind};
-use crate::ui::common::caption;
+use crate::protocol::{SessionStatus, TurnStatus, WorkspaceKind};
+use crate::ui::common::{busy_dot, caption, sidebar_toggle, top_bar};
 use crate::ui::palette::Palette;
 use crate::ui::state::prefs;
 use crate::ui::{actions, commit, diff, fork};
@@ -34,6 +34,13 @@ impl SessionView {
                     .values()
                     .any(|t| t.status != crate::protocol::TurnStatus::Running)
             })
+    }
+
+    /// The latest turn failed, and nothing was tried since.
+    pub(crate) fn last_turn_failed(&self, cx: &App) -> bool {
+        self.store(cx)
+            .and_then(|s| s.turns.values().max_by_key(|t| t.n))
+            .is_some_and(|t| t.status == TurnStatus::Failed)
     }
 
     pub fn can_rename(&self, cx: &App) -> bool {
@@ -101,24 +108,50 @@ impl SessionView {
         }
     }
 
-    fn render_header(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    /// The room the session has: the window without the sidebar's columns.
+    fn width(&self, window: &Window, cx: &App) -> f32 {
+        let prefs = prefs(cx);
+        let mut width = window.viewport_size().width.as_f32();
+        if !prefs.sidebar_hidden {
+            width -= prefs.sidebar_width;
+            if prefs.sidebar_layout == "columns" {
+                width -= prefs.column_width;
+            }
+        }
+        width
+    }
+
+    /// The session's bar atop the window: its title, where it works, its
+    /// state, and what's done with its work.
+    fn render_header(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = Palette::of(cx);
+        let hidden = prefs(cx).sidebar_hidden;
         let Some(s) = self.session(cx) else {
-            return h_flex()
-                .px_5()
-                .py_3()
-                .child(div().text_color(p.overlay).child("Loading…"))
-                .into_any_element();
+            return top_bar(
+                "session-bar",
+                hidden,
+                p.base,
+                Some(p.surface0),
+                window,
+                h_flex()
+                    .gap_2()
+                    .when(hidden, |d| d.child(sidebar_toggle(true)))
+                    .child(div().text_sm().text_color(p.overlay).child("Loading…")),
+            )
+            .into_any_element();
         };
         let subtitle = self.subtitle(cx);
         let git = self.is_git(cx);
         let worktree = s.workspace.kind == WorkspaceKind::Worktree;
+        let running = self.is_running(cx);
         let (status, color) = match s.status {
             _ if s.archived => ("Archived", p.overlay),
             SessionStatus::Running => ("Working", p.blue),
             SessionStatus::AwaitingApproval => ("Needs you", p.yellow),
             SessionStatus::Error => ("Failed", p.red),
             SessionStatus::Stopped => ("Stopped", p.overlay),
+            // rad leaves a session idle after a turn that failed.
+            _ if self.last_turn_failed(cx) => ("Failed", p.red),
             _ => ("Idle", p.overlay),
         };
         let path = s
@@ -126,63 +159,147 @@ impl SessionView {
             .agent_path
             .clone()
             .unwrap_or_else(|| s.workspace.path.clone());
-        h_flex()
-            .px_5()
-            .py_2()
-            .gap_3()
-            .border_b_1()
-            .border_color(p.surface0)
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .truncate()
-                            .child(if s.title.is_empty() {
+        // A narrow session keeps its title: first the folder and the state's
+        // name go, then the buttons, which the menu has too.
+        let width = self.width(window, cx);
+        let (roomy, buttons) = (width >= 620., width >= 470.);
+        let dot = div().size(px(7.)).rounded_full().flex_shrink_0();
+        let dot = if s.status == SessionStatus::Running && !s.archived {
+            busy_dot(dot, color)
+        } else {
+            dot.bg(color).into_any_element()
+        };
+        let content =
+            h_flex()
+                .w_full()
+                .gap_2()
+                .when(hidden, |d| d.child(sidebar_toggle(true)))
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        // In line with the transcript under it.
+                        .when(!hidden, |d| d.pl_2())
+                        .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).truncate().child(
+                            if s.title.is_empty() {
                                 "Session".to_string()
                             } else {
                                 s.title.clone()
+                            },
+                        ))
+                        .child(div().text_xs().text_color(p.overlay).truncate().child(subtitle)),
+                )
+                .when(roomy && (git || worktree), |d| {
+                    d.child(
+                        h_flex()
+                            .id("workspace")
+                            .gap_1p5()
+                            .max_w(px(280.))
+                            .text_xs()
+                            .text_color(p.subtext)
+                            .when(worktree, |d| {
+                                d.child(Icon::new(L::SquareDashed).xsmall().text_color(p.overlay))
+                                    .child("Worktree")
+                            })
+                            .when(
+                                s.workspace.branch.is_some() || s.workspace.kind == WorkspaceKind::Root,
+                                |d| {
+                                    d.child(Icon::new(L::GitBranch).xsmall().text_color(p.overlay)).child(
+                                        div().truncate().child(
+                                            s.workspace.branch.clone().unwrap_or_else(|| "Detached HEAD".into()),
+                                        ),
+                                    )
+                                },
+                            )
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(path.clone()).build(window, cx)
                             }),
                     )
-                    .child(div().text_xs().text_color(p.overlay).truncate().child(subtitle)),
-            )
-            .when(git || worktree, |d| {
-                d.child(
+                })
+                .child(
                     h_flex()
-                        .id("workspace")
+                        .id("status")
                         .gap_1p5()
-                        .max_w(px(360.))
-                        .text_xs()
-                        .text_color(p.subtext)
-                        .when(worktree, |d| {
-                            d.child(Icon::new(L::SquareDashed).xsmall().text_color(p.overlay))
-                                .child("Worktree")
-                        })
-                        .when(
-                            s.workspace.branch.is_some() || s.workspace.kind == WorkspaceKind::Root,
-                            |d| {
-                                d.child(Icon::new(L::GitBranch).xsmall().text_color(p.overlay)).child(
-                                    div()
-                                        .truncate()
-                                        .child(s.workspace.branch.clone().unwrap_or_else(|| "Detached HEAD".into())),
-                                )
-                            },
-                        )
-                        .tooltip(move |window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new(path.clone()).build(window, cx)
+                        .flex_shrink_0()
+                        .child(dot)
+                        .when(roomy, |d| d.child(div().text_xs().text_color(p.subtext).child(status)))
+                        .when(!roomy, |d| {
+                            d.tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(status).build(window, cx)
+                            })
                         }),
                 )
+                .when(buttons, |d| {
+                    d.child(
+                        h_flex()
+                            .gap_0p5()
+                            .flex_shrink_0()
+                            .when(git, |d| d.child(self.changes_button(&p, cx)))
+                            .when(self.can_commit(cx), |d| {
+                                d.child(
+                                    Button::new("commit")
+                                        .small()
+                                        .ghost()
+                                        .icon(L::GitCommitHorizontal)
+                                        .tooltip("Commit… (⌥⌘C)")
+                                        .disabled(running)
+                                        .on_click(
+                                            cx.listener(|this, _: &ClickEvent, window, cx| {
+                                                this.open_commit(window, cx)
+                                            }),
+                                        ),
+                                )
+                            })
+                            .when(self.can_terminal(cx), |d| {
+                                d.child(
+                                    Button::new("terminal")
+                                        .small()
+                                        .ghost()
+                                        .icon(L::SquareTerminal)
+                                        .selected(self.terminal_shown)
+                                        .tooltip(if self.terminal_shown {
+                                            "Hide Terminal (⌘J)"
+                                        } else {
+                                            "Terminal (⌘J)"
+                                        })
+                                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                            this.toggle_terminal(window, cx)
+                                        })),
+                                )
+                            }),
+                    )
+                })
+                .child(self.render_menu(cx));
+        top_bar("session-bar", hidden, p.base, Some(p.surface0), window, content).into_any_element()
+    }
+
+    /// Changes, with what the session added and removed once that's counted.
+    fn changes_button(&self, p: &Palette, cx: &mut Context<Self>) -> Button {
+        let counted = self.changes.filter(|(files, _, _)| *files > 0);
+        Button::new("changes")
+            .small()
+            .ghost()
+            .icon(L::Diff)
+            .tooltip(match counted {
+                Some((1, _, _)) => "Changes: 1 file".to_string(),
+                Some((n, _, _)) => format!("Changes: {n} files"),
+                None => "Changes".to_string(),
             })
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .child(div().size(px(7.)).rounded_full().bg(color))
-                    .child(div().text_xs().text_color(p.subtext).child(status)),
+            // Binary files change no lines.
+            .when_some(
+                counted.filter(|(_, adds, dels)| adds + dels > 0),
+                |b, (_, adds, dels)| {
+                    b.child(
+                        h_flex()
+                            .gap_1()
+                            .text_xs()
+                            .font_family(crate::ui::fonts::code())
+                            .child(div().text_color(p.green).child(format!("+{adds}")))
+                            .child(div().text_color(p.red).child(format!("−{dels}"))),
+                    )
+                },
             )
-            .child(self.render_menu(cx))
-            .into_any_element()
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.open_changes(window, cx)))
     }
 
     fn render_menu(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -192,6 +309,7 @@ impl SessionView {
             .ghost()
             .icon(IconName::Ellipsis)
             .dropdown_menu_with_anchor(Anchor::TopRight, move |mut menu, window, cx| {
+                menu = menu.max_w(px(320.));
                 let Some(view) = this.upgrade() else { return menu };
                 let v = view.read(cx);
                 let Some(s) = v.session(cx) else { return menu };
@@ -235,6 +353,7 @@ impl SessionView {
                 menu = menu.item(
                     PopupMenuItem::new("Find in Session")
                         .icon(Icon::new(L::TextSearch))
+                        .action(Box::new(crate::FindInSession))
                         .on_click(act(|v, w, cx| v.open_find(w, cx))),
                 );
                 if git {
@@ -248,6 +367,7 @@ impl SessionView {
                     menu = menu.item(
                         PopupMenuItem::new("Commit…")
                             .icon(Icon::new(L::GitCommitHorizontal))
+                            .action(Box::new(crate::CommitSession))
                             .disabled(running)
                             .on_click(act(|v, w, cx| v.open_commit(w, cx))),
                     );
@@ -256,6 +376,7 @@ impl SessionView {
                     menu = menu.item(
                         PopupMenuItem::new(if terminal_shown { "Hide Terminal" } else { "Terminal" })
                             .icon(Icon::new(L::SquareTerminal))
+                            .action(Box::new(crate::ToggleTerminal))
                             .on_click(act(|v, w, cx| v.toggle_terminal(w, cx))),
                     );
                 }
@@ -297,33 +418,15 @@ impl SessionView {
                             .on_click(move |_, window, cx| actions::delete(c.clone(), s2.clone(), window, cx)),
                     );
                 }
+                // Where it works, for a window too narrow for the bar to say.
                 if let Some(project) = project {
                     menu = menu.separator().label(project.name.clone());
                     if git {
-                        let branch = s.workspace.branch.clone().unwrap_or_else(|| "Detached HEAD".into());
-                        menu = if commit {
-                            menu.item(
-                                PopupMenuItem::new(format!("{branch} — Commit…"))
-                                    .icon(Icon::new(L::GitBranch))
-                                    .disabled(running)
-                                    .on_click(act(|v, w, cx| v.open_commit(w, cx))),
-                            )
-                        } else {
-                            menu.label(branch)
-                        };
+                        menu = menu.label(s.workspace.branch.clone().unwrap_or_else(|| "Detached HEAD".into()));
                     }
                     if s.workspace.kind == WorkspaceKind::Worktree {
                         menu = menu.label("Worktree");
                     }
-                    // The folder's end says the most.
-                    let path = &s.workspace.path;
-                    let n = path.chars().count();
-                    let short = if n > 60 {
-                        format!("…{}", path.chars().skip(n - 59).collect::<String>())
-                    } else {
-                        path.clone()
-                    };
-                    menu = menu.label(short);
                 }
                 if running {
                     menu = menu.separator().item(
@@ -364,8 +467,10 @@ impl SessionView {
                         cx.stop_propagation();
                     }
                 }))
-                .child(div().flex_1().child(Input::new(&f.input).small().cleanable(true)))
-                .child(caption(count, &p).min_w(px(70.)))
+                // At the right, as a Mac window's find field is.
+                .justify_end()
+                .child(caption(count, &p))
+                .child(div().w(px(260.)).child(Input::new(&f.input).small().cleanable(true)))
                 .child(
                     Button::new("find-prev")
                         .xsmall()
@@ -401,6 +506,12 @@ use gpui_kit::component::Disableable as _;
 impl Render for SessionView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::of(cx);
+        // Changes and Commit are dialogs: one that closed may have changed the count.
+        let dialog = window.has_active_dialog(cx);
+        if self.had_dialog && !dialog {
+            self.count_changes(true, cx);
+        }
+        self.had_dialog = dialog;
         let terminal = self
             .terminal
             .clone()
@@ -417,7 +528,7 @@ impl Render for SessionView {
         let error = self.error.clone();
         let find = self.render_find(cx);
         let composer = self.render_composer(window, cx);
-        let header = self.render_header(cx);
+        let header = self.render_header(window, cx);
         // Over the messages, the terminal takes the transcript's place.
         let over = terminal
             .clone()

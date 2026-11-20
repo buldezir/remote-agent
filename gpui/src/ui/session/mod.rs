@@ -85,6 +85,8 @@ pub struct SessionView {
     look: String,
     /// Runs the user opened or shut, by run id.
     pub(crate) expanded_runs: HashMap<String, bool>,
+    /// The steps of the runs that are open, which hang under their run.
+    pub(crate) run_steps: HashSet<String>,
     /// Tool calls and reasoning the user opened.
     pub(crate) open_items: HashSet<String>,
     /// Tool outputs shown whole.
@@ -111,6 +113,13 @@ pub struct SessionView {
     /// The prompt as it was when dictation started.
     dictation_base: Option<String>,
     pub(crate) error: Option<String>,
+    /// The session's changes, for its bar: files, lines added and removed.
+    pub(crate) changes: Option<(usize, i64, i64)>,
+    /// What the changes were counted for (see `count_changes`).
+    changes_for: String,
+    changes_task: Option<Task<()>>,
+    /// A dialog was open at the last draw: Changes and Commit alter the changes.
+    pub(crate) had_dialog: bool,
     pub(crate) placeholder: &'static str,
     pub(crate) saving_draft: bool,
     pub(crate) unarchiving: bool,
@@ -141,6 +150,7 @@ impl SessionView {
                 this.mark_read_if_shown(window, cx);
                 this.try_jump(cx);
                 this.update_placeholder(window, cx);
+                this.count_changes(false, cx);
             }),
             cx.subscribe_in(&composer, window, |this, _, event, window, cx| match event {
                 InputEvent::PressEnter { shift, secondary } => this.composer_enter(*shift, *secondary, window, cx),
@@ -167,6 +177,7 @@ impl SessionView {
             signatures: Vec::new(),
             look: look(cx),
             expanded_runs: HashMap::new(),
+            run_steps: HashSet::new(),
             open_items: HashSet::new(),
             full_outputs: HashSet::new(),
             answers: HashMap::new(),
@@ -185,6 +196,10 @@ impl SessionView {
             speech,
             dictation_base: None,
             error: None,
+            changes: None,
+            changes_for: String::new(),
+            changes_task: None,
+            had_dialog: false,
             placeholder: "Prompt",
             saving_draft: false,
             unarchiving: false,
@@ -197,6 +212,7 @@ impl SessionView {
         this.mark_read_if_shown(window, cx);
         this.update_placeholder(window, cx);
         this.try_jump(cx);
+        this.count_changes(false, cx);
         this
     }
 
@@ -283,6 +299,14 @@ impl SessionView {
             }
             build_rows(store, &expanded, group)
         };
+        self.run_steps = rows
+            .iter()
+            .filter_map(|r| match r {
+                Row::Run { run, expanded: true } => Some(run.items.iter().map(|i| i.id.clone())),
+                _ => None,
+            })
+            .flatten()
+            .collect();
         let signatures: Vec<u64> = rows.iter().map(|r| self.signature(r, cx)).collect();
         let old = self.signatures.len();
         let first = self
@@ -323,6 +347,8 @@ impl SessionView {
                 self.open_items.contains(&it.id).hash(&mut h);
                 self.full_outputs.contains(&it.id).hash(&mut h);
                 self.highlight(&it.id).hash(&mut h);
+                self.run_steps.contains(&it.id).hash(&mut h);
+                self.asked_about(it, cx).hash(&mut h);
                 if let Some(a) = self.answers.get(&it.id) {
                     a.hash(&mut h);
                 }
@@ -334,7 +360,7 @@ impl SessionView {
                 ("run", &run.id, expanded, run.items.len(), run.working()).hash(&mut h);
                 run.items.iter().any(|i| self.highlight(&i.id) > 0).hash(&mut h);
             }
-            Row::TurnEnd(t) => ("end", &t.id, format!("{:?}", t.status)).hash(&mut h),
+            Row::TurnEnd(t) => ("end", &t.id, format!("{:?}", t.status), &t.error).hash(&mut h),
             Row::Outgoing(o) => ("out", &o.command_id).hash(&mut h),
             Row::Draft { text, images } => ("draft", text, images.len()).hash(&mut h),
             Row::Empty => "empty".hash(&mut h),
@@ -660,6 +686,48 @@ impl SessionView {
         let store = self.store(cx)?;
         let it = store.items.get(approval)?;
         Some(it.approval.as_ref()?.questions.get(question)?.multi_select)
+    }
+
+    /// Counts the session's changes for its bar: when it opens, when a turn
+    /// ends, and when it moves to another branch or folder; `again` counts
+    /// them whatever happened.
+    pub(crate) fn count_changes(&mut self, again: bool, cx: &mut Context<Self>) {
+        let (Some(s), true) = (self.session(cx), self.is_git(cx)) else {
+            return;
+        };
+        let ended = self.store(cx).map_or(0, |store| {
+            store
+                .turns
+                .values()
+                .filter(|t| t.status != crate::protocol::TurnStatus::Running)
+                .count()
+        });
+        let key = format!("{ended} {:?} {:?}", s.workspace.branch, s.workspace.agent_path);
+        if key == self.changes_for && !again {
+            return;
+        }
+        self.changes_for = key;
+        let call = self
+            .conn
+            .read(cx)
+            .call("git.sessionDiff", json!({"sessionId": self.session_id}));
+        self.changes_task = Some(cx.spawn(async move |this, cx| {
+            let counted = call
+                .await
+                .ok()
+                .and_then(|v| serde_json::from_value::<crate::protocol::Diff>(v).ok())
+                .map(|d| {
+                    (
+                        d.files.len(),
+                        d.files.iter().map(|f| f.additions).sum(),
+                        d.files.iter().map(|f| f.deletions).sum(),
+                    )
+                });
+            let _ = this.update(cx, |this, cx| {
+                this.changes = counted;
+                cx.notify();
+            });
+        }));
     }
 
     // MARK: Session actions
