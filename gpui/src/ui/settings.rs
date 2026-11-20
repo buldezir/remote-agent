@@ -32,12 +32,11 @@ use crate::ui::palette::{Palette, apply_appearance};
 use crate::ui::server_settings::ServerSettingsView;
 use crate::ui::state::{app_view, prefs, update_prefs};
 
-/// The window's size: as large as a laptop's screen lets it, no larger.
-const WIDTH: f32 = 980.;
-const HEIGHT: f32 = 720.;
-/// The sidebar's width, and the widest a page's cards get.
+/// The dialog's widest; it takes 90% of the window's height.
+const WIDTH: f32 = 1176.;
+/// The sidebar's width. A page's cards fill the rest, as the dialog's
+/// own widest keeps their rows short enough to read.
 const SIDEBAR: f32 = 230.;
-const PAGE: f32 = 640.;
 
 pub fn open(conns: Vec<Entity<ServerConn>>, server: Option<usize>, window: &mut Window, cx: &mut App) {
     if window.has_active_dialog(cx) {
@@ -45,7 +44,7 @@ pub fn open(conns: Vec<Entity<ServerConn>>, server: Option<usize>, window: &mut 
     }
     let view = cx.new(|cx| SettingsView::new(conns, server, window, cx));
     let size = window.viewport_size();
-    let height = (size.height * 0.86).min(px(HEIGHT));
+    let height = size.height * 0.9;
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
             .w((size.width * 0.92).min(px(WIDTH)))
@@ -877,10 +876,9 @@ impl Render for SettingsView {
             );
         let body = h_flex()
             .w_full()
-            .justify_center()
             .px_8()
             .py_6()
-            .child(v_flex().w_full().max_w(px(PAGE)).gap_6().children(groups));
+            .child(v_flex().w_full().gap_6().children(groups));
         let sidebar = self.render_sidebar(&p, cx);
         h_flex()
             .size_full()
