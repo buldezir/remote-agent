@@ -83,6 +83,9 @@ pub struct Prefs {
     pub column_width: f32,
     /// The sidebar, and the Columns layout's middle column, are hidden.
     pub sidebar_hidden: bool,
+    /// The prompt box keeps to `prompt_box::LIMITED_WIDTH`, in a centred
+    /// column; otherwise it's as wide as the window lets it.
+    pub limit_prompt_width: bool,
     /// The window's frame when it last moved; none until it has.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowFrame>,
@@ -133,6 +136,7 @@ impl Default for Prefs {
             sidebar_width: 290.,
             column_width: 330.,
             sidebar_hidden: false,
+            limit_prompt_width: false,
             window: None,
             update_host: String::new(),
         }

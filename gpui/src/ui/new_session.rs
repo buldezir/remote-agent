@@ -117,6 +117,8 @@ impl NewSessionView {
                 this.dictation(event, window, cx)
             }),
             cx.observe(&agent, |_, _, cx| cx.notify()),
+            // Such as the prompt box's width.
+            cx.observe_global::<crate::ui::state::AppPrefs>(|_, cx| cx.notify()),
         ];
         for conn in &conns {
             subscriptions.push(cx.observe_in(conn, window, |this, _, window, cx| this.choose_agent(window, cx)));
@@ -1117,7 +1119,7 @@ impl Render for NewSessionView {
             trailing,
             footer_start,
             footer_end,
-            wide: false,
+            max_width: prompt_box::max_width(cx),
         }
         .render(&p);
         let bar = self.render_bar(window, cx);
@@ -1153,13 +1155,16 @@ impl Render for NewSessionView {
                     .flex_shrink_0()
                     .items_center()
                     .gap_2()
-                    .px_6()
-                    .pb_4()
+                    // As a session's composer sits, so the box stays put
+                    // when the session starts.
+                    .px_5()
+                    .pb_3()
+                    .pt_1()
                     .when_some(self.error.clone(), |d, e| {
                         d.child(
                             div()
                                 .w_full()
-                                .max_w(px(prompt_box::MAX_WIDTH))
+                                .when_some(prompt_box::max_width(cx), |d, w| d.max_w(px(w)))
                                 .text_sm()
                                 .text_color(p.red)
                                 .child(e),

@@ -924,10 +924,16 @@ impl SessionView {
             trailing,
             footer_start,
             footer_end,
-            wide: true,
+            max_width: prompt_box::max_width(cx),
         }
         .render(&p);
-        v_flex().px_5().pb_3().pt_1().child(prompt).into_any_element()
+        v_flex()
+            .items_center()
+            .px_5()
+            .pb_3()
+            .pt_1()
+            .child(prompt)
+            .into_any_element()
     }
 }
 

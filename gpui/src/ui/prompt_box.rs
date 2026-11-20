@@ -14,8 +14,15 @@ use gpui_kit::{
 
 use crate::ui::palette::Palette;
 
-/// The widest the box gets: a centred column in a wide window.
-pub const MAX_WIDTH: f32 = 760.;
+/// The widest the box gets with Settings' "Limit its width": a 13-inch
+/// laptop's window (1,470 points) less the sidebar and the margins, so that
+/// there it's as wide as it would be anyway, and a wider window centres it.
+pub const LIMITED_WIDTH: f32 = 1120.;
+
+/// The box's width: the window's, or `LIMITED_WIDTH` when Settings limit it.
+pub fn max_width(cx: &App) -> Option<f32> {
+    crate::ui::state::prefs(cx).limit_prompt_width.then_some(LIMITED_WIDTH)
+}
 
 #[derive(Default)]
 pub struct PromptBox {
@@ -30,9 +37,8 @@ pub struct PromptBox {
     /// The pickers under the box, at its start and at its end.
     pub footer_start: Vec<AnyElement>,
     pub footer_end: Vec<AnyElement>,
-    /// As wide as its column, as under a transcript, rather than a centred
-    /// column of its own.
-    pub wide: bool,
+    /// The widest it gets, in a centred column; none for its column's width.
+    pub max_width: Option<f32>,
 }
 
 impl PromptBox {
@@ -40,7 +46,7 @@ impl PromptBox {
         let footer = !self.footer_start.is_empty() || !self.footer_end.is_empty();
         v_flex()
             .w_full()
-            .when(!self.wide, |d| d.max_w(px(MAX_WIDTH)))
+            .when_some(self.max_width, |d, w| d.max_w(px(w)))
             .gap_1()
             .when_some(self.above, |d, a| d.child(a))
             .child(

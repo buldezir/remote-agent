@@ -326,6 +326,9 @@ impl SessionView {
     /// The prefs or the theme changed. When the grouping, fonts, sizes or
     /// colours did, rows are built again and every one is laid out again.
     fn restyle(&mut self, cx: &mut Context<Self>) {
+        // The prompt box's width is drawn afresh; the transcript's look only
+        // when it changed.
+        cx.notify();
         let look = look(cx);
         if look != self.look {
             self.look = look;

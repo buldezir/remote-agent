@@ -100,6 +100,7 @@ impl SettingsView {
             && prefs.message_font == defaults.message_font
             && prefs.code_font == defaults.code_font
             && prefs.group_tool_calls == defaults.group_tool_calls
+            && prefs.limit_prompt_width == defaults.limit_prompt_width
             && prefs.sidebar_layout == defaults.sidebar_layout
             && prefs.terminal_placement == defaults.terminal_placement
             && prefs.terminal_copy_on_select == defaults.terminal_copy_on_select
@@ -264,6 +265,21 @@ impl SettingsView {
                 Some("Folds each run of the agent's tool calls into one line, such as “Ran 4 commands, edited 3 files”, which opens to show them.".into()),
             ))
             .child(section(
+                "Prompt",
+                Switch::new("limit-prompt-width")
+                    .checked(prefs.limit_prompt_width)
+                    .label("Limit its width")
+                    .on_change(|v: &bool, _, cx| {
+                        let v = *v;
+                        update_prefs(cx, |p| p.limit_prompt_width = v)
+                    })
+                    .into_any_element(),
+                Some(format!(
+                    "Keeps the prompt box, in a session and a new one, to {} points: as wide as on a 13-inch laptop, centred in a wider window. Off, it's as wide as the window.",
+                    crate::ui::prompt_box::LIMITED_WIDTH as u32
+                )),
+            ))
+            .child(section(
                 "Sidebar",
                 row("Layout", layout_picker, None, p),
                 Some(format!("{summary} The View menu switches them too, with ⌘1, ⌘2 and ⌘3.")),
@@ -338,6 +354,7 @@ impl SettingsView {
                                 p.message_font = d.message_font;
                                 p.code_font = d.code_font;
                                 p.group_tool_calls = d.group_tool_calls;
+                                p.limit_prompt_width = d.limit_prompt_width;
                                 p.sidebar_layout = d.sidebar_layout;
                                 p.terminal_placement = d.terminal_placement;
                                 p.terminal_copy_on_select = d.terminal_copy_on_select;
