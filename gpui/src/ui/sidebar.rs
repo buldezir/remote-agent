@@ -1512,8 +1512,71 @@ impl AppView {
                             .loading(self.pairing)
                             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.pair(window, cx))),
                     ),
-                ),
+                )
+                .child(div().h(px(1.)).my_2().bg(p.surface0))
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Install on a server over SSH"),
+                )
+                .child(div().text_sm().text_color(p.subtext).child(
+                    "Without rad, the server gets the latest release in ~/.local/bin, running as a background \
+                     service; then this Mac pairs with it. `ssh <host>` has to work without a password.",
+                ))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_1()
+                                .child(Input::new(&self.ssh_input).disabled(self.ssh_install.running)),
+                        )
+                        .child(
+                            Button::new("install-ssh")
+                                .label(if self.ssh_install.running {
+                                    "Installing…"
+                                } else {
+                                    "Install and Pair"
+                                })
+                                .loading(self.ssh_install.running)
+                                .on_click(
+                                    cx.listener(|this, _: &ClickEvent, window, cx| this.install_over_ssh(window, cx)),
+                                ),
+                        ),
+                )
+                .child(self.render_ssh_steps(&p)),
         )
+    }
+
+    /// Install on a server over SSH's steps: done, running, or failed, and why.
+    fn render_ssh_steps(&self, p: &Palette) -> impl IntoElement {
+        let state = &self.ssh_install;
+        let last = state.steps.len().saturating_sub(1);
+        v_flex()
+            .gap_1()
+            .children(state.steps.iter().enumerate().map(|(i, step)| {
+                let icon = if i < last {
+                    Icon::new(IconName::CircleCheck)
+                        .small()
+                        .text_color(p.green)
+                        .into_any_element()
+                } else if state.running {
+                    Spinner::new().small().into_any_element()
+                } else {
+                    Icon::new(IconName::CircleX)
+                        .small()
+                        .text_color(p.red)
+                        .into_any_element()
+                };
+                h_flex()
+                    .gap_2()
+                    .text_sm()
+                    .child(icon)
+                    .child(div().flex_1().min_w_0().child(step.clone()))
+            }))
+            .when_some(state.error.clone(), |d, e| {
+                d.child(div().text_sm().text_color(p.red).child(e))
+            })
     }
 }
 

@@ -13,6 +13,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use crate::store::sidebar::short_age_of;
+use crate::store::ssh::{self, quote, tail};
 
 /// What `bundle.sh` writes to `Contents/Resources/build.json`.
 #[derive(Debug, Clone, Deserialize, PartialEq)]
@@ -68,35 +69,15 @@ fn info_path(bundle: &Path) -> PathBuf {
     bundle.join("Contents/Resources/build.json")
 }
 
-/// Quotes a word for the remote shell, which ssh hands its command to.
-fn quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
-
-fn ssh(host: &str, command: &str) -> Command {
-    let mut c = Command::new("/usr/bin/ssh");
-    // BatchMode: fail rather than wait for a password nobody types.
-    c.args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host, command]);
-    c.stdin(Stdio::null());
-    c
-}
-
-/// The last lines of a command's error output, for an alert.
-fn tail(stderr: &[u8]) -> String {
-    let text = String::from_utf8_lossy(stderr);
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-    lines[lines.len().saturating_sub(3)..].join("\n")
-}
-
 /// The build at the same path on `host`.
 pub fn remote(host: &str, bundle: &Path) -> Result<BuildInfo, String> {
     let path = info_path(bundle);
-    let out = ssh(host, &format!("cat {}", quote(&path.to_string_lossy())))
+    let out = ssh::command(host, &format!("cat {}", quote(&path.to_string_lossy())))
         .output()
         .map_err(|e| format!("Couldn't run ssh: {e}"))?;
     match out.status.code() {
         Some(0) => serde_json::from_slice(&out.stdout).map_err(|e| format!("{host}'s build.json: {e}")),
-        Some(255) => Err(format!("ssh {host} failed: {}", tail(&out.stderr))),
+        Some(ssh::FAILED) => Err(format!("ssh {host} failed: {}", tail(&out.stderr))),
         _ => Err(format!(
             "{host} has no build at {}. Build it there with gpui/scripts/bundle.sh.",
             bundle.display()
@@ -132,7 +113,7 @@ fn fetch(host: &str, bundle: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir(&dir).map_err(|e| format!("Can't write to {}: {e}", parent.display()))?;
     let result = (|| {
         // COPYFILE_DISABLE: no AppleDouble files for the extended attributes.
-        let mut ssh = ssh(
+        let mut ssh = ssh::command(
             host,
             &format!(
                 "COPYFILE_DISABLE=1 tar -czf - -C {} {}",
@@ -273,14 +254,5 @@ mod tests {
         let clean: BuildInfo =
             serde_json::from_str(r#"{"commit":"3f2a1c4","builtAt":"2026-11-20T10:00:00Z"}"#).unwrap();
         assert_eq!(clean.summary(just), "3f2a1c4, built just now");
-    }
-
-    #[test]
-    fn quotes_for_the_remote_shell() {
-        assert_eq!(
-            quote("/Applications/Remote Agent GPUI.app"),
-            "'/Applications/Remote Agent GPUI.app'"
-        );
-        assert_eq!(quote("it's"), r"'it'\''s'");
     }
 }

@@ -23,6 +23,7 @@ use crate::store::prefs::WindowFrame;
 use crate::store::search::{Hit, merge_search_results, search_active};
 use crate::store::servers::{SavedServer, ServerStore, custom_home, home_dir, pair, parse_pairing_link};
 use crate::store::sidebar::{Collection, Layout, OpenedSession, stands_out};
+use crate::store::ssh_install;
 use crate::store::tokens::Tokens;
 use crate::ui::common::{sidebar_toggle, top_bar};
 use crate::ui::new_session::{NewSessionEvent, NewSessionView};
@@ -54,6 +55,15 @@ pub(crate) struct Search {
     pub answered: bool,
 }
 
+/// Install on a server over SSH, as it goes: the steps so far (the last one
+/// running, or the one that failed), and why it failed.
+#[derive(Default)]
+pub(crate) struct SshInstall {
+    pub steps: Vec<String>,
+    pub running: bool,
+    pub error: Option<String>,
+}
+
 pub struct AppView {
     /// The window's own focus, so that its actions (⌘N) work with nothing else focused.
     focus: FocusHandle,
@@ -65,6 +75,9 @@ pub struct AppView {
     pub(crate) pair_input: Entity<InputState>,
     pub(crate) pair_error: Option<String>,
     pub(crate) pairing: bool,
+    /// Install on a server over SSH: the host, and how it's going.
+    pub(crate) ssh_input: Entity<InputState>,
+    pub(crate) ssh_install: SshInstall,
     pub(crate) search_input: Entity<InputState>,
     pub(crate) search: Search,
     /// The Inbox's Archived section is open.
@@ -89,8 +102,14 @@ impl AppView {
         let store = ServerStore::load(&home_dir(), Tokens::keychain(custom_home().as_deref()));
         let pair_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("remoteagent://pair?… (from `rad pair --print-url`)"));
+        let ssh_input = cx.new(|cx| InputState::new(window, cx).placeholder("user@host, or a Host from ~/.ssh/config"));
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search sessions"));
         let mut subscriptions = vec![
+            cx.subscribe_in(&ssh_input, window, |this, _, event, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    this.install_over_ssh(window, cx);
+                }
+            }),
             cx.subscribe_in(&pair_input, window, |this, _, event, window, cx| {
                 if let InputEvent::PressEnter { .. } = event {
                     this.pair(window, cx);
@@ -141,6 +160,8 @@ impl AppView {
             pair_input,
             pair_error: None,
             pairing: false,
+            ssh_input,
+            ssh_install: SshInstall::default(),
             search_input,
             search: Search::default(),
             archive_open: false,
@@ -282,21 +303,70 @@ impl AppView {
             let _ = this.update_in(cx, |this, window, cx| {
                 this.pairing = false;
                 match result {
-                    Ok(saved) => {
-                        if let Err(e) = this.store.save(saved.clone()) {
-                            this.pair_error = Some(format!("Couldn't save the server: {e}"));
-                        } else {
-                            // Pairing again replaces the connection.
-                            if let Some(ix) = this.conns.iter().position(|c| c.read(cx).server_id == saved.id) {
-                                this.conns.remove(ix);
-                            }
-                            let subs = this.connect(&saved, window, cx);
-                            this._subscriptions.extend(subs);
-                            this.pair_input.update(cx, |input, cx| input.set_value("", window, cx));
-                            this.detail = Detail::Empty;
-                        }
-                    }
+                    Ok(saved) => match this.add_server(saved, window, cx) {
+                        Ok(()) => this.pair_input.update(cx, |input, cx| input.set_value("", window, cx)),
+                        Err(e) => this.pair_error = Some(e),
+                    },
                     Err(e) => this.pair_error = Some(e.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Saves a server just paired and connects to it, in place of its old
+    /// connection when it was paired before.
+    fn add_server(&mut self, saved: SavedServer, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
+        self.store
+            .save(saved.clone())
+            .map_err(|e| format!("Couldn't save the server: {e}"))?;
+        if let Some(ix) = self.conns.iter().position(|c| c.read(cx).server_id == saved.id) {
+            self.conns.remove(ix);
+        }
+        let subs = self.connect(&saved, window, cx);
+        self._subscriptions.extend(subs);
+        self.detail = Detail::Empty;
+        Ok(())
+    }
+
+    /// Installs rad on the host in `ssh_input` if it has none, starts it,
+    /// and pairs with it (`store::ssh_install`), listing the steps as they go.
+    pub(crate) fn install_over_ssh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ssh_install.running {
+            return;
+        }
+        let host = self.ssh_input.read(cx).value().trim().to_string();
+        if host.is_empty() {
+            return;
+        }
+        self.ssh_install = SshInstall {
+            running: true,
+            ..Default::default()
+        };
+        cx.notify();
+        let (tx, rx) = async_channel::unbounded::<String>();
+        let task = cx.background_spawn(async move {
+            ssh_install::install_and_pair(&host, &|step| {
+                let _ = tx.send_blocking(step);
+            })
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            while let Ok(step) = rx.recv().await {
+                let _ = this.update(cx, |this, cx| {
+                    this.ssh_install.steps.push(step);
+                    cx.notify();
+                });
+            }
+            let result = task.await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.ssh_install.running = false;
+                match result.and_then(|saved| this.add_server(saved, window, cx)) {
+                    Ok(()) => {
+                        this.ssh_install = SshInstall::default();
+                        this.ssh_input.update(cx, |input, cx| input.set_value("", window, cx));
+                    }
+                    Err(e) => this.ssh_install.error = Some(e),
                 }
                 cx.notify();
             });

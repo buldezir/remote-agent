@@ -11,6 +11,8 @@ pub mod search;
 pub mod servers;
 pub mod session;
 pub mod sidebar;
+pub mod ssh;
+pub mod ssh_install;
 pub mod sync;
 pub mod tokens;
 pub mod tool_runs;
