@@ -1,4 +1,4 @@
-# Builds rad and ra, its terminal client, for Linux and macOS (arm64 and
+# Builds rad for Linux and macOS (arm64 and
 # x86-64), the Mac apps, Remote Agent (the GPUI client in gpui/) and Remote
 # Agent Server, for Apple silicon, signed with Developer ID and notarized,
 # and the Android app, signed with the key in the repository's secrets. Checks that the web
@@ -52,9 +52,6 @@ jobs:
             CGO_ENABLED=0 GOOS=$os GOARCH=$arch go -C server build -trimpath \
               -ldflags "-s -w -X remote-agent/internal/api.Version=$version" -o "$out/rad" ./cmd/rad
             tar -C "$out" -czf "dist/rad-$os-$arch.tar.gz" rad
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go -C server build -trimpath \
-              -ldflags "-s -w -X main.version=$version" -o "$out/ra" ./cmd/ra
-            tar -C "$out" -czf "dist/ra-$os-$arch.tar.gz" ra
           done
       - uses: actions/upload-artifact@v7
         with:
@@ -344,7 +341,6 @@ jobs:
           TAG: ${{ github.ref_name }}
           NOTES: |
             - **rad** (`rad-<os>-<arch>.tar.gz`): the server for Linux and macOS. Unpack it, put `rad` on your PATH and run `rad serve`. From then on, `rad update` installs new releases.
-            - **ra** (`ra-<os>-<arch>.tar.gz`): the terminal client, for the rad on the same machine. `rad install-ra` puts it next to `rad`, or unpack it there yourself, and run `ra`. From then on, `ra update` installs new releases.
             - **Remote Agent** (`Remote-Agent-macOS-arm64.zip`): the client app for the Mac, for macOS 13 or later.
             - **Remote Agent Server** (`Remote-Agent-Server-macOS-arm64.zip`): the menu bar app that runs rad on a Mac.
             - **Remote Agent for Android** (`Remote-Agent-Android.apk`): the client app for Android 16 or later. Open it on the phone and allow installing from your browser; later releases install over it.

@@ -1,8 +1,8 @@
 //! Runs of tool calls in a transcript, each folded into one row that sums it
 //! up ("Ran 4 commands, edited 3 files, read 2 files") and opens to show the
 //! calls, as `ToolRuns` does in the other clients (RAKit's
-//! `Store/ToolRuns.swift`, `web/src/store/toolRuns.ts`, Android's core and
-//! ra's `internal/client/toolruns.go`), whose test vectors these tests share.
+//! `Store/ToolRuns.swift`, `web/src/store/toolRuns.ts`, and Android's
+//! core), whose test vectors these tests share.
 //!
 //! A run is the tool calls and the agent's thinking between two pieces of
 //! conversation (a prompt, a reply, an approval, a plan, a notice, an error),

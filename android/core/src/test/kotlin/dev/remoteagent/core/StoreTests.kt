@@ -413,7 +413,7 @@ class DraftTests {
     }
 }
 
-/** The agents' usage limits the index brings (`limits.upserted`), by harness. As ra's ServerConnection keeps them. */
+/** The agents' usage limits the index brings (`limits.upserted`), by harness. As RAKit's ServerConnection keeps them. */
 class IndexLimitsTests {
     private val server = SavedServer("srv", "Test", listOf("http://127.0.0.1:1"), "d", Instant.now())
     private val at = Instant.parse("2026-10-09T12:00:00Z")

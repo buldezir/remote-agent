@@ -1,6 +1,6 @@
 //! Usage limits: the gauge for an agent's plan ("5h 34% · week 61%"), its
 //! colour, the details behind it, and the notice for a turn that hit a
-//! limit. A port of ra's `internal/client/limits.go`; the tests share
+//! limit. A port of RAKit's `UsageLimitsFormat`; the tests share
 //! `protocol/vectors/usage_limits.json` with every other client.
 
 use chrono::{DateTime, Utc};

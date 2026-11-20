@@ -1,4 +1,4 @@
-// The vectors every client's TranscriptFind shares (RAKit, android/core, ra).
+// The vectors every client's TranscriptFind shares (RAKit, android/core, gpui).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

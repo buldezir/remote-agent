@@ -1,5 +1,5 @@
-// The vectors every client's usage-limits formatting shares (ra's
-// internal/client/limits_test.go, RAKit, android/core), read from
+// The vectors every client's usage-limits formatting shares (RAKit,
+// android/core, gpui), read from
 // protocol/vectors as fixtures.test.ts reads protocol/fixtures.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

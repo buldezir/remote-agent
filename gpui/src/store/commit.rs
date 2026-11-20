@@ -1,5 +1,5 @@
 //! Committing a session's work: how far a commit goes, as the form offers
-//! it (ra's `internal/client/commit.go`, RAKit's CommitView).
+//! it (RAKit's CommitView).
 
 use crate::protocol::CommitPreview;
 

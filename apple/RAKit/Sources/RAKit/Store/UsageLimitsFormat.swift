@@ -11,8 +11,8 @@ public enum LimitLevel: String, Sendable {
 
 /// Usage limits in words: the gauge the apps show for an agent's plan ("5h
 /// 34% · week 61%"), its colour, the details behind it, and the notice for a
-/// turn that hit a limit. A port of ra's `internal/client/limits.go`, as are
-/// `web/src/store/usageLimits.ts` and android/core's `UsageLimitsFormat`;
+/// turn that hit a limit. `web/src/store/usageLimits.ts`, android/core's
+/// `UsageLimitsFormat` and gpui's `store/limits.rs` port it;
 /// their tests share `protocol/vectors/usage_limits.json`.
 ///
 /// A window whose reset has passed counts as 0% until the agent says again,

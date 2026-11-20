@@ -1,7 +1,6 @@
 //! Finding in a transcript, searching sessions on the servers, and the
 //! composer's slash-command suggestions, as RAKit's TranscriptFind,
-//! SessionSearch and CommandSuggestions have them (ra's
-//! `internal/client/search.go` and `commands.go`).
+//! SessionSearch and CommandSuggestions have them.
 
 use std::rc::Rc;
 

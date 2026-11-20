@@ -38,6 +38,8 @@ android/                 Gradle build for the Android app
   scripts/symbols.py     writes the app's icons (Material Symbols) as vector drawables
 ```
 
+**The terminal client, removed.** There used to be `ra`, a terminal client for the rad on the same machine (Go, Bubble Tea), with `rad install-ra` and `ra-<os>-<arch>.tar.gz` in releases. It was removed after commit `dd81763`, which still has it: `server/cmd/ra`, `server/internal/client` (its port of RAKit), `server/internal/tui`, `server/cmd/rad/installra.go`, the release workflow's ra build, and its sections in README.md and AGENTS.md. To bring it back, start from `git show dd81763 --stat` and restore those paths; its client logic will need the rules the other clients gained since.
+
 ## Tests
 
 ```bash

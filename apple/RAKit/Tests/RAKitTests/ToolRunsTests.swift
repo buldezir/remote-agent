@@ -3,7 +3,7 @@ import Testing
 @testable import RAKit
 
 /// The vectors every client shares: web/src/store/toolRuns.test.ts,
-/// android/core's ToolRunsTests.kt and internal/client/toolruns_test.go.
+/// android/core's ToolRunsTests.kt and gpui's store/tool_runs.rs.
 struct ToolRunsTests {
     func item(_ id: String, _ kind: ItemKind, turn: String? = "t1", status: ItemStatus = .completed) -> Item {
         Item(id: id, sessionId: "s", turnId: turn, order: 0, kind: kind, status: status)

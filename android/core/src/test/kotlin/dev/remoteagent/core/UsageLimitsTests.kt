@@ -13,8 +13,8 @@ import kotlin.test.assertTrue
 
 /**
  * The vectors every client's usage-limits formatting shares
- * (protocol/vectors/usage_limits.json), as ra's internal/client/limits_test.go,
- * RAKit's and web/src/store's tests check them.
+ * (protocol/vectors/usage_limits.json), as RAKit's,
+ * web/src/store's and gpui's tests check them.
  */
 class UsageLimitsTests {
     @Serializable

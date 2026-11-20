@@ -3,8 +3,8 @@ import Testing
 @testable import RAKit
 
 /// The vectors every client's usage-limits wording shares
-/// (protocol/vectors/usage_limits.json): ra's internal/client/limits_test.go,
-/// web/src/store/usageLimits.test.ts and android/core's tests.
+/// (protocol/vectors/usage_limits.json): web/src/store/usageLimits.test.ts,
+/// android/core's tests and gpui's `store/limits.rs`.
 struct UsageLimitsFormatTests {
     struct Vectors: Decodable {
         struct Case: Decodable {

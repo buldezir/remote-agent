@@ -1,5 +1,5 @@
 //! How the sidebar groups sessions, as `SidebarLayout` does in the other
-//! clients (`web/src/ui/sidebarLayout.ts`, ra's `internal/client/sidebar.go`).
+//! clients (`web/src/ui/sidebarLayout.ts`, Android's `ui/SidebarLayout.kt`).
 //! Three layouts: Inbox, Projects and Columns.
 
 use chrono::{DateTime, Local, Utc};

@@ -1,7 +1,7 @@
 // Usage limits: the gauge the clients show for an agent's plan ("5h 34% ·
 // week 61%"), its colour, the details behind it, and the notice for a turn
-// that hit a limit. A port of ra's server/internal/client/limits.go, as
-// RAKit's UsageLimitsFormat and android/core's are; their tests share
+// that hit a limit. A port of RAKit's UsageLimitsFormat, as
+// android/core's and gpui's are; their tests share
 // protocol/vectors/usage_limits.json.
 import { parseDate, type UsageLimits, type UsageWindow } from "../protocol/models";
 

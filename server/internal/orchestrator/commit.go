@@ -285,7 +285,6 @@ func (o *Orchestrator) Commit(ctx context.Context, p CommitParams, pr Progress) 
 	push := p.Push || p.PullRequest
 	r.add(stepCommit, "Commit")
 	if push {
-		// ra says where a commit it follows goes from this title.
 		title := "Push"
 		if r.remote != "" {
 			title = "Push to " + r.remote

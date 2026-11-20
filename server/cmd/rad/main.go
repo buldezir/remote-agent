@@ -53,8 +53,6 @@ Usage:
                                  keep rad running in the background (launchd on macOS, systemd on Linux)
   rad update [--check] [--now]   install the latest release and restart the background service
                                  (the Remote Agent Server app's rad has the app update itself)
-  rad install-ra [--dir <folder>]
-                                 put ra, the terminal client, next to rad (or in <folder>)
   rad uninstall [--yes]          remove rad's service, config, data, worktrees and checkpoint refs
   rad version
 `
@@ -95,8 +93,6 @@ func main() {
 		err = installService(os.Args[2:])
 	case "update":
 		err = updateRad(os.Args[2:])
-	case "install-ra":
-		err = installRa(os.Args[2:])
 	case "uninstall":
 		err = uninstall(os.Args[2:])
 	case "version", "--version", "-v":

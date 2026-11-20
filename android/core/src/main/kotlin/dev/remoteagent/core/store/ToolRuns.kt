@@ -10,8 +10,8 @@ import dev.remoteagent.core.protocol.TurnStatus
 /**
  * Runs of tool calls in a transcript, each folded into one row that sums it
  * up ("Ran 4 commands, edited 3 files, read 2 files") and opens to show the
- * calls. Mirrors ToolRuns in RAKit, web/src/store/toolRuns.ts and ra's
- * internal/client/toolruns.go.
+ * calls. Mirrors ToolRuns in RAKit, web/src/store/toolRuns.ts and gpui's
+ * store/tool_runs.rs.
  *
  * A run is the tool calls and the agent's thinking between two pieces of
  * conversation (a prompt, a reply, an approval, a plan, a notice, an error),

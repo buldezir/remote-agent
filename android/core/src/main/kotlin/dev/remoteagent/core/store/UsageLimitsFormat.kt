@@ -17,8 +17,8 @@ enum class LimitLevel(val wire: String) {
 /**
  * Usage limits: the gauge the clients show for an agent's plan ("5h 34% ·
  * week 61%"), its colour, the details behind it, and the notice for a turn
- * that hit a limit. A port of ra's internal/client/limits.go, as RAKit's
- * UsageLimitsFormat and web/src/store/usageLimits.ts are; their tests share
+ * that hit a limit. A port of RAKit's UsageLimitsFormat, as
+ * web/src/store/usageLimits.ts and gpui's store/limits.rs are; their tests share
  * protocol/vectors/usage_limits.json.
  */
 object UsageLimitsFormat {

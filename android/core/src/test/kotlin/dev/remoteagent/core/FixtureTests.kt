@@ -139,7 +139,7 @@ class FixtureTests {
         assertTrue(!bare.limited && !bare.overage && bare.resetsAt == null && bare.plan == null)
     }
 
-    /** The connection keeps the index's usage limits by agent, as ra's ServerConnection does. */
+    /** The connection keeps the index's usage limits by agent, as RAKit's ServerConnection does. */
     @Test
     fun indexLimits() = runTest {
         val c = ServerConnection(SavedServer("srv", "Test", listOf("http://127.0.0.1:1"), "d", Instant.now()), "", backgroundScope, ImageCache(null), {})

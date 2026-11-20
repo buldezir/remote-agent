@@ -1,5 +1,5 @@
 //! A stream's sync rules (PROTOCOL.md, "Streams and sync"), as RAKit, the
-//! web client, Android's core and ra keep them:
+//! web client and Android's core keep them:
 //!
 //! - After `subscribe`, the replay's `events` are buffered until
 //!   `synchronized`, which says whether to drop the cache (`reset`) and

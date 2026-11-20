@@ -1,4 +1,4 @@
-// The vectors every client's ToolRuns shares (RAKit, android/core, ra).
+// The vectors every client's ToolRuns shares (RAKit, android/core, gpui).
 import { describe, expect, it } from "vitest";
 import type { Item, ItemKind, ItemStatus, ToolKind, Turn, TurnStatus } from "../protocol/models";
 import { runContaining, runParts, runTitle, runTools, runWorking, toolRuns, transcriptRows, type TranscriptRow } from "./toolRuns";

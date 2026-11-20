@@ -1,6 +1,6 @@
 //! The live state of one session (its `session:<id>` stream): its turns and
 //! transcript items, and the prompts on their way to rad. A port of RAKit's
-//! `SessionStore` (and ra's `internal/client/sessionstore.go`).
+//! `SessionStore`.
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};

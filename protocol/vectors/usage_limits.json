@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared by every client's usage-limits formatting: ra's internal/client/limits.go, RAKit's UsageLimitsFormat, web/src/store/usageLimits.ts and android/core's UsageLimitsFormat. Times are relative to now.",
+  "_comment": "Shared by every client's usage-limits formatting: RAKit's UsageLimitsFormat, web/src/store/usageLimits.ts, android/core's UsageLimitsFormat and gpui's store/limits.rs. Times are relative to now.",
   "now": "2026-10-31T12:00:00Z",
   "cases": [
     {

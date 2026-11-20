@@ -1,4 +1,4 @@
-// The search across servers, as RAKit's SessionSearch and its ports in android/core and ra.
+// The search across servers, as RAKit's SessionSearch and its ports in android/core and gpui.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchResult, SearchResults, ServerInfo, Session } from "../protocol/models";
 import { RPCError } from "../protocol/rpc";

@@ -3,7 +3,7 @@ import Foundation
 /// Runs of tool calls in a transcript, each folded into one row that sums it
 /// up ("Ran 4 commands, edited 3 files, read 2 files") and opens to show the
 /// calls. The web client (`web/src/store/toolRuns.ts`), Android
-/// (`android/core`'s `ToolRuns`) and ra (`internal/client/toolruns.go`) fold
+/// (`android/core`'s `ToolRuns`) and the Mac (`gpui/src/store/tool_runs.rs`) fold
 /// and word them the same way.
 ///
 /// A run is the tool calls and the agent's thinking between two pieces of

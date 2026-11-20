@@ -1,6 +1,6 @@
 // Runs of tool calls in a transcript, each folded into one row that sums it
 // up ("Ran 4 commands, edited 3 files, read 2 files") and opens to show the
-// calls: a port of RAKit's ToolRuns, as Android's and ra's are.
+// calls: a port of RAKit's ToolRuns, as Android's and gpui's are.
 //
 // A run is the tool calls and the agent's thinking between two pieces of
 // conversation (a prompt, a reply, an approval, a plan, a notice, an error),
