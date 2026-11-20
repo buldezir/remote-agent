@@ -738,7 +738,7 @@ impl SessionView {
             end.push(
                 div()
                     .px_1()
-                    .text_xs()
+                    .text_size(gpui_kit::rems(prompt_box::PILL_TEXT))
                     .text_color(p.overlay)
                     .child(format!("{pct}% context"))
                     .into_any_element(),

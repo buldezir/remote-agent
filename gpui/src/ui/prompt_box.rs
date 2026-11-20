@@ -9,7 +9,7 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Anchor, AnyElement, App, ClickEvent, Context, IntoElement, ParentElement as _, Styled as _, Window, div, px,
+    Anchor, AnyElement, App, ClickEvent, Context, IntoElement, ParentElement as _, Styled as _, Window, div, px, rems,
 };
 
 use crate::ui::palette::Palette;
@@ -95,12 +95,22 @@ fn separated(items: Vec<AnyElement>, p: &Palette) -> Vec<AnyElement> {
 }
 
 /// A small, quiet button: an icon and a label.
+/// The pills' text, against the interface's size: a little smaller than
+/// the rest, larger than a caption.
+pub const PILL_TEXT: f32 = 0.9;
+
+/// A small, quiet button: an icon and a label, at `PILL_TEXT` of the
+/// interface's size, which the kit's sizes can't give its own label.
 pub fn pill(id: impl Into<gpui_kit::ElementId>, icon: Option<Icon>, label: impl Into<String>) -> Button {
-    let mut b = Button::new(id).ghost().xsmall();
-    if let Some(i) = icon {
-        b = b.icon(i);
-    }
-    b.label(label.into())
+    let label: String = label.into();
+    Button::new(id).ghost().xsmall().h(rems(1.5)).px_1p5().child(
+        h_flex()
+            .gap_1()
+            .text_size(rems(PILL_TEXT))
+            .line_height(rems(1.2))
+            .when_some(icon, |d, i| d.child(i.size(rems(PILL_TEXT))))
+            .child(label),
+    )
 }
 
 /// A pill that opens a menu upward, as it sits near the window's foot.

@@ -15,7 +15,7 @@ use gpui_kit::assets::IconName as L;
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::input::{InputEvent, Paste, Textarea, TextareaState};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::speech::{SpeechEvent, SpeechState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::tooltip::Tooltip;
@@ -552,12 +552,12 @@ impl NewSessionView {
 
     // MARK: The bar
 
-    /// "[L] project ▾ / New session": the project, with a menu of the
-    /// others, adding a folder as one, and forgetting it.
-    fn render_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let p = Palette::of(cx);
-        let hidden = prefs(cx).sidebar_hidden;
-        let project = self.project(cx);
+    /// The projects to choose from, adding a folder as one, and forgetting
+    /// the chosen one: the bar's menu and the heading's.
+    fn project_menu(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
         let projects: Vec<(String, String)> = self
             .conn()
             .read(cx)
@@ -567,23 +567,9 @@ impl NewSessionView {
             .map(|p| (p.id.clone(), p.name.clone()))
             .collect();
         let current = self.project_id.clone().unwrap_or_default();
-        let forget = project.as_ref().map(|p| p.name.clone());
+        let forget = self.project(cx).map(|p| p.name.clone());
         let this = cx.entity().downgrade();
-        let trigger = Button::new("project-menu").ghost().small().child(
-            h_flex()
-                .gap_1p5()
-                .when_some(project.as_ref(), |d, pr| d.child(project_badge(&pr.name, 16., &p)))
-                .child(
-                    div().text_sm().text_color(p.subtext).child(
-                        project
-                            .as_ref()
-                            .map(|p| p.name.clone())
-                            .unwrap_or_else(|| "Choose a project".into()),
-                    ),
-                )
-                .child(Icon::new(IconName::ChevronDown).xsmall().text_color(p.overlay)),
-        );
-        let menu = trigger.dropdown_menu(move |menu, _, _| {
+        move |menu, _, _| {
             let w = this.clone();
             let mut menu = prompt_box::choices(
                 menu.max_w(px(360.)),
@@ -615,7 +601,29 @@ impl NewSessionView {
                 );
             }
             menu
-        });
+        }
+    }
+
+    /// "[L] project ▾ / New session": the project, with its menu.
+    fn render_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let p = Palette::of(cx);
+        let hidden = prefs(cx).sidebar_hidden;
+        let project = self.project(cx);
+        let trigger = Button::new("project-menu").ghost().small().child(
+            h_flex()
+                .gap_1p5()
+                .when_some(project.as_ref(), |d, pr| d.child(project_badge(&pr.name, 16., &p)))
+                .child(
+                    div().text_sm().text_color(p.subtext).child(
+                        project
+                            .as_ref()
+                            .map(|p| p.name.clone())
+                            .unwrap_or_else(|| "Choose a project".into()),
+                    ),
+                )
+                .child(Icon::new(IconName::ChevronDown).xsmall().text_color(p.overlay)),
+        );
+        let menu = trigger.dropdown_menu(self.project_menu(cx));
         top_bar(
             "detail-bar",
             hidden,
@@ -1012,11 +1020,28 @@ impl NewSessionView {
                 .child("What should we build in")
                 .child(
                     h_flex()
+                        // The project's name opens the projects, as the bar's does.
                         .child(
-                            div()
-                                .text_color(p.text)
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(pr.name.clone()),
+                            Button::new("heading-project")
+                                .ghost()
+                                .h(px(40.))
+                                // Its hover reaches past the name, which
+                                // stays where the text has it.
+                                .px_1()
+                                .mx(px(-4.))
+                                .tooltip("Choose a project")
+                                .child(
+                                    div()
+                                        .text_size(px(26.))
+                                        .line_height(px(34.))
+                                        .text_color(p.text)
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        // A link's underline says it opens something.
+                                        .underline()
+                                        .text_decoration_color(p.overlay)
+                                        .child(pr.name.clone()),
+                                )
+                                .dropdown_menu_with_anchor(Anchor::TopCenter, self.project_menu(cx)),
                         )
                         .child("?"),
                 )
