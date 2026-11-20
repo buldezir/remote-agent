@@ -86,6 +86,7 @@ fn main() {
                 KeyBinding::new("cmd-3", LayoutColumns, None),
                 KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
             ]);
+            ui::terminal::bind_keys(cx);
             // A bundle scripts/bundle.sh built updates from the Mac that built it.
             let mut app_menu = vec![MenuItem::action("Settings…", OpenSettings)];
             if ui::build_update::available() {

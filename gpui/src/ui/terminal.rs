@@ -426,6 +426,9 @@ impl TerminalView {
 
     // MARK: Input
 
+    /// What a key sends the shell. ⌘C and ⌘V copy and paste; ⌘ and the
+    /// rest are the app's. Tab, Shift-Tab and ⌘C reach here only because
+    /// `bind_keys` takes them back from the kit's root view.
     fn key(&mut self, ev: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let k = &ev.keystroke;
         let m = k.modifiers;
@@ -452,43 +455,7 @@ impl TerminalView {
             return;
         }
         let app_cursor = self.term.mode().contains(TermMode::APP_CURSOR);
-        let arrow = |c: char| {
-            if app_cursor {
-                format!("\x1bO{c}")
-            } else {
-                format!("\x1b[{c}")
-            }
-        };
-        let bytes: Option<Vec<u8>> = match k.key.as_str() {
-            "enter" => Some(b"\r".to_vec()),
-            "backspace" => Some(if m.alt { b"\x1b\x7f".to_vec() } else { b"\x7f".to_vec() }),
-            "tab" if m.shift => Some(b"\x1b[Z".to_vec()),
-            "tab" => Some(b"\t".to_vec()),
-            "escape" => Some(b"\x1b".to_vec()),
-            "up" => Some(arrow('A').into_bytes()),
-            "down" => Some(arrow('B').into_bytes()),
-            "right" if m.alt => Some(b"\x1bf".to_vec()),
-            "left" if m.alt => Some(b"\x1bb".to_vec()),
-            "right" => Some(arrow('C').into_bytes()),
-            "left" => Some(arrow('D').into_bytes()),
-            "home" => Some(arrow('H').into_bytes()),
-            "end" => Some(arrow('F').into_bytes()),
-            "pageup" => Some(b"\x1b[5~".to_vec()),
-            "pagedown" => Some(b"\x1b[6~".to_vec()),
-            "delete" => Some(b"\x1b[3~".to_vec()),
-            key if m.control && key.chars().count() == 1 => {
-                let c = key.chars().next().unwrap().to_ascii_lowercase();
-                match c {
-                    'a'..='z' => Some(vec![(c as u8) & 0x1f]),
-                    '[' => Some(vec![0x1b]),
-                    '\\' => Some(vec![0x1c]),
-                    ']' => Some(vec![0x1d]),
-                    ' ' | '2' | '@' => Some(vec![0]),
-                    _ => None,
-                }
-            }
-            _ => k.key_char.clone().map(|s| s.into_bytes()),
-        };
+        let bytes = key_bytes(&k.key, k.key_char.as_deref(), m, app_cursor);
         if let Some(bytes) = bytes {
             self.term.scroll_display(Scroll::Bottom);
             self.term.selection = None;
@@ -957,4 +924,180 @@ impl Render for TerminalView {
 #[allow(dead_code)]
 fn unused(_: gpui_kit::Point<Pixels>) -> gpui_kit::Point<Pixels> {
     point(px(0.), px(0.))
+}
+
+/// Keys the kit binds above the terminal, which a shell needs: the root
+/// view's Tab and Shift-Tab move the focus, and its ⌘C copies its own
+/// selection. Bound to nothing in the terminal's context, they reach its
+/// key handler, as GPUI runs a key's binding before any key-down listener.
+pub fn bind_keys(cx: &mut gpui_kit::App) {
+    use gpui_kit::{KeyBinding, NoAction};
+    cx.bind_keys([
+        KeyBinding::new("tab", NoAction, Some("Terminal")),
+        KeyBinding::new("shift-tab", NoAction, Some("Terminal")),
+        KeyBinding::new("cmd-c", NoAction, Some("Terminal")),
+    ]);
+}
+
+/// The bytes a key sends, as xterm sends them; none for a key the shell
+/// doesn't get. `app_cursor` is the application cursor mode, in which the
+/// arrows, Home and End send SS3 rather than CSI.
+pub fn key_bytes(key: &str, key_char: Option<&str>, m: gpui_kit::Modifiers, app_cursor: bool) -> Option<Vec<u8>> {
+    // xterm's modifier parameter: 1, plus 1 for Shift, 2 for Option, 4 for
+    // Control.
+    let param = 1 + m.shift as u8 + 2 * m.alt as u8 + 4 * m.control as u8;
+    // A cursor key: CSI 1;<mods> <c> with modifiers, else SS3 or CSI <c>.
+    let cursor = |c: char| -> Vec<u8> {
+        if param > 1 {
+            format!("\x1b[1;{param}{c}").into_bytes()
+        } else if app_cursor {
+            format!("\x1bO{c}").into_bytes()
+        } else {
+            format!("\x1b[{c}").into_bytes()
+        }
+    };
+    // A key that sends CSI <n> ~, with its modifiers.
+    let tilde = |n: u8| -> Vec<u8> {
+        if param > 1 {
+            format!("\x1b[{n};{param}~").into_bytes()
+        } else {
+            format!("\x1b[{n}~").into_bytes()
+        }
+    };
+    // F1–F4 are SS3 P–S, or CSI 1;<mods> P–S with modifiers.
+    let pf = |c: char| -> Vec<u8> {
+        if param > 1 {
+            format!("\x1b[1;{param}{c}").into_bytes()
+        } else {
+            format!("\x1bO{c}").into_bytes()
+        }
+    };
+    let bytes = match key {
+        "enter" if m.alt => b"\x1b\r".to_vec(),
+        "enter" => b"\r".to_vec(),
+        "backspace" if m.alt => b"\x1b\x7f".to_vec(),
+        "backspace" if m.control => b"\x08".to_vec(),
+        "backspace" => b"\x7f".to_vec(),
+        "tab" if m.shift => b"\x1b[Z".to_vec(),
+        "tab" => b"\t".to_vec(),
+        "escape" => b"\x1b".to_vec(),
+        "space" if m.control => vec![0],
+        // Option-← and → move by word, as in Terminal.app and iTerm.
+        "left" if m.alt && !m.control && !m.shift => b"\x1bb".to_vec(),
+        "right" if m.alt && !m.control && !m.shift => b"\x1bf".to_vec(),
+        "up" => cursor('A'),
+        "down" => cursor('B'),
+        "right" => cursor('C'),
+        "left" => cursor('D'),
+        "home" => cursor('H'),
+        "end" => cursor('F'),
+        "insert" => tilde(2),
+        "delete" => tilde(3),
+        "pageup" => tilde(5),
+        "pagedown" => tilde(6),
+        "f1" => pf('P'),
+        "f2" => pf('Q'),
+        "f3" => pf('R'),
+        "f4" => pf('S'),
+        "f5" => tilde(15),
+        "f6" => tilde(17),
+        "f7" => tilde(18),
+        "f8" => tilde(19),
+        "f9" => tilde(20),
+        "f10" => tilde(21),
+        "f11" => tilde(23),
+        "f12" => tilde(24),
+        key if m.control && key.chars().count() == 1 => {
+            let c = key.chars().next()?.to_ascii_lowercase();
+            let byte = match c {
+                'a'..='z' => (c as u8) & 0x1f,
+                '@' | '2' => 0,
+                '[' | '3' => 0x1b,
+                '\\' | '4' => 0x1c,
+                ']' | '5' => 0x1d,
+                '^' | '6' => 0x1e,
+                '/' | '_' | '-' | '7' => 0x1f,
+                '8' => 0x7f,
+                _ => return None,
+            };
+            if m.alt { vec![0x1b, byte] } else { vec![byte] }
+        }
+        _ => key_char.filter(|c| !c.is_empty())?.as_bytes().to_vec(),
+    };
+    Some(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::key_bytes;
+    use gpui_kit::Modifiers;
+
+    fn mods(spec: &str) -> Modifiers {
+        Modifiers {
+            control: spec.contains('c'),
+            alt: spec.contains('a'),
+            shift: spec.contains('s'),
+            ..Default::default()
+        }
+    }
+
+    fn send(key: &str, spec: &str) -> Vec<u8> {
+        key_bytes(key, None, mods(spec), false).unwrap_or_default()
+    }
+
+    #[test]
+    fn editing_keys() {
+        assert_eq!(send("tab", ""), b"\t");
+        assert_eq!(send("tab", "s"), b"\x1b[Z");
+        assert_eq!(send("enter", ""), b"\r");
+        assert_eq!(send("enter", "a"), b"\x1b\r");
+        assert_eq!(send("escape", ""), b"\x1b");
+        assert_eq!(send("backspace", ""), b"\x7f");
+        assert_eq!(send("backspace", "a"), b"\x1b\x7f");
+        assert_eq!(send("delete", ""), b"\x1b[3~");
+    }
+
+    #[test]
+    fn control_keys() {
+        for (key, byte) in [("a", 1), ("c", 3), ("d", 4), ("r", 18), ("z", 26), ("l", 12), ("w", 23)] {
+            assert_eq!(send(key, "c"), vec![byte], "ctrl-{key}");
+        }
+        assert_eq!(send("space", "c"), vec![0]);
+        assert_eq!(send("[", "c"), vec![0x1b]);
+        assert_eq!(send("/", "c"), vec![0x1f]);
+        assert_eq!(send("x", "ca"), vec![0x1b, 0x18]);
+    }
+
+    #[test]
+    fn cursor_keys() {
+        assert_eq!(send("up", ""), b"\x1b[A");
+        assert_eq!(key_bytes("up", None, mods(""), true).unwrap(), b"\x1bOA");
+        assert_eq!(send("left", "a"), b"\x1bb");
+        assert_eq!(send("right", "a"), b"\x1bf");
+        assert_eq!(send("left", "c"), b"\x1b[1;5D");
+        assert_eq!(send("right", "s"), b"\x1b[1;2C");
+        assert_eq!(send("home", ""), b"\x1b[H");
+        assert_eq!(send("end", ""), b"\x1b[F");
+        assert_eq!(send("pageup", ""), b"\x1b[5~");
+        assert_eq!(send("pagedown", "s"), b"\x1b[6;2~");
+    }
+
+    #[test]
+    fn function_keys() {
+        assert_eq!(send("f1", ""), b"\x1bOP");
+        assert_eq!(send("f4", ""), b"\x1bOS");
+        assert_eq!(send("f5", ""), b"\x1b[15~");
+        assert_eq!(send("f12", ""), b"\x1b[24~");
+        assert_eq!(send("f1", "s"), b"\x1b[1;2P");
+    }
+
+    #[test]
+    fn text_is_what_the_key_types() {
+        assert_eq!(key_bytes("a", Some("a"), mods(""), false).unwrap(), b"a");
+        assert_eq!(key_bytes("a", Some("A"), mods("s"), false).unwrap(), b"A");
+        assert_eq!(key_bytes("space", Some(" "), mods(""), false).unwrap(), b" ");
+        // Option with a letter types its character, as Terminal.app does.
+        assert_eq!(key_bytes("e", Some("é"), mods("a"), false).unwrap(), "é".as_bytes());
+        assert_eq!(key_bytes("shift", None, mods("s"), false), None);
+    }
 }
