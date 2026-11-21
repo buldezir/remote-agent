@@ -80,8 +80,37 @@ export interface Session {
   backgroundTasks?: BackgroundTask[];
   /** The session this one is a fork of (`session.fork`). */
   forkedFrom?: ForkedFrom;
+  /** The pull request from the session's branch, as rad last found it.
+   *  Absent: none, or rad can't tell. */
+  pullRequest?: PullRequest;
   createdAt: string;
   updatedAt: string;
+}
+
+export type PullRequestState = Open<"open" | "draft" | "merged" | "closed">;
+export type PullRequestChecks = Open<"passing" | "failing" | "pending">;
+export type PullRequestReview = Open<"approved" | "changes_requested" | "review_required">;
+
+/** A pull request from a session's branch, on the forge that hosts the
+ *  repository. Views show an unknown state as open, and unknown checks or
+ *  review as none. */
+export interface PullRequest {
+  /** "github"; others may follow, named by their url. */
+  forge: string;
+  number: number;
+  title: string;
+  /** Its page, which clients open. */
+  url: string;
+  /** draft: open, as a draft; closed: without merging. */
+  state: PullRequestState;
+  /** The branch it's from: the session's. */
+  head: string;
+  /** The branch it goes into. */
+  base?: string;
+  /** Its CI, summed up. Absent: none ran. */
+  checks?: PullRequestChecks;
+  /** Absent: the repository asks for no review. */
+  review?: PullRequestReview;
 }
 
 /** The session and turn a fork continues from: it has that session's

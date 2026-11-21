@@ -56,6 +56,7 @@ type Orchestrator struct {
 	namingOrder namingOrder
 
 	limits limitsState // the agents' usage limits (limits.go)
+	prs    prState     // the sessions' pull requests (pullrequests.go)
 }
 
 func New(st *store.Store, reg *harness.Registry, opt Options) *Orchestrator {
@@ -68,7 +69,7 @@ func New(st *store.Store, reg *harness.Registry, opt Options) *Orchestrator {
 	bg, stopBg := context.WithCancel(context.Background())
 	return &Orchestrator{st: st, reg: reg, opt: opt, log: opt.Log, actors: map[string]*actor{}, inflight: map[string]*sync.Mutex{},
 		tokens: map[string]string{}, parents: map[string]string{}, bg: bg, stopBg: stopBg,
-		limits: limitsState{tried: map[string]time.Time{}, wake: make(chan struct{}, 1)}}
+		limits: limitsState{tried: map[string]time.Time{}, wake: make(chan struct{}, 1)}, prs: newPRState()}
 }
 
 func (o *Orchestrator) Registry() *harness.Registry { return o.reg }
@@ -799,9 +800,11 @@ func (o *Orchestrator) Recover(ctx context.Context) error {
 	return err
 }
 
-// Run reaps idle runtimes, and records switched branches, until ctx is done.
+// Run reaps idle runtimes, records switched branches, and keeps usage
+// limits and pull requests fresh, until ctx is done.
 func (o *Orchestrator) Run(ctx context.Context) {
 	go o.watchLimits(ctx)
+	go o.watchPullRequests(ctx)
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
 	branches := time.NewTicker(branchPoll)

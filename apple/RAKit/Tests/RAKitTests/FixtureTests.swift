@@ -128,6 +128,11 @@ struct FixtureTests {
         #expect(s.result?.forkedFrom?.sessionId == "s0")
         #expect(s.result?.forkedFrom?.turn == 3)
         #expect(s.result?.customTitle == true)
+        let pr = s.result?.pullRequest
+        #expect(pr?.forge == "github" && pr?.number == 42 && pr?.title == "Fix the flaky tests")
+        #expect(pr?.url == "https://github.com/acme/app/pull/42")
+        #expect(pr?.state == .open && pr?.head == "ra/fix-tests" && pr?.base == "main")
+        #expect(pr?.checks == .failing && pr?.review == .changesRequested)
 
         let p = try dec.decode(PairResult.self, from: load("http_pair_response.json"))
         #expect(p.token == "0123abcd")

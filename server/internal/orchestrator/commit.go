@@ -450,6 +450,7 @@ func (r *commitRun) pullRequest(ctx context.Context) error {
 		return r.fail(stepPullRequest, fmt.Errorf("gh pr list: %w", err))
 	}
 	if len(open) > 0 {
+		r.opened(ctx, open[0].Number, open[0].URL, open[0].Title)
 		r.foundOpen(open[0].Number, open[0].URL, open[0].Title)
 		return nil
 	}
@@ -467,6 +468,7 @@ func (r *commitRun) pullRequest(ctx context.Context) error {
 		var ce *commandError
 		if errors.As(err, &ce) && strings.Contains(ce.output, "already exists") {
 			if url := lastURL(ce.output); url != "" {
+				r.opened(ctx, prNumber(url), url, "")
 				r.foundOpen(prNumber(url), url, "")
 				return nil
 			}
@@ -478,9 +480,26 @@ func (r *commitRun) pullRequest(ctx context.Context) error {
 		return r.fail(stepPullRequest, errors.New("gh pr create didn't say where the pull request is"))
 	}
 	r.p.SetURL(url)
+	r.opened(ctx, prNumber(url), url, title)
 	r.set(stepPullRequest, model.StepSucceeded, prLabel(prNumber(url), title))
 	r.done = append(r.done, fmt.Sprintf("opened pull request %s", url))
 	return nil
+}
+
+// opened shows the pull request gh opened or found open on the session at
+// once, and has rad look it up (pullrequests.go) for the rest: its checks
+// and review, and the title gh didn't give.
+func (r *commitRun) opened(ctx context.Context, number int, url, title string) {
+	r.a.mu.Lock()
+	known := r.a.sess.PullRequest
+	r.a.mu.Unlock()
+	if number > 0 && (known == nil || known.Number != number || known.Head != r.branch) { // else it knows more already
+		r.a.setPullRequest(context.WithoutCancel(ctx), r.branch, &model.PullRequest{
+			Forge: "github", Number: number, Title: title, URL: url, State: model.PullRequestOpen, Head: r.branch,
+			Base: r.place.baseBranch(ctx, r.branch, r.remote),
+		})
+	}
+	r.o.nudgePullRequest(r.a.sess.ID)
 }
 
 // foundOpen reports the pull request that was open for the branch already.

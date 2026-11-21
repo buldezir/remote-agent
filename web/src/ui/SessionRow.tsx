@@ -4,11 +4,13 @@ import type { Session } from "../protocol/models";
 import type { ServerConnection } from "../store/serverConnection";
 import { HarnessBadge, RelativeTime, StatusIcon } from "./components";
 import { useConnection } from "./context";
+import { PullRequestBadge } from "./PullRequest";
 import { Confirm, useContextMenu, type MenuEntry } from "./primitives";
 import { needsYou } from "./sidebarLayout";
 
-/** A session in a list: its status, title, agent, project and branch. Its
- *  context menu renames, archives (or unarchives) or deletes it. */
+/** A session in a list: its status, title, agent, project, branch and pull
+ *  request. Its context menu renames, archives (or unarchives) or deletes
+ *  it. */
 export function SessionRow({
   session,
   selected,
@@ -45,6 +47,7 @@ export function SessionRow({
                   <GitBranch size={11} /> <span className="branch-name">{session.workspace.branch}</span>
                 </span>
               )}
+              {session.pullRequest && <PullRequestBadge pr={session.pullRequest} />}
               <span className="spacer" />
               <RelativeTime date={session.updatedAt} />
             </span>

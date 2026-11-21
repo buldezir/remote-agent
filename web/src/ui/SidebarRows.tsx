@@ -2,6 +2,7 @@ import { Archive, Clock, GitBranch, Hand, Pencil, Square, TriangleAlert } from "
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { contextFraction, modelName, parseDate, type SearchResult, type Session, type SnippetPart } from "../protocol/models";
 import { Spinner, useContextMenu } from "./primitives";
+import { PullRequestBadge } from "./PullRequest";
 import { DeleteButton, sessionRowMenu, UnarchiveButton } from "./SessionRow";
 import { needsYou, projectOf, shortAge, standsOut, type ServerSession } from "./sidebarLayout";
 
@@ -78,6 +79,7 @@ export function TreeRow({ item }: { item: ServerSession }) {
           <GitBranch size={11} />
         </span>
       )}
+      {s.pullRequest && <PullRequestBadge pr={s.pullRequest} />}
       <ShortAge date={s.updatedAt} />
     </>
   );
@@ -117,6 +119,7 @@ export function SearchResultRow({ item, result, showsServer }: { item: ServerSes
         <span className="row-line">
           <span className={"row-title" + (standsOut(s) ? " strong" : "")}>{s.title}</span>
           {s.archived && <span className="archived-badge">Archived</span>}
+          {s.pullRequest && <PullRequestBadge pr={s.pullRequest} />}
         </span>
         <span className="row-place search-place">
           {project && (
@@ -186,9 +189,9 @@ function activity({ connection, session: s }: ServerSession): string {
   }
 }
 
-/** "Mac Studio › weather-api ⑂ ra/fix-cache": the server (when there is
- *  more than one), the project, and a worktree's branch, which a narrow
- *  line cuts short. */
+/** "Mac Studio › weather-api ⑂ ra/fix-cache #42": the server (when there
+ *  is more than one), the project, a worktree's branch, which a narrow line
+ *  cuts short, and the branch's pull request. */
 export function SessionPlace({ item, server }: { item: ServerSession; server: boolean }) {
   const project = projectOf(item);
   const ws = item.session.workspace;
@@ -206,6 +209,7 @@ export function SessionPlace({ item, server }: { item: ServerSession; server: bo
           <GitBranch size={11} /> <span className="branch-name">{ws.branch}</span>
         </span>
       )}
+      {item.session.pullRequest && <PullRequestBadge pr={item.session.pullRequest} />}
     </span>
   );
 }

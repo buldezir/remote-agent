@@ -211,6 +211,9 @@ func (c *conn) subscribe(p subscribeParams) (*subscribeResult, error) {
 	if p.Stream != model.IndexStream && !strings.HasPrefix(p.Stream, "session:") {
 		return nil, invalid("unknown stream %q", p.Stream)
 	}
+	if id, ok := strings.CutPrefix(p.Stream, "session:"); ok {
+		c.s.orch.LookAtPullRequest(id) // it may have changed on the forge meanwhile
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if old := c.subs[p.Stream]; old != nil {

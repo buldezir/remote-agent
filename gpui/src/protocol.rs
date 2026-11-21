@@ -138,10 +138,65 @@ pub struct Session {
     #[serde(default)]
     pub background_tasks: Vec<BackgroundTask>,
     pub forked_from: Option<ForkedFrom>,
+    pub pull_request: Option<PullRequest>,
     #[serde(default)]
     pub created_at: String,
     #[serde(default)]
     pub updated_at: String,
+}
+
+/// The pull request from a session's branch, as rad last found it on the
+/// forge (GitHub).
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PullRequest {
+    #[serde(default)]
+    pub forge: String,
+    #[serde(default)]
+    pub number: i64,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub state: PullRequestState,
+    #[serde(default)]
+    pub head: String,
+    pub base: Option<String>,
+    pub checks: Option<PullRequestChecks>,
+    pub review: Option<PullRequestReview>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PullRequestState {
+    #[default]
+    Open,
+    Draft,
+    Merged,
+    Closed,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PullRequestChecks {
+    Passing,
+    Failing,
+    Pending,
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PullRequestReview {
+    Approved,
+    ChangesRequested,
+    ReviewRequired,
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
@@ -1147,6 +1202,11 @@ mod tests {
         assert_eq!(session.workspace.kind, WorkspaceKind::Worktree);
         assert_eq!(session.draft.as_ref().unwrap().images.len(), 1);
         assert_eq!(session.model_info.as_ref().unwrap().name.as_deref(), Some("Sonnet 5.5"));
+        let pr = session.pull_request.as_ref().unwrap();
+        assert_eq!((pr.number, pr.state), (42, PullRequestState::Open));
+        assert_eq!(pr.checks, Some(PullRequestChecks::Failing));
+        assert_eq!(pr.review, Some(PullRequestReview::ChangesRequested));
+        assert_eq!(pr.url, "https://github.com/acme/app/pull/42");
         let items: Vec<&Item> = events.iter().filter_map(|e| e.item.as_ref()).collect();
         assert!(items.iter().any(|i| i.kind == ItemKind::ToolCall && i.tool.is_some()));
         assert!(
@@ -1155,6 +1215,24 @@ mod tests {
                 .any(|i| i.kind == ItemKind::Approval && i.approval.is_some())
         );
         assert!(events.iter().any(|e| e.turn.is_some()));
+    }
+
+    #[test]
+    fn pull_request() {
+        let s: Session = result("response_session.json");
+        let pr = s.pull_request.unwrap();
+        assert_eq!(pr.forge, "github");
+        assert_eq!(pr.title, "Fix the flaky tests");
+        assert_eq!((pr.head.as_str(), pr.base.as_deref()), ("ra/fix-tests", Some("main")));
+        // A newer server's states, checks and reviews still decode.
+        let pr: PullRequest = serde_json::from_value(serde_json::json!({
+            "forge": "gitlab", "number": 7, "title": "T", "url": "https://gitlab.com/a/b/-/merge_requests/7",
+            "state": "queued", "head": "b", "checks": "skipped", "review": "dismissed",
+        }))
+        .unwrap();
+        assert_eq!(pr.state, PullRequestState::Unknown);
+        assert_eq!(pr.checks, Some(PullRequestChecks::Unknown));
+        assert_eq!(pr.review, Some(PullRequestReview::Unknown));
     }
 
     #[test]

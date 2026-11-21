@@ -36,6 +36,8 @@ func fixtures() map[string]any {
 			{ID: "a1", Kind: model.BackgroundAgent, Description: "Explore the protocol"},
 		},
 		ForkedFrom: &model.ForkedFrom{SessionID: "s0", Turn: 3},
+		PullRequest: &model.PullRequest{Forge: "github", Number: 42, Title: "Fix the flaky tests", URL: "https://github.com/acme/app/pull/42",
+			State: model.PullRequestOpen, Head: "ra/fix-tests", Base: "main", Checks: model.ChecksFailing, Review: model.ReviewChangesRequested},
 	}
 	archived := &model.Session{ID: "s2", ProjectID: "p1", Harness: "codex", Workspace: model.Workspace{Kind: model.WorkspaceRoot, Path: "/Users/me/projects/app"},
 		Status: model.SessionIdle, Title: "Flaky tests", Archived: true, CreatedAt: t0, UpdatedAt: t0}

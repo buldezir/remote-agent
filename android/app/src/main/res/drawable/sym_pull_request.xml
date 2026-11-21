@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols Rounded "pull_request", written by android/scripts/symbols.py. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <group android:translateY="960">
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M200-80q-50 0-85-35t-35-85q0-38 22-69.5t58-43.5v-334q-36-12-58-43.5T80-760q0-50 35-85t85-35q50 0 85 35t35 85q0 38-22 69.5T240-647v334q36 12 58 43.5t22 69.5q0 50-35 85t-85 35Zm0-640q17 0 28.5-11.5T240-760q0-17-11.5-28.5T200-800q-17 0-28.5 11.5T160-760q0 17 11.5 28.5T200-720Zm0 560q17 0 28.5-11.5T240-200q0-17-11.5-28.5T200-240q-17 0-28.5 11.5T160-200q0 17 11.5 28.5T200-160Zm475 45q-35-35-35-85 0-38 22-69.5t58-43.5v-334q-26-9-45-28t-28-45H497l51 52q11 11 11 28t-11 28q-11 11-28 11t-28-11L372-732q-11-11-11-28t11-28l120-120q11-11 28-11t28 11q11 11 11 28t-11 28l-51 52h150q12-36 43.5-58t69.5-22q50 0 85 35t35 85q0 38-22 69.5T800-647v334q36 12 58 43.5t22 69.5q0 50-35 85t-85 35q-50 0-85-35Zm85-605q17 0 28.5-11.5T800-760q0-17-11.5-28.5T760-800q-17 0-28.5 11.5T720-760q0 17 11.5 28.5T760-720Zm0 560q17 0 28.5-11.5T800-200q0-17-11.5-28.5T760-240q-17 0-28.5 11.5T720-200q0 17 11.5 28.5T760-160ZM200-760Zm0 560Zm560-560Zm0 560Z" />
+    </group>
+</vector>

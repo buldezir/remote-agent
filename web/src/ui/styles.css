@@ -649,6 +649,56 @@ button.sidebar-status:hover { background: color-mix(in srgb, var(--surface0) 50%
 .row-activity { font-size: 0.9em; color: var(--subtext); }
 .row-activity.c-red { color: var(--red); }
 .row-branch-glyph { display: inline-flex; flex: none; color: var(--overlay); }
+/* A session's pull request, tinted by its state: on rows, and in the session bar. */
+.pr-open { color: var(--green); }
+.pr-draft { color: var(--overlay); }
+.pr-merged { color: var(--mauve); }
+.pr-closed { color: var(--red); }
+.pr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  font-size: 0.8em;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.row-place .pr-badge,
+.session-meta .pr-badge { font-size: inherit; }
+.pr-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--r-card);
+  font-size: 0.9em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pr-button:hover { background: var(--surface0); }
+.pr-button svg { flex: none; }
+.pr-checks-pending {
+  width: 7px;
+  height: 7px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--yellow);
+}
+.menu-section-title:has(.pr-menu-heading) { padding-left: 8px; }
+.pr-menu-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 320px;
+}
+.pr-menu-title {
+  color: var(--text);
+  font-size: 1.15em;
+  overflow-wrap: anywhere;
+}
+.pr-menu-status { font-weight: 400; }
 .short-age {
   flex: none;
   font-size: 0.8em;

@@ -51,6 +51,10 @@ struct TreeRow: View {
                     .help(item.session.workspace.branch ?? "Worktree")
                     .accessibilityLabel("Worktree \(item.session.workspace.branch ?? "")")
             }
+            if let pr = item.session.pullRequest {
+                PullRequestBadge(pullRequest: pr)
+                    .scaledFont(.caption2)
+            }
             SessionAge(date: item.session.updatedAt)
                 .scaledFont(.caption2)
                 .foregroundStyle(.tertiary)
@@ -167,7 +171,7 @@ struct SearchResultRow: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// "weather-api · Claude Code · 3h", and the server.
+    /// "weather-api · Claude Code · 3h", its pull request, and the server.
     private var details: some View {
         HStack(spacing: 4) {
             let place = [connection.projects[session.projectId]?.name,
@@ -175,6 +179,10 @@ struct SearchResultRow: View {
             Text(place.joined(separator: " · "))
             Text("·")
             SessionAge(date: session.updatedAt)
+            if let pr = session.pullRequest {
+                PullRequestBadge(pullRequest: pr)
+                    .padding(.leading, 2)
+            }
             if showsServer {
                 Text("·")
                 Text(connection.server.name)
@@ -211,8 +219,8 @@ struct ArchivedBadge: View {
     }
 }
 
-/// "Mac Studio › weather-api ⑂ ra/fix-cache": the server (when there is more
-/// than one), the project, and a worktree's branch.
+/// "Mac Studio › weather-api ⑂ ra/fix-cache #42": the server (when there is
+/// more than one), the project, a worktree's branch, and its pull request.
 struct SessionPlace: View {
     let item: ServerSession
     let server: Bool
@@ -233,6 +241,10 @@ struct SessionPlace: View {
                     Text(b)
                 }
                 .padding(.leading, 2)
+            }
+            if let pr = item.session.pullRequest {
+                PullRequestBadge(pullRequest: pr)
+                    .padding(.leading, 2)
             }
         }
         .lineLimit(1)

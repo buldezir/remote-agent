@@ -40,6 +40,7 @@ import { highlightRegistry, occurrenceRanges } from "./findHighlight";
 import { AttachButton, AttachmentStrip, imageFiles, useImageDrop } from "./images";
 import { DraftBubble, ItemView, ToolRunRow, TurnFooter, UserBubble } from "./items/ItemView";
 import { ErrorAlert, Menu, Spinner, type MenuEntry } from "./primitives";
+import { PullRequestButton } from "./PullRequest";
 import { focusDone, useFocusItem, usePageInFront, useWide } from "./router";
 import { RenameSession, UnarchiveConfirm } from "./SessionRow";
 import { useSettings } from "./settings";
@@ -446,6 +447,7 @@ export function SessionView({
               </div>
             )}
           </div>
+          {session?.pullRequest && <PullRequestButton pr={session.pullRequest} />}
           <Menu label={<Ellipsis />} title="Session" entries={menu} />
         </header>
         {findOpen && (

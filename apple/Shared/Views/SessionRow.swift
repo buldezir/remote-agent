@@ -64,6 +64,9 @@ struct SessionRow: View {
                     Text(b).truncationMode(.middle)
                 }
             }
+            if let pr = session.pullRequest {
+                PullRequestBadge(pullRequest: pr)
+            }
             Spacer(minLength: 4)
             Text(session.updatedAt, format: .relative(presentation: .named, unitsStyle: .narrow))
                 .scaledFont(.caption2)

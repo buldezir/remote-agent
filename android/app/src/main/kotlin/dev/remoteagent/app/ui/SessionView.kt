@@ -573,6 +573,7 @@ private fun SessionScreen(
         title = { SessionTitle(session, harness) },
         onBack = onBack,
         actions = {
+            session?.pullRequest?.let { PullRequestButton(it) }
             Box {
                 IconButton({ menu = true }, Modifier.testTag("session-menu")) { Icon(painterResource(Icons.more), "More") }
                 SessionMenu(

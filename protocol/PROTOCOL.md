@@ -194,7 +194,18 @@ Session {
                                      // what the agent left running (a command it watches, a subagent), while its
                                      // process runs; absent: none
   forkedFrom?: { sessionId, turn },  // the session this one is a fork of, and the turn it continues after (session.fork)
+  pullRequest?: PullRequest,         // the pull request from the session's branch, as rad last found it (see "Pull requests"); absent: none, or rad can't tell
   createdAt, updatedAt
+}
+
+PullRequest {
+  forge,                             // the forge that hosts it: "github" (others may follow; show what's there, name unknown ones by their url)
+  number, title, url,                // url: its page, which clients open
+  state: "open"|"draft"|"merged"|"closed",   // draft: open, as a draft; closed: without merging
+  head,                              // the branch it's from: the session's
+  base?,                             // the branch it goes into
+  checks?: "passing"|"failing"|"pending",    // its CI, summed up; absent: none ran
+  review?: "approved"|"changes_requested"|"review_required"   // absent: the repository asks for no review
 }
 
 Turn {
@@ -257,6 +268,8 @@ UsageWindow {
 **Streaming text.** Assistant text and reasoning stream as repeated `item.upserted` events for the same `id`, each carrying the **full** text so far. Updates are coalesced to at most 10 per second.
 
 **Background tasks.** An agent may leave a command or a subagent running after its turn ends, and report on it later. While one runs, the session lists it in `backgroundTasks`, and rad keeps the agent running even when the session is idle. When a task ends between turns, the agent starts a turn of its own: a turn whose first item is a `notice` ("Background task finished: …") rather than a user message. It runs, queues prompts and stops like any other. A background subagent's items stay in the turn that started them and keep updating after it ends. Claude Code is the only harness that reports background tasks so far.
+
+**Pull requests.** For sessions in a git repository, rad looks up the pull request from the session's branch on the forge that hosts its remote, and keeps it as the session's `pullRequest`, which changes with a `session.upserted` that keeps the session's `updatedAt`. GitHub is the only forge so far: rad asks `gh`, signed in on the server, for the branch's pull requests, and takes an open one, else the latest (merged or closed). It looks only at branches that are pushed and aren't the remote's default branch; within seconds of a turn or a commit ending, of the branch changing (which clears a `pullRequest` from another branch at once) and of a client subscribing to the session; and while a client is connected, every 3 minutes, every 30 for one merged or closed. When it can't tell (no remote, a forge it doesn't know, `gh` missing or signed out), the session keeps what it had. A commit that opens a pull request, or finds one open (`git.commit`), sets it at once. Clients show it on the session's row and in its header, by its state (open green, draft grey, merged purple, closed red) with its number, and open `url` when it's tapped; the header adds its checks and review.
 
 **Approvals.** A `kind = approval` item with `status = pending` needs an answer. Its status then becomes:
 - `resolved` once answered

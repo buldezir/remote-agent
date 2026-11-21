@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { pullRequestStatusLine } from "../store/pullRequest";
 import {
   aspectRatio,
   availableBranches,
@@ -165,6 +166,18 @@ describe("fixtures", () => {
       { id: "b1", kind: "command", description: "Watch the release run" },
       { id: "a1", kind: "agent", description: "Explore the protocol" },
     ]);
+    expect(s.pullRequest).toEqual({
+      forge: "github",
+      number: 42,
+      title: "Fix the flaky tests",
+      url: "https://github.com/acme/app/pull/42",
+      state: "open",
+      head: "ra/fix-tests",
+      base: "main",
+      checks: "failing",
+      review: "changes_requested",
+    });
+    expect(pullRequestStatusLine(s.pullRequest!)).toBe("Open · Checks failing · Changes requested");
 
     const p: PairResult = load("http_pair_response.json");
     expect(p.token).toBe("0123abcd");

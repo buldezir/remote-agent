@@ -112,10 +112,56 @@ type Session struct {
 	BackgroundTasks []BackgroundTask `json:"backgroundTasks,omitempty"`
 	// ForkedFrom: the session this one is a fork of (session.fork).
 	ForkedFrom *ForkedFrom `json:"forkedFrom,omitempty"`
-	ItemCount  int64       `json:"-"`
-	CreatedAt  time.Time   `json:"createdAt"`
-	UpdatedAt  time.Time   `json:"updatedAt"`
+	// PullRequest is the pull request from the session's branch, as rad
+	// last found it on the forge that hosts the repository (GitHub); absent:
+	// none, or rad can't tell.
+	PullRequest *PullRequest `json:"pullRequest,omitempty"`
+	ItemCount   int64        `json:"-"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	UpdatedAt   time.Time    `json:"updatedAt"`
 }
+
+// PullRequest is a pull request (a merge request, on some forges) from a
+// session's branch.
+type PullRequest struct {
+	Forge  string           `json:"forge"` // the forge that hosts it: github
+	Number int              `json:"number"`
+	Title  string           `json:"title"`
+	URL    string           `json:"url"`
+	State  PullRequestState `json:"state"`
+	Head   string           `json:"head"`           // the branch it's from: the session's
+	Base   string           `json:"base,omitempty"` // the branch it goes into
+	// Checks sums up its CI: passing, failing or pending; absent: none ran.
+	Checks PullRequestChecks `json:"checks,omitempty"`
+	// Review is where its review stands: approved, changes_requested or
+	// review_required; absent: the repository asks for none.
+	Review PullRequestReview `json:"review,omitempty"`
+}
+
+type PullRequestState string
+
+const (
+	PullRequestOpen   PullRequestState = "open"
+	PullRequestDraft  PullRequestState = "draft" // open, as a draft
+	PullRequestMerged PullRequestState = "merged"
+	PullRequestClosed PullRequestState = "closed" // without merging
+)
+
+type PullRequestChecks string
+
+const (
+	ChecksPassing PullRequestChecks = "passing"
+	ChecksFailing PullRequestChecks = "failing"
+	ChecksPending PullRequestChecks = "pending"
+)
+
+type PullRequestReview string
+
+const (
+	ReviewApproved         PullRequestReview = "approved"
+	ReviewChangesRequested PullRequestReview = "changes_requested"
+	ReviewRequired         PullRequestReview = "review_required"
+)
 
 // ForkedFrom names the session and turn a fork continues from: it has that
 // session's transcript up to and including the turn.

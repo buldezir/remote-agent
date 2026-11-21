@@ -24,7 +24,7 @@ use gpui_kit::{
 use serde_json::json;
 
 use crate::conn::{ConnState, ServerConn};
-use crate::protocol::{Session, SessionStatus, WorkspaceKind};
+use crate::protocol::{PullRequest, Session, SessionStatus, WorkspaceKind};
 use crate::store::search::search_active;
 use crate::store::sidebar::{
     Collection, Layout, inbox_groups, is_busy, most_pressing, needs_you, needs_you_first, projects_in_order,
@@ -300,7 +300,7 @@ impl AppView {
         let activity = details.then(|| activity(s, c, &p));
         let worktree = s.workspace.kind == WorkspaceKind::Worktree;
         let branch = worktree.then(|| s.workspace.branch.clone()).flatten();
-        let pr = badges::pull_request(s);
+        let pr = s.pull_request.clone();
         let harness = c.harness(&s.harness).cloned();
         // The title takes the state's colour, and the dot says it too.
         let state = row_state(s, &p);
@@ -319,20 +319,17 @@ impl AppView {
             harness: s.harness.clone(),
             model: badges::model_name(s, harness.as_ref()),
             context: badges::context_percent(s),
-            pr: pr.as_ref().map(|pr| (pr.number, pr.title.clone())),
+            pr: pr.clone(),
         };
         // Its pull request, server and agent, at the end of a line.
-        let (pr_number, harness_id) = (pr.as_ref().map(|pr| pr.number), s.harness.clone());
+        let harness_id = s.harness.clone();
         let marks = move || {
             h_flex()
                 .flex_shrink_0()
                 .gap_1()
                 .text_xs()
                 .text_color(p.overlay)
-                .when_some(pr_number, |d, n| {
-                    d.child(Icon::new(L::GitPullRequest).xsmall().text_color(p.mauve))
-                        .child(div().mr_0p5().child(n.to_string()))
-                })
+                .when_some(pr.as_ref(), |d, pr| d.child(pull_request_badge(pr, &p)))
                 .child(Icon::new(L::Server).xsmall().text_color(p.overlay))
                 .child(badges::harness_icon(&harness_id, &p).xsmall())
         };
@@ -1730,7 +1727,7 @@ struct Card {
     harness: String,
     model: String,
     context: Option<f64>,
-    pr: Option<(u32, String)>,
+    pr: Option<PullRequest>,
 }
 
 impl Card {
@@ -1781,23 +1778,53 @@ impl Card {
                 badges::harness_icon(&self.harness, &p).small().into_any_element(),
                 model,
             ))
-            .when_some(self.pr.clone(), |d, (n, title)| {
+            .when_some(self.pr.as_ref(), |d, pr| {
                 d.child(div().my_1().h(px(1.)).bg(p.surface0)).child(
                     h_flex()
                         .gap_2()
+                        .items_start()
                         .text_sm()
                         .text_color(p.subtext)
                         .child(
                             div()
                                 .w(px(16.))
+                                .h(px(20.))
                                 .flex()
+                                .items_center()
                                 .justify_center()
-                                .child(Icon::new(L::GitPullRequest).small().text_color(p.mauve)),
+                                .child(badges::pull_request_icon(pr, &p).small()),
                         )
-                        .child(div().flex_shrink_0().text_color(p.overlay).child(format!("#{n}")))
-                        .child(div().min_w_0().truncate().child(title)),
+                        .child(
+                            v_flex()
+                                .min_w_0()
+                                .child(
+                                    h_flex()
+                                        .gap_2()
+                                        .child(
+                                            div()
+                                                .flex_shrink_0()
+                                                .text_color(badges::pull_request_color(pr, &p))
+                                                .child(format!("#{}", pr.number)),
+                                        )
+                                        .child(div().min_w_0().truncate().child(pr.title.clone())),
+                                )
+                                .child(div().text_xs().text_color(p.overlay).child(pr.status_line())),
+                        ),
                 )
             })
             .into_any_element()
     }
+}
+
+/// A row's pull request: its glyph and number in its state's colour. Only a
+/// mark: the row stays one target, and its hover card has the title and the
+/// status (a tooltip of its own would sit on top of the card).
+fn pull_request_badge(pr: &PullRequest, p: &Palette) -> AnyElement {
+    h_flex()
+        .gap_0p5()
+        .mr_0p5()
+        .text_color(badges::pull_request_color(pr, p))
+        .child(badges::pull_request_icon(pr, p).xsmall())
+        .child(format!("#{}", pr.number))
+        .into_any_element()
 }

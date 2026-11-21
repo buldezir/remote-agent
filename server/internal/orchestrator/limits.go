@@ -93,7 +93,8 @@ func (o *Orchestrator) Limits(ctx context.Context) map[string]model.UsageLimits 
 }
 
 // ClientConnected counts a client while it stays connected (done), for
-// which rad keeps agents' limits fresh: it asks those that answer at once if
+// which rad keeps the sessions' pull requests (pullrequests.go) and agents'
+// limits fresh: it asks those that answer at once if
 // theirs are old, and then every limitsRefresh.
 func (o *Orchestrator) ClientConnected() (done func()) {
 	o.limits.mu.Lock()
@@ -103,6 +104,7 @@ func (o *Orchestrator) ClientConnected() (done func()) {
 	case o.limits.wake <- struct{}{}:
 	default:
 	}
+	o.wakePullRequests() // pull requests not looked at for a while are due
 	return sync.OnceFunc(func() {
 		o.limits.mu.Lock()
 		o.limits.clients--

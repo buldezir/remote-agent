@@ -82,6 +82,7 @@ fun SessionRow(session: Session, project: Project?, harness: HarnessInfo?, modif
                         }
                     }
                 }
+                session.pullRequest?.let { PullRequestBadge(it) }
                 Spacer(Modifier.weight(1f).width(4.dp))
                 RelativeTime(session.updatedAt)
             }

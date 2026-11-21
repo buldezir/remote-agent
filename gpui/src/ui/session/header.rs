@@ -3,19 +3,20 @@
 use gpui_kit::assets::IconName as L;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::{Icon, IconName, Selectable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Anchor, AnyElement, App, ClickEvent, Context, ExternalPaths, InteractiveElement as _, IntoElement, KeyDownEvent,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div, list, px,
+    Anchor, AnyElement, App, ClickEvent, ClipboardItem, Context, ExternalPaths, InteractiveElement as _, IntoElement,
+    KeyDownEvent, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window, div,
+    list, px,
 };
 use serde_json::json;
 
 use super::SessionView;
 use super::dock::Dock;
-use crate::protocol::{SessionStatus, TurnStatus, WorkspaceKind};
-use crate::ui::badges::project_badge;
+use crate::protocol::{PullRequest, SessionStatus, TurnStatus, WorkspaceKind};
+use crate::ui::badges::{self, project_badge};
 use crate::ui::common::{busy_dot, caption, sidebar_toggle, top_bar};
 use crate::ui::palette::Palette;
 use crate::ui::state::prefs;
@@ -173,6 +174,7 @@ impl SessionView {
                     h_flex()
                         .gap_0p5()
                         .flex_shrink_0()
+                        .when_some(s.pull_request.as_ref(), |d, pr| d.child(pull_request_button(pr, &p)))
                         .when(git, |d| d.child(self.changes_button(&p, cx)))
                         .when(self.can_commit(cx), |d| {
                             d.child(
@@ -333,6 +335,10 @@ impl SessionView {
                             .on_click(act(|v, w, cx| v.open_fork(w, cx))),
                     );
                 }
+                if let Some(pr) = s.pull_request.clone() {
+                    menu = menu.separator().label(pr.headline());
+                    menu = pull_request_items(menu, &pr);
+                }
                 menu = menu.separator();
                 if !s.archived {
                     let (c, s2) = (conn.clone(), s.clone());
@@ -441,6 +447,54 @@ impl SessionView {
 }
 
 use gpui_kit::component::Disableable as _;
+
+/// The session's pull request in its bar: its glyph and number in its
+/// state's colour, and how its checks went. A click opens it; right-click
+/// offers to open it or copy its link, and its tooltip says where it stands.
+fn pull_request_button(pr: &PullRequest, p: &Palette) -> AnyElement {
+    let url = pr.url.clone();
+    let menu_pr = pr.clone();
+    div()
+        .id("pull-request")
+        .flex()
+        .child(
+            Button::new("pull-request-button")
+                .small()
+                .ghost()
+                .accessibility_label(pr.accessibility_label())
+                .tooltip(format!("{}\n{}", pr.headline(), pr.status_line()))
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .text_xs()
+                        .child(badges::pull_request_icon(pr, p).small())
+                        .child(
+                            div()
+                                .text_color(badges::pull_request_color(pr, p))
+                                .child(format!("#{}", pr.number)),
+                        )
+                        .when_some(badges::checks_mark(pr, p), |d, mark| d.child(mark)),
+                )
+                .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url)),
+        )
+        .context_menu(move |menu, _, _| pull_request_items(menu, &menu_pr))
+        .into_any_element()
+}
+
+/// Open on GitHub and Copy Link, for the bar's right-click and the ⋯ menu.
+fn pull_request_items(menu: PopupMenu, pr: &PullRequest) -> PopupMenu {
+    let (open, copy) = (pr.url.clone(), pr.url.clone());
+    menu.item(
+        PopupMenuItem::new(format!("Open on {}", pr.forge_name()))
+            .icon(Icon::new(L::ExternalLink))
+            .on_click(move |_, _, cx| cx.open_url(&open)),
+    )
+    .item(
+        PopupMenuItem::new("Copy Link")
+            .icon(Icon::new(L::Link))
+            .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))),
+    )
+}
 
 impl Render for SessionView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

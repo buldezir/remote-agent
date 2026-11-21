@@ -796,6 +796,12 @@ struct SessionView: View {
                 }
             }
         }
+        if let pr = session?.pullRequest {
+            ToolbarItem(placement: .primaryAction) {
+                PullRequestButton(pullRequest: pr)
+            }
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+        }
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 if let modes = harness?.modes, !modes.isEmpty {

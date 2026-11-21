@@ -759,6 +759,9 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 	turn.Status, turn.Usage, turn.Error, turn.EndedAt, turn.ForkPoint = ev.Status, ev.Usage, ev.Error, &now, ev.ForkPoint
 	turn.CheckpointAfter = a.checkpoint(ctx, turn.N, "after")
 	a.refreshBranch(ctx)
+	if a.project != nil && a.project.IsGitRepo {
+		a.o.nudgePullRequest(a.sess.ID) // the agent may have pushed, or opened one
+	}
 	if ev.Status == model.TurnFailed && ev.Limit != nil {
 		// Which limit, and when it resets, rather than the agent's words.
 		turn.Error = limitError(a.o.agentName(a.sess.Harness), *ev.Limit, now)
@@ -1331,7 +1334,15 @@ func (a *actor) refreshBranch(ctx context.Context) {
 	if a.project == nil || !a.project.IsGitRepo {
 		return
 	}
-	a.sess.Workspace.Branch = gitx.CurrentBranch(ctx, a.dir())
+	branch := gitx.CurrentBranch(ctx, a.dir())
+	if branch == a.sess.Workspace.Branch {
+		return
+	}
+	a.sess.Workspace.Branch = branch
+	if pr := a.sess.PullRequest; pr != nil && pr.Head != branch {
+		a.sess.PullRequest = nil // the old branch's
+	}
+	a.o.nudgePullRequest(a.sess.ID)
 }
 
 // onWorkdir follows the agent to the folder it moved to, such as a worktree

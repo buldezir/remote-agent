@@ -17,6 +17,7 @@ import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.ImportableSession
 import dev.remoteagent.core.protocol.ItemKind
 import dev.remoteagent.core.protocol.OptionKind
+import dev.remoteagent.core.protocol.PullRequest
 import dev.remoteagent.core.protocol.SearchResults
 import dev.remoteagent.core.protocol.SnippetPart
 import dev.remoteagent.core.protocol.ServerInfo
@@ -216,6 +217,14 @@ class FixtureTests {
         assertEquals(listOf(BackgroundTask.Kind.COMMAND, BackgroundTask.Kind.AGENT), s.backgroundTasks.map { it.kind })
         assertEquals(listOf("Watch the release run", "Explore the protocol"), s.backgroundTasks.map { it.description })
         assertEquals(ForkedFrom("s0", 3), s.forkedFrom)
+        assertEquals(
+            PullRequest(
+                forge = "github", number = 42, title = "Fix the flaky tests", url = "https://github.com/acme/app/pull/42",
+                state = PullRequest.State.OPEN, head = "ra/fix-tests", base = "main",
+                checks = PullRequest.Checks.FAILING, review = PullRequest.Review.CHANGES_REQUESTED,
+            ),
+            s.pullRequest,
+        )
 
         val p = WireCoding.json.decodeFromString(PairResult.serializer(), fixture("http_pair_response.json"))
         assertEquals("0123abcd", p.token)

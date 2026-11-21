@@ -98,4 +98,6 @@ object Icons {
     @DrawableRes val branch = R.drawable.sym_alt_route // arrow.triangle.branch
     @DrawableRes val link = R.drawable.sym_link // link
     @DrawableRes val pi = R.drawable.sym_functions // pi
+    @DrawableRes val pullRequest = R.drawable.sym_pull_request // arrow.triangle.pull
+    @DrawableRes val pullRequestMerged = R.drawable.sym_merge // arrow.triangle.merge
 }

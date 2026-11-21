@@ -340,8 +340,9 @@ func (s *Store) Session(ctx context.Context, id string) (*model.Session, error) 
 // GitWorkspace is where a session works: its path, the agent's own folder
 // and the branch it has recorded.
 type GitWorkspace struct {
-	SessionID string
-	Workspace model.Workspace
+	SessionID   string
+	Workspace   model.Workspace
+	PullRequest *model.PullRequest
 }
 
 // GitWorkspaces lists the workspaces of the unarchived sessions in git
@@ -349,7 +350,7 @@ type GitWorkspace struct {
 func (s *Store) GitWorkspaces(ctx context.Context) ([]GitWorkspace, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT s.id, json_extract(s.data, '$.workspace.path'), coalesce(json_extract(s.data, '$.workspace.agentPath'), ''),
-		        coalesce(json_extract(s.data, '$.workspace.branch'), '')
+		        coalesce(json_extract(s.data, '$.workspace.branch'), ''), coalesce(json_extract(s.data, '$.pullRequest'), '')
 		 FROM sessions s JOIN projects p ON p.id = s.project_id
 		 WHERE coalesce(json_extract(s.data, '$.archived'), 0) = 0 AND json_extract(p.data, '$.isGitRepo') = 1`)
 	if err != nil {
@@ -359,8 +360,15 @@ func (s *Store) GitWorkspaces(ctx context.Context) ([]GitWorkspace, error) {
 	var out []GitWorkspace
 	for rows.Next() {
 		var ws GitWorkspace
-		if err := rows.Scan(&ws.SessionID, &ws.Workspace.Path, &ws.Workspace.AgentPath, &ws.Workspace.Branch); err != nil {
+		var pr string
+		if err := rows.Scan(&ws.SessionID, &ws.Workspace.Path, &ws.Workspace.AgentPath, &ws.Workspace.Branch, &pr); err != nil {
 			return nil, err
+		}
+		if pr != "" {
+			ws.PullRequest = new(model.PullRequest)
+			if json.Unmarshal([]byte(pr), ws.PullRequest) != nil {
+				ws.PullRequest = nil
+			}
 		}
 		out = append(out, ws)
 	}

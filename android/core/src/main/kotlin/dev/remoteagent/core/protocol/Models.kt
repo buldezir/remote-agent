@@ -124,6 +124,8 @@ data class Session(
     val backgroundTasks: List<BackgroundTask> = emptyList(),
     /** The session this one is a fork of (`ServerConnection.fork`); null: none. */
     val forkedFrom: ForkedFrom? = null,
+    /** The pull request from the session's branch, as rad last found it; null: none, or rad can't tell. */
+    val pullRequest: PullRequest? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
 ) {
@@ -136,6 +138,56 @@ data class Session(
         val id = (modelInfo?.id ?: model)?.takeIf { it.isNotEmpty() } ?: return null
         return harness?.models?.firstOrNull { it.id == id }?.name ?: id
     }
+}
+
+/**
+ * The pull request from a session's branch, on the forge that hosts its
+ * repository ("Pull requests" in PROTOCOL.md). Unknown states show as open,
+ * unknown checks and reviews as none.
+ */
+@Serializable
+data class PullRequest(
+    /** "github"; others may follow, named by their [url]'s host. */
+    val forge: String,
+    val number: Int,
+    val title: String,
+    /** Its page, which a tap opens. */
+    val url: String,
+    val state: State = State.OPEN,
+    /** The branch it's from: the session's. */
+    val head: String = "",
+    val base: String? = null,
+    /** Its CI, summed up; null: none ran. */
+    val checks: Checks? = null,
+    /** Null: the repository asks for no review. */
+    val review: Review? = null,
+) {
+    @Serializable(with = State.Serializer::class)
+    enum class State(override val wire: String) : WireEnum {
+        OPEN("open"), DRAFT("draft"), MERGED("merged"), CLOSED("closed");
+
+        object Serializer : LenientEnumSerializer<State>("PullRequest.State", entries.toTypedArray(), OPEN)
+    }
+
+    @Serializable(with = Checks.Serializer::class)
+    enum class Checks(override val wire: String) : WireEnum {
+        PASSING("passing"), FAILING("failing"), PENDING("pending"), UNKNOWN("unknown");
+
+        object Serializer : LenientEnumSerializer<Checks>("PullRequest.Checks", entries.toTypedArray(), UNKNOWN)
+    }
+
+    @Serializable(with = Review.Serializer::class)
+    enum class Review(override val wire: String) : WireEnum {
+        APPROVED("approved"), CHANGES_REQUESTED("changes_requested"), REVIEW_REQUIRED("review_required"), UNKNOWN("unknown");
+
+        object Serializer : LenientEnumSerializer<Review>("PullRequest.Review", entries.toTypedArray(), UNKNOWN)
+    }
+
+    /** The checks to show: null when none ran, or this app doesn't know what the server said. */
+    val shownChecks: Checks? get() = checks?.takeIf { it != Checks.UNKNOWN }
+
+    /** The review to show, likewise. */
+    val shownReview: Review? get() = review?.takeIf { it != Review.UNKNOWN }
 }
 
 /** The session a fork continues, and the turn it continues after. */

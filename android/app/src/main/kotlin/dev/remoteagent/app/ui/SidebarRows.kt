@@ -132,6 +132,7 @@ fun TreeRow(item: ServerSession) {
         if (session.workspace.kind == Workspace.Kind.WORKTREE) {
             Icon(painterResource(Icons.branch), "Worktree ${session.workspace.branch ?: ""}", Modifier.size(12.dp), tint = palette.overlay)
         }
+        session.pullRequest?.let { PullRequestBadge(it, style = Type.caption2) }
         SessionAge(session.updatedAt)
     }
 }
@@ -261,8 +262,8 @@ fun sessionActivity(session: Session, harness: HarnessInfo?): String = when (ses
 
 /**
  * "Mac Studio › weather-api ⑂ ra/fix-cache": the server (when there is more
- * than one), the project, and a worktree's branch. Where the line is too
- * narrow, the branch is cut short first.
+ * than one), the project, and a worktree's branch, then the branch's pull
+ * request. Where the line is too narrow, the branch is cut short first.
  */
 @Composable
 fun SessionPlace(item: ServerSession, server: Boolean, style: TextStyle, color: Color) {
@@ -285,7 +286,18 @@ fun SessionPlace(item: ServerSession, server: Boolean, style: TextStyle, color: 
     val icon = InlineTextContent(Placeholder(size * 1.15f, size, PlaceholderVerticalAlign.TextCenter)) {
         Icon(painterResource(Icons.branch), null, tint = color)
     }
-    Text(text, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, inlineContent = mapOf("branch" to icon))
+    val pr = item.session.pullRequest
+    if (pr == null) {
+        Text(text, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, inlineContent = mapOf("branch" to icon))
+        return
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text, style = style, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis, inlineContent = mapOf("branch" to icon),
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        PullRequestBadge(pr, style = style)
+    }
 }
 
 /** A session's age where a row has little room ("4m"). It keeps itself current. */

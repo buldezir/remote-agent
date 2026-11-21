@@ -84,3 +84,9 @@ func Log(ctx context.Context, dir, rangeSpec string, max int) ([]Commit, error) 
 	}
 	return commits, nil
 }
+
+// RemoteURL returns the address remote fetches from, or "".
+func RemoteURL(ctx context.Context, dir, remote string) string {
+	out, _ := run(ctx, dir, nil, "remote", "get-url", remote)
+	return strings.TrimSpace(out)
+}

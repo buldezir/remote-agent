@@ -56,8 +56,72 @@ public struct Session: Codable, Hashable, Identifiable, Sendable {
     public var backgroundTasks: [BackgroundTask]?
     /// The session this one is a fork of (`ServerConnection.fork`). Absent: none.
     public var forkedFrom: ForkedFrom?
+    /// The pull request from the session's branch, as rad last found it on
+    /// the forge. Absent: none, or rad can't tell.
+    public var pullRequest: PullRequest?
     public var createdAt: Date
     public var updatedAt: Date
+}
+
+/// A pull request from a session's branch. `PullRequestFormat` puts it in words.
+public struct PullRequest: Codable, Hashable, Sendable {
+    /// Unknown states show as open.
+    public enum State: String, Codable, Sendable {
+        case open, draft, merged, closed
+        public init(from decoder: Decoder) throws {
+            self = State(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .open
+        }
+    }
+
+    public enum Checks: String, Codable, Sendable { case passing, failing, pending }
+
+    public enum Review: String, Codable, Sendable {
+        case approved, changesRequested = "changes_requested", reviewRequired = "review_required"
+    }
+
+    /// The forge that hosts it: "github", so far.
+    public var forge: String
+    public var number: Int
+    public var title: String
+    /// Its page, which a tap opens.
+    public var url: String
+    public var state: State
+    /// The branch it's from: the session's.
+    public var head: String
+    /// The branch it goes into.
+    public var base: String?
+    /// Its CI, summed up. Absent: none ran, or a value this app doesn't know.
+    public var checks: Checks?
+    /// Absent: the repository asks for no review, or a value this app doesn't know.
+    public var review: Review?
+
+    public init(forge: String = "github", number: Int, title: String, url: String, state: State,
+                head: String, base: String? = nil, checks: Checks? = nil, review: Review? = nil) {
+        self.forge = forge
+        self.number = number
+        self.title = title
+        self.url = url
+        self.state = state
+        self.head = head
+        self.base = base
+        self.checks = checks
+        self.review = review
+    }
+
+    enum CodingKeys: String, CodingKey { case forge, number, title, url, state, head, base, checks, review }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        forge = try c.decodeIfPresent(String.self, forKey: .forge) ?? ""
+        number = try c.decode(Int.self, forKey: .number)
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        state = try c.decodeIfPresent(State.self, forKey: .state) ?? .open
+        head = try c.decodeIfPresent(String.self, forKey: .head) ?? ""
+        base = try c.decodeIfPresent(String.self, forKey: .base)
+        checks = try c.decodeIfPresent(String.self, forKey: .checks).flatMap(Checks.init(rawValue:))
+        review = try c.decodeIfPresent(String.self, forKey: .review).flatMap(Review.init(rawValue:))
+    }
 }
 
 /// The session a fork continues, and the turn it continues after.
