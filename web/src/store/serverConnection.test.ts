@@ -571,6 +571,8 @@ describe("ServerConnection's server management", () => {
     server.handlers["server.settings"] = () => ({});
     server.handlers["server.setSettings"] = (p) => p;
     server.handlers["task.list"] = () => ({});
+    server.handlers["terminal.list"] = () => ({ timeoutDays: 7 });
+    server.handlers["terminal.closeAll"] = () => ({ closed: 2 });
     server.handlers["harness.login"] = (p) => ({ id: "k2", kind: "login", harness: p.harness, status: "running", startedAt: at });
     const c = await connect(server);
     try {
@@ -583,6 +585,8 @@ describe("ServerConnection's server management", () => {
       // No system agent: the whole settings, without it.
       expect(await c.setSettings({ systemAgent: undefined })).toEqual({});
       expect(await c.tasks()).toEqual([]);
+      expect(await c.terminalList()).toEqual({ terminals: [], timeoutDays: 7 });
+      expect(await c.closeAllTerminals()).toBe(2);
       expect(await c.loginHarness("fake")).toMatchObject({ id: "k2", harness: "fake", output: "" });
       await c.taskInput("k2", "abc");
       await c.cancelTask("k2");

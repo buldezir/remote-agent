@@ -4,6 +4,8 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -17,6 +19,12 @@ type Options struct {
 	Args  []string
 	Env   []string // added to the shell's environment
 	Log   *slog.Logger
+	// Idle is how long a shell may go without the user's input before it's
+	// ended, asked at each sweep so that a new setting applies at once.
+	// Nil or zero: shells never time out.
+	Idle func() time.Duration
+	// Sweep is how often idle shells are looked for; default a minute.
+	Sweep time.Duration
 }
 
 // Manager keeps a shell per session.
@@ -25,13 +33,82 @@ type Manager struct {
 	mu    sync.Mutex
 	terms map[string]*Terminal
 	shut  bool
+	stop  chan struct{}
 }
 
 func NewManager(opt Options) *Manager {
 	if opt.Log == nil {
 		opt.Log = slog.Default()
 	}
-	return &Manager{opt: opt, terms: map[string]*Terminal{}}
+	if opt.Sweep <= 0 {
+		opt.Sweep = time.Minute
+	}
+	m := &Manager{opt: opt, terms: map[string]*Terminal{}, stop: make(chan struct{})}
+	if opt.Idle != nil {
+		go m.reap()
+	}
+	return m
+}
+
+// reap ends the shells nobody has typed into for the idle timeout.
+func (m *Manager) reap() {
+	tick := time.NewTicker(m.opt.Sweep)
+	defer tick.Stop()
+	for {
+		select {
+		case <-m.stop:
+			return
+		case <-tick.C:
+		}
+		idle := m.opt.Idle()
+		if idle <= 0 {
+			continue
+		}
+		for _, t := range m.all() {
+			if since := time.Since(t.LastInput()); since >= idle {
+				m.opt.Log.Info("terminal timed out", "session", t.SessionID, "idle", since.Round(time.Second))
+				t.Kill()
+			}
+		}
+	}
+}
+
+func (m *Manager) all() []*Terminal {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ts := make([]*Terminal, 0, len(m.terms))
+	for _, t := range m.terms {
+		ts = append(ts, t)
+	}
+	return ts
+}
+
+// Info is what List says of a running shell.
+type Info struct {
+	SessionID string
+	Started   time.Time
+	LastInput time.Time
+}
+
+// List is the running shells, by session.
+func (m *Manager) List() []Info {
+	var infos []Info
+	for _, t := range m.all() {
+		infos = append(infos, Info{SessionID: t.SessionID, Started: t.Started, LastInput: t.LastInput()})
+	}
+	slices.SortFunc(infos, func(a, b Info) int { return strings.Compare(a.SessionID, b.SessionID) })
+	return infos
+}
+
+// CloseAll ends every shell, waiting a few seconds for them to exit, and
+// says how many there were. Unlike Shutdown, new ones can start after.
+func (m *Manager) CloseAll() int {
+	ts := m.all()
+	for _, t := range ts {
+		t.Kill()
+	}
+	waitAll(ts)
+	return len(ts)
 }
 
 // Get is the session's shell, or nil.
@@ -84,16 +161,12 @@ func (m *Manager) Close(sessionID string) {
 // Shutdown ends every shell, and Open starts no more.
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
+	if !m.shut {
+		close(m.stop)
+	}
 	m.shut = true
-	var ts []*Terminal
-	for _, t := range m.terms {
-		ts = append(ts, t)
-	}
 	m.mu.Unlock()
-	for _, t := range ts {
-		t.Kill()
-	}
-	waitAll(ts)
+	m.CloseAll()
 }
 
 func waitAll(ts []*Terminal) {

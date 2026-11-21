@@ -617,6 +617,24 @@ public final class ServerConnection {
         try await client.call("server.setSettings", settings)
     }
 
+    /// Whether the server lists and closes every shell, and times them out
+    /// (`terminal.list`, `terminal.closeAll`).
+    public var listsTerminals: Bool { info?.terminals == true }
+
+    /// The running shells, and the timeout. Only for a server whose
+    /// `info.terminals` is true.
+    public func terminalList() async throws -> TerminalList {
+        try await client.call("terminal.list")
+    }
+
+    /// Ends every shell on the server; returns how many there were.
+    @discardableResult
+    public func closeAllTerminals() async throws -> Int {
+        struct R: Decodable, Sendable { var closed: Int }
+        let r: R = try await client.call("terminal.closeAll")
+        return r.closed
+    }
+
     /// Whether rad has an update; `refresh` asks GitHub again.
     public func checkUpdate(refresh: Bool = false) async throws -> UpdateInfo {
         try await client.call("server.checkUpdate", ["refresh": refresh], timeout: 45)

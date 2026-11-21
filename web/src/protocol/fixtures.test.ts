@@ -29,6 +29,7 @@ import {
   type ServerSettings,
   type ServerTask,
   type Session,
+  type TerminalList,
   type TerminalMessage,
   type UpdateInfo,
 } from "./models";
@@ -184,6 +185,7 @@ describe("fixtures", () => {
 
     const info: ServerInfo = load("response_server_info.json").result;
     expect(info.terminal).toBe(true);
+    expect(info.terminals).toBe(true);
     expect(info.drafts).toBe(true);
     expect(info.forks).toBe(true);
     expect(info.forkInWorktree).toBe(true);
@@ -218,6 +220,15 @@ describe("fixtures", () => {
     const settings: ServerSettings = load("response_server_settings.json").result;
     expect(settings.systemAgent).toEqual({ harness: "claude", model: "haiku", effort: "low" });
     expect(settings.defaultAgent).toEqual({ harness: "codex", model: "gpt-5.5", effort: "high" });
+    expect(settings.terminalTimeoutDays).toBe(3);
+
+    const terminals: TerminalList = load("response_terminal_list.json").result;
+    expect(terminals.timeoutDays).toBe(7);
+    expect(terminals.terminals.map((t) => t.sessionId)).toEqual(["s1"]);
+    const [shell] = terminals.terminals;
+    expect(parseDate(shell.lastInputAt) - parseDate(shell.startedAt)).toBe(5000);
+    expect(parseDate(shell.expiresAt) - parseDate(shell.lastInputAt)).toBe(7 * 86400_000);
+    expect(load("response_terminal_close_all.json").result).toEqual({ closed: 2 });
 
     const update: UpdateInfo = load("response_check_update.json").result;
     expect(update).toMatchObject({ current: "0.11.0", latest: "0.12.0", available: true, via: "app" });

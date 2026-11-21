@@ -139,6 +139,7 @@ struct FixtureTests {
 
         let info = try dec.decode(Response<ServerInfo>.self, from: load("response_server_info.json"))
         #expect(info.result?.terminal == true)
+        #expect(info.result?.terminals == true)
         #expect(info.result?.drafts == true)
         #expect(info.result?.forks == true)
         #expect(info.result?.forkInWorktree == true)
@@ -176,6 +177,19 @@ struct FixtureTests {
         let settings = try dec.decode(Response<ServerSettings>.self, from: load("response_server_settings.json"))
         #expect(settings.result?.systemAgent == AgentSpec(harness: "claude", model: "haiku", effort: "low"))
         #expect(settings.result?.defaultAgent == AgentSpec(harness: "codex", model: "gpt-5.5", effort: "high"))
+        #expect(settings.result?.terminalTimeoutDays == 3)
+        // An absent timeout stays absent, so that setSettings keeps the server's.
+        let none = try WireCoding.encoder().encode(ServerSettings(systemAgent: AgentSpec(harness: "claude")))
+        #expect(try dec.decode(ServerSettings.self, from: none).terminalTimeoutDays == nil)
+        #expect(String(decoding: none, as: UTF8.self).contains("terminalTimeoutDays") == false)
+
+        let terminals = try #require(try dec.decode(Response<TerminalList>.self, from: load("response_terminal_list.json")).result)
+        #expect(terminals.timeoutDays == 7 && terminals.terminals.map(\.sessionId) == ["s1"])
+        let shell = terminals.terminals[0]
+        #expect(shell.lastInputAt.timeIntervalSince(shell.startedAt) == 5)
+        #expect(shell.expiresAt.timeIntervalSince(shell.lastInputAt) == 7 * 86400)
+        struct Closed: Decodable { var closed: Int }
+        #expect(try dec.decode(Response<Closed>.self, from: load("response_terminal_close_all.json")).result?.closed == 2)
 
         let update = try #require(try dec.decode(Response<UpdateInfo>.self, from: load("response_check_update.json")).result)
         #expect(update.current == "0.11.0" && update.latest == "0.12.0" && update.available && update.via == "app")

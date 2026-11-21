@@ -651,6 +651,31 @@ pub struct ServerSettings {
     pub system_agent: Option<AgentSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<AgentSpec>,
+    /// 1–14 days; rad always sends it, and keeps it when it's left out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal_timeout_days: Option<i64>,
+}
+
+/// A session's running shell (`terminal.list`).
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalInfo {
+    pub session_id: String,
+    #[serde(default)]
+    pub started_at: String,
+    #[serde(default)]
+    pub last_input_at: String,
+    #[serde(default)]
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalList {
+    #[serde(default)]
+    pub terminals: Vec<TerminalInfo>,
+    #[serde(default)]
+    pub timeout_days: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Default)]
@@ -670,6 +695,9 @@ pub struct ServerInfo {
     pub device_id: String,
     #[serde(default)]
     pub terminal: bool,
+    /// `terminal.list`, `terminal.closeAll`, and shells that time out.
+    #[serde(default)]
+    pub terminals: bool,
     #[serde(default)]
     pub drafts: bool,
     #[serde(default)]
@@ -1142,7 +1170,15 @@ mod tests {
         let info: ServerInfo = result("response_server_info.json");
         assert_eq!(info.version, "0.4.0");
         assert_eq!(info.roots, vec!["/Users/me/projects"]);
-        assert!(info.drafts && info.rename && info.unarchive);
+        assert!(info.drafts && info.rename && info.unarchive && info.terminals);
+    }
+
+    #[test]
+    fn terminal_list() {
+        let list: TerminalList = result("response_terminal_list.json");
+        assert_eq!(list.timeout_days, 7);
+        assert_eq!(list.terminals[0].session_id, "s1");
+        assert_eq!(list.terminals[0].expires_at, "2026-10-16T12:00:05Z");
     }
 
     #[test]
@@ -1166,6 +1202,7 @@ mod tests {
     fn server_settings() {
         let s: ServerSettings = result("response_server_settings.json");
         assert!(s.default_agent.is_some() || s.system_agent.is_some());
+        assert_eq!(s.terminal_timeout_days, Some(3));
     }
 
     #[test]

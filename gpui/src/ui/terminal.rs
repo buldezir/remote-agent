@@ -175,6 +175,13 @@ impl TerminalView {
         }
     }
 
+    /// Reattaches to the session's shell, if it still runs, without starting
+    /// one: for a panel shown again rather than by the user's action.
+    pub fn resume_only(mut self) -> Self {
+        self.create = false;
+        self
+    }
+
     /// The panel shows: connect, once the layout gives the terminal a size.
     pub fn attach(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         self.attached = true;
@@ -269,6 +276,10 @@ impl TerminalView {
                     if m.reset || m.id != self.shell_id {
                         self.clear();
                     }
+                    if m.id != self.shell_id {
+                        // A shell started, or this view hadn't seen it yet.
+                        self.conn.update(cx, |c, cx| c.refresh_terminals(cx));
+                    }
                     self.shell_id = m.id.clone();
                     self.offset = m.offset.unwrap_or(0);
                     self.sent = (m.cols.unwrap_or(0), m.rows.unwrap_or(0));
@@ -283,6 +294,7 @@ impl TerminalView {
                 }
                 "exit" => {
                     self.shell_id = None;
+                    self.conn.update(cx, |c, cx| c.refresh_terminals(cx));
                     self.state = State::Exited {
                         code: m.exit_code.unwrap_or(0),
                         here: self.closed_here,
@@ -291,6 +303,7 @@ impl TerminalView {
                 }
                 "error" => {
                     self.shell_id = None;
+                    self.conn.update(cx, |c, cx| c.refresh_terminals(cx));
                     self.state = if m.code.as_deref() == Some("gone") {
                         State::Gone
                     } else {

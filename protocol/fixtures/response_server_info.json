@@ -10,6 +10,7 @@
     ],
     "deviceId": "dev1",
     "terminal": true,
+    "terminals": true,
     "drafts": true,
     "forks": true,
     "forkInWorktree": true,

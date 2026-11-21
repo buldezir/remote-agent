@@ -320,6 +320,11 @@ impl AppView {
             model: badges::model_name(s, harness.as_ref()),
             context: badges::context_percent(s),
             pr: pr.clone(),
+            // Where rad says which shells run, and the session can have one.
+            terminal: c.terminals.as_ref().filter(|_| !s.archived).map(|t| {
+                let info = t.get(&s.id);
+                (crate::store::terminals::state_line(info, Utc::now()), info.is_some())
+            }),
         };
         // Its pull request, server and agent, at the end of a line.
         let harness_id = s.harness.clone();
@@ -1728,6 +1733,8 @@ struct Card {
     model: String,
     context: Option<f64>,
     pr: Option<PullRequest>,
+    /// The session's shell: what to say, and whether it runs.
+    terminal: Option<(String, bool)>,
 }
 
 impl Card {
@@ -1778,6 +1785,15 @@ impl Card {
                 badges::harness_icon(&self.harness, &p).small().into_any_element(),
                 model,
             ))
+            .when_some(self.terminal.clone(), |d, (text, running)| {
+                d.child(line(
+                    Icon::new(L::SquareTerminal)
+                        .small()
+                        .text_color(if running { p.green } else { p.overlay })
+                        .into_any_element(),
+                    text,
+                ))
+            })
             .when_some(self.pr.as_ref(), |d, pr| {
                 d.child(div().my_1().h(px(1.)).bg(p.surface0)).child(
                     h_flex()

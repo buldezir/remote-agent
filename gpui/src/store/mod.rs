@@ -17,5 +17,6 @@ pub mod sidebar;
 pub mod ssh;
 pub mod ssh_install;
 pub mod sync;
+pub mod terminals;
 pub mod tokens;
 pub mod tool_runs;

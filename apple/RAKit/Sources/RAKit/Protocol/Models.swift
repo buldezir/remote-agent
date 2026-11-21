@@ -619,6 +619,10 @@ public struct ServerInfo: Codable, Hashable, Sendable {
     public var deviceId: String?
     /// The server runs shells for sessions (`GET /v1/terminal`).
     public var terminal: Bool?
+    /// The server lists and closes every shell (`terminal.list`,
+    /// `terminal.closeAll`), and ends one nobody types into for
+    /// `ServerSettings.terminalTimeoutDays`.
+    public var terminals: Bool?
     /// The server keeps drafts (`Session.draft`). An older one would start a
     /// session created as a draft with its prompt.
     public var drafts: Bool?
@@ -847,10 +851,44 @@ public struct ServerSettings: Codable, Hashable, Sendable {
     /// New sessions start with it, on every device; nil: each device starts
     /// with the agent it used last.
     public var defaultAgent: AgentSpec?
+    /// A shell nobody types into for this many days ends, from 1 to 14. rad
+    /// always sends it (7 by default); nil leaves it as it is, and an older
+    /// server doesn't have it.
+    public var terminalTimeoutDays: Int?
 
-    public init(systemAgent: AgentSpec? = nil, defaultAgent: AgentSpec? = nil) {
+    public init(systemAgent: AgentSpec? = nil, defaultAgent: AgentSpec? = nil, terminalTimeoutDays: Int? = nil) {
         self.systemAgent = systemAgent
         self.defaultAgent = defaultAgent
+        self.terminalTimeoutDays = terminalTimeoutDays
+    }
+}
+
+/// A session's running shell (`terminal.list`).
+public struct TerminalInfo: Codable, Hashable, Sendable, Identifiable {
+    public var sessionId: String
+    public var startedAt: Date
+    /// The user's last input, or the start.
+    public var lastInputAt: Date
+    /// When rad ends it, unless the user types before.
+    public var expiresAt: Date
+    public var id: String { sessionId }
+}
+
+/// The server's running shells (`terminal.list`).
+public struct TerminalList: Codable, Hashable, Sendable {
+    public var terminals: [TerminalInfo]
+    /// The setting, `ServerSettings.terminalTimeoutDays`.
+    public var timeoutDays: Int
+
+    public init(terminals: [TerminalInfo], timeoutDays: Int) {
+        self.terminals = terminals
+        self.timeoutDays = timeoutDays
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        terminals = try c.decodeIfPresent([TerminalInfo].self, forKey: .terminals) ?? []
+        timeoutDays = try c.decode(Int.self, forKey: .timeoutDays)
     }
 }
 

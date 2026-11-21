@@ -79,7 +79,10 @@ impl ServerSettingsView {
     }
 
     fn load(&mut self, cx: &mut Context<Self>) {
-        self.conn.update(cx, |c, cx| c.refresh_harnesses(cx));
+        self.conn.update(cx, |c, cx| {
+            c.refresh_harnesses(cx);
+            c.refresh_terminals(cx);
+        });
         self.check(false, cx);
         let settings = self.conn.read(cx).call("server.settings", json!({}));
         let tasks = self.conn.read(cx).call("task.list", json!({}));
@@ -201,14 +204,26 @@ impl ServerSettingsView {
         );
     }
 
-    /// Saves the settings with one changed; on failure that one goes back.
+    /// Saves the settings with one agent changed.
     fn set(&mut self, field: &'static str, spec: Option<AgentSpec>, cx: &mut Context<Self>) {
         let Some(mut s) = self.settings.clone() else { return };
-        let before = s.clone();
         match field {
             "default" => s.default_agent = spec,
             _ => s.system_agent = spec,
         }
+        self.save(field, s, cx);
+    }
+
+    /// Saves the settings with the terminal timeout changed.
+    fn set_terminal_timeout(&mut self, days: i64, cx: &mut Context<Self>) {
+        let Some(mut s) = self.settings.clone() else { return };
+        s.terminal_timeout_days = Some(days);
+        self.save("terminal", s, cx);
+    }
+
+    /// Saves the settings with one changed; on failure that one goes back.
+    fn save(&mut self, field: &'static str, s: ServerSettings, cx: &mut Context<Self>) {
+        let Some(before) = self.settings.clone() else { return };
         self.settings = Some(s.clone());
         self.settings_error.remove(field);
         let call = self
@@ -660,6 +675,102 @@ impl ServerSettingsView {
     }
 }
 
+impl ServerSettingsView {
+    /// The sessions' shells: how long one may sit without input, and how
+    /// many run, with a button that ends them all.
+    fn render_terminals(&mut self, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        use crate::store::terminals::{DEFAULT_TIMEOUT_DAYS, TIMEOUT_DAYS, count_line, days};
+        let current = self
+            .settings
+            .as_ref()
+            .and_then(|s| s.terminal_timeout_days)
+            .unwrap_or(DEFAULT_TIMEOUT_DAYS);
+        let choices = TIMEOUT_DAYS.map(|d| (d.to_string(), days(d))).collect();
+        let w = cx.entity().downgrade();
+        let running = self.conn.read(cx).terminals.as_ref().map(|t| t.len());
+        let mut col = v_flex().gap_2().child(row(
+            "Close after",
+            picker(
+                "terminal-timeout",
+                days(current),
+                choices,
+                current.to_string(),
+                move |id, _, cx| {
+                    if let Ok(d) = id.parse() {
+                        let _ = w.update(cx, |v, cx| v.set_terminal_timeout(d, cx));
+                    }
+                },
+            ),
+            Some("without input".into()),
+            p,
+        ));
+        if let Some(e) = self.settings_error.get("terminal") {
+            col = col.child(div().text_xs().text_color(p.red).child(e.clone()));
+        }
+        col = col.child(row(
+            "Running",
+            h_flex()
+                .gap_3()
+                .child(div().text_sm().child(match running {
+                    Some(n) => count_line(n),
+                    None => "—".into(),
+                }))
+                .child(
+                    Button::new("close-terminals")
+                        .small()
+                        .outline()
+                        .label("Close All…")
+                        .disabled(running.unwrap_or(0) == 0)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.close_terminals(window, cx))),
+                )
+                .into_any_element(),
+            None,
+            p,
+        ));
+        col.child(caption(
+            "A session's terminal keeps running on the server while no device shows it, until it's closed or nobody has typed in it for this long. Closing ends what runs in it, on every device.",
+            p,
+        ))
+        .into_any_element()
+    }
+
+    fn close_terminals(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let n = self.conn.read(cx).terminals.as_ref().map(|t| t.len()).unwrap_or(0);
+        if n == 0 {
+            return;
+        }
+        let this = cx.entity().downgrade();
+        let title = if n == 1 {
+            "Close 1 terminal?".to_string()
+        } else {
+            format!("Close {n} terminals?")
+        };
+        dialogs::confirm(
+            window,
+            cx,
+            &title,
+            "This ends every session's shell on the server, and whatever runs in them, on every device.",
+            vec![Choice::new("Close All", ButtonVariant::Danger, move |_, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    let call = this.conn.read(cx).call("terminal.closeAll", json!({}));
+                    cx.spawn(async move |this, cx| {
+                        let r = call.await;
+                        let _ = this.update(cx, |this, cx| {
+                            if let Err(e) = r {
+                                this.errors
+                                    .push(format!("Couldn't close the terminals: {}", explain(&e)));
+                            }
+                            this.conn.update(cx, |c, cx| c.refresh_terminals(cx));
+                            cx.notify();
+                        });
+                    })
+                    .detach();
+                });
+            })],
+        );
+    }
+}
+
 /// A section, in the card General's groups have.
 fn section(title: &'static str, body: AnyElement, p: &Palette) -> AnyElement {
     crate::ui::settings::group(
@@ -689,6 +800,11 @@ impl Render for ServerSettingsView {
             col = col
                 .child(section("New Sessions", default, &p))
                 .child(section("System Agent", system, &p));
+        }
+        let terminals = self.conn.read(cx).info.as_ref().is_some_and(|i| i.terminals);
+        if terminals && self.settings.is_some() {
+            let body = self.render_terminals(&p, cx);
+            col = col.child(section("Terminals", body, &p));
         }
         for e in &self.errors {
             col = col.child(div().text_sm().text_color(p.red).child(e.clone()));

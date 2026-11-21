@@ -20,6 +20,7 @@ import dev.remoteagent.core.protocol.ServerInfo
 import dev.remoteagent.core.protocol.ServerSettings
 import dev.remoteagent.core.protocol.ServerTask
 import dev.remoteagent.core.protocol.Session
+import dev.remoteagent.core.protocol.TerminalList
 import dev.remoteagent.core.protocol.UpdateInfo
 import dev.remoteagent.core.protocol.UsageLimits
 import dev.remoteagent.core.protocol.WireCoding
@@ -613,6 +614,12 @@ class ServerConnection(
     suspend fun setSettings(settings: ServerSettings): ServerSettings =
         client.call("server.setSettings", WireCoding.json.encodeToJsonElement(settings))
 
+    /** The running shells and the timeout; only for a server whose `info.terminals` is true. */
+    suspend fun terminalList(): TerminalList = client.call("terminal.list")
+
+    /** Ends every shell on the server; returns how many there were. */
+    suspend fun closeAllTerminals(): Int = client.call<ClosedTerminals>("terminal.closeAll").closed
+
     /** rad's latest release, and whether it can install it; `refresh` looks again rather than use the last answer. */
     suspend fun checkUpdate(refresh: Boolean): UpdateInfo = client.call("server.checkUpdate", params("refresh" to refresh), 45.seconds)
 
@@ -696,6 +703,9 @@ private data class HarnessList(val harnesses: List<HarnessInfo> = emptyList())
 
 @Serializable
 private data class TaskList(val tasks: List<ServerTask> = emptyList())
+
+@Serializable
+private data class ClosedTerminals(val closed: Int = 0)
 
 @Serializable
 private data class ImportableList(val sessions: List<ImportableSession> = emptyList())

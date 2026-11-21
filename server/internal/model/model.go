@@ -531,6 +531,40 @@ type ServerSettings struct {
 	// without naming one. Nil: each client starts with the one it used
 	// last, and an agent's sessions with its own.
 	DefaultAgent *AgentSpec `json:"defaultAgent,omitempty"`
+	// TerminalTimeoutDays is how long a session's shell may go without the
+	// user's input before rad ends it, from 1 to 14 days. rad always
+	// answers with it; absent from server.setSettings, it stays as it was.
+	TerminalTimeoutDays int `json:"terminalTimeoutDays,omitempty"`
+}
+
+// The range and default of ServerSettings.TerminalTimeoutDays.
+const (
+	MinTerminalTimeoutDays     = 1
+	MaxTerminalTimeoutDays     = 14
+	DefaultTerminalTimeoutDays = 7
+)
+
+// TerminalTimeout is how long a shell may go without input.
+func (s ServerSettings) TerminalTimeout() time.Duration {
+	days := s.TerminalTimeoutDays
+	if days == 0 {
+		days = DefaultTerminalTimeoutDays
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
+// TerminalInfo is a session's running shell (terminal.list).
+type TerminalInfo struct {
+	SessionID   string    `json:"sessionId"`
+	StartedAt   time.Time `json:"startedAt"`
+	LastInputAt time.Time `json:"lastInputAt"` // the user's last input, or the start
+	ExpiresAt   time.Time `json:"expiresAt"`   // when rad ends it, unless the user types before
+}
+
+// TerminalList is terminal.list's answer.
+type TerminalList struct {
+	Terminals   []TerminalInfo `json:"terminals"`
+	TimeoutDays int            `json:"timeoutDays"`
 }
 
 // UpdateInfo is what server.checkUpdate finds out about rad's releases.

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"remote-agent/internal/gitx"
 	"remote-agent/internal/model"
@@ -207,6 +208,30 @@ func TestSetSettings(t *testing.T) {
 	}
 	// It replaces them all: the system agent is gone.
 	if s, _ := e.o.Settings(bg); s.SystemAgent != nil || s.DefaultAgent == nil || s.DefaultAgent.Effort != "high" {
+		t.Fatalf("stored %+v", s)
+	}
+}
+
+func TestTerminalTimeoutSetting(t *testing.T) {
+	e := newEnv(t, false)
+	if s, _ := e.o.Settings(bg); s.TerminalTimeoutDays != model.DefaultTerminalTimeoutDays {
+		t.Fatalf("default timeout = %d", s.TerminalTimeoutDays)
+	}
+	for _, bad := range []int{-1, 15} {
+		if _, err := e.o.SetSettings(bg, model.ServerSettings{TerminalTimeoutDays: bad}); err == nil {
+			t.Errorf("timeout %d accepted", bad)
+		}
+	}
+	got, err := e.o.SetSettings(bg, model.ServerSettings{TerminalTimeoutDays: 14})
+	if err != nil || got.TerminalTimeoutDays != 14 {
+		t.Fatalf("set 14: %+v, %v", got, err)
+	}
+	// A client that doesn't know it leaves it out, and it stays.
+	got, err = e.o.SetSettings(bg, model.ServerSettings{DefaultAgent: &model.AgentSpec{Harness: "fake"}})
+	if err != nil || got.TerminalTimeoutDays != 14 {
+		t.Fatalf("set without it: %+v, %v", got, err)
+	}
+	if s, _ := e.o.Settings(bg); s.TerminalTimeoutDays != 14 || s.TerminalTimeout() != 14*24*time.Hour {
 		t.Fatalf("stored %+v", s)
 	}
 }

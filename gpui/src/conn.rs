@@ -3,7 +3,7 @@
 //! a view shows it. RAKit's `ServerConnection`, on GPUI's main thread.
 //! Views observe it and redraw when it notifies.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::rc::Rc;
 use std::time::Duration;
@@ -15,8 +15,8 @@ use crate::images::{Images, Prepared};
 use crate::net::{CALL_TIMEOUT, NetEvent, Rpc};
 use crate::protocol::ImageRef;
 use crate::protocol::{
-    HarnessInfo, HarnessList, INDEX_STREAM, Notification, RpcError, ServerInfo, Session, session_id_of_stream,
-    session_stream,
+    HarnessInfo, HarnessList, INDEX_STREAM, Notification, RpcError, ServerInfo, Session, TerminalInfo, TerminalList,
+    session_id_of_stream, session_stream,
 };
 use crate::store::alert::{SessionAlert, alert};
 use crate::store::index::IndexState;
@@ -52,9 +52,20 @@ pub struct ServerConn {
     pub token: String,
     /// The sockets' runtime, which the terminal's socket runs on too.
     pub runtime: tokio::runtime::Handle,
+    /// The server's running shells by session id (`terminal.list`): asked
+    /// on connecting, every minute while connected, and after this app
+    /// opens or ends one. None until known, or when rad can't say.
+    pub terminals: Option<HashMap<String, TerminalInfo>>,
+    /// The sessions whose terminal panel is shown, so that it shows again
+    /// when the user comes back to the session.
+    pub terminals_shown: HashSet<String>,
     rpc: Rpc,
     _events: Task<()>,
+    _terminal_poll: Task<()>,
 }
+
+/// How often the running shells are asked for while connected.
+const TERMINAL_POLL: Duration = Duration::from_secs(60);
 
 impl EventEmitter<ConnEvent> for ServerConn {}
 
@@ -64,6 +75,14 @@ impl ServerConn {
         let task = cx.spawn(async move |this, cx| {
             while let Ok(ev) = events.recv().await {
                 if this.update(cx, |conn, cx| conn.handle(ev, cx)).is_err() {
+                    break;
+                }
+            }
+        });
+        let poll = cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(TERMINAL_POLL).await;
+                if this.update(cx, |conn, cx| conn.refresh_terminals(cx)).is_err() {
                     break;
                 }
             }
@@ -79,8 +98,11 @@ impl ServerConn {
             base_url: saved.urls.first().cloned(),
             token: saved.token.clone(),
             runtime: runtime.clone(),
+            terminals: None,
+            terminals_shown: HashSet::new(),
             rpc,
             _events: task,
+            _terminal_poll: poll,
         }
     }
 
@@ -143,6 +165,7 @@ impl ServerConn {
                     self.subscribe(stream, cx);
                 }
                 self.refresh_harnesses(cx);
+                self.refresh_terminals(cx);
             }
             NetEvent::Notification(n) => self.notification(n, cx),
             NetEvent::Closed { reason } => {
@@ -269,6 +292,28 @@ impl ServerConn {
                 drop(self.call("unsubscribe", json!({"stream": session_stream(id)})));
             }
         }
+    }
+
+    /// Asks rad which shells run, where it can say (`terminals` in its info).
+    pub fn refresh_terminals(&mut self, cx: &mut Context<Self>) {
+        if !self.is_connected() || !self.info.as_ref().is_some_and(|i| i.terminals) {
+            return;
+        }
+        let call = self.call("terminal.list", json!({}));
+        cx.spawn(async move |this, cx| {
+            if let Ok(value) = call.await
+                && let Ok(list) = serde_json::from_value::<TerminalList>(value)
+            {
+                let _ = this.update(cx, |conn, cx| {
+                    let terminals = list.terminals.into_iter().map(|t| (t.session_id.clone(), t)).collect();
+                    if conn.terminals.as_ref() != Some(&terminals) {
+                        conn.terminals = Some(terminals);
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
     }
 
     pub fn refresh_harnesses(&mut self, cx: &mut Context<Self>) {

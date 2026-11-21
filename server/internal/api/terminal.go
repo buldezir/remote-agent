@@ -175,6 +175,25 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// terminalList is terminal.list: the running shells, and when each times out.
+func (s *Server) terminalList(ctx context.Context) (model.TerminalList, error) {
+	settings, err := s.orch.Settings(ctx)
+	if err != nil {
+		return model.TerminalList{}, err
+	}
+	list := model.TerminalList{Terminals: []model.TerminalInfo{}, TimeoutDays: settings.TerminalTimeoutDays}
+	if s.Terminals == nil {
+		return list, nil
+	}
+	idle := settings.TerminalTimeout()
+	for _, t := range s.Terminals.List() {
+		list.Terminals = append(list.Terminals, model.TerminalInfo{
+			SessionID: t.SessionID, StartedAt: t.Started.UTC(), LastInputAt: t.LastInput.UTC(), ExpiresAt: t.LastInput.Add(idle).UTC(),
+		})
+	}
+	return list, nil
+}
+
 func (s *Server) closeTerminal(sessionID string) {
 	if s.Terminals != nil {
 		s.Terminals.Close(sessionID)

@@ -447,6 +447,27 @@ export interface ServerSettings {
   /** The agent, model and effort new sessions start with. Absent: each
    *  client starts with the agent it used last. */
   defaultAgent?: AgentSpec;
+  /** A shell nobody types into for this many days ends, from 1 to 14. rad
+   *  always sends it (7 by default); absent, `server.setSettings` keeps it as
+   *  it is. Older servers don't have it. */
+  terminalTimeoutDays?: number;
+}
+
+/** A session's running shell (`terminal.list`). */
+export interface TerminalInfo {
+  sessionId: string;
+  startedAt: string;
+  /** The user's last input, or the start. */
+  lastInputAt: string;
+  /** When rad ends it, unless the user types before. */
+  expiresAt: string;
+}
+
+/** The server's running shells (`terminal.list`). */
+export interface TerminalList {
+  terminals: TerminalInfo[];
+  /** The setting, `ServerSettings.terminalTimeoutDays`. */
+  timeoutDays: number;
 }
 
 /** What `server.checkUpdate` found out about rad's releases. */
@@ -570,6 +591,10 @@ export interface ServerInfo {
   deviceId?: string;
   /** The server runs shells for sessions (`GET /v1/terminal`). */
   terminal?: boolean;
+  /** The server lists and closes every shell (`terminal.list`,
+   *  `terminal.closeAll`), and ends one nobody types into for
+   *  `ServerSettings.terminalTimeoutDays`. */
+  terminals?: boolean;
   /** The server keeps drafts (`session.saveDraft`, `session.sendDraft` and
    *  `session.create`'s `draft`). An older one would start a session
    *  created as a draft with its prompt, so clients offer drafts only then. */

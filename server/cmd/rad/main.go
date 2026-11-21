@@ -222,7 +222,11 @@ func serve(args []string) error {
 	}
 	srv := api.NewServer(st, hub, orch, fsbrowse.New(cfg.Roots), imgs, serverID, serverName(cfg), log)
 	srv.WebOrigins = cfg.WebOrigins
-	terms := terminal.NewManager(terminal.Options{Log: log})
+	terms := terminal.NewManager(terminal.Options{Log: log, Idle: func() time.Duration {
+		// The user's setting, read at each sweep; unreadable, the default.
+		s, _ := orch.Settings(ctx)
+		return s.TerminalTimeout()
+	}})
 	srv.Terminals = terms
 	maint := tasks.NewManager(log)
 	srv.Tasks = maint

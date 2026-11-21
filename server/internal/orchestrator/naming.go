@@ -29,13 +29,29 @@ const namingTimeout = 90 * time.Second
 // maxRequest is how much of the prompt the system agent reads.
 const maxRequest = 2000
 
-// Settings returns the settings clients set.
+// Settings returns the settings clients set, with the defaults of those
+// they haven't.
 func (o *Orchestrator) Settings(ctx context.Context) (model.ServerSettings, error) {
-	return o.st.Settings(ctx)
+	s, err := o.st.Settings(ctx)
+	if s.TerminalTimeoutDays == 0 {
+		s.TerminalTimeoutDays = model.DefaultTerminalTimeoutDays
+	}
+	return s, err
 }
 
-// SetSettings checks and saves them.
+// SetSettings checks and saves them. A client that doesn't know the
+// terminal timeout leaves it out, and it stays as it was.
 func (o *Orchestrator) SetSettings(ctx context.Context, s model.ServerSettings) (model.ServerSettings, error) {
+	switch d := s.TerminalTimeoutDays; {
+	case d == 0:
+		old, err := o.Settings(ctx)
+		if err != nil {
+			return s, err
+		}
+		s.TerminalTimeoutDays = old.TerminalTimeoutDays
+	case d < model.MinTerminalTimeoutDays || d > model.MaxTerminalTimeoutDays:
+		return s, errorf(CodeInvalid, "the terminal timeout is %d to %d days", model.MinTerminalTimeoutDays, model.MaxTerminalTimeoutDays)
+	}
 	if a := s.SystemAgent; a != nil {
 		h, err := o.settingsAgent(ctx, a)
 		if err != nil {

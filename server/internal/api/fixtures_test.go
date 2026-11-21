@@ -141,10 +141,13 @@ func fixtures() map[string]any {
 		"response_session.json": response{ID: json.RawMessage("6"), Result: sess},
 		"response_server_info.json": response{ID: json.RawMessage("1"), Result: serverInfoResult{
 			serverInfo: serverInfo{ServerID: "srv1", Name: "studio", ProtocolVersion: model.ProtocolVersion, Version: "0.4.0"},
-			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Drafts: true, Forks: true, ForkInWorktree: true, Commit: true, Search: true, Rename: true, Unarchive: true}},
+			Roots:      []string{"/Users/me/projects"}, DeviceID: "dev1", Terminal: true, Terminals: true, Drafts: true, Forks: true, ForkInWorktree: true, Commit: true, Search: true, Rename: true, Unarchive: true}},
 		"response_server_settings.json": response{ID: json.RawMessage("8"), Result: model.ServerSettings{
 			SystemAgent:  &model.AgentSpec{Harness: "claude", Model: "haiku", Effort: "low"},
-			DefaultAgent: &model.AgentSpec{Harness: "codex", Model: "gpt-5.5", Effort: "high"}}},
+			DefaultAgent: &model.AgentSpec{Harness: "codex", Model: "gpt-5.5", Effort: "high"}, TerminalTimeoutDays: 3}},
+		"response_terminal_list.json": response{ID: json.RawMessage("18"), Result: model.TerminalList{TimeoutDays: 7, Terminals: []model.TerminalInfo{
+			{SessionID: "s1", StartedAt: t0, LastInputAt: t1, ExpiresAt: t1.Add(7 * 24 * time.Hour)}}}},
+		"response_terminal_close_all.json": response{ID: json.RawMessage("19"), Result: map[string]int{"closed": 2}},
 		"response_check_update.json": response{ID: json.RawMessage("9"), Result: model.UpdateInfo{
 			Current: "0.11.0", Latest: "0.12.0", URL: "https://github.com/buldezir/remote-agent/releases/tag/v0.12.0",
 			Available: true, Via: "app", Busy: []string{"Fix the tests"}}},

@@ -27,6 +27,7 @@ import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.SlashCommand
 import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.SubscribeResult
+import dev.remoteagent.core.protocol.TerminalList
 import dev.remoteagent.core.protocol.TerminalMessage
 import dev.remoteagent.core.protocol.UpdateInfo
 import dev.remoteagent.core.protocol.UsageLimits
@@ -231,6 +232,7 @@ class FixtureTests {
 
         val info = result<ServerInfo>("response_server_info.json")
         assertEquals(true, info.terminal)
+        assertEquals(true, info.terminals)
         assertEquals(true, info.drafts)
         assertEquals(true, info.forks)
         assertEquals(true, info.forkInWorktree)
@@ -287,6 +289,9 @@ class FixtureTests {
     @Serializable
     private data class Tasks(val tasks: List<ServerTask>)
 
+    @Serializable
+    private data class ClosedTerminals(val closed: Int)
+
     @Test
     fun serverManagement() {
         // The caps older servers leave out are false.
@@ -299,12 +304,24 @@ class FixtureTests {
         val settings = result<ServerSettings>("response_server_settings.json")
         assertEquals(AgentSpec("claude", "haiku", "low"), settings.systemAgent)
         assertEquals(AgentSpec("codex", "gpt-5.5", "high"), settings.defaultAgent)
+        assertEquals(3, settings.terminalTimeoutDays)
+        // A copy that changes an agent keeps the timeout, which setSettings sends back.
+        assertEquals(3, settings.copy(systemAgent = null).terminalTimeoutDays)
         // What a client sends: the whole settings, and none without an agent, which unsets it.
         assertEquals("{}", WireCoding.json.encodeToString(ServerSettings.serializer(), ServerSettings()))
         assertEquals(
             WireCoding.json.parseToJsonElement(fixture("response_server_settings.json")).jsonObject.getValue("result"),
             WireCoding.json.encodeToJsonElement(ServerSettings.serializer(), settings),
         )
+
+        val terminals = result<TerminalList>("response_terminal_list.json")
+        assertEquals(7, terminals.timeoutDays)
+        assertEquals(listOf("s1"), terminals.terminals.map { it.sessionId })
+        val shell = terminals.terminals.single()
+        assertEquals(Instant.parse("2026-10-09T12:00:00Z"), shell.startedAt)
+        assertEquals(Instant.parse("2026-10-09T12:00:05Z"), shell.lastInputAt)
+        assertEquals(Instant.parse("2026-10-16T12:00:05Z"), shell.expiresAt)
+        assertEquals(2, result<ClosedTerminals>("response_terminal_close_all.json").closed)
 
         val u = result<UpdateInfo>("response_check_update.json")
         assertEquals("0.11.0", u.current)

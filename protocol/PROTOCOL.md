@@ -52,7 +52,10 @@ ImageRef { id, mimeType, width?, height?, size }
 
 ## Terminal
 
-A session's shell runs on the server, in the session's folder (its worktree, for a worktree session, or the folder the agent moved to, `agentPath`, when the shell starts), and keeps running when no client is attached. Each session has at most one. It ends when the user exits it or closes it, when the session is archived, or when rad stops. Clients show the menu item only when `server.info` returns `terminal: true`.
+A session's shell runs on the server, in the session's folder (its worktree, for a worktree session, or the folder the agent moved to, `agentPath`, when the shell starts), and keeps running when no client is attached. Each session has at most one. It ends when the user exits it or closes it, when the session is archived, when nobody has typed into it for the settings' `terminalTimeoutDays` (see below), when a client closes every shell (`terminal.closeAll`), or when rad stops. Clients show the menu item only when `server.info` returns `terminal: true`.
+
+- **Timeout**: rad ends a shell that has had no input from a client for `terminalTimeoutDays` (`ServerSettings`, 1 to 14 days, 7 by default), counted from the last input, or from the start for a shell nobody has typed into. Output, resizes and attaching don't count. rad looks once a minute, so a shell can outlast its time by up to a minute; a changed setting applies to the running shells at the next look. Ended so, a shell sends `exit` as when closed.
+- **Running shells**: `terminal.list` lists them with when each started, last had input and times out; `terminal.closeAll` ends them all, as `close` does one. Servers that have both, and the timeout, say `terminals: true` in `server.info`.
 
 - **Socket**: `GET /v1/terminal?session=<id>&cols=<n>&rows=<n>`, a WebSocket with the subprotocol `rad.terminal.v1`.
   - Auth is the same as for `/v1/ws`: the `Authorization` header, or in a browser the subprotocols `["rad.terminal.v1", "rad.token.<deviceToken>"]`. A missing or revoked token gets `401` before the upgrade. Keepalive and `4001` work the same too.
@@ -280,13 +283,15 @@ UsageWindow {
 
 | method | params | result |
 |---|---|---|
-| `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId, terminal?, drafts?, forks?, forkInWorktree?, commit?, search?, rename?, unarchive?}` (`terminal`: `GET /v1/terminal` is there; `drafts`: it keeps drafts; `forks`: it has `session.fork`; `forkInWorktree`: its `session.fork` takes `workspace.path`; `commit`: it has `git.commitPreview` and `git.commit`; `search`: it has `session.search`; `rename`: it has `session.rename`; `unarchive`: it has `session.unarchive`; see below) |
+| `server.info` | — | `{serverId, name, protocolVersion, version, roots, deviceId, terminal?, terminals?, drafts?, forks?, forkInWorktree?, commit?, search?, rename?, unarchive?}` (`terminal`: `GET /v1/terminal` is there; `terminals`: it has `terminal.list` and `terminal.closeAll`, and shells time out; `drafts`: it keeps drafts; `forks`: it has `session.fork`; `forkInWorktree`: its `session.fork` takes `workspace.path`; `commit`: it has `git.commitPreview` and `git.commit`; `search`: it has `session.search`; `rename`: it has `session.rename`; `unarchive`: it has `session.unarchive`; see below) |
 | `device.unpair` | — | `{}` (revokes the calling device's token) |
 | `harness.list` | `{refresh?}` | `{harnesses: [HarnessInfo]}`, only the ones installed on the server |
 | `harness.update` | `{harness}` | `Task` (runs the agent's own updater; `caps.update`) |
 | `harness.login` | `{harness}` | `Task` (signs the agent in again; `caps.login`) |
 | `server.settings` | — | `ServerSettings` |
-| `server.setSettings` | `ServerSettings` | `ServerSettings` (replaces them all, so clients send the ones they got back with their change; `invalid` for an unknown agent, or one that can't be the system agent) |
+| `server.setSettings` | `ServerSettings` | `ServerSettings` (replaces them all, so clients send the ones they got back with their change, except that an absent `terminalTimeoutDays` stays as it was; `invalid` for an unknown agent, one that can't be the system agent, or a timeout outside 1–14) |
+| `terminal.list` | — | `{terminals: [TerminalInfo], timeoutDays}` (the running shells, by session id; `timeoutDays` is the setting) |
+| `terminal.closeAll` | — | `{closed}` (ends every shell, waiting a few seconds for them to exit; `closed` is how many there were) |
 | `server.checkUpdate` | `{refresh?}` | `UpdateInfo` (`refresh` looks again rather than use the answer of the last 10 minutes) |
 | `server.update` | — | `Task` (`unavailable` when rad can't update, `conflict` when it is up to date) |
 | `task.list` | `{sessionId?}` | `{tasks: [Task]}`, running and lately ended, oldest first: the server's own (updates and sign-ins), or with `sessionId` that session's (commits) |
@@ -351,8 +356,10 @@ ImportableSession {
 
 ServerSettings {
   systemAgent?: AgentSpec,                     // names sessions and writes commit messages; absent: none
-  defaultAgent?: AgentSpec                     // new sessions start with it; absent: each client's last used
+  defaultAgent?: AgentSpec,                    // new sessions start with it; absent: each client's last used
+  terminalTimeoutDays?                         // 1–14: a shell without input this long ends; rad always sends it (default 7)
 }
+TerminalInfo { sessionId, startedAt, lastInputAt, expiresAt }   // lastInputAt: the last input, or startedAt; expiresAt: lastInputAt + the timeout
 AgentSpec { harness, model?, effort? }         // model, effort absent: the harness's, the model's default
 
 UpdateInfo {

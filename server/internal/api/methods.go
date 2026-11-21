@@ -134,7 +134,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 	o := c.s.orch
 	switch method {
 	case "server.info":
-		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Drafts: true, Forks: true, ForkInWorktree: true,
+		return serverInfoResult{serverInfo: c.s.info(), Roots: c.s.fs.Roots(), DeviceID: c.device.ID, Terminal: c.s.Terminals != nil, Terminals: c.s.Terminals != nil, Drafts: true, Forks: true, ForkInWorktree: true,
 			Commit: c.s.Tasks != nil, Search: true, Rename: true, Unarchive: true}, nil
 
 	case "device.unpair":
@@ -159,6 +159,15 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 
 	case "server.setSettings":
 		return call(raw, func(p model.ServerSettings) (any, error) { return o.SetSettings(ctx, p) })
+
+	case "terminal.list":
+		return c.s.terminalList(ctx)
+
+	case "terminal.closeAll":
+		if c.s.Terminals == nil {
+			return map[string]int{"closed": 0}, nil
+		}
+		return map[string]int{"closed": c.s.Terminals.CloseAll()}, nil
 
 	case "server.checkUpdate":
 		return call(raw, func(p checkUpdateParams) (any, error) { return c.s.checkUpdate(ctx, p) })

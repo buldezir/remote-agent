@@ -23,6 +23,7 @@ import (
 type Terminal struct {
 	ID        string // tells a resuming client it's the same shell
 	SessionID string
+	Started   time.Time
 
 	pty   *os.File
 	fd    int
@@ -37,6 +38,9 @@ type Terminal struct {
 	exited bool
 	code   int
 	kill   sync.Once
+	// lastInput is when the user last typed, or the shell started: the
+	// Manager ends a shell left alone for its idle timeout.
+	lastInput time.Time
 }
 
 func start(sessionID, dir, shell string, args, env []string, cols, rows int) (*Terminal, error) {
@@ -49,8 +53,9 @@ func start(sessionID, dir, shell string, args, env []string, cols, rows int) (*T
 	}
 	id := make([]byte, 8)
 	rand.Read(id)
+	now := time.Now()
 	t := &Terminal{
-		ID: hex.EncodeToString(id), SessionID: sessionID,
+		ID: hex.EncodeToString(id), SessionID: sessionID, Started: now, lastInput: now,
 		pty: f, fd: int(f.Fd()), cmd: cmd,
 		input: make(chan []byte, 64), read: make(chan struct{}), done: make(chan struct{}),
 		notify: make(chan struct{}),
@@ -122,12 +127,22 @@ func (t *Terminal) wake() {
 	t.notify = make(chan struct{})
 }
 
+// LastInput is when the user last typed, or the shell started.
+func (t *Terminal) LastInput() time.Time {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.lastInput
+}
+
 // Done is closed when the shell has exited.
 func (t *Terminal) Done() <-chan struct{} { return t.done }
 
 // Write sends input to the shell. Input beyond what the shell has room for
-// is dropped.
+// is dropped. Input counts as the user's: it keeps the shell from timing out.
 func (t *Terminal) Write(p []byte) bool {
+	t.mu.Lock()
+	t.lastInput = time.Now()
+	t.mu.Unlock()
 	select {
 	case t.input <- p:
 		return true

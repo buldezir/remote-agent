@@ -262,3 +262,48 @@ func TestTerminalClose(t *testing.T) {
 		t.Errorf("exit after close = %+v", m)
 	}
 }
+
+func TestTerminalListAndCloseAll(t *testing.T) {
+	s := startServer(t)
+	token := s.token(t)
+	c := connect(t, s)
+	var info struct{ Terminals bool }
+	c.mustCall("server.info", nil, &info)
+	if !info.Terminals {
+		t.Error("server.info doesn't say terminals")
+	}
+	dir := filepath.Join(s.root, "proj")
+	os.Mkdir(dir, 0o755)
+	var proj model.Project
+	c.mustCall("project.add", map[string]any{"path": dir}, &proj)
+	var sess model.Session
+	c.mustCall("session.create", map[string]any{"commandId": "c1", "projectId": proj.ID, "harness": "fake", "prompt": "hi"}, &sess)
+	c.mustCall("server.setSettings", map[string]any{"terminalTimeoutDays": 2}, nil)
+
+	var list model.TerminalList
+	c.mustCall("terminal.list", nil, &list)
+	if len(list.Terminals) != 0 || list.TimeoutDays != 2 {
+		t.Fatalf("list before = %+v", list)
+	}
+	term, _, err := s.dialTerminal(t, token, "session="+sess.ID+"&create=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	term.message("attached")
+	c.mustCall("terminal.list", nil, &list)
+	if len(list.Terminals) != 1 {
+		t.Fatalf("list = %+v", list)
+	}
+	if got := list.Terminals[0]; got.SessionID != sess.ID || got.ExpiresAt.Sub(got.LastInputAt) != 48*time.Hour {
+		t.Errorf("terminal = %+v", got)
+	}
+
+	var closed struct{ Closed int }
+	c.mustCall("terminal.closeAll", nil, &closed)
+	if closed.Closed != 1 {
+		t.Errorf("closed = %d", closed.Closed)
+	}
+	if m := term.message("exit"); m.ExitCode == nil || *m.ExitCode == 0 {
+		t.Errorf("exit after closeAll = %+v", m)
+	}
+}

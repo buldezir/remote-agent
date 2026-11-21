@@ -662,6 +662,12 @@ data class ServerInfo(
     /** The server runs shells for sessions (`GET /v1/terminal`). */
     val terminal: Boolean? = null,
     /**
+     * The server lists and closes every shell (`terminal.list`,
+     * `terminal.closeAll`), and ends one nobody types into for
+     * `ServerSettings.terminalTimeoutDays`.
+     */
+    val terminals: Boolean? = null,
+    /**
      * The server keeps drafts (`Session.draft`). An older one would ignore
      * `NewSession.draft` and start the session with the prompt.
      */
@@ -739,6 +745,31 @@ data class ServerSettings(
     val systemAgent: AgentSpec? = null,
     /** The agent, model and effort new sessions start with. Null: each client starts with the agent it used last. */
     val defaultAgent: AgentSpec? = null,
+    /**
+     * A shell nobody types into for this many days ends, from 1 to 14. rad
+     * always sends it (7 by default); null, `server.setSettings` keeps it as
+     * it is. Older servers don't have it.
+     */
+    val terminalTimeoutDays: Int? = null,
+)
+
+/** A session's running shell (`terminal.list`). */
+@Serializable
+data class TerminalInfo(
+    val sessionId: String,
+    val startedAt: Instant,
+    /** The user's last input, or the start. */
+    val lastInputAt: Instant,
+    /** When rad ends it, unless the user types before. */
+    val expiresAt: Instant,
+)
+
+/** The server's running shells (`terminal.list`). */
+@Serializable
+data class TerminalList(
+    val terminals: List<TerminalInfo> = emptyList(),
+    /** The setting, `ServerSettings.terminalTimeoutDays`. */
+    val timeoutDays: Int,
 )
 
 /** What `server.checkUpdate` found out about rad's releases. */

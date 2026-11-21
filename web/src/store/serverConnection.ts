@@ -12,6 +12,7 @@ import type {
   ServerSettings,
   ServerTask,
   Session,
+  TerminalList,
   UpdateInfo,
   UsageLimits,
 } from "../protocol/models";
@@ -641,6 +642,19 @@ export class ServerConnection extends Observable implements SessionHost, TaskSou
    *  returns them as the server keeps them. */
   setSettings(s: ServerSettings): Promise<ServerSettings> {
     return this.client.call("server.setSettings", s);
+  }
+
+  /** The running shells and the timeout, for servers that say `terminals`
+   *  in `server.info`. */
+  async terminalList(): Promise<TerminalList> {
+    const r = await this.client.call<TerminalList>("terminal.list");
+    return { ...r, terminals: r.terminals ?? [] };
+  }
+
+  /** Ends every shell on the server; resolves to how many there were. */
+  async closeAllTerminals(): Promise<number> {
+    const r = await this.client.call<{ closed?: number }>("terminal.closeAll");
+    return r.closed ?? 0;
   }
 
   /** Whether rad has an update; `refresh` asks GitHub again rather than use

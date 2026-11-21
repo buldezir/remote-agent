@@ -361,3 +361,78 @@ func TestPasswdShell(t *testing.T) {
 		t.Errorf("unknown user's shell = %q", s)
 	}
 }
+
+func TestIdleTimeout(t *testing.T) {
+	if _, err := os.Stat("/dev/ptmx"); err != nil {
+		t.Skip("no pseudo-terminals here")
+	}
+	idle := 600 * time.Millisecond
+	m := NewManager(Options{
+		Shell: "/bin/sh", Env: []string{"HOME=" + t.TempDir(), "PS1=$ ", "ENV="}, Log: slog.New(slog.DiscardHandler),
+		Idle: func() time.Duration { return idle }, Sweep: 50 * time.Millisecond,
+	})
+	t.Cleanup(m.Shutdown)
+	busy, quiet := open(t, m, "busy"), open(t, m, "quiet")
+	r := busy.Attach("", 0)
+
+	// Typing keeps one alive; the other is ended once it's been idle long enough.
+	deadline := time.After(5 * time.Second)
+	for {
+		busy.Write([]byte("echo $((6*7))\n"))
+		readUntil(t, r, "42")
+		select {
+		case <-quiet.Done():
+		case <-time.After(100 * time.Millisecond):
+			continue
+		case <-deadline:
+			t.Fatal("the idle shell is still running")
+		}
+		if since := time.Since(quiet.Started); since < idle {
+			t.Errorf("the idle shell ended after %v, before its timeout", since)
+		}
+		break
+	}
+	select {
+	case <-busy.Done():
+		t.Fatal("the shell being typed into timed out")
+	default:
+	}
+	if got := m.List(); len(got) != 1 || got[0].SessionID != "busy" {
+		t.Errorf("List after the timeout = %+v", got)
+	}
+	if !busy.LastInput().After(busy.Started) {
+		t.Error("input didn't move LastInput")
+	}
+}
+
+func TestListAndCloseAll(t *testing.T) {
+	m := newManager(t)
+	a, b := open(t, m, "b"), open(t, m, "a")
+	got := m.List()
+	if len(got) != 2 || got[0].SessionID != "a" || got[1].SessionID != "b" {
+		t.Fatalf("List = %+v", got)
+	}
+	if got[0].LastInput != got[0].Started {
+		t.Errorf("a new shell's last input %v isn't its start %v", got[0].LastInput, got[0].Started)
+	}
+	if n := m.CloseAll(); n != 2 {
+		t.Errorf("CloseAll = %d, want 2", n)
+	}
+	for _, term := range []*Terminal{a, b} {
+		select {
+		case <-term.Done():
+		default:
+			t.Error("CloseAll returned before the shell exited")
+		}
+	}
+	// The Manager forgets an exited shell a moment after it's done.
+	deadline := time.Now().Add(2 * time.Second)
+	for len(m.List()) > 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := m.List(); len(got) != 0 {
+		t.Errorf("List after CloseAll = %+v", got)
+	}
+	// New shells start afterwards.
+	open(t, m, "c")
+}

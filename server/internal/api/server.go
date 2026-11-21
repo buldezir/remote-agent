@@ -136,8 +136,11 @@ type serverInfoResult struct {
 	Roots    []string `json:"roots"`
 	DeviceID string   `json:"deviceId"`
 	Terminal bool     `json:"terminal,omitempty"` // GET /v1/terminal is there
-	Drafts   bool     `json:"drafts"`             // session.saveDraft and sendDraft, and session.create's draft
-	Forks    bool     `json:"forks,omitempty"`    // session.fork
+	// Terminals: terminal.list and terminal.closeAll, and shells time out
+	// after the settings' terminalTimeoutDays.
+	Terminals bool `json:"terminals,omitempty"`
+	Drafts    bool `json:"drafts"`          // session.saveDraft and sendDraft, and session.create's draft
+	Forks     bool `json:"forks,omitempty"` // session.fork
 	// ForkInWorktree: session.fork takes workspace.path, an existing worktree.
 	ForkInWorktree bool `json:"forkInWorktree,omitempty"`
 	Commit         bool `json:"commit,omitempty"`    // git.commitPreview and git.commit

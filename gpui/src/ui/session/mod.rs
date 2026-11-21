@@ -221,6 +221,7 @@ impl SessionView {
         this.update_placeholder(window, cx);
         this.try_jump(cx);
         this.count_changes(false, cx);
+        this.restore_terminal(window, cx);
         this
     }
 
@@ -761,6 +762,14 @@ impl SessionView {
             return;
         }
         self.terminal_shown = !self.terminal_shown;
+        let (id, shown) = (self.session_id.clone(), self.terminal_shown);
+        self.conn.update(cx, |c, _| {
+            if shown {
+                c.terminals_shown.insert(id);
+            } else {
+                c.terminals_shown.remove(&id);
+            }
+        });
         if self.terminal_shown {
             let terminal = match &self.terminal {
                 Some(t) => t.clone(),
@@ -780,6 +789,20 @@ impl SessionView {
             self.composer.update(cx, |c, cx| c.focus(window, cx));
         }
         cx.notify();
+    }
+
+    /// Shows the terminal again if it showed when the user left the
+    /// session. It only resumes: a shell that ended meanwhile, as one that
+    /// timed out, says so rather than starting another the user didn't ask for.
+    fn restore_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.conn.read(cx).terminals_shown.contains(&self.session_id) || !self.can_terminal(cx) {
+            return;
+        }
+        let (conn, id) = (self.conn.clone(), self.session_id.clone());
+        let terminal = cx.new(|cx| TerminalView::new(conn, id, window, cx).resume_only());
+        terminal.update(cx, |t, cx| t.attach(window, cx));
+        self.terminal = Some(terminal);
+        self.terminal_shown = true;
     }
 
     // MARK: Local drafts
