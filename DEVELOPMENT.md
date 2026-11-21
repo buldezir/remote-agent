@@ -91,6 +91,8 @@ The Mac app's development build (`gpui/scripts/bundle.sh`) is an app of its own,
 
 For a separately installed Android test build, run `cd android && ./gradlew :app:assembleBeta`. The debug-signed APK is `android/app/build/outputs/apk/beta/app-beta.apk`, labeled **Remote Agent Beta**, with package ID `dev.remoteagent.app.beta` and its own settings and pairing tokens.
 
+The Mac client's rustfmt, clippy and tests run on pushes to `main` that touch `gpui/` or `protocol/`, in [`.github/workflows/gpui.yml`](.github/workflows/gpui.yml), not in releases. That workflow also fills the Rust cache the release build reads: a tag's run can only read caches saved by `main` or by that tag itself, so without it each release compiled every crate afresh.
+
 The web client's image, `ghcr.io/buldezir/remote-agent-web`, is built by [`.github/workflows/web-image.yml`](.github/workflows/web-image.yml) only when `web/` changed: a tag that leaves `web/` as it was puts its tags on the previous release's image.
 
 ## Releasing

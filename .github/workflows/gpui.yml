@@ -1,0 +1,52 @@
+# Checks the Mac client (gpui/) on main: rustfmt, clippy and its tests, then
+# a release build. It also fills the Rust cache that the release workflow
+# reads. A tag's run can't read the caches another tag saved, only its own
+# and main's, so without this every release compiled every crate afresh.
+# The cache's key (shared-key, the toolchain, Cargo.lock) is the release
+# job's too.
+name: Mac client
+
+on:
+  push:
+    branches: [main]
+    # The tests read protocol/fixtures and protocol/vectors.
+    paths: ["gpui/**", "protocol/**", ".github/workflows/gpui.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run at a time, without cancelling: a cancelled run saves no cache.
+concurrency:
+  group: gpui-${{ github.ref }}
+
+jobs:
+  check:
+    name: Remote Agent client · check and cache (macOS)
+    # The release workflow's runner, so that the cache fits it.
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gpui
+          shared-key: gpui-mac
+      # In the release profile, so that clippy, the tests and the build share
+      # their dependencies' builds with each other and with bundle.sh's
+      # `cargo build --release`, rather than compiling each crate for dev,
+      # test and release.
+      - name: Check
+        working-directory: gpui
+        run: |
+          # GPUI compiles its shaders with Xcode's Metal toolchain.
+          xcodebuild -downloadComponent MetalToolchain
+          cargo fmt --check
+          cargo clippy --release --all-targets -- -D warnings
+          cargo test --release
+      # What bundle.sh builds in the release workflow, for the cache.
+      - name: Build
+        working-directory: gpui
+        run: cargo build --release

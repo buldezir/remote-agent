@@ -35,6 +35,9 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
+          # A tag's run can't read another tag's cache, so one saved here
+          # would only take up the repository's cache space.
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
       - name: Test
         working-directory: server
         run: |
@@ -103,14 +106,17 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}   # as in rad's job
       - uses: dtolnay/rust-toolchain@stable
         if: matrix.scheme == 'gpui'
-        with:
-          components: rustfmt, clippy
+      # Restores the cache that gpui.yml fills on main: a tag's run can't read
+      # the caches other tags saved, so it saves none of its own.
       - uses: Swatinem/rust-cache@v2
         if: matrix.scheme == 'gpui'
         with:
           workspaces: gpui
+          shared-key: gpui-mac
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install XcodeGen
         if: matrix.scheme != 'gpui'
         run: brew install xcodegen
@@ -156,7 +162,7 @@ jobs:
           if [ -n "$SIGNING_KEYCHAIN" ]; then export RA_GPUI_SIGN_IDENTITY="Developer ID Application"; else export RA_GPUI_SIGN_IDENTITY=-; fi
           # GPUI compiles its shaders with Xcode's Metal toolchain.
           xcodebuild -downloadComponent MetalToolchain
-          (cd gpui && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)
+          # rustfmt, clippy and the tests run on main, in gpui.yml.
           RA_GPUI_INSTALL_DIR= gpui/scripts/bundle.sh --release $v
           # appcast.sh signs the update with the same Sparkle's sign_update.
           echo "SIGN_UPDATE=$(gpui/scripts/sparkle.sh)/bin/sign_update" >> "$GITHUB_ENV"
