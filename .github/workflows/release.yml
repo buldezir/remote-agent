@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   rad:
-    name: rad
+    name: rad server · Linux, macOS (x86-64, arm64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -60,7 +60,7 @@ jobs:
           if-no-files-found: error
 
   web:
-    name: web client
+    name: Web client · test and build (not published here)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -78,7 +78,7 @@ jobs:
       - run: npm run build
 
   mac:
-    name: ${{ matrix.app }}
+    name: ${{ matrix.title }}
     # The Server app targets macOS 27, which needs Xcode 27; the macos-26
     # image only has Xcode 26. xcode-27 runs on Apple silicon, and so does
     # macOS 27. The client is the GPUI one, built by gpui/scripts/bundle.sh.
@@ -87,12 +87,12 @@ jobs:
       matrix:
         include:
           - scheme: gpui
-            app: Remote Agent
+            title: Remote Agent client · macOS (Apple silicon)
             path: gpui/target/release/Remote Agent.app
             asset: Remote-Agent-macOS-arm64.zip
             appcast: Remote-Agent-macOS-appcast.xml   # the app's SUFeedURL (bundle.sh)
           - scheme: RemoteAgentServer
-            app: Remote Agent Server
+            title: Remote Agent Server menu bar app · macOS (Apple silicon)
             path: apple/build/Build/Products/Release/Remote Agent Server.app
             asset: Remote-Agent-Server-macOS-arm64.zip
             appcast: Remote-Agent-Server-macOS-appcast.xml
@@ -274,7 +274,7 @@ jobs:
           if-no-files-found: error
 
   android:
-    name: Android app
+    name: Remote Agent client · Android
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -323,6 +323,7 @@ jobs:
           if-no-files-found: error
 
   release:
+    name: Publish the GitHub release
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [rad, web, mac, android]
     runs-on: ubuntu-latest
