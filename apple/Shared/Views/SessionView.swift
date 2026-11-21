@@ -645,10 +645,10 @@ struct SessionView: View {
     private var canSend: Bool { !nothingToSend && attachments.ready }
 
     /// What the composer holds can wait in the session as its draft, to send
-    /// from any device: a first prompt, on a server that keeps drafts.
+    /// from any device, on a server that keeps drafts, when it has none yet.
     private var offersDraft: Bool {
         connection.info?.drafts == true && session?.archived == false && session?.hasDraft == false
-            && store.synced && store.transcript.isEmpty && store.outbox.isEmpty && !nothingToSend
+            && store.synced && !nothingToSend
     }
 
     /// With steer, a prompt joins the running turn, where the agent takes it.

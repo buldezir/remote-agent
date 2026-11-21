@@ -277,8 +277,8 @@ private fun SessionScreen(
     }
     // The session's draft, unless it is on its way: then the outbox shows it.
     val savedDraft = session?.draft?.takeIf { d -> Outgoing(d.text, d.images) !in outbox.values }
-    // Drafts are for the first prompt: a server that keeps them, a session with nothing yet.
-    val offersDraft = info?.drafts == true && synced && transcript.isEmpty() && outbox.isEmpty() && session != null &&
+    // A server that keeps drafts, a session without one yet.
+    val offersDraft = info?.drafts == true && synced && session != null &&
         session.draft == null && !archived
     // A draft is being saved, sent or taken back into the composer.
     var draftBusy by remember(store) { mutableStateOf(false) }

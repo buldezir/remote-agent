@@ -303,17 +303,15 @@ export function SessionView({
   const drop = useImageDrop(readOnly ? undefined : attachments);
   const composer = useRef<ComposerHandle>(null);
 
-  // The draft at the foot of the transcript, until it's sent. A session with
-  // nothing in it yet can keep the prompt being written as one.
+  // The draft at the foot of the transcript, until it's sent. A session
+  // without one can keep the prompt being written as one.
   const draft = store.unsentDraft;
   const draftable =
     !!connection.info?.drafts &&
     !!session &&
     !session.archived &&
     !session.draft &&
-    store.synced &&
-    store.transcript.length === 0 &&
-    store.outbox.size === 0;
+    store.synced;
   const sendDraft = () => {
     pinned.current = true;
     scrollToEnd();
@@ -717,7 +715,7 @@ interface ComposerHandle {
   edit(d: Draft): void;
 }
 
-/** With `draftable`, a session with nothing in it yet, the prompt can be
+/** With `draftable`, a session without a draft, the prompt can be
  *  saved as the session's draft rather than sent. */
 function Composer({
   commands: builtins,

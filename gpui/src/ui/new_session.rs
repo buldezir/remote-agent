@@ -888,10 +888,24 @@ impl NewSessionView {
         }
     }
 
+    /// Save as Draft: a session that keeps the prompt unsent, on servers that
+    /// keep drafts.
+    fn can_draft(&self, cx: &App) -> bool {
+        self.conn().read(cx).info.as_ref().is_some_and(|i| i.drafts)
+            && self.can_start(cx)
+            && (!self.prompt.read(cx).value().trim().is_empty() || !self.attachments.is_empty())
+    }
+
+    /// Save as Draft from the menu bar or ⌘S.
+    pub fn save_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.can_draft(cx) {
+            self.create(true, window, cx);
+        }
+    }
+
     /// The + menu: images, Save as Draft, and picking up a terminal session.
     fn plus_menu(&self, drafts: bool, import: bool, cx: &mut Context<Self>) -> AnyElement {
-        let can_draft =
-            self.can_start(cx) && (!self.prompt.read(cx).value().trim().is_empty() || !self.attachments.is_empty());
+        let can_draft = self.can_draft(cx);
         let this = cx.entity().downgrade();
         Button::new("ns-plus")
             .small()
@@ -929,9 +943,10 @@ impl NewSessionView {
                     menu = menu.item(
                         PopupMenuItem::new("Save as Draft")
                             .icon(Icon::new(L::Download))
+                            .action(Box::new(crate::SaveDraft))
                             .disabled(!can_draft)
                             .on_click(move |_, window, cx| {
-                                let _ = w.update(cx, |v, cx| v.create(true, window, cx));
+                                let _ = w.update(cx, |v, cx| v.save_draft(window, cx));
                             }),
                     );
                 }

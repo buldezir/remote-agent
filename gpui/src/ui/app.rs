@@ -1097,10 +1097,10 @@ impl Render for AppView {
                 }
             }))
             .on_action(cx.listener(|this, _: &StopAgent, _, cx| this.with_session(cx, |v, cx| v.interrupt(false, cx))))
-            .on_action(cx.listener(|this, _: &SaveDraft, window, cx| {
-                if let Some(v) = this.session_view() {
-                    v.update(cx, |v, cx| v.save_draft(window, cx));
-                }
+            .on_action(cx.listener(|this, _: &SaveDraft, window, cx| match &this.detail {
+                Detail::Session(v) => v.update(cx, |v, cx| v.save_draft(window, cx)),
+                Detail::NewSession(v) => v.update(cx, |v, cx| v.save_draft(window, cx)),
+                _ => {}
             }))
             .on_action(cx.listener(|_, _: &LayoutInbox, _, cx| update_prefs(cx, |p| p.sidebar_layout = "inbox".into())))
             .on_action(

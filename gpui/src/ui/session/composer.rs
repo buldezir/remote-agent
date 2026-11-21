@@ -228,7 +228,7 @@ impl SessionView {
         cx.notify();
     }
 
-    /// Save as Draft: offered in a session nothing was sent to yet.
+    /// Save as Draft: offered in any session that has no draft yet.
     pub(crate) fn can_save_draft(&self, cx: &App) -> bool {
         let conn = self.conn.read(cx);
         let drafts = conn.info.as_ref().is_some_and(|i| i.drafts);
@@ -236,13 +236,7 @@ impl SessionView {
             return false;
         };
         let Some(s) = &store.session else { return false };
-        drafts
-            && !s.archived
-            && s.draft.is_none()
-            && store.sync.synced
-            && store.transcript.is_empty()
-            && store.outbox.is_empty()
-            && self.has_something(cx)
+        drafts && !s.archived && s.draft.is_none() && store.sync.synced && self.has_something(cx)
     }
 
     pub fn save_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {

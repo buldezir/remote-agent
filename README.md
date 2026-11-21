@@ -10,7 +10,7 @@ Drive coding agents running on your computer from your iPhone, iPad, Mac, an And
 - **Remote Agent**: a native app for iPhone, iPad and Mac: SwiftUI on iPhone and iPad, Rust with [GPUI](https://gpui.rs) on the Mac. Get it for iPhone and iPad on [TestFlight](https://testflight.apple.com/join/SHpGMtve), and for the Mac from [Releases](https://github.com/buldezir/remote-agent/releases). You pair it by QR code, or on the Mac by pasting a link. On iPad and Mac, one sidebar lists every server's sessions next to the one you have open; on iPhone, an Inbox tab lists them all, beside the Servers tab with each server's own. From the app you can:
   - start sessions in any project
   - pick up a session you started with `claude`, `codex` or `pi` in a terminal, and carry on from your phone
-  - save a session's first prompt as a draft, and send it later from any device
+  - save a prompt as a session's draft, and send it later from any device
   - watch agents stream their work
   - see each run of tool calls folded into one line, such as "Ran 4 commands, edited 3 files", which opens to show them
   - dictate prompts, in any of your keyboard languages
