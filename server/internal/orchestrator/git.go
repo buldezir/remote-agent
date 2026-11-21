@@ -117,7 +117,7 @@ func (o *Orchestrator) gitActor(ctx context.Context, sessionID string) (*actor, 
 	if err != nil {
 		return nil, err
 	}
-	if a.project == nil || !a.project.IsGitRepo {
+	if !a.isGit() && !o.RefreshGit(ctx, a.project) {
 		return nil, errorf(CodeInvalid, "project is not a git repository")
 	}
 	return a, nil

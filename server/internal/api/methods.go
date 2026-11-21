@@ -210,6 +210,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 		})
 
 	case "project.list":
+		o.RefreshProjects(ctx) // any that git init made repositories since
 		ps, err := c.s.st.Projects(ctx)
 		if ps == nil {
 			ps = []*model.Project{}
@@ -352,7 +353,7 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 			if err != nil {
 				return nil, &methodError{"not_found", "project not found"}
 			}
-			if !proj.IsGitRepo {
+			if !o.RefreshGit(ctx, proj) {
 				return map[string]any{"branches": []string{}, "current": "", "worktrees": []model.WorktreeInfo{}}, nil
 			}
 			bs, err := gitx.Branches(ctx, proj.Path)

@@ -66,6 +66,7 @@ func (o *Orchestrator) Fork(ctx context.Context, p ForkParams) (*model.Session, 
 	if err != nil {
 		return nil, errorf(CodeNotFound, "project %s not found", src.ProjectID)
 	}
+	proj.IsGitRepo = o.RefreshGit(ctx, proj)
 	turns, err := o.st.Turns(ctx, src.ID)
 	if err != nil {
 		return nil, err

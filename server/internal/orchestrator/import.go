@@ -30,6 +30,7 @@ func (o *Orchestrator) importer(ctx context.Context, projectID, harnessID string
 	if err != nil {
 		return nil, nil, model.HarnessInfo{}, errorf(CodeNotFound, "project %s not found", projectID)
 	}
+	proj.IsGitRepo = o.RefreshGit(ctx, proj)
 	h, ok := o.reg.Get(harnessID)
 	if !ok {
 		return nil, nil, model.HarnessInfo{}, errorf(CodeInvalid, "unknown harness %q", harnessID)

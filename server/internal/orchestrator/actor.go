@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -39,7 +40,8 @@ type actor struct {
 	o       *Orchestrator
 	mu      sync.Mutex
 	sess    *model.Session
-	project *model.Project
+	project *model.Project // fixed; whether it's a git repository is git
+	git     atomic.Bool    // RefreshGit sets it when the folder becomes one
 
 	rt              harness.Runtime
 	rtGen           int
@@ -67,11 +69,19 @@ type actor struct {
 }
 
 func newActor(o *Orchestrator, s *model.Session, p *model.Project) *actor {
-	return &actor{
+	a := &actor{
 		o: o, sess: s, project: p, lastActive: time.Now(),
 		keyToID: map[string]string{}, items: map[string]*model.Item{}, flushed: map[string]bool{},
 		approvals: map[string]pendingApproval{},
 	}
+	a.git.Store(p != nil && p.IsGitRepo)
+	return a
+}
+
+// isGit reports whether the project is a git repository, as far as rad
+// knows: the project as the actor was made, or RefreshGit since.
+func (a *actor) isGit() bool {
+	return a.project != nil && a.git.Load()
 }
 
 func (a *actor) write(ctx context.Context, f func(w *store.W) error) error {
@@ -334,6 +344,9 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 func (a *actor) newTurn(ctx context.Context) *model.Turn {
 	n := a.lastTurnN + 1
 	turn := &model.Turn{ID: store.NewID(), SessionID: a.sess.ID, N: n, Status: model.TurnRunning, StartedAt: time.Now().UTC()}
+	if !a.isGit() {
+		a.o.RefreshGit(ctx, a.project) // git init since the project was added?
+	}
 	turn.CheckpointBefore = a.checkpoint(ctx, n, "before")
 	a.refreshBranch(ctx)
 	a.turn, a.lastTurnN = turn, n
@@ -759,7 +772,7 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 	turn.Status, turn.Usage, turn.Error, turn.EndedAt, turn.ForkPoint = ev.Status, ev.Usage, ev.Error, &now, ev.ForkPoint
 	turn.CheckpointAfter = a.checkpoint(ctx, turn.N, "after")
 	a.refreshBranch(ctx)
-	if a.project != nil && a.project.IsGitRepo {
+	if a.isGit() {
 		a.o.nudgePullRequest(a.sess.ID) // the agent may have pushed, or opened one
 	}
 	if ev.Status == model.TurnFailed && ev.Limit != nil {
@@ -1300,7 +1313,7 @@ func (a *actor) dropWorkspace(ctx context.Context, removeWorktree bool) {
 			a.o.log.Warn("remove worktree", "err", err)
 		}
 	}
-	if a.project != nil && a.project.IsGitRepo {
+	if a.isGit() {
 		gitx.DeleteRefs(ctx, a.project.Path, "refs/ra/cp/"+a.sess.ID+"/")
 	}
 }
@@ -1331,7 +1344,7 @@ func (a *actor) dir() string { return Workdir(a.sess.Workspace) }
 // refreshBranch records the branch checked out where the agent works, which
 // it (or the user) may have switched. The caller persists the session.
 func (a *actor) refreshBranch(ctx context.Context) {
-	if a.project == nil || !a.project.IsGitRepo {
+	if !a.isGit() {
 		return
 	}
 	branch := gitx.CurrentBranch(ctx, a.dir())
@@ -1403,7 +1416,7 @@ func (a *actor) syncBranch(ctx context.Context) {
 // checkpoint snapshots the folder the agent works in; it returns "" for
 // non-git projects.
 func (a *actor) checkpoint(ctx context.Context, n int, phase string) string {
-	if a.project == nil || !a.project.IsGitRepo {
+	if !a.isGit() {
 		return ""
 	}
 	sha, err := gitx.Checkpoint(ctx, a.dir(), checkpointRef(a.sess.ID, n, phase),

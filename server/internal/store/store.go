@@ -193,6 +193,28 @@ func (w *W) PutProject(p *model.Project) error {
 	return w.Emit(model.Event{Stream: model.IndexStream, Type: model.EvProjectUpserted, Project: &cp})
 }
 
+// MarkGitRepo records that project id has become a git repository. It
+// writes nothing, and reports false, when the project is gone (so a check
+// racing project.remove can't bring it back) or was one already.
+func (w *W) MarkGitRepo(id string) (bool, error) {
+	var data []byte
+	err := w.tx.QueryRowContext(w.ctx, `SELECT data FROM projects WHERE id=?`, id).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	var p model.Project
+	if err := json.Unmarshal(data, &p); err != nil {
+		return false, err
+	}
+	if p.IsGitRepo {
+		return false, nil
+	}
+	p.IsGitRepo = true
+	return true, w.PutProject(&p)
+}
+
 func (w *W) DeleteProject(id string) error {
 	if _, err := w.tx.ExecContext(w.ctx, `DELETE FROM projects WHERE id=?`, id); err != nil {
 		return err

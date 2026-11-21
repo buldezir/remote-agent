@@ -174,6 +174,7 @@ Clients must ignore unknown event types and unknown fields.
 
 ```ts
 Project { id, path, name, isGitRepo, createdAt }
+                                     // isGitRepo: false turns true (project.upserted) once rad sees the folder became a repository: when a client subscribes or lists projects, opens a session, or a turn starts; it never turns back
 
 Session {
   id, projectId, harness,            // "claude" | "codex" | "pi" | "acp:<id>" | "fake"

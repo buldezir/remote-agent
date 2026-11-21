@@ -211,8 +211,13 @@ func (c *conn) subscribe(p subscribeParams) (*subscribeResult, error) {
 	if p.Stream != model.IndexStream && !strings.HasPrefix(p.Stream, "session:") {
 		return nil, invalid("unknown stream %q", p.Stream)
 	}
+	// Projects added before git init may have become repositories since:
+	// a project.upserted then follows the replay.
 	if id, ok := strings.CutPrefix(p.Stream, "session:"); ok {
 		c.s.orch.LookAtPullRequest(id) // it may have changed on the forge meanwhile
+		c.s.orch.LookAtProject(c.ctx, id)
+	} else {
+		go c.s.orch.RefreshProjects(c.ctx)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

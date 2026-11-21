@@ -197,6 +197,7 @@ type projectSummary struct {
 }
 
 func (s *Server) toolListProjects(ctx context.Context, _ json.RawMessage) (any, error) {
+	s.orch.RefreshProjects(ctx)
 	ps, err := s.st.Projects(ctx)
 	out := []projectSummary{}
 	for _, p := range ps {

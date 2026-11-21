@@ -57,6 +57,8 @@ type Orchestrator struct {
 
 	limits limitsState // the agents' usage limits (limits.go)
 	prs    prState     // the sessions' pull requests (pullrequests.go)
+
+	gitScan sync.Mutex // one RefreshProjects at a time (projects.go)
 }
 
 func New(st *store.Store, reg *harness.Registry, opt Options) *Orchestrator {
@@ -123,6 +125,7 @@ func (o *Orchestrator) receipt(ctx context.Context, commandID string) (json.RawM
 
 func (o *Orchestrator) AddProject(ctx context.Context, path string) (*model.Project, error) {
 	if p, err := o.st.ProjectByPath(ctx, path); err == nil {
+		p.IsGitRepo = o.RefreshGit(ctx, p) // it may have become one since
 		return p, nil
 	}
 	fi, err := os.Stat(path)
@@ -191,6 +194,7 @@ func (o *Orchestrator) CreateSession(ctx context.Context, p CreateSessionParams)
 	if err != nil {
 		return nil, errorf(CodeNotFound, "project %s not found", p.ProjectID)
 	}
+	proj.IsGitRepo = o.RefreshGit(ctx, proj)
 	h, ok := o.reg.Get(p.Harness)
 	if !ok {
 		return nil, errorf(CodeInvalid, "unknown harness %q", p.Harness)
