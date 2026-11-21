@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apple/Shared/Assets.xcassets/AppIcon.appiconset/AppIcon-Mac-512@2x.png" width="256" alt="Remote Agent's icon: a little robot with a glowing face and dish ears">
+</p>
+
 # Remote Agent
 
 Drive coding agents running on your computer from your iPhone, iPad, Mac, an Android phone or tablet, or a browser.
