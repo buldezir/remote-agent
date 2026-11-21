@@ -137,6 +137,16 @@ func (t *Terminal) LastInput() time.Time {
 // Done is closed when the shell has exited.
 func (t *Terminal) Done() <-chan struct{} { return t.done }
 
+// ended reports whether the shell has exited.
+func (t *Terminal) ended() bool {
+	select {
+	case <-t.done:
+		return true
+	default:
+		return false
+	}
+}
+
 // Write sends input to the shell. Input beyond what the shell has room for
 // is dropped. Input counts as the user's: it keeps the shell from timing out.
 func (t *Terminal) Write(p []byte) bool {

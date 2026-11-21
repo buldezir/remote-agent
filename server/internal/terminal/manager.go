@@ -73,12 +73,16 @@ func (m *Manager) reap() {
 	}
 }
 
+// all is the running shells. One that just exited stays in m.terms until
+// its goroutine removes it, so it's left out by its done channel.
 func (m *Manager) all() []*Terminal {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	ts := make([]*Terminal, 0, len(m.terms))
 	for _, t := range m.terms {
-		ts = append(ts, t)
+		if !t.ended() {
+			ts = append(ts, t)
+		}
 	}
 	return ts
 }
@@ -115,7 +119,10 @@ func (m *Manager) CloseAll() int {
 func (m *Manager) Get(sessionID string) *Terminal {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.terms[sessionID]
+	if t := m.terms[sessionID]; t != nil && !t.ended() {
+		return t
+	}
+	return nil
 }
 
 // Open returns the session's shell, starting one in dir if it has none.
@@ -129,7 +136,7 @@ func (m *Manager) Open(sessionID, dir string, cols, rows int) (*Terminal, error)
 	if m.shut {
 		return nil, ErrShutdown
 	}
-	if t := m.terms[sessionID]; t != nil {
+	if t := m.terms[sessionID]; t != nil && !t.ended() {
 		return t, nil
 	}
 	t, err := start(sessionID, dir, shell, args, append(environ(os.Environ(), shell), m.opt.Env...), cols, rows)
