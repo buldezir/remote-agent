@@ -17,8 +17,8 @@ use std::time::Duration;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::component::speech::{SpeechEvent, SpeechState};
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, Focusable as _, Image, ListAlignment, ListState, ScrollHandle, Subscription,
-    Task, Window, px,
+    App, AppContext as _, Context, Entity, Focusable as _, Image, ListAlignment, ListState, Subscription, Task, Window,
+    px,
 };
 use serde_json::{Value, json};
 
@@ -28,6 +28,7 @@ use crate::protocol::{BackgroundTask, Command, ImageRef, Item, Project, RpcError
 use crate::store::search::find_matches;
 use crate::store::session::{Outgoing, SessionState};
 use crate::store::tool_runs::{ToolRun, TranscriptRow, tool_runs, transcript_rows};
+use crate::ui::command_picker::{CommandPicker, CommandSource, Lookup};
 use crate::ui::dialogs;
 use crate::ui::state::{AppPrefs, prefs, update_prefs};
 use crate::ui::terminal::TerminalView;
@@ -61,13 +62,38 @@ pub(crate) struct Attachment {
     pub state: AttachState,
 }
 
-/// The composer's slash-command suggestions, fetched as a `/` starts the prompt.
-#[derive(Default)]
-pub(crate) struct Commands {
-    pub fetched: bool,
-    pub loading: bool,
-    pub failed: bool,
-    pub list: Vec<Command>,
+/// The composer's commands: the session's, then its agent's own.
+struct SessionCommands {
+    conn: Entity<ServerConn>,
+    session_id: String,
+}
+
+impl CommandSource for SessionCommands {
+    fn lookup(&self, cx: &App) -> Option<Lookup> {
+        let conn = self.conn.read(cx);
+        if !conn.is_connected() {
+            return None;
+        }
+        let call = conn.call_with_timeout(
+            "session.commands",
+            json!({"sessionId": self.session_id}),
+            Duration::from_secs(80),
+        );
+        Some(Box::pin(call))
+    }
+
+    fn builtin(&self, cx: &App) -> Vec<Command> {
+        let conn = self.conn.read(cx);
+        conn.session(&self.session_id)
+            .and_then(|s| conn.harness(&s.harness))
+            .map(|h| h.commands.clone())
+            .unwrap_or_default()
+    }
+
+    fn available(&self, cx: &App) -> bool {
+        let conn = self.conn.read(cx);
+        !conn.session(&self.session_id).is_some_and(|s| s.archived)
+    }
 }
 
 /// Find in the session.
@@ -100,12 +126,7 @@ pub struct SessionView {
     pub(crate) composer: Entity<TextareaState>,
     pub(crate) attachments: Vec<Attachment>,
     next_attachment: u64,
-    pub(crate) commands: Commands,
-    pub(crate) command_index: usize,
-    /// The suggestions' list, scrolled to keep the highlighted one in view.
-    pub(crate) command_scroll: ScrollHandle,
-    /// The prompt as it was when Esc put the suggestions away.
-    pub(crate) commands_dismissed: Option<String>,
+    pub(crate) commands: Entity<CommandPicker>,
     pub(crate) find: Option<Find>,
     /// The item a search opened the session at, lit for a moment.
     pub(crate) flash: Option<String>,
@@ -151,6 +172,13 @@ impl SessionView {
                 .auto_grow(1, 12)
                 .submit_on_enter(true)
         });
+        let commands = cx.new(|cx| {
+            let source = SessionCommands {
+                conn: conn.clone(),
+                session_id: session_id.clone(),
+            };
+            CommandPicker::new(composer.clone(), source, cx)
+        });
         let speech = cx.new(SpeechState::new);
         let subscriptions = vec![
             cx.observe_in(&conn, window, |this, _, window, cx| {
@@ -168,6 +196,8 @@ impl SessionView {
             cx.subscribe_in(&speech, window, |this, _, event: &SpeechEvent, window, cx| {
                 this.dictation(event, window, cx)
             }),
+            // Shows or hides it as its lookup ends.
+            cx.observe(&commands, |_, _, cx| cx.notify()),
             cx.observe_global::<AppPrefs>(|this, cx| this.restyle(cx)),
             cx.observe_global::<gpui_kit::component::Theme>(|this, cx| this.restyle(cx)),
         ];
@@ -193,10 +223,7 @@ impl SessionView {
             composer,
             attachments: Vec::new(),
             next_attachment: 0,
-            commands: Commands::default(),
-            command_index: 0,
-            command_scroll: ScrollHandle::new(),
-            commands_dismissed: None,
+            commands,
             find: None,
             flash: None,
             jump_to,
@@ -812,7 +839,6 @@ impl SessionView {
     // MARK: Local drafts
 
     fn composer_changed(&mut self, cx: &mut Context<Self>) {
-        self.update_commands(cx);
         // Saved a moment after the typing stops.
         self.draft_save = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_millis(800)).await;

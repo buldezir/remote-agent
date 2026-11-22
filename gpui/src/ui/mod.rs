@@ -5,6 +5,7 @@ pub mod agent_picker;
 pub mod app;
 pub mod badges;
 pub mod build_update;
+pub mod command_picker;
 pub mod commit;
 pub mod common;
 pub mod dialogs;

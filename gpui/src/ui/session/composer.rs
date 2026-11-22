@@ -7,11 +7,10 @@ use std::sync::Arc;
 
 use gpui_kit::assets::IconName as L;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
-use gpui_kit::component::input::{Escape, IndentInline, MoveDown, MoveUp, Paste, Textarea};
+use gpui_kit::component::input::{Paste, Textarea};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, ClipboardEntry, ClipboardItem, Context, ExternalPaths, FontWeight,
     Image, InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, PathPromptOptions, SharedString,
@@ -21,9 +20,9 @@ use serde_json::json;
 
 use super::{AttachState, Attachment, SessionView, explain};
 use crate::images::{Loaded, Prepared, prepare};
-use crate::protocol::{CommandList, ImageRef, WorkspaceKind};
-use crate::store::search::{command_query, command_suggestions};
+use crate::protocol::{ImageRef, WorkspaceKind};
 use crate::ui::badges::{harness_icon, model_name};
+use crate::ui::command_picker::CommandPicker;
 use crate::ui::common::caption;
 use crate::ui::dialogs::{self, Choice};
 use crate::ui::palette::Palette;
@@ -69,8 +68,7 @@ impl SessionView {
     // MARK: Sending
 
     pub(crate) fn composer_enter(&mut self, shift: bool, secondary: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.suggestions_shown(cx) && !shift {
-            self.accept_suggestion(true, window, cx);
+        if !shift && self.commands.update(cx, |c, cx| c.enter(window, cx)) {
             return;
         }
         if shift && secondary {
@@ -275,115 +273,6 @@ impl SessionView {
             });
         })
         .detach();
-        cx.notify();
-    }
-
-    // MARK: Slash commands
-
-    pub(crate) fn update_commands(&mut self, cx: &mut Context<Self>) {
-        let draft = self.draft_text(cx);
-        if self.commands_dismissed.as_ref().is_some_and(|d| *d != draft) {
-            self.commands_dismissed = None;
-        }
-        self.command_index = 0;
-        self.command_scroll.scroll_to_item(0);
-        let active = command_query(&draft).is_some();
-        if !active {
-            // Looked up again when the picker opens again.
-            self.commands.fetched = false;
-            return;
-        }
-        if self.commands.fetched || !self.conn.read(cx).is_connected() {
-            return;
-        }
-        self.commands.fetched = true;
-        self.commands.loading = true;
-        self.commands.failed = false;
-        let call = self.conn.read(cx).call_with_timeout(
-            "session.commands",
-            json!({"sessionId": self.session_id}),
-            std::time::Duration::from_secs(80),
-        );
-        cx.spawn(async move |this, cx| {
-            let result = call.await;
-            let _ = this.update(cx, |this, cx| {
-                this.commands.loading = false;
-                match result {
-                    Ok(v) => this.commands.list = serde_json::from_value::<CommandList>(v).unwrap_or_default().commands,
-                    Err(e) if e.code == "method_not_found" => this.commands.list.clear(),
-                    Err(_) => this.commands.failed = true,
-                }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn suggestions(&self, cx: &App) -> Vec<crate::protocol::Command> {
-        let draft = self.draft_text(cx);
-        if self.commands_dismissed.as_deref() == Some(draft.as_str()) || self.session(cx).is_some_and(|s| s.archived) {
-            return Vec::new();
-        }
-        let conn = self.conn.read(cx);
-        let mut all = self.commands.list.clone();
-        if let Some(h) = conn.session(&self.session_id).and_then(|s| conn.harness(&s.harness)) {
-            all.extend(h.commands.iter().cloned());
-        }
-        command_suggestions(&draft, &all)
-    }
-
-    fn suggestions_shown(&self, cx: &App) -> bool {
-        command_query(&self.draft_text(cx)).is_some()
-            && self.commands_dismissed.as_deref() != Some(self.draft_text(cx).as_str())
-            && !self.suggestions(cx).is_empty()
-    }
-
-    /// Tab or Return on a suggestion: completes the prompt to it, or sends
-    /// it when the prompt is that command already.
-    fn accept_suggestion(&mut self, enter: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let list = self.suggestions(cx);
-        let Some(c) = list.get(self.command_index.min(list.len().saturating_sub(1))) else {
-            return;
-        };
-        let prompt = format!("/{}", c.name);
-        if enter && self.draft_text(cx).trim() == prompt {
-            self.send(false, window, cx);
-            return;
-        }
-        let text = format!("{prompt} ");
-        self.composer.update(cx, |c, cx| {
-            c.set_value(text.clone(), window, cx);
-            c.set_cursor_position(
-                gpui_kit::component::input::Position::new(0, text.len() as u32),
-                window,
-                cx,
-            );
-        });
-    }
-
-    /// ↑, ↓, Tab and Escape on the suggestions. The prompt binds those keys
-    /// (`MoveUp`, `MoveDown`, `IndentInline`, `Escape`), and GPUI runs a key's
-    /// binding before any key-down listener, so the composer catches the
-    /// actions in the capture phase; with no suggestions shown they go on to
-    /// the prompt.
-    fn suggestion_key(&mut self, key: SuggestionKey, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.suggestions_shown(cx) {
-            return;
-        }
-        let n = self.suggestions(cx).len();
-        match key {
-            SuggestionKey::Down => {
-                self.command_index = (self.command_index + 1).min(n - 1);
-                self.command_scroll.scroll_to_item(self.command_index);
-            }
-            SuggestionKey::Up => {
-                self.command_index = self.command_index.saturating_sub(1);
-                self.command_scroll.scroll_to_item(self.command_index);
-            }
-            SuggestionKey::Accept => self.accept_suggestion(false, window, cx),
-            SuggestionKey::Dismiss => self.commands_dismissed = Some(self.draft_text(cx)),
-        }
-        cx.stop_propagation();
         cx.notify();
     }
 
@@ -597,80 +486,6 @@ impl SessionView {
         Some(row.into_any_element())
     }
 
-    fn render_suggestions(&self, p: &Palette, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if command_query(&self.draft_text(cx)).is_none()
-            || self.commands_dismissed.as_deref() == Some(self.draft_text(cx).as_str())
-        {
-            return None;
-        }
-        let list = self.suggestions(cx);
-        let status = if self.commands.loading {
-            Some("Loading skills…")
-        } else if self.commands.failed {
-            Some("Skills unavailable. Try typing / again.")
-        } else {
-            None
-        };
-        if list.is_empty() && status.is_none() {
-            return None;
-        }
-        let mut col = v_flex()
-            .id("suggestions")
-            .max_h(px(220.))
-            .overflow_y_scroll()
-            .track_scroll(&self.command_scroll)
-            .gap_0p5();
-        for (i, c) in list.iter().enumerate() {
-            let selected = i == self.command_index.min(list.len() - 1);
-            let name = c.name.clone();
-            col = col.child(
-                h_flex()
-                    .id(SharedString::from(format!("cmd-{i}")))
-                    .gap_2()
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .when(selected, |d| d.bg(p.surface0))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .font_family(crate::ui::fonts::code())
-                                    .child(format!("/{}", c.name)),
-                            )
-                            .when_some(c.description.clone(), |d, desc| {
-                                d.child(div().text_xs().text_color(p.subtext).line_clamp(2).child(desc))
-                            }),
-                    )
-                    .when_some(c.scope.clone(), |d, s| d.child(caption(capitalize(&s), p)))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        let text = format!("/{name} ");
-                        this.composer.update(cx, |c, cx| {
-                            c.set_value(text.clone(), window, cx);
-                            c.focus(window, cx);
-                        });
-                    })),
-            );
-        }
-        if let Some(s) = status {
-            col = col.child(caption(s, p).px_2().py_1());
-        }
-        Some(
-            div()
-                .p_1()
-                .rounded_lg()
-                .border_1()
-                .border_color(p.surface0)
-                .bg(p.mantle)
-                .child(col)
-                .into_any_element(),
-        )
-    }
-
     /// The agent, model and effort the session runs with, greyed out: they
     /// stay as the session started.
     fn agent_pill(&self, cx: &App) -> Option<AnyElement> {
@@ -809,7 +624,11 @@ impl SessionView {
         let save_draft = self.can_save_draft(cx);
         let drafting = save_draft && self.uploads_done() && !self.saving_draft;
         let attachments = self.render_attachments(&p, cx);
-        let suggestions = self.render_suggestions(&p, cx);
+        let suggestions = self
+            .commands
+            .read(cx)
+            .visible(cx)
+            .then(|| self.commands.clone().into_any_element());
         let this = cx.entity().downgrade();
         let plus =
             Button::new("attach")
@@ -906,31 +725,18 @@ impl SessionView {
             ));
         }
         let (footer_start, footer_end) = self.footer(cx);
-        let input =
-            div()
-                .capture_action(
-                    cx.listener(|this, _: &MoveUp, window, cx| this.suggestion_key(SuggestionKey::Up, window, cx)),
-                )
-                .capture_action(
-                    cx.listener(|this, _: &MoveDown, window, cx| this.suggestion_key(SuggestionKey::Down, window, cx)),
-                )
-                .capture_action(cx.listener(|this, _: &IndentInline, window, cx| {
-                    this.suggestion_key(SuggestionKey::Accept, window, cx)
-                }))
-                .capture_action(
-                    cx.listener(|this, _: &Escape, window, cx| this.suggestion_key(SuggestionKey::Dismiss, window, cx)),
-                )
-                .capture_action(cx.listener(|this, _: &Paste, window, cx| {
-                    if this.paste_images(window, cx) {
-                        cx.stop_propagation();
-                    }
-                }))
-                .child(
-                    Textarea::new(&self.composer)
-                        .appearance(false)
-                        .disabled(read_only || removed),
-                )
-                .into_any_element();
+        let input = CommandPicker::capture_keys(&self.commands, div(), window)
+            .capture_action(cx.listener(|this, _: &Paste, window, cx| {
+                if this.paste_images(window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .child(
+                Textarea::new(&self.composer)
+                    .appearance(false)
+                    .disabled(read_only || removed),
+            )
+            .into_any_element();
         let _ = window;
         let prompt = PromptBox {
             above: suggestions,
@@ -953,25 +759,9 @@ impl SessionView {
     }
 }
 
-#[derive(Clone, Copy)]
-enum SuggestionKey {
-    Up,
-    Down,
-    Accept,
-    Dismiss,
-}
-
 /// An attachment as the strip draws it: its key, picture, id once
 /// uploaded, whether it uploads, and why it failed.
 type Shown = (u64, Option<Arc<Image>>, Option<String>, bool, Option<String>);
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-        None => String::new(),
-    }
-}
 
 #[allow(dead_code)]
 fn bold() -> FontWeight {
