@@ -7,15 +7,15 @@ use std::sync::Arc;
 
 use gpui_kit::assets::IconName as L;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
-use gpui_kit::component::input::{Paste, Textarea};
+use gpui_kit::component::input::{Escape, IndentInline, MoveDown, MoveUp, Paste, Textarea};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, ClickEvent, ClipboardEntry, ClipboardItem, Context, ExternalPaths, FontWeight,
-    Image, InteractiveElement as _, IntoElement, KeyDownEvent, ObjectFit, ParentElement as _, PathPromptOptions,
-    SharedString, StatefulInteractiveElement as _, Styled as _, StyledImage as _, Window, div, img, px,
+    Image, InteractiveElement as _, IntoElement, ObjectFit, ParentElement as _, PathPromptOptions, SharedString,
+    StatefulInteractiveElement as _, Styled as _, StyledImage as _, Window, div, img, px,
 };
 use serde_json::json;
 
@@ -286,6 +286,7 @@ impl SessionView {
             self.commands_dismissed = None;
         }
         self.command_index = 0;
+        self.command_scroll.scroll_to_item(0);
         let active = command_query(&draft).is_some();
         if !active {
             // Looked up again when the picker opens again.
@@ -360,20 +361,27 @@ impl SessionView {
         });
     }
 
-    /// The suggestions' keys, before the prompt sees them.
-    pub(crate) fn composer_key(&mut self, ev: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        let k = &ev.keystroke;
-        let plain = !k.modifiers.platform && !k.modifiers.control && !k.modifiers.alt;
-        if !self.suggestions_shown(cx) || !plain {
+    /// ↑, ↓, Tab and Escape on the suggestions. The prompt binds those keys
+    /// (`MoveUp`, `MoveDown`, `IndentInline`, `Escape`), and GPUI runs a key's
+    /// binding before any key-down listener, so the composer catches the
+    /// actions in the capture phase; with no suggestions shown they go on to
+    /// the prompt.
+    fn suggestion_key(&mut self, key: SuggestionKey, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.suggestions_shown(cx) {
             return;
         }
         let n = self.suggestions(cx).len();
-        match k.key.as_str() {
-            "down" => self.command_index = (self.command_index + 1).min(n - 1),
-            "up" => self.command_index = self.command_index.saturating_sub(1),
-            "tab" => self.accept_suggestion(false, window, cx),
-            "escape" => self.commands_dismissed = Some(self.draft_text(cx)),
-            _ => return,
+        match key {
+            SuggestionKey::Down => {
+                self.command_index = (self.command_index + 1).min(n - 1);
+                self.command_scroll.scroll_to_item(self.command_index);
+            }
+            SuggestionKey::Up => {
+                self.command_index = self.command_index.saturating_sub(1);
+                self.command_scroll.scroll_to_item(self.command_index);
+            }
+            SuggestionKey::Accept => self.accept_suggestion(false, window, cx),
+            SuggestionKey::Dismiss => self.commands_dismissed = Some(self.draft_text(cx)),
         }
         cx.stop_propagation();
         cx.notify();
@@ -606,7 +614,12 @@ impl SessionView {
         if list.is_empty() && status.is_none() {
             return None;
         }
-        let mut col = v_flex().id("suggestions").max_h(px(220.)).overflow_y_scroll().gap_0p5();
+        let mut col = v_flex()
+            .id("suggestions")
+            .max_h(px(220.))
+            .overflow_y_scroll()
+            .track_scroll(&self.command_scroll)
+            .gap_0p5();
         for (i, c) in list.iter().enumerate() {
             let selected = i == self.command_index.min(list.len() - 1);
             let name = c.name.clone();
@@ -893,19 +906,31 @@ impl SessionView {
             ));
         }
         let (footer_start, footer_end) = self.footer(cx);
-        let input = div()
-            .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| this.composer_key(ev, window, cx)))
-            .capture_action(cx.listener(|this, _: &Paste, window, cx| {
-                if this.paste_images(window, cx) {
-                    cx.stop_propagation();
-                }
-            }))
-            .child(
-                Textarea::new(&self.composer)
-                    .appearance(false)
-                    .disabled(read_only || removed),
-            )
-            .into_any_element();
+        let input =
+            div()
+                .capture_action(
+                    cx.listener(|this, _: &MoveUp, window, cx| this.suggestion_key(SuggestionKey::Up, window, cx)),
+                )
+                .capture_action(
+                    cx.listener(|this, _: &MoveDown, window, cx| this.suggestion_key(SuggestionKey::Down, window, cx)),
+                )
+                .capture_action(cx.listener(|this, _: &IndentInline, window, cx| {
+                    this.suggestion_key(SuggestionKey::Accept, window, cx)
+                }))
+                .capture_action(
+                    cx.listener(|this, _: &Escape, window, cx| this.suggestion_key(SuggestionKey::Dismiss, window, cx)),
+                )
+                .capture_action(cx.listener(|this, _: &Paste, window, cx| {
+                    if this.paste_images(window, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
+                .child(
+                    Textarea::new(&self.composer)
+                        .appearance(false)
+                        .disabled(read_only || removed),
+                )
+                .into_any_element();
         let _ = window;
         let prompt = PromptBox {
             above: suggestions,
@@ -926,6 +951,14 @@ impl SessionView {
             .child(prompt)
             .into_any_element()
     }
+}
+
+#[derive(Clone, Copy)]
+enum SuggestionKey {
+    Up,
+    Down,
+    Accept,
+    Dismiss,
 }
 
 /// An attachment as the strip draws it: its key, picture, id once

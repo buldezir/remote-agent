@@ -17,8 +17,8 @@ use std::time::Duration;
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::component::speech::{SpeechEvent, SpeechState};
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, Focusable as _, Image, ListAlignment, ListState, Subscription, Task, Window,
-    px,
+    App, AppContext as _, Context, Entity, Focusable as _, Image, ListAlignment, ListState, ScrollHandle, Subscription,
+    Task, Window, px,
 };
 use serde_json::{Value, json};
 
@@ -102,6 +102,8 @@ pub struct SessionView {
     next_attachment: u64,
     pub(crate) commands: Commands,
     pub(crate) command_index: usize,
+    /// The suggestions' list, scrolled to keep the highlighted one in view.
+    pub(crate) command_scroll: ScrollHandle,
     /// The prompt as it was when Esc put the suggestions away.
     pub(crate) commands_dismissed: Option<String>,
     pub(crate) find: Option<Find>,
@@ -193,6 +195,7 @@ impl SessionView {
             next_attachment: 0,
             commands: Commands::default(),
             command_index: 0,
+            command_scroll: ScrollHandle::new(),
             commands_dismissed: None,
             find: None,
             flash: None,
