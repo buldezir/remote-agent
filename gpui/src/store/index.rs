@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::protocol::{Event, Project, Session, UsageLimits};
+use crate::protocol::{Event, Project, Session, SessionStatus, UsageLimits};
 
 use super::sync::StreamSync;
 
@@ -53,7 +53,13 @@ impl IndexState {
             }
             "session.upserted" => {
                 if let Some(s) = &ev.session {
-                    self.sessions.insert(s.id.clone(), Rc::new(s.clone()));
+                    let mut s = s.clone();
+                    if let Some(old) = self.sessions.get(&s.id)
+                        && only_reports(old, &s)
+                    {
+                        s.updated_at = old.updated_at.clone();
+                    }
+                    self.sessions.insert(s.id.clone(), Rc::new(s));
                 }
             }
             "session.removed" => {
@@ -97,10 +103,70 @@ impl IndexState {
     }
 }
 
+/// Whether an update to a running session only reports on its turn: rad
+/// saves the agent's context usage, model and background tasks as it hears
+/// them, several times a turn, each with a new `updatedAt`, so sessions
+/// running side by side would swap places in the lists at every step. Such
+/// an update keeps the session's place; a turn that starts or ends, an
+/// approval, and archiving still move it. Until rad itself keeps
+/// `updatedAt` for them.
+fn only_reports(old: &Session, new: &Session) -> bool {
+    old.status == SessionStatus::Running
+        && new.status == SessionStatus::Running
+        && old.unread == new.unread
+        && old.archived == new.archived
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::protocol::{Frame, Notification};
+
+    fn upsert(index: &mut IndexState, id: &str, status: SessionStatus, at: &str) {
+        let mut session: Session = serde_json::from_value(serde_json::json!({
+            "id": id, "projectId": "p", "harness": "fake", "title": "", "createdAt": "2026-11-22T09:00:00Z",
+        }))
+        .unwrap();
+        session.status = status;
+        session.updated_at = at.into();
+        index.upsert(&Event {
+            stream: "index".into(),
+            seq: 0,
+            kind: "session.upserted".into(),
+            project: None,
+            session: Some(session),
+            turn: None,
+            item: None,
+            limits: None,
+            id: None,
+        });
+    }
+
+    fn order(index: &IndexState) -> Vec<String> {
+        index.active_sessions().iter().map(|s| s.id.clone()).collect()
+    }
+
+    #[test]
+    fn running_sessions_keep_their_places() {
+        use SessionStatus::*;
+        let mut index = IndexState::default();
+        upsert(&mut index, "a", Running, "2026-11-22T10:00:00Z");
+        upsert(&mut index, "b", Running, "2026-11-22T10:00:01Z");
+        assert_eq!(order(&index), ["b", "a"]);
+        // Context usage reported mid-turn: a's place stays.
+        upsert(&mut index, "a", Running, "2026-11-22T10:00:05Z");
+        assert_eq!(order(&index), ["b", "a"]);
+        assert_eq!(index.sessions["a"].updated_at, "2026-11-22T10:00:00Z");
+        // An approval, its answer and the turn's end move it.
+        upsert(&mut index, "a", AwaitingApproval, "2026-11-22T10:00:06Z");
+        assert_eq!(order(&index), ["a", "b"]);
+        upsert(&mut index, "b", Running, "2026-11-22T10:00:07Z");
+        assert_eq!(order(&index), ["a", "b"]);
+        upsert(&mut index, "b", Idle, "2026-11-22T10:00:08Z");
+        assert_eq!(order(&index), ["b", "a"]);
+        upsert(&mut index, "b", Running, "2026-11-22T10:00:09Z");
+        assert_eq!(index.sessions["b"].updated_at, "2026-11-22T10:00:09Z");
+    }
 
     #[test]
     fn applies_the_index_fixture() {
