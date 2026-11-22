@@ -4,6 +4,7 @@ use gpui_kit::assets::IconName as L;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::scroll::{Scrollbar, ScrollbarMode};
 use gpui_kit::component::{Icon, IconName, Selectable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -512,12 +513,20 @@ impl Render for SessionView {
         let placement = prefs(cx).terminal_placement.clone();
         let narrow = window.viewport_size().width < px(900.);
         let placement = if narrow { "over".to_string() } else { placement };
-        let transcript = list(
-            self.list.clone(),
-            cx.processor(|this, ix, window, cx| this.render_row(ix, window, cx)),
-        )
-        .size_full()
-        .py_3();
+        // Its scrollbar is always shown, as in Settings, so that where a long
+        // history stands is plain to see: the kit's own shows only while scrolling.
+        let transcript = div()
+            .relative()
+            .size_full()
+            .child(
+                list(
+                    self.list.clone(),
+                    cx.processor(|this, ix, window, cx| this.render_row(ix, window, cx)),
+                )
+                .size_full()
+                .py_3(),
+            )
+            .child(Scrollbar::vertical(&self.list).mode(ScrollbarMode::Always));
         let error = self.error.clone();
         let find = self.render_find(cx);
         let composer = self.render_composer(window, cx);
