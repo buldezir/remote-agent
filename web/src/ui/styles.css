@@ -1386,6 +1386,24 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.mention-pill {
+  background: color-mix(in srgb, var(--on-accent) 22%, transparent);
+  border-radius: 999px;
+  padding: 0 0.45em;
+  font-weight: 600;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+a.mention-pill {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+a.mention-pill:hover { background: color-mix(in srgb, var(--on-accent) 36%, transparent); }
+a.mention-pill:focus-visible {
+  outline: 2px solid var(--on-accent);
+  outline-offset: 1px;
+}
 .bubble-note {
   font-size: 0.75em;
   color: var(--subtext);

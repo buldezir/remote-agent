@@ -118,6 +118,8 @@ struct ServersView: View {
                 }
             }
         }
+        // A session a prompt mentions goes on top, so Back returns to the prompt.
+        .environment(\.openMentionedSession, OpenMentionedSession(root: "servers") { path.append($0) })
     }
 }
 

@@ -96,7 +96,7 @@ TerminalMessage {
 | `list_sessions` | `project?`, `archived?` | the sessions, newest first |
 | `start_session` | `project`, `prompt`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `worktreePath?`, `title?`, `draft?` | `session.create`; a folder under `roots` becomes a project; `draft`: keep the prompt as the session's draft, and start no turn |
 | `send_prompt` | `session`, `prompt`, `steer?` | `session.prompt` (`steer`: into the running turn, as below); `list_agents` says `steers` for agents that take it |
-| `read_session` | `session`, `turns?` (default 1; 0: all) | the status and transcript, as text |
+| `read_session` | `session`, `turns?` (default 1; 0: all) | the status and transcript, as text, with prompts and replies whole |
 | `wait_for_session` | `session`, `timeoutSeconds?` (default 600, at most 3600) | waits until the agent stops working; its status and last reply |
 | `stop_session` | `session` | `session.interrupt` |
 | `rename_session` | `session`, `title` | `session.rename` (empty: rad names it again) |
@@ -112,7 +112,7 @@ Without `agent`, a session gets the server's `defaultAgent` while it's signed in
 
 `session` is an id or a unique start of one (six characters or more). A session's agent can't send to, wait for, stop or archive its own session; it may rename it, save a draft in it and read its changes. It may archive and unarchive only the sessions it started, and the ones those started in turn. The sessions it starts or forks get its own mode with its own agent, or else the mode the agent's sessions take when an agent starts them (the default mode, but Auto for Claude Code and Codex, whose default, Yolo, never asks): no other mode, so that it can't start one that asks the user less than it does. They begin with a `notice` ("Started by the agent of “…”."), and may start sessions in turn, three deep at most. Approvals and questions of the sessions it starts go to the user, as any session's do; no tool answers them. A device's tools have none of these limits.
 
-**Mentions.** A prompt mentions another session of the same rad as `@[title](session:<id>)`, which the clients' composers write when the user picks a session after typing `@`. The user's message keeps the prompt as written; the prompt rad hands the agent gets a note after it, in `<rad-mentions>`, that lists the sessions it mentions (but its own) and tells the agent to read them with `read_session`. An agent without rad's MCP server gets the prompt as it is. Clients show a mention as `@title`, and search and find match it in that form (`model.SearchText`). The rules for the `@` query, the list and the text written are shared by the clients' tests in `protocol/vectors/session_mentions.json`.
+**Mentions.** A prompt mentions another session of the same rad as `@[title](session:<id>)`, which the clients' composers write when the user picks a session after typing `@`. The user's message keeps the prompt as written; the prompt rad hands the agent gets a note after it, in `<rad-mentions>`, that lists the sessions it mentions (but its own) and tells the agent to read them with `read_session`. An agent without rad's MCP server gets the prompt as it is. Clients show a mention as a pill, `@title`, and search and find match it in that form (`model.SearchText`). The rules for the `@` query, the list and the text written are shared by the clients' tests in `protocol/vectors/session_mentions.json`.
 
 ## Frames
 

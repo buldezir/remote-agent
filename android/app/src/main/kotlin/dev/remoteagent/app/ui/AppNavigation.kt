@@ -303,6 +303,15 @@ private fun AppNavigation(pendingLink: MutableStateFlow<PairingLink?>) {
                                 onFocused = { if (focusRequest === it) focusRequest = null },
                                 onBack = { if (backStack.size > 1) backStack.removeLastOrNull() },
                                 onForked = { forked, empty -> startedSession(SessionKey(key.serverId, forked.id), empty) },
+                                // A mention's pill: a session the server's index has, in place of
+                                // this one beside the list, or pushed on a phone, so that back
+                                // returns to the one that mentioned it. Unknown: nothing.
+                                onOpenSession = { id ->
+                                    if (id != key.sessionId && id in connection.sessions.value) {
+                                        val mentioned = SessionKey(key.serverId, id)
+                                        if (wide) backStack.openSession(mentioned) else backStack.add(mentioned)
+                                    }
+                                },
                             )
                         }
                     }
@@ -352,7 +361,8 @@ private val NavKey.serverId: String?
  * A tab's back stack for the layout. Wide, the sidebar lists every server's
  * sessions, so there are no server homes in it. Narrow, a session in the
  * Servers tab sits on its server's sessions, so back from it goes there, as
- * on a phone; the Inbox's sit on the Inbox.
+ * on a phone, or on the session of the server's it was opened from; the
+ * Inbox's sit on the Inbox.
  */
 internal fun normalizedBackStack(stack: List<NavKey>, wide: Boolean): List<NavKey> =
     if (wide) {
@@ -362,7 +372,11 @@ internal fun normalizedBackStack(stack: List<NavKey>, wide: Boolean): List<NavKe
     } else {
         buildList {
             for (key in stack) {
-                if (key is SessionKey && lastOrNull() != ServerHomeKey(key.serverId)) add(ServerHomeKey(key.serverId))
+                // A session opened from another of its server's, as from a mention, sits on that one.
+                val last = lastOrNull()
+                if (key is SessionKey && last != ServerHomeKey(key.serverId) && (last as? SessionKey)?.serverId != key.serverId) {
+                    add(ServerHomeKey(key.serverId))
+                }
                 add(key)
             }
         }

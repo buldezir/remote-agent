@@ -293,6 +293,11 @@ impl SessionView {
         this
     }
 
+    /// The id of the server the session is on.
+    pub(crate) fn server_id(&self, cx: &App) -> String {
+        self.conn.read(cx).server_id.clone()
+    }
+
     pub fn conn(&self) -> &Entity<ServerConn> {
         &self.conn
     }

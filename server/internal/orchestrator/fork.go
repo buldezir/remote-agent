@@ -441,10 +441,17 @@ func (a *actor) handoff(ctx context.Context, except string) string {
 	return b.String()
 }
 
-// TranscriptLine is an item as the transcript of a handoff, or of an MCP
-// tool's read, shows it to an agent, or "" for what it leaves out: reasoning,
-// a subagent's work, and prompts that never ran.
-func TranscriptLine(it *model.Item) string {
+// TranscriptLine is an item as the transcript of a handoff shows it to an
+// agent, its long texts clipped, or "" for what it leaves out: reasoning, a
+// subagent's work, and prompts that never ran.
+func TranscriptLine(it *model.Item) string { return transcriptLine(it, clip) }
+
+// WholeTranscriptLine is TranscriptLine with the texts whole, as rad's MCP
+// read_session gives them: a reply such as a code review is worth reading
+// to its end.
+func WholeTranscriptLine(it *model.Item) string { return transcriptLine(it, strings.TrimSpace) }
+
+func transcriptLine(it *model.Item, clip func(string) string) string {
 	switch it.Kind {
 	case model.ItemUserMessage:
 		if it.TurnID == "" {

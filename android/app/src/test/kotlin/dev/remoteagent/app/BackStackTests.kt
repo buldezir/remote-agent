@@ -37,6 +37,15 @@ class BackStackTests {
     }
 
     @Test
+    fun narrowKeepsASessionOpenedFromAnother() {
+        // A mention's pill pushes the session it names on the one that mentions it.
+        val mentioned = SessionKey("a", "s2")
+        val phone = listOf(ServersKey, home, session, mentioned)
+        assertEquals(phone, normalizedBackStack(phone, wide = false))
+        assertEquals(phone, normalizedBackStack(listOf(ServersKey, session, mentioned), wide = false))
+    }
+
+    @Test
     fun aStackThatFitsIsKept() {
         val phone = listOf(ServersKey, home, session)
         assertEquals(phone, normalizedBackStack(phone, wide = false))

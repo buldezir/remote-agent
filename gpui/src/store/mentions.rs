@@ -177,6 +177,47 @@ pub fn mentions(text: &str) -> Vec<Mention> {
     out
 }
 
+/// The link a mention's pill takes in `mention_markdown`.
+pub const MENTION_LINK: &str = "rad-session:";
+
+/// A prompt as Markdown that shows it as it was typed, each mention a link
+/// to `rad-session:<id>` around a code span, which the bubble draws as a
+/// pill: ASCII punctuation escaped, each line break a hard one, and spaces
+/// that start a line kept.
+pub fn mention_markdown(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 2);
+    let mut last = 0;
+    for m in mentions(text) {
+        escape_markdown(&text[last..m.range.start], &mut out);
+        let title = m.title.replace('`', "'");
+        out.push_str(&format!("[`@{title}`]({MENTION_LINK}{})", m.id));
+        last = m.range.end;
+    }
+    escape_markdown(&text[last..], &mut out);
+    out
+}
+
+fn escape_markdown(text: &str, out: &mut String) {
+    let mut line_start = out.is_empty() || out.ends_with('\n');
+    for c in text.chars() {
+        match c {
+            '\n' => {
+                out.push_str("\\\n");
+                line_start = true;
+                continue;
+            }
+            ' ' if line_start => out.push('\u{a0}'),
+            '\t' if line_start => out.push_str("\u{a0}\u{a0}\u{a0}\u{a0}"),
+            c if c.is_ascii_punctuation() => {
+                out.push('\\');
+                out.push(c);
+            }
+            c => out.push(c),
+        }
+        line_start = line_start && (c == ' ' || c == '\t');
+    }
+}
+
 /// A text as transcripts show it: each mention as `@title`.
 pub fn mention_display(text: &str) -> String {
     let list = mentions(text);
@@ -296,6 +337,14 @@ mod tests {
         for c in &v.display {
             assert_eq!(mention_display(&c.text), c.display, "{}", c.text);
         }
+    }
+
+    #[test]
+    fn markdown() {
+        assert_eq!(
+            mention_markdown("fix *a* @[Lo`g](session:s-1)\n  #2."),
+            "fix \\*a\\* [`@Lo'g`](rad-session:s-1)\\\n\u{a0}\u{a0}\\#2\\."
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
 package dev.remoteagent.app.ui
 
-import dev.remoteagent.core.protocol.mentionDisplay
+import dev.remoteagent.core.protocol.mentions
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -59,6 +59,8 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
@@ -114,6 +116,35 @@ fun findHighlighted(text: String): AnnotatedString {
             }
         }
     }
+}
+
+/**
+ * Opens another session of the open one's server, by its id, as a tap on a
+ * mention's pill does. Null where there is no session to open it from.
+ */
+val LocalOpenSession = compositionLocalOf<((String) -> Unit)?> { null }
+
+/** A mention's pill in a prompt as shown: where it is, and the session it names. */
+data class MentionPill(val range: IntRange, val sessionId: String)
+
+/** A prompt's text with each mention of another session as `@title` between
+ *  thin spaces, a pill's padding, and the pills in it. */
+fun mentionPills(text: String): Pair<String, List<MentionPill>> {
+    val list = mentions(text)
+    if (list.isEmpty()) return text to emptyList()
+    val pills = mutableListOf<MentionPill>()
+    val shown = buildString {
+        var last = 0
+        for (m in list) {
+            append(text, last, m.range.first)
+            val start = length
+            append('\u2009').append('@').append(m.title).append('\u2009')
+            pills += MentionPill(start until length, m.id)
+            last = m.range.last + 1
+        }
+        append(text, last, text.length)
+    }
+    return shown to pills
 }
 
 /** Where [query] occurs in [text], in any case, one after another. */
@@ -189,8 +220,30 @@ fun UserBubble(
 ) {
     val faded = pending || cancelled
     val shape = RoundedCornerShape(Metrics.Corner.bubble)
-    // Mentions of sessions show as @title, as find searches them.
-    val shown = mentionDisplay(text)
+    // Mentions of sessions show as pills, @title, as find searches them. A
+    // pill is a link that opens its session; the rest of the text stays
+    // selectable around it.
+    val (shown, pills) = remember(text) { mentionPills(text) }
+    val pillColor = if (draft) palette.accent else palette.onAccent
+    val pillStyle = SpanStyle(background = pillColor.copy(alpha = 0.22f), fontWeight = FontWeight.SemiBold)
+    val pillStyles = TextLinkStyles(style = pillStyle, pressedStyle = pillStyle.copy(background = pillColor.copy(alpha = 0.4f)))
+    val openSession = LocalOpenSession.current
+    val found = findHighlighted(shown)
+    val styled = remember(found, pills, pillStyle, pillStyles, openSession) {
+        if (pills.isEmpty()) found
+        else buildAnnotatedString {
+            append(found)
+            for (pill in pills) {
+                val end = pill.range.last + 1
+                if (openSession == null) {
+                    addStyle(pillStyle, pill.range.first, end)
+                } else {
+                    val link = LinkAnnotation.Clickable("session:${pill.sessionId}", pillStyles) { openSession(pill.sessionId) }
+                    addLink(link, pill.range.first, end)
+                }
+            }
+        }
+    }
     Row(Modifier.fillMaxWidth().testTag(if (draft) "draft-bubble" else "user-bubble"), horizontalArrangement = Arrangement.End) {
         Spacer(Modifier.width(40.dp))
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -200,7 +253,7 @@ fun UserBubble(
             if (shown.isNotEmpty()) {
                 SelectionContainer {
                     Text(
-                        findHighlighted(shown), style = messageStyle(), color = if (draft) palette.text else palette.onAccent,
+                        styled, style = messageStyle(), color = if (draft) palette.text else palette.onAccent,
                         modifier = Modifier
                             .then(
                                 if (draft) Modifier.background(palette.accent.copy(alpha = 0.12f), shape).dashedOutline(palette.accent, Metrics.Corner.bubble)

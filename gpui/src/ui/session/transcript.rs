@@ -67,7 +67,9 @@ impl SessionView {
                         .pl(px(40.))
                         .gap_1()
                         .when_some(images, |d, g| d.child(g))
-                        .when(!o.text.is_empty(), |d| d.child(user_bubble(&o.command_id, &o.text, &p)))
+                        .when(!o.text.is_empty(), |d| {
+                            d.child(user_bubble(&o.command_id, &o.text, &self.server_id(cx), &p))
+                        })
                         .child(caption("Sending…", &p))
                         .into_any_element(),
                     0,
@@ -245,7 +247,9 @@ impl SessionView {
             .gap_1()
             .when(faded, |d| d.opacity(0.75))
             .when_some(images, |d, g| d.child(g))
-            .when(!text.is_empty(), |d| d.child(user_bubble(&it.id, text, p)));
+            .when(!text.is_empty(), |d| {
+                d.child(user_bubble(&it.id, text, &self.server_id(cx), p))
+            });
         if it.status == ItemStatus::Queued {
             let steer = self.can_steer(text, cx);
             let (now, steer_id, cancel) = (it.id.clone(), it.id.clone(), it.id.clone());
@@ -962,20 +966,59 @@ pub(crate) fn input_preview(name: &str, input: &Value, p: &Palette) -> AnyElemen
 }
 
 /// The user's prompt, selectable like the agent's replies, with mentions of
-/// other sessions as @title.
-pub(crate) fn user_bubble(id: &str, text: &str, p: &Palette) -> Div {
-    let text = crate::store::mentions::mention_display(text);
-    v_flex()
+/// other sessions as pills, @title, which open the session they name on
+/// `server`.
+pub(crate) fn user_bubble(id: &str, text: &str, server: &str, p: &Palette) -> Div {
+    let bubble = v_flex()
         .font_family(crate::ui::fonts::message())
         .gap_1()
         .px_3()
         .py_2()
         .rounded_lg()
-        .bg(p.user_bubble)
-        .child(div().text_sm().child(gpui_kit::base::SelectableText::new(
+        .bg(p.user_bubble);
+    if crate::store::mentions::mentions(text).is_empty() {
+        return bubble.child(div().text_sm().child(gpui_kit::base::SelectableText::new(
             SharedString::from(format!("prompt-{id}")),
-            text,
-        )))
+            text.to_string(),
+        )));
+    }
+    // As Markdown, for the pills' links: each a code span drawn as a pill.
+    let mut pill = gpui_kit::StyleRefinement::default();
+    pill.text.color = Some(p.accent);
+    pill.text.font_weight = Some(FontWeight::SEMIBOLD);
+    pill.text.font_family = Some(crate::ui::fonts::message());
+    // The prompt's own size, `text_sm`: code is drawn smaller.
+    pill.text.font_size = Some(gpui_kit::rems(0.875).into());
+    pill.background = Some(p.accent.opacity(0.16).into());
+    let radius = gpui_kit::AbsoluteLength::from(px(999.));
+    pill.corner_radii.top_left = Some(radius);
+    pill.corner_radii.top_right = Some(radius);
+    pill.corner_radii.bottom_left = Some(radius);
+    pill.corner_radii.bottom_right = Some(radius);
+    pill.padding.left = Some(px(6.).into());
+    pill.padding.right = Some(px(6.).into());
+    let server = server.to_string();
+    bubble.child(
+        div().text_sm().child(
+            gpui_kit::base::TextView::markdown(
+                gpui_kit::ElementId::Name(SharedString::from(format!("prompt-md-{id}"))),
+                crate::store::mentions::mention_markdown(text),
+            )
+            .markdown_raw_html(false)
+            .inline_code_style(pill)
+            .selectable(true)
+            .on_link_click(move |url, _, window, cx| {
+                match url.strip_prefix(crate::store::mentions::MENTION_LINK) {
+                    Some(session) => {
+                        if let Some(app) = crate::ui::state::app_view(cx) {
+                            app.update(cx, |a, cx| a.open_by_ids(&server, session, None, window, cx));
+                        }
+                    }
+                    None => cx.open_url(url),
+                }
+            }),
+        ),
+    )
 }
 
 pub(crate) fn tool_icon(kind: ToolKind) -> gpui_kit::component::Icon {

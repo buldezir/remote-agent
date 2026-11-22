@@ -58,6 +58,8 @@ struct InboxView: View {
             .deleteSessionDialog($deleting)
             .removeServerDialog($removing)
         }
+        // A session a prompt mentions goes on top, so Back returns to the prompt.
+        .environment(\.openMentionedSession, OpenMentionedSession(root: "inbox") { path.append($0) })
         .environment(\.sessionActions, SessionActions(
             startSession: { newSession = $0 },
             rename: { renaming = $0 },

@@ -52,6 +52,69 @@ struct ItemView: View {
     }
 }
 
+/// A mention's pill links to its session as `rad-session:<id>`. The bubble
+/// takes the link (`MentionContext.action`) and opens the session, on its own
+/// server, through the stack root's `OpenMentionedSession`.
+enum MentionLink {
+    static let scheme = "rad-session"
+
+    static func url(_ sessionID: String) -> URL? {
+        var c = URLComponents()
+        c.scheme = scheme
+        c.path = sessionID
+        return c.url
+    }
+
+    /// The mentioned session's id, for a mention's link.
+    static func sessionID(_ url: URL) -> String? {
+        guard url.scheme == scheme,
+              let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.path,
+              !path.isEmpty else { return nil }
+        return path
+    }
+}
+
+/// Opens a session a prompt mentions: pushed on an iPhone's stack, chosen in
+/// the iPad's split view. Each root sets it, named after itself. Equal while
+/// the name is, since its closure only writes the root's state: a closure is
+/// never equal to the last, so every redraw of the root would redraw the
+/// session under it, and hiding the iPhone's tab bar would never settle.
+struct OpenMentionedSession: Equatable {
+    var root = ""
+    var open: (SessionRoute) -> Void = { _ in }
+
+    static func == (a: Self, b: Self) -> Bool { a.root == b.root }
+}
+
+/// What a session's prompts need to open the sessions they mention: its
+/// server, itself, and how its root opens a session.
+struct MentionContext: Equatable {
+    var connection: ServerConnection?
+    var sessionID = ""
+    var opener = OpenMentionedSession()
+
+    static func == (a: Self, b: Self) -> Bool {
+        a.connection === b.connection && a.sessionID == b.sessionID && a.opener == b.opener
+    }
+
+    /// Opens a mention's session if the server has it, and passes every
+    /// other link on.
+    @MainActor var action: OpenURLAction {
+        OpenURLAction { url in
+            guard let id = MentionLink.sessionID(url) else { return .systemAction }
+            if let connection, id != sessionID, connection.sessions[id] != nil {
+                opener.open(SessionRoute(serverID: connection.server.id, sessionID: id))
+            }
+            return .handled
+        }
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var openMentionedSession = OpenMentionedSession()
+    @Entry var mentionContext = MentionContext()
+}
+
 struct UserBubble: View {
     let text: String
     var images: [ImageRef] = []
@@ -69,6 +132,27 @@ struct UserBubble: View {
     @State private var sending = false
     @State private var error: String?
     @Environment(\.findHighlight) private var highlight
+    @Environment(\.mentionContext) private var mentions
+
+    /// The prompt with each mention of another session as a pill: @title
+    /// between thin spaces, on a tint of the text's colour, linking to the
+    /// session (`MentionLink`). Find marks it too.
+    private func mentionPills(_ text: String) -> AttributedString {
+        var out = AttributedString()
+        var last = text.startIndex
+        for m in SessionMentions.mentions(text) {
+            out += AttributedString(text[last..<m.range.lowerBound])
+            var pill = AttributedString("\u{2009}@\(m.title)\u{2009}")
+            pill.swiftUI.backgroundColor = (draft ? Palette.accent : Palette.onAccent).opacity(0.22)
+            pill.inlinePresentationIntent = .stronglyEmphasized
+            pill.link = MentionLink.url(m.id)
+            out += pill
+            last = m.range.upperBound
+        }
+        out += AttributedString(text[last...])
+        FindHighlight.mark(&out, highlight)
+        return out
+    }
 
     var body: some View {
         HStack {
@@ -80,9 +164,13 @@ struct UserBubble: View {
                         .padding(.bottom, 2)
                 }
                 if !text.isEmpty {
-                    // Mentions of sessions as @title, as find reads them.
-                    Text(FindHighlight.text(SessionMentions.mentionDisplay(text), highlight))
+                    // Mentions of sessions as pills, @title, as find reads them.
+                    Text(mentionPills(text))
                         .messageFont()
+                        // A pill's link takes the tint: the bubble's text colour,
+                        // not the accent the bubble is drawn in.
+                        .tint(draft ? Palette.text : Palette.onAccent)
+                        .environment(\.openURL, mentions.action)
                         .textSelection(.enabled)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)

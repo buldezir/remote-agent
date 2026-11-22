@@ -622,7 +622,7 @@ func (s *Server) toolReadSession(ctx context.Context, raw json.RawMessage) (any,
 		if it.Order < from {
 			continue
 		}
-		if line := orchestrator.TranscriptLine(it); line != "" {
+		if line := orchestrator.WholeTranscriptLine(it); line != "" {
 			b.WriteString(line + "\n\n")
 		} else if it.Kind == model.ItemApproval && it.Status == model.ItemPending && it.Approval != nil {
 			b.WriteString("Waiting for the user to answer: " + it.Approval.Title + "\n\n")

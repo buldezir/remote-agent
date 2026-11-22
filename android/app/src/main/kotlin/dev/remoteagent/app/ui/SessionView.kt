@@ -141,7 +141,8 @@ val LocalConnection = staticCompositionLocalOf<ServerConnection> { error("no Ser
  * started empty, the prompt takes the keyboard. With `focus`, as from a
  * search result, it opens at that item, which it flashes, then calls
  * `onFocused`; at the foot if the item never comes. `onForked` opens a fork
- * made from its menu, as a new session opens. Its find bar (Find in Session
+ * made from its menu, as a new session opens, and `onOpenSession` another
+ * of the server's, as a tap on a mention's pill asks. Its find bar (Find in Session
  * in its menu, or Ctrl+F) marks the items that match and steps through
  * them. Mirrors apple/Shared/Views/SessionView.swift.
  */
@@ -154,8 +155,9 @@ fun SessionView(
     onFocused: (FocusRequest) -> Unit = {},
     onBack: () -> Unit,
     onForked: (Session, empty: Boolean) -> Unit,
+    onOpenSession: ((String) -> Unit)? = null,
 ) {
-    CompositionLocalProvider(LocalConnection provides connection) {
+    CompositionLocalProvider(LocalConnection provides connection, LocalOpenSession provides onOpenSession) {
         SessionScreen(connection, store, focusPrompt, focus, onFocused, onBack, onForked)
     }
 }

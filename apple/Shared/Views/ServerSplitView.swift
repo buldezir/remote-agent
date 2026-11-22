@@ -99,6 +99,7 @@ struct ServerSplitView: View {
 
     var body: some View {
         split
+            .environment(\.openMentionedSession, OpenMentionedSession(root: "split") { selection.wrappedValue = $0 })
             .environment(\.sessionActions, SessionActions(
                 startSession: { newSession = inChosenProject($0) },
                 rename: { renaming = $0 },

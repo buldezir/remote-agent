@@ -280,6 +280,13 @@ func TestHandoffLines(t *testing.T) {
 			t.Errorf("TranscriptLine(%s %q) = %q, want %q", c.item.Kind, c.item.Text, got, c.want)
 		}
 	}
+	long := &model.Item{Kind: model.ItemAssistantMessage, Text: strings.Repeat("review ", handoffEntry)}
+	if got := TranscriptLine(long); !strings.HasSuffix(got, " […]") {
+		t.Errorf("a handoff keeps a long reply whole: %d", len(got))
+	}
+	if got := WholeTranscriptLine(long); got != "Assistant:\n"+strings.TrimSpace(long.Text) {
+		t.Errorf("read_session clips a long reply: %d", len(got))
+	}
 }
 
 func TestForkRules(t *testing.T) {

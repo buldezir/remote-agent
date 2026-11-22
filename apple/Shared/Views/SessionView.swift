@@ -44,6 +44,7 @@ struct SessionView: View {
     @AppStorage("terminalHeight") private var terminalHeight: Double = 280
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openMentionedSession) private var openMentionedSession
     @State private var dictation = Dictation()
     @State private var attachments = Attachments()
     @State private var scrollPosition = ScrollPosition(edge: .bottom)
@@ -215,6 +216,9 @@ struct SessionView: View {
                 .frame(maxWidth: .infinity)
                 .paletteText()
         }
+        // A mention's pill opens its session.
+        .environment(\.mentionContext, MentionContext(connection: connection, sessionID: store.sessionID,
+                                                      opener: openMentionedSession))
         .background(Palette.base)
         .scrollPosition($scrollPosition)
         .onScrollGeometryChange(for: Bool.self) { geometry in

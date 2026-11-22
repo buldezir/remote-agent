@@ -16,14 +16,16 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useContext, useState, type MouseEvent, type ReactNode } from "react";
 import type { Draft, HarnessInfo, ImageRef, Item, JSONValue, Plan, Turn } from "../../protocol/models";
-import { mentionDisplay } from "../../store/sessionMentions";
+import { mentions } from "../../store/sessionMentions";
 import type { SessionStore } from "../../store/sessionStore";
 import { capitalized, runParts, runTitle, runTools, runWorking, type ToolRun } from "../../store/toolRuns";
+import { ConnectionContext } from "../context";
 import { ImageGallery } from "../images";
 import { Markdown } from "../Markdown";
 import { ErrorAlert, Spinner } from "../primitives";
+import { navigate, parseRoute, routeHash } from "../router";
 import { LimitNotice } from "../UsageLimits";
 import { ApprovalView } from "./ApprovalView";
 
@@ -106,7 +108,7 @@ export function UserBubble({
       )}
       {text && (
         <div className="bubble" style={{ opacity: faded ? 0.55 : 1 }}>
-          {mentionDisplay(text)}
+          <MentionText text={text} />
         </div>
       )}
       {pending &&
@@ -435,4 +437,41 @@ function PlanView({ plan }: { plan?: Plan }) {
 /** Marks a turn that did not finish normally. */
 export function TurnFooter({ turn }: { turn: Turn }) {
   return turn.status === "failed" ? <div className="turn-footer c-red">Failed</div> : <div className="turn-footer">Interrupted</div>;
+}
+
+/** A prompt's text, with each mention of another session as a pill, @title,
+ *  which opens that session of the same server. */
+export function MentionText({ text }: { text: string }) {
+  const list = mentions(text);
+  if (!list.length) return <>{text}</>;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const m of list) {
+    if (m.start > last) parts.push(text.slice(last, m.start));
+    parts.push(<MentionPill key={m.start} title={m.title} sessionID={m.id} />);
+    last = m.end;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+/** A mention, a link to its session, opened as a row in the sidebar opens
+ *  it: in a narrow window, in the tab the bubble is in. One the server no
+ *  longer has, or outside a server's views (Settings' preview), is only text. */
+function MentionPill({ title, sessionID }: { title: string; sessionID: string }) {
+  const connection = useContext(ConnectionContext);
+  const gone = !connection || (connection.indexSynced && !connection.sessions.has(sessionID));
+  if (gone) return <span className="mention-pill" title="A session the agent reads">@{title}</span>;
+  const serverID = connection.server.id;
+  const open = (e: MouseEvent) => {
+    // A modified click opens the link as the browser would, in a new tab.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    navigate({ serverID, sessionID, tab: parseRoute(location.hash).tab });
+  };
+  return (
+    <a className="mention-pill" href={routeHash({ serverID, sessionID })} onClick={open} aria-label={`Open session ${title}`} title={`Open ${title}`}>
+      @{title}
+    </a>
+  );
 }
