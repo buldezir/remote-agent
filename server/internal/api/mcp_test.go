@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -81,6 +83,8 @@ type mcpSession struct {
 	Status     string            `json:"status"`
 	Worktree   bool              `json:"worktree"`
 	ForkedFrom *model.ForkedFrom `json:"forkedFrom"`
+	Draft      string            `json:"draft"`
+	Archived   bool              `json:"archived"`
 }
 
 func TestMCPTransport(t *testing.T) {
@@ -95,7 +99,8 @@ func TestMCPTransport(t *testing.T) {
 	for _, tl := range tools {
 		names = append(names, tl.(map[string]any)["name"].(string))
 	}
-	if got := strings.Join(names, " "); got != "list_projects list_agents list_sessions start_session send_prompt read_session wait_for_session stop_session rename_session fork_session" {
+	if got := strings.Join(names, " "); got != "list_projects list_agents list_sessions start_session send_prompt read_session wait_for_session stop_session rename_session fork_session "+
+		"save_draft archive_session unarchive_session search_sessions read_diff list_branches" {
 		t.Errorf("tools = %s", got)
 	}
 
@@ -391,4 +396,180 @@ func TestMCPDefaultAgent(t *testing.T) {
 	if fork.Agent != "fake" || fork.Model != "" {
 		t.Errorf("fork = %+v", fork)
 	}
+}
+
+func TestMCPDrafts(t *testing.T) {
+	s := startServer(t)
+	ctx := context.Background()
+	dev := s.mcp(t, s.token(t))
+	dir := filepath.Join(s.root, "app")
+	os.MkdirAll(dir, 0o755)
+
+	// A session started with a draft waits for the user to send it.
+	var drafted mcpSession
+	dev.ok("start_session", map[string]any{"project": dir, "prompt": "look at the logs", "draft": true}, &drafted)
+	if drafted.Status != "idle" || drafted.Draft != "look at the logs" {
+		t.Errorf("drafted = %+v", drafted)
+	}
+	if turns, _ := s.st.Turns(ctx, drafted.ID); len(turns) != 0 {
+		t.Errorf("a draft started %d turn(s)", len(turns))
+	}
+
+	var started mcpSession
+	dev.ok("start_session", map[string]any{"project": dir, "prompt": "hello"}, &started)
+	dev.ok("wait_for_session", map[string]any{"session": started.ID}, nil)
+	// An agent may save one in its own session, as in any.
+	agent := s.mcp(t, s.orch.AgentToken(started.ID))
+	if text := agent.ok("save_draft", map[string]any{"session": started.ID, "text": "next, the tests"}, nil); !strings.HasPrefix(text, "Saved") {
+		t.Errorf("save = %q", text)
+	}
+	if got, _ := s.st.Session(ctx, started.ID); got.Draft == nil || got.Draft.Text != "next, the tests" {
+		t.Errorf("draft = %+v", got.Draft)
+	}
+	if text := agent.ok("save_draft", map[string]any{"session": started.ID, "text": ""}, nil); text != "Removed the draft." {
+		t.Errorf("remove = %q", text)
+	}
+	if got, _ := s.st.Session(ctx, started.ID); got.Draft != nil {
+		t.Errorf("draft after removing = %+v", got.Draft)
+	}
+
+	var fork mcpSession
+	dev.ok("fork_session", map[string]any{"session": started.ID, "prompt": "try it another way", "draft": true}, &fork)
+	if fork.Draft != "try it another way" || fork.Status != "idle" {
+		t.Errorf("fork = %+v", fork)
+	}
+	dev.fails("fork_session", map[string]any{"session": started.ID, "draft": true}, "needs a prompt")
+}
+
+func TestMCPArchive(t *testing.T) {
+	s := startServer(t)
+	dev := s.mcp(t, s.token(t))
+	dir := filepath.Join(s.root, "app")
+	os.MkdirAll(dir, 0o755)
+	start := func(c *mcpClient, prompt string) mcpSession {
+		t.Helper()
+		var sess mcpSession
+		c.ok("start_session", map[string]any{"project": dir, "prompt": prompt}, &sess)
+		c.ok("wait_for_session", map[string]any{"session": sess.ID}, nil)
+		return sess
+	}
+	parent, users := start(dev, "hello"), start(dev, "the user's own")
+	agent := s.mcp(t, s.orch.AgentToken(parent.ID))
+	child := start(agent, "help me")
+	grandchild := start(s.mcp(t, s.orch.AgentToken(child.ID)), "help more")
+
+	// An agent archives the sessions it started, theirs, and no others.
+	agent.fails("archive_session", map[string]any{"session": parent.ID}, "your own session")
+	agent.fails("archive_session", map[string]any{"session": users.ID}, "you didn't start")
+	for _, id := range []string{grandchild.ID, child.ID} {
+		if text := agent.ok("archive_session", map[string]any{"session": id}, nil); text != "Archived." {
+			t.Errorf("archive = %q", text)
+		}
+	}
+	var sessions struct {
+		Sessions []mcpSession `json:"sessions"`
+	}
+	if dev.ok("list_sessions", nil, &sessions); len(sessions.Sessions) != 2 {
+		t.Errorf("sessions left = %+v", sessions.Sessions)
+	}
+	dev.fails("send_prompt", map[string]any{"session": child.ID, "prompt": "more"}, "archived")
+
+	var back mcpSession
+	if agent.ok("unarchive_session", map[string]any{"session": child.ID}, &back); back.Archived || back.ID != child.ID {
+		t.Errorf("unarchived = %+v", back)
+	}
+	dev.ok("send_prompt", map[string]any{"session": child.ID, "prompt": "more"}, nil)
+
+	// A device archives any.
+	if text := dev.ok("archive_session", map[string]any{"session": users.ID}, nil); text != "Archived." {
+		t.Errorf("device's archive = %q", text)
+	}
+	if text := dev.ok("archive_session", map[string]any{"session": users.ID}, nil); !strings.Contains(text, "already") {
+		t.Errorf("archive again = %q", text)
+	}
+}
+
+func TestMCPSearch(t *testing.T) {
+	s := startServer(t)
+	dev := s.mcp(t, s.token(t))
+	dir := filepath.Join(s.root, "app")
+	os.MkdirAll(dir, 0o755)
+	var a, b mcpSession
+	dev.ok("start_session", map[string]any{"project": dir, "prompt": "fix the flaky checkout test"}, &a)
+	dev.ok("start_session", map[string]any{"project": dir, "prompt": "write the release notes"}, &b)
+	dev.ok("wait_for_session", map[string]any{"session": a.ID}, nil)
+	dev.ok("wait_for_session", map[string]any{"session": b.ID}, nil)
+
+	var found struct {
+		Results []struct {
+			Session mcpSession `json:"session"`
+			Snippet string     `json:"snippet"`
+			Matches int        `json:"matches"`
+		} `json:"results"`
+	}
+	if dev.ok("search_sessions", map[string]any{"query": "flak"}, &found); len(found.Results) != 1 || found.Results[0].Session.ID != a.ID ||
+		!strings.Contains(found.Results[0].Snippet, "**flaky**") {
+		t.Errorf("found = %+v", found)
+	}
+	dev.fails("search_sessions", map[string]any{"query": " "}, "empty")
+
+	dev.ok("archive_session", map[string]any{"session": a.ID}, nil)
+	if dev.ok("search_sessions", map[string]any{"query": "flaky"}, &found); len(found.Results) != 0 {
+		t.Errorf("found archived = %+v", found)
+	}
+	if dev.ok("search_sessions", map[string]any{"query": "flaky", "archived": true}, &found); len(found.Results) != 1 {
+		t.Errorf("found with archived = %+v", found)
+	}
+}
+
+func TestMCPDiffAndBranches(t *testing.T) {
+	s := startServer(t)
+	dev := s.mcp(t, s.token(t))
+	dir := filepath.Join(s.root, "app")
+	for _, args := range [][]string{{"init", "-q", "-b", "main", dir}, {"-C", dir, "commit", "-q", "--allow-empty", "-m", "init"},
+		{"-C", dir, "branch", "feature"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com", "GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	var sess mcpSession
+	dev.ok("start_session", map[string]any{"project": dir, "prompt": "write a.txt", "mode": "auto", "worktree": true, "branch": "ra/notes"}, &sess)
+	dev.ok("wait_for_session", map[string]any{"session": sess.ID}, nil)
+	dev.ok("send_prompt", map[string]any{"session": sess.ID, "prompt": "write b.txt"}, nil)
+	dev.ok("wait_for_session", map[string]any{"session": sess.ID}, nil)
+
+	type diff struct {
+		Files []struct {
+			Path      string `json:"path"`
+			Status    string `json:"status"`
+			Additions int    `json:"additions"`
+		} `json:"files"`
+		Patch string `json:"patch"`
+	}
+	var all, second diff
+	if dev.ok("read_diff", map[string]any{"session": sess.ID}, &all); len(all.Files) != 2 || !strings.Contains(all.Patch, "+hello from fake") {
+		t.Errorf("session's diff = %+v", all)
+	}
+	if dev.ok("read_diff", map[string]any{"session": sess.ID, "turn": 2}, &second); len(second.Files) != 1 || second.Files[0].Path != "b.txt" ||
+		second.Files[0].Status != "added" {
+		t.Errorf("turn 2's diff = %+v", second)
+	}
+	dev.fails("read_diff", map[string]any{"session": sess.ID, "turn": 3}, "has 2 turn(s)")
+
+	var branches struct {
+		Branches  []string `json:"branches"`
+		Current   string   `json:"current"`
+		Worktrees []struct {
+			Path, Branch string
+		} `json:"worktrees"`
+	}
+	dev.ok("list_branches", map[string]any{"project": dir}, &branches)
+	if branches.Current != "main" || !slices.Contains(branches.Branches, "feature") || !slices.Contains(branches.Branches, "ra/notes") ||
+		len(branches.Worktrees) != 1 || branches.Worktrees[0].Branch != "ra/notes" {
+		t.Errorf("branches = %+v", branches)
+	}
+	dev.fails("list_branches", map[string]any{"project": "/elsewhere"}, "no project")
 }

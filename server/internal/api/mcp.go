@@ -104,6 +104,8 @@ func (s *Server) mcpServer() *mcp.Server {
 		return o
 	}
 	session := str("A session's id, from list_sessions (a unique start of it will do).")
+	draftProp := map[string]any{"type": "boolean", "description": "Don't send the request: keep it as the session's draft, for the user to read, change and send from the app. " +
+		"The session starts no turn until then. Default: send it."}
 	agentProps := map[string]any{
 		"agent":    str("An agent's id from list_agents. Default: the user's default for new sessions (list_agents' default), else your own agent."),
 		"model":    str("A model id of the agent, from list_agents. Default: the user's default with that agent, else the agent's."),
@@ -144,6 +146,7 @@ func (s *Server) mcpServer() *mcp.Server {
 				"project": str("The project's id or folder, from list_projects. A folder under rad's roots becomes a project."),
 				"prompt":  str("The request for the session's agent. It knows nothing of your conversation: say everything it needs."),
 				"title":   str("The session's title. Default: one made from the request."),
+				"draft":   draftProp,
 				"branch": str("With worktree, the branch: an existing branch that no checkout has is checked out in the new worktree; any other name is a new branch from the project's HEAD. " +
 					"Default: a new branch named after the request."),
 				"worktreePath": str("An existing worktree of the project to work in, such as another session's folder from list_sessions, instead of making one (worktree and branch then don't apply). " +
@@ -183,9 +186,43 @@ func (s *Server) mcpServer() *mcp.Server {
 				"session": session,
 				"turn":    map[string]any{"type": "integer", "minimum": 1, "description": "The turn to go on after. Default: the last one that ended."},
 				"prompt":  str("A request to send the fork at once. Default: none."),
+				"draft":   draftProp,
 				"worktreePath": str("An existing worktree of the project to work in as it is now, such as the forked session's own folder from list_sessions, instead of making one (worktree and branch then don't apply). " +
 					"The session it forks may go on working there too."),
 			})), Call: s.toolForkSession},
+		{Name: "save_draft", Title: "Save a draft",
+			Description: "Keeps a request in a session, your own too, as its draft: unsent, for the user to read, change and send from the app. " +
+				"It replaces the draft the session had; an empty text removes it.",
+			Input: object([]string{"session", "text"}, map[string]any{
+				"session": session, "text": str("The request."),
+			}), Call: s.toolSaveDraft},
+		{Name: "archive_session", Title: "Archive a session",
+			Description: "Archives a session: its agent stops, it leaves the app's lists for the archive, and it takes no requests until it's unarchived. " +
+				"Its worktree, if it has one, stays. An agent may archive only the sessions it started, and theirs.",
+			Input: object([]string{"session"}, map[string]any{"session": session}), Call: s.toolArchiveSession},
+		{Name: "unarchive_session", Title: "Unarchive a session",
+			Description: "Brings an archived session back, to take requests again; its agent picks up its conversation. " +
+				"An agent may unarchive only the sessions it started, and theirs.",
+			Input: object([]string{"session"}, map[string]any{"session": session}), Call: s.toolUnarchiveSession},
+		{Name: "search_sessions", Title: "Search sessions", ReadOnly: true,
+			Description: "Searches the sessions' titles, branches and transcripts (requests, replies, notices, tool calls' titles and commands, plans and questions; " +
+				"not tool output or reasoning) for words, best matches first. Each result has its session, and where it matched, with the words found in **bold**.",
+			Input: object([]string{"query"}, map[string]any{
+				"query":    str("The words to find; each word matches words that start with it."),
+				"archived": map[string]any{"type": "boolean", "description": "Search archived sessions too."},
+				"limit":    map[string]any{"type": "integer", "minimum": 1, "maximum": 100, "description": "Sessions at most. Default: 30."},
+			}), Call: s.toolSearchSessions},
+		{Name: "read_diff", Title: "Read a session's changes", ReadOnly: true,
+			Description: "The changes a session's agent made to the files in its folder, as the app's Changes shows them: each file's lines added and removed, and the patch. " +
+				"All of them since the session's first turn, or one turn's.",
+			Input: object([]string{"session"}, map[string]any{
+				"session": session,
+				"turn":    map[string]any{"type": "integer", "minimum": 1, "description": "Only this turn's changes (1 is the first). Default: the whole session's."},
+				"paths":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Only these files' patches, as the files list names them. Default: all."},
+			}), Call: s.toolReadDiff},
+		{Name: "list_branches", Title: "List branches", ReadOnly: true,
+			Description: "Lists a git project's local branches, the one its folder has checked out, and its worktrees with their branches: for start_session's branch and worktreePath.",
+			Input:       object([]string{"project"}, map[string]any{"project": str("The project's id or folder, from list_projects.")}), Call: s.toolListBranches},
 	}}
 }
 
@@ -260,6 +297,7 @@ type sessionSummary struct {
 	Worktree   bool              `json:"worktree,omitempty"`
 	Archived   bool              `json:"archived,omitempty"`
 	ForkedFrom *model.ForkedFrom `json:"forkedFrom,omitempty"`
+	Draft      string            `json:"draft,omitempty"` // a request waiting for the user to send it
 	Updated    time.Time         `json:"updated"`
 }
 
@@ -269,6 +307,9 @@ func summarize(sess *model.Session, projects map[string]*model.Project) sessionS
 		Worktree: sess.Workspace.Kind == model.WorkspaceWorktree, Archived: sess.Archived, ForkedFrom: sess.ForkedFrom, Updated: sess.UpdatedAt}
 	if sess.ModelInfo != nil && sess.ModelInfo.ID != "" {
 		sum.Model = sess.ModelInfo.ID
+	}
+	if sess.Draft != nil {
+		sum.Draft = sess.Draft.Text
 	}
 	if p := projects[sess.ProjectID]; p != nil {
 		sum.Project = p.Name
@@ -471,6 +512,7 @@ func (s *Server) toolStartSession(ctx context.Context, raw json.RawMessage) (any
 		Prompt       string `json:"prompt"`
 		Title        string `json:"title"`
 		WorktreePath string `json:"worktreePath"`
+		Draft        bool   `json:"draft"`
 	}](raw)
 	if err != nil {
 		return nil, err
@@ -494,7 +536,7 @@ func (s *Server) toolStartSession(ctx context.Context, raw json.RawMessage) (any
 	}
 	sess, err := s.orch.CreateSession(ctx, orchestrator.CreateSessionParams{CommandID: store.NewID(), ProjectID: proj.ID,
 		Harness: a.Agent, Model: a.Model, Effort: a.Effort, Mode: a.Mode, Workspace: ws, Prompt: p.Prompt, Title: p.Title,
-		StartedBy: callerOf(ctx).session})
+		Draft: p.Draft, StartedBy: callerOf(ctx).session})
 	if err != nil {
 		return nil, err
 	}
@@ -696,9 +738,13 @@ func (s *Server) toolForkSession(ctx context.Context, raw json.RawMessage) (any,
 		Turn         int    `json:"turn"`
 		Prompt       string `json:"prompt"`
 		WorktreePath string `json:"worktreePath"`
+		Draft        bool   `json:"draft"`
 	}](raw)
 	if err != nil {
 		return nil, err
+	}
+	if p.Draft && strings.TrimSpace(p.Prompt) == "" {
+		return nil, errors.New("a draft needs a prompt")
 	}
 	src, err := s.findSession(ctx, p.Session)
 	if err != nil {
@@ -716,7 +762,7 @@ func (s *Server) toolForkSession(ctx context.Context, raw json.RawMessage) (any,
 		a.Model, a.Effort = src.Model, src.Effort // as the session it forks
 	}
 	fp := orchestrator.ForkParams{CommandID: store.NewID(), SessionID: src.ID, Turn: p.Turn, Harness: a.Agent, Model: a.Model,
-		Effort: a.Effort, Mode: a.Mode, Prompt: p.Prompt, StartedBy: callerOf(ctx).session}
+		Effort: a.Effort, Mode: a.Mode, Prompt: p.Prompt, Draft: p.Draft, StartedBy: callerOf(ctx).session}
 	switch {
 	case p.WorktreePath != "":
 		fp.Workspace = &orchestrator.WorkspaceParams{Kind: model.WorkspaceWorktree, Path: p.WorktreePath}
@@ -732,4 +778,164 @@ func (s *Server) toolForkSession(ctx context.Context, raw json.RawMessage) (any,
 		return nil, err
 	}
 	return s.started(ctx, sess)
+}
+
+func (s *Server) toolSaveDraft(ctx context.Context, raw json.RawMessage) (any, error) {
+	p, err := mcp.Args[struct {
+		Session string `json:"session"`
+		Text    string `json:"text"`
+	}](raw)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := s.findSession(ctx, p.Session)
+	if err != nil {
+		return nil, err
+	}
+	if sess, err = s.orch.SaveDraft(ctx, sess.ID, p.Text, nil); err != nil {
+		return nil, err
+	}
+	if sess.Draft == nil {
+		return "Removed the draft.", nil
+	}
+	return "Saved: the user sends it from the app.", nil
+}
+
+// startedSession finds a session the caller may archive: any for a device,
+// and for an agent, one it started, or one that a session it started did.
+func (s *Server) startedSession(ctx context.Context, ref string) (*model.Session, error) {
+	sess, err := s.other(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if own := callerOf(ctx).session; own != "" && !slices.Contains(s.orch.Lineage(sess.ID), own) {
+		return nil, errors.New("you didn't start that session: the user may archive it in the app")
+	}
+	return sess, nil
+}
+
+func (s *Server) toolArchiveSession(ctx context.Context, raw json.RawMessage) (any, error) {
+	p, err := mcp.Args[struct {
+		Session string `json:"session"`
+	}](raw)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := s.startedSession(ctx, p.Session)
+	if err != nil {
+		return nil, err
+	}
+	if sess.Archived {
+		return "It was archived already.", nil
+	}
+	// As session.archive: its shell ends first, and one opened meanwhile.
+	s.closeTerminal(sess.ID)
+	defer s.closeTerminal(sess.ID)
+	if err := s.orch.Archive(ctx, sess.ID, false); err != nil {
+		return nil, err
+	}
+	return "Archived.", nil
+}
+
+func (s *Server) toolUnarchiveSession(ctx context.Context, raw json.RawMessage) (any, error) {
+	p, err := mcp.Args[struct {
+		Session string `json:"session"`
+	}](raw)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := s.startedSession(ctx, p.Session)
+	if err != nil {
+		return nil, err
+	}
+	if sess, err = s.orch.Unarchive(ctx, sess.ID); err != nil {
+		return nil, err
+	}
+	projects, err := s.projectMap(ctx)
+	return summarize(sess, projects), err
+}
+
+type searchHit struct {
+	Session sessionSummary `json:"session"`
+	Kind    string         `json:"kind,omitempty"` // the matching item's kind; absent: the title or branch matched
+	Snippet string         `json:"snippet"`
+	Matches int            `json:"matches"` // the session's items that match
+}
+
+func (s *Server) toolSearchSessions(ctx context.Context, raw json.RawMessage) (any, error) {
+	p, err := mcp.Args[store.SearchParams](raw)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.Query) == "" {
+		return nil, errors.New("the query is empty")
+	}
+	results, more, err := s.st.Search(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	projects, err := s.projectMap(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hits := []searchHit{}
+	for _, r := range results {
+		var b strings.Builder
+		for _, part := range r.Snippet {
+			if part.Match {
+				b.WriteString("**" + part.Text + "**")
+			} else {
+				b.WriteString(part.Text)
+			}
+		}
+		hits = append(hits, searchHit{summarize(r.Session, projects), string(r.ItemKind), b.String(), r.Matches})
+	}
+	res := map[string]any{"results": hits}
+	if more {
+		res["more"] = true
+	}
+	if s.st.Indexing() {
+		res["note"] = "rad is still indexing older sessions: some may be missing."
+	}
+	return res, nil
+}
+
+func (s *Server) toolReadDiff(ctx context.Context, raw json.RawMessage) (any, error) {
+	p, err := mcp.Args[struct {
+		Session string   `json:"session"`
+		Turn    int      `json:"turn"`
+		Paths   []string `json:"paths"`
+	}](raw)
+	if err != nil {
+		return nil, err
+	}
+	sess, err := s.findSession(ctx, p.Session)
+	if err != nil {
+		return nil, err
+	}
+	if p.Turn == 0 {
+		return s.orch.SessionDiff(ctx, sess.ID, p.Paths)
+	}
+	turns, err := s.st.Turns(ctx, sess.ID)
+	if err != nil {
+		return nil, err
+	}
+	if p.Turn > len(turns) {
+		return nil, fmt.Errorf("the session has %d turn(s)", len(turns))
+	}
+	return s.orch.TurnDiff(ctx, turns[p.Turn-1].ID, p.Paths)
+}
+
+func (s *Server) toolListBranches(ctx context.Context, raw json.RawMessage) (any, error) {
+	p, err := mcp.Args[struct {
+		Project string `json:"project"`
+	}](raw)
+	if err != nil {
+		return nil, err
+	}
+	proj, err := s.findProject(ctx, p.Project, false)
+	if err != nil {
+		return nil, err
+	}
+	return s.branches(ctx, proj)
 }

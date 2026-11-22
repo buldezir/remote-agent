@@ -353,25 +353,31 @@ func (c *conn) dispatch(method string, raw json.RawMessage) (any, error) {
 			if err != nil {
 				return nil, &methodError{"not_found", "project not found"}
 			}
-			if !o.RefreshGit(ctx, proj) {
-				return map[string]any{"branches": []string{}, "current": "", "worktrees": []model.WorktreeInfo{}}, nil
-			}
-			bs, err := gitx.Branches(ctx, proj.Path)
-			if err != nil {
-				return nil, err
-			}
-			wts, err := gitx.Worktrees(ctx, proj.Path)
-			if err != nil {
-				return nil, err
-			}
-			worktrees := []model.WorktreeInfo{}
-			for _, wt := range wts {
-				if !wt.Main {
-					worktrees = append(worktrees, model.WorktreeInfo{Path: wt.Path, Branch: wt.Branch})
-				}
-			}
-			return map[string]any{"branches": bs, "current": gitx.CurrentBranch(ctx, proj.Path), "worktrees": worktrees}, nil
+			return c.s.branches(ctx, proj)
 		})
 	}
 	return nil, &methodError{"method_not_found", "unknown method " + method}
+}
+
+// branches lists a project's branches, the one its folder has checked out,
+// and its worktrees but the main one: for git.branches and list_branches.
+func (s *Server) branches(ctx context.Context, proj *model.Project) (map[string]any, error) {
+	if !s.orch.RefreshGit(ctx, proj) {
+		return map[string]any{"branches": []string{}, "current": "", "worktrees": []model.WorktreeInfo{}}, nil
+	}
+	bs, err := gitx.Branches(ctx, proj.Path)
+	if err != nil {
+		return nil, err
+	}
+	wts, err := gitx.Worktrees(ctx, proj.Path)
+	if err != nil {
+		return nil, err
+	}
+	worktrees := []model.WorktreeInfo{}
+	for _, wt := range wts {
+		if !wt.Main {
+			worktrees = append(worktrees, model.WorktreeInfo{Path: wt.Path, Branch: wt.Branch})
+		}
+	}
+	return map[string]any{"branches": bs, "current": gitx.CurrentBranch(ctx, proj.Path), "worktrees": worktrees}, nil
 }
