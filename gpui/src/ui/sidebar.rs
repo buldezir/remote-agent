@@ -453,12 +453,18 @@ impl AppView {
                                         .flex_1()
                                         .min_w_0()
                                         .gap_1()
+                                        // The branch is cut short first, down to its
+                                        // first letters, and only then the place.
                                         .when(!place.is_empty(), |d| {
-                                            d.child(div().flex_shrink_0().max_w(px(140.)).truncate().child(place))
+                                            let mut place = div().min_w_0().truncate().child(place);
+                                            place.style().flex_shrink = Some(0.001);
+                                            d.child(place)
                                         })
                                         .when_some(branch, |d, b| {
-                                            d.child(Icon::new(L::GitBranch).xsmall().text_color(p.overlay))
-                                                .child(div().min_w_0().truncate().child(b))
+                                            d.child(
+                                                Icon::new(L::GitBranch).xsmall().text_color(p.overlay).flex_shrink_0(),
+                                            )
+                                            .child(div().min_w(px(40.)).truncate().child(b))
                                         }),
                                 )
                                 .when(worktree, |d| d.child(marks())),
@@ -1719,10 +1725,7 @@ fn activity(s: &Session, c: &ServerConn, p: &Palette) -> AnyElement {
         SessionStatus::Error => (s.error.clone().unwrap_or_else(|| "Failed".into()), p.red),
         SessionStatus::Running => ("Working…".into(), p.blue),
         SessionStatus::Stopped => ("Stopped".into(), p.overlay),
-        _ if !s.background_tasks.is_empty() => (
-            format!("In the background: {}", s.background_tasks[0].description),
-            p.blue,
-        ),
+        _ if !s.background_tasks.is_empty() => ("Running in the background".into(), p.blue),
         _ => {
             let model = s
                 .model_info

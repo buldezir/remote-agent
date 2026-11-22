@@ -246,14 +246,14 @@ private fun LeadingGlyph(session: Session) {
 
 /**
  * What the agent is doing: from the session's state, its error or its
- * background task, else the agent, model and context it has used.
+ * background tasks, else the agent, model and context it has used.
  */
 fun sessionActivity(session: Session, harness: HarnessInfo?): String = when (session.status) {
     SessionStatus.AWAITING_APPROVAL -> "Waiting for your answer"
     SessionStatus.ERROR -> session.error ?: "Failed"
     SessionStatus.RUNNING -> "Working…"
     SessionStatus.STOPPED -> "Stopped"
-    SessionStatus.IDLE, SessionStatus.UNKNOWN -> session.backgroundTasks.firstOrNull()?.let { "In the background: ${it.description}" }
+    SessionStatus.IDLE, SessionStatus.UNKNOWN -> "Running in the background".takeIf { session.backgroundTasks.isNotEmpty() }
         ?: listOfNotNull(
             session.modelName(harness) ?: harness?.name ?: session.harness,
             session.context?.fraction?.let { "${(it * 100).roundToInt()}% context" },

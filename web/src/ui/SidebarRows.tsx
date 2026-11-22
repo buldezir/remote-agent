@@ -167,7 +167,7 @@ export function Snippet({ parts }: { parts: SnippetPart[] }) {
 }
 
 /** What the agent is doing: from the session's state, its error or its
- *  background task, else the agent, model and context it has used. */
+ *  background tasks, else the agent, model and context it has used. */
 function activity({ connection, session: s }: ServerSession): string {
   switch (s.status) {
     case "awaiting_approval":
@@ -179,8 +179,7 @@ function activity({ connection, session: s }: ServerSession): string {
     case "stopped":
       return "Stopped";
     default: {
-      const task = s.backgroundTasks?.[0];
-      if (task) return `In the background: ${task.description}`;
+      if (s.backgroundTasks?.length) return "Running in the background";
       const harness = connection.harness(s.harness);
       const fraction = contextFraction(s.context);
       const context = fraction === undefined ? undefined : `${Math.round(fraction * 100)}% context`;

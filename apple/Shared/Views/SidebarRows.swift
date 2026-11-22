@@ -101,7 +101,7 @@ struct SessionListRow: View {
     }
 
     /// What the agent is doing: from the session's state, its error or its
-    /// background task, else the agent, model and context it has used.
+    /// background tasks, else the agent, model and context it has used.
     private var activity: String {
         switch session.status {
         case .awaitingApproval: return "Waiting for your answer"
@@ -109,8 +109,8 @@ struct SessionListRow: View {
         case .running: return "Working…"
         case .stopped: return "Stopped"
         case .idle, .unknown:
-            if let task = session.backgroundTasks?.first {
-                return "In the background: \(task.description)"
+            if session.backgroundTasks?.isEmpty == false {
+                return "Running in the background"
             }
             let harness = item.connection.harness(session.harness)
             let context = session.context?.fraction.map { "\($0.formatted(.percent.precision(.fractionLength(0)))) context" }
