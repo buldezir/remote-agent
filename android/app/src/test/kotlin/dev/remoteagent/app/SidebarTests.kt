@@ -258,7 +258,7 @@ class SidebarTests {
         assertEquals("exit 1", sessionActivity(s.copy(status = SessionStatus.ERROR, error = "exit 1"), null))
         assertEquals("Working…", sessionActivity(s.copy(status = SessionStatus.RUNNING), null))
         assertEquals("Stopped", sessionActivity(s.copy(status = SessionStatus.STOPPED), null))
-        assertEquals("In the background: Wait", sessionActivity(session("bg", 1, background = true), null))
+        assertEquals("Running in the background", sessionActivity(session("bg", 1, background = true), null))
         assertEquals("fake", sessionActivity(s, null))
         val echo = HarnessInfo(id = "fake", name = "Echo", protocol = "fake", installed = true, authOk = true)
         assertEquals("Echo · 15% context", sessionActivity(s.copy(context = ContextUsage(150, 1000)), echo))
