@@ -556,7 +556,7 @@ impl AppView {
         };
         v_flex()
             .relative()
-            .w(px(self.sidebar_width))
+            .w(px(self.pane_width(Pane::Sidebar, cx)))
             .h_full()
             .flex_shrink_0()
             .bg(p.mantle)
@@ -1520,7 +1520,7 @@ impl AppView {
         if searching {
             return v_flex()
                 .relative()
-                .w(px(self.middle_width))
+                .w(px(self.pane_width(Pane::Middle, cx)))
                 .h_full()
                 .flex_shrink_0()
                 .border_r_1()
@@ -1552,7 +1552,7 @@ impl AppView {
         list = self.render_rows(&rows, selected.as_deref(), true, list, cx);
         v_flex()
             .relative()
-            .w(px(self.middle_width))
+            .w(px(self.pane_width(Pane::Middle, cx)))
             .h_full()
             .flex_shrink_0()
             .border_r_1()

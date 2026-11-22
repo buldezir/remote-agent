@@ -78,7 +78,7 @@ impl SessionView {
         if !prefs.sidebar_hidden {
             width -= prefs.sidebar_width;
             if prefs.sidebar_layout == "columns" {
-                width -= prefs.column_width;
+                width -= prefs.collections_width;
             }
         }
         width

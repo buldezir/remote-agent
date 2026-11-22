@@ -91,10 +91,11 @@ pub struct AppView {
     /// The window's frame since it last moved, until it's saved.
     moved_frame: Option<WindowFrame>,
     frame_save: Option<Task<()>>,
-    /// The sidebar's width, and the Columns layout's middle column's, as
-    /// dragged; saved shortly after.
+    /// The session list's width (the sidebar's, and in Columns the middle
+    /// column's), and the Columns layout's first column's, as dragged;
+    /// saved shortly after.
     pub(crate) sidebar_width: f32,
-    pub(crate) middle_width: f32,
+    pub(crate) collections_width: f32,
     pub(crate) widths_save: Option<Task<()>>,
     /// The Dock icon's bounce until the user comes back, and the badge it shows.
     bouncer: Bouncer,
@@ -166,7 +167,7 @@ impl AppView {
             .open_session
             .split_once(' ')
             .map(|(a, b)| (a.to_string(), b.to_string()));
-        let (sidebar_width, middle_width) = panes::saved(cx);
+        let (sidebar_width, collections_width) = panes::saved(cx);
         let mut this = Self {
             focus,
             runtime,
@@ -187,7 +188,7 @@ impl AppView {
             moved_frame: None,
             frame_save: None,
             sidebar_width,
-            middle_width,
+            collections_width,
             widths_save: None,
             bouncer: Bouncer::default(),
             badge: None,

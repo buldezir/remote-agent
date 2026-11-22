@@ -89,10 +89,12 @@ pub struct Prefs {
     pub open_session: String,
     /// Sessions opened lately, the latest first: "<serverId> <sessionId>".
     pub recent_sessions: Vec<String>,
-    /// The sidebar's width, in points.
+    /// The session list's width, in points: the sidebar's, and in the
+    /// Columns layout the middle column's.
     pub sidebar_width: f32,
-    /// The Columns layout's middle column's width, in points.
-    pub column_width: f32,
+    /// The Columns layout's first column's width, the servers and their
+    /// projects, in points.
+    pub collections_width: f32,
     /// The sidebar, and the Columns layout's middle column, are hidden.
     pub sidebar_hidden: bool,
     /// The prompt box keeps to `prompt_box::LIMITED_WIDTH`, in a centred
@@ -153,7 +155,7 @@ impl Default for Prefs {
             open_session: String::new(),
             recent_sessions: Vec::new(),
             sidebar_width: 290.,
-            column_width: 330.,
+            collections_width: 240.,
             sidebar_hidden: false,
             limit_prompt_width: false,
             limit_message_width: false,
