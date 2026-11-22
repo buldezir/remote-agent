@@ -1109,6 +1109,9 @@ impl Render for AppView {
             .on_action(
                 cx.listener(|_, _: &LayoutColumns, _, cx| update_prefs(cx, |p| p.sidebar_layout = "columns".into())),
             )
+            .on_action(cx.listener(|_, _: &LayoutAllProjects, _, cx| {
+                update_prefs(cx, |p| p.sidebar_layout = Layout::AllProjects.key().into())
+            }))
             .on_action(
                 cx.listener(|_, _: &ToggleSidebar, _, cx| update_prefs(cx, |p| p.sidebar_hidden = !p.sidebar_hidden)),
             )

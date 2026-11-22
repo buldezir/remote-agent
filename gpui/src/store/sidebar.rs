@@ -1,6 +1,7 @@
 //! How the sidebar groups sessions, as `SidebarLayout` does in the other
 //! clients (`web/src/ui/sidebarLayout.ts`, Android's `ui/SidebarLayout.kt`).
-//! Three layouts: Inbox, Projects and Columns.
+//! Three layouts: Inbox, Projects and Columns, and one that only this client
+//! has so far: All Projects, every server's projects in one list.
 
 use chrono::{DateTime, Local, Utc};
 
@@ -16,14 +17,19 @@ pub enum Layout {
     Inbox,
     Projects,
     Columns,
+    AllProjects,
 }
 
 impl Layout {
+    /// The layouts, in the order of the View menu and its ⌘1–4.
+    pub const ALL: [Layout; 4] = [Layout::Inbox, Layout::Projects, Layout::Columns, Layout::AllProjects];
+
     pub fn key(self) -> &'static str {
         match self {
             Layout::Inbox => "inbox",
             Layout::Projects => "projects",
             Layout::Columns => "columns",
+            Layout::AllProjects => "allProjects",
         }
     }
 
@@ -31,6 +37,7 @@ impl Layout {
         match s {
             "projects" => Layout::Projects,
             "columns" => Layout::Columns,
+            "allProjects" => Layout::AllProjects,
             _ => Layout::Inbox,
         }
     }
@@ -40,6 +47,7 @@ impl Layout {
             Layout::Inbox => "Inbox",
             Layout::Projects => "Projects",
             Layout::Columns => "Columns",
+            Layout::AllProjects => "All Projects",
         }
     }
 }
@@ -87,6 +95,59 @@ pub fn projects_in_order(by_name: &[Rc<Project>], active: &[Rc<Session>]) -> Vec
         .cloned()
         .partition(|p| latest.contains_key(p.id.as_str()));
     with.sort_by_key(|p| latest[p.id.as_str()]);
+    with.extend(without);
+    with
+}
+
+/// A project of one of the servers, in the All Projects layout.
+#[derive(Debug, Clone)]
+pub struct ServerProject {
+    /// Its server, as its place among the servers given.
+    pub server: usize,
+    pub project: Rc<Project>,
+    /// Its unarchived sessions, the latest first.
+    pub sessions: Vec<Rc<Session>>,
+}
+
+/// What a server gives the All Projects layout.
+#[derive(Debug, Clone, Default)]
+pub struct ServerLists {
+    /// Its projects, by name.
+    pub projects: Vec<Rc<Project>>,
+    /// Its unarchived sessions, the latest first.
+    pub active: Vec<Rc<Session>>,
+}
+
+/// Every server's projects in one list, as the Inbox has every server's
+/// sessions: those with sessions, the one with the latest first, then the
+/// rest by name. Projects stay their servers' own: two of the same name on
+/// two servers are two.
+pub fn all_projects(servers: &[ServerLists]) -> Vec<ServerProject> {
+    let mut with = Vec::new();
+    let mut without = Vec::new();
+    for (server, lists) in servers.iter().enumerate() {
+        for project in &lists.projects {
+            let sessions: Vec<Rc<Session>> = lists
+                .active
+                .iter()
+                .filter(|s| s.project_id == project.id)
+                .cloned()
+                .collect();
+            let entry = ServerProject {
+                server,
+                project: project.clone(),
+                sessions,
+            };
+            if entry.sessions.is_empty() {
+                without.push(entry)
+            } else {
+                with.push(entry)
+            }
+        }
+    }
+    // Both sorts keep ties as they came: by server, then by name.
+    with.sort_by(|a, b| b.sessions[0].updated_at.cmp(&a.sessions[0].updated_at));
+    without.sort_by_key(|e| e.project.name.to_lowercase());
     with.extend(without);
     with
 }
@@ -301,6 +362,57 @@ mod tests {
             },
         );
         assert_eq!(ids(&needs), ["unread", "waiting", "failed"]);
+    }
+
+    #[test]
+    fn layouts_keep_their_keys() {
+        for layout in Layout::ALL {
+            assert_eq!(Layout::from_key(layout.key()), layout);
+        }
+        assert_eq!(Layout::from_key("allProjects"), Layout::AllProjects);
+        assert_eq!(Layout::from_key("something else"), Layout::Inbox);
+    }
+
+    #[test]
+    fn all_projects_mixes_the_servers() {
+        let project = |id: &str, name: &str| -> Rc<Project> {
+            Rc::new(
+                serde_json::from_value(serde_json::json!({"id": id, "path": format!("/work/{name}"), "name": name}))
+                    .unwrap(),
+            )
+        };
+        let session = |id: &str, project: &str, at: &str| -> Rc<Session> {
+            Rc::new(
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "projectId": project, "harness": "fake", "title": id, "updatedAt": at
+                }))
+                .unwrap(),
+            )
+        };
+        // Each server's projects by name, and its sessions, the latest first.
+        let servers = vec![
+            ServerLists {
+                projects: vec![project("a1", "api"), project("a2", "Docs"), project("a3", "web")],
+                active: vec![
+                    session("s3", "a3", "2026-10-09T12:03:00Z"),
+                    session("s1", "a1", "2026-10-09T12:01:00Z"),
+                    session("s0", "a3", "2026-10-09T12:00:00Z"),
+                ],
+            },
+            ServerLists {
+                projects: vec![project("b1", "api"), project("b2", "cli")],
+                active: vec![session("s2", "b1", "2026-10-09T12:02:00Z")],
+            },
+        ];
+        let list = all_projects(&servers);
+        let order: Vec<(usize, &str)> = list.iter().map(|e| (e.server, e.project.id.as_str())).collect();
+        // The latest session's project first; the same name on two servers
+        // stays two projects; the empty ones last, by name.
+        assert_eq!(order, [(0, "a3"), (1, "b1"), (0, "a1"), (1, "b2"), (0, "a2")]);
+        assert_eq!(ids(&list[0].sessions), ["s3", "s0"]);
+        assert_eq!(ids(&list[1].sessions), ["s2"]);
+        assert!(list[3].sessions.is_empty());
+        assert!(all_projects(&[]).is_empty());
     }
 
     #[test]

@@ -93,7 +93,7 @@ impl Page {
     fn terms(self) -> &'static str {
         match self {
             Page::General => {
-                "notifications notify alerts dock badge bounce sidebar layout inbox projects columns session state dot ring badge updates build host"
+                "notifications notify alerts dock badge bounce sidebar layout inbox projects columns all servers session state dot ring badge updates build host"
             }
             Page::Appearance => {
                 "theme dark light system catppuccin text size interface messages font code menlo monospaced"
@@ -348,7 +348,7 @@ impl SettingsView {
         let layout_picker = picker(
             "layout",
             layout.title().into(),
-            [Layout::Inbox, Layout::Projects, Layout::Columns]
+            Layout::ALL
                 .iter()
                 .map(|l| (l.key().to_string(), l.title().to_string()))
                 .collect(),
@@ -373,6 +373,7 @@ impl SettingsView {
             Layout::Inbox => "Sessions from every server, those that need you first.",
             Layout::Projects => "Each server's projects, with their sessions under them.",
             Layout::Columns => "Needs You, Running and each project in the sidebar, their sessions beside it.",
+            Layout::AllProjects => "Every server's projects in one list, with their sessions under them.",
         };
         let mut groups = vec![
             group(
@@ -392,9 +393,7 @@ impl SettingsView {
                 vec![
                     setting(
                         "Layout",
-                        Some(&format!(
-                            "{summary} The View menu switches them too, with ⌘1, ⌘2 and ⌘3."
-                        )),
+                        Some(&format!("{summary} The View menu switches them too, with ⌘1 to ⌘4.")),
                         layout_picker,
                         p,
                     ),

@@ -44,6 +44,7 @@ actions!(
         LayoutInbox,
         LayoutProjects,
         LayoutColumns,
+        LayoutAllProjects,
         ToggleSidebar,
     ]
 );
@@ -84,6 +85,7 @@ fn main() {
                 KeyBinding::new("cmd-1", LayoutInbox, None),
                 KeyBinding::new("cmd-2", LayoutProjects, None),
                 KeyBinding::new("cmd-3", LayoutColumns, None),
+                KeyBinding::new("cmd-4", LayoutAllProjects, None),
                 KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
             ]);
             ui::terminal::bind_keys(cx);
@@ -158,6 +160,7 @@ fn main() {
                         MenuItem::action("as Inbox", LayoutInbox),
                         MenuItem::action("as Projects", LayoutProjects),
                         MenuItem::action("as Columns", LayoutColumns),
+                        MenuItem::action("as All Projects", LayoutAllProjects),
                         MenuItem::separator(),
                         MenuItem::action("Show or Hide Sidebar", ToggleSidebar),
                     ],
@@ -225,6 +228,7 @@ fn main() {
             forward::<LayoutInbox>(window, view.clone(), cx);
             forward::<LayoutProjects>(window, view.clone(), cx);
             forward::<LayoutColumns>(window, view.clone(), cx);
+            forward::<LayoutAllProjects>(window, view.clone(), cx);
             forward::<ToggleSidebar>(window, view.clone(), cx);
             cx.activate(true);
         });

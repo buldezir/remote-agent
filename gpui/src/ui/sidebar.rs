@@ -1,7 +1,9 @@
 //! The sidebar, in the chosen layout: Inbox (every server's sessions by
 //! what they need), Projects (each server's projects with their sessions),
-//! or Columns (collections, their sessions beside them). Search replaces
-//! the lists while a query is in. As `SessionsSidebar.swift` and its kin.
+//! Columns (collections, their sessions beside them), or All Projects
+//! (every server's projects in one list, which only this client has).
+//! Search replaces the lists while a query is in. As `SessionsSidebar.swift`
+//! and its kin.
 
 use std::rc::Rc;
 use std::time::Duration;
@@ -24,11 +26,11 @@ use gpui_kit::{
 use serde_json::json;
 
 use crate::conn::{ConnState, ServerConn};
-use crate::protocol::{PullRequest, Session, SessionStatus, WorkspaceKind};
+use crate::protocol::{Project, PullRequest, Session, SessionStatus, WorkspaceKind};
 use crate::store::search::search_active;
 use crate::store::sidebar::{
-    Collection, Layout, inbox_groups, is_busy, most_pressing, needs_you, needs_you_first, projects_in_order,
-    short_age_of, stands_out, urgency,
+    Collection, Layout, ServerLists, all_projects, inbox_groups, is_busy, most_pressing, needs_you, needs_you_first,
+    projects_in_order, short_age_of, stands_out, urgency,
 };
 use crate::ui::app::{AppView, Detail};
 use crate::ui::badges;
@@ -279,8 +281,9 @@ impl AppView {
             .get(&s.project_id)
             .map(|p| p.name.clone())
             .unwrap_or_default();
-        // In Projects, a session's project is the one it's under.
-        let in_projects = self.layout(cx) == Layout::Projects && !search_active(&self.search.query);
+        // An indented row is under its project's header, or its server's,
+        // which say where it is.
+        let in_projects = indent > 0.;
         let project = if in_projects {
             String::new()
         } else {
@@ -548,6 +551,7 @@ impl AppView {
                 Layout::Inbox => self.render_inbox(window, cx),
                 Layout::Projects => self.render_projects(cx),
                 Layout::Columns => self.render_collections(cx),
+                Layout::AllProjects => self.render_all_projects(cx),
             }
         };
         v_flex()
@@ -691,6 +695,11 @@ impl AppView {
                     ),
                     ("as Projects", Layout::Projects, Box::new(crate::LayoutProjects)),
                     ("as Columns", Layout::Columns, Box::new(crate::LayoutColumns)),
+                    (
+                        "as All Projects",
+                        Layout::AllProjects,
+                        Box::new(crate::LayoutAllProjects),
+                    ),
                 ] {
                     menu = menu.item(
                         PopupMenuItem::new(title)
@@ -920,9 +929,7 @@ impl AppView {
         let (needs, recent) = inbox_groups(&rows, &self.opened);
         let selected = self.selected_id(cx);
         let any_connected = self.conns.iter().any(|c| c.read(cx).is_connected());
-        let failed: Vec<usize> = (0..self.conns.len())
-            .filter(|i| matches!(self.conns[*i].read(cx).state, ConnState::Failed(_)))
-            .collect();
+        let failed = self.failed_servers(cx);
         let mut list = v_flex()
             .id("sessions")
             .flex_1()
@@ -933,20 +940,7 @@ impl AppView {
         if !needs.is_empty() || !failed.is_empty() {
             list = list.child(section_header("Needs You", &p));
             for ix in &failed {
-                let c = self.conns[*ix].read(cx);
-                let name = c.name.clone();
-                list = list.child(
-                    v_flex()
-                        .px_2()
-                        .py_1()
-                        .child(
-                            div()
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(format!("{name} is offline")),
-                        )
-                        .when_some(self.status_row(*ix, &p, cx), |d, s| d.child(s)),
-                );
+                list = list.child(self.offline_notice(*ix, &p, cx));
             }
             list = self.render_rows(&needs, selected.as_deref(), false, list, cx);
         }
@@ -957,11 +951,46 @@ impl AppView {
         if rows.is_empty() && any_connected {
             list = list.child(div().p_3().text_sm().text_color(p.overlay).child("No sessions yet."));
         }
+        list = self.archived_section(list, selected.as_deref(), &p, cx);
+        self.servers_section(list, &p, cx).into_any_element()
+    }
+
+    /// The servers that couldn't connect.
+    fn failed_servers(&self, cx: &App) -> Vec<usize> {
+        (0..self.conns.len())
+            .filter(|i| matches!(self.conns[*i].read(cx).state, ConnState::Failed(_)))
+            .collect()
+    }
+
+    /// A server that couldn't connect, by name, with why and Try again.
+    fn offline_notice(&self, ix: usize, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        let name = self.conns[ix].read(cx).name.clone();
+        v_flex()
+            .px_2()
+            .py_1()
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(format!("{name} is offline")),
+            )
+            .when_some(self.status_row(ix, p, cx), |d, s| d.child(s))
+            .into_any_element()
+    }
+
+    /// Every server's archived sessions, folded shut until asked for.
+    fn archived_section(
+        &self,
+        mut list: gpui_kit::Stateful<gpui_kit::Div>,
+        selected: Option<&str>,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Stateful<gpui_kit::Div> {
         let archived = self.archived_rows(cx);
         if !archived.is_empty() {
             let open = self.archive_open;
             list = list.child(
-                crate::ui::common::disclosure("archived", open, &format!("Archived ({})", archived.len()), &p)
+                crate::ui::common::disclosure("archived", open, &format!("Archived ({})", archived.len()), p)
                     .px_2()
                     .pt_3()
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -970,14 +999,23 @@ impl AppView {
                     })),
             );
             if open {
-                list = self.render_rows(&archived, selected.as_deref(), false, list, cx);
+                list = self.render_rows(&archived, selected, false, list, cx);
             }
         }
-        // Servers
-        list = list.child(section_header("Servers", &p));
+        list
+    }
+
+    /// The servers, each with how many sessions it has and its connection.
+    fn servers_section(
+        &self,
+        mut list: gpui_kit::Stateful<gpui_kit::Div>,
+        p: &Palette,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Stateful<gpui_kit::Div> {
+        list = list.child(section_header("Servers", p));
         for ix in 0..self.conns.len() {
             let c = self.conns[ix].read(cx);
-            let color = conn_color(c, &p);
+            let color = conn_color(c, p);
             let count = c.index.active_sessions().len();
             let connecting = matches!(c.state, ConnState::Connecting(_));
             let failed = matches!(c.state, ConnState::Failed(_));
@@ -1002,12 +1040,12 @@ impl AppView {
                                 .on_click(move |_: &ClickEvent, _, cx| conn.read(cx).retry()),
                         )
                     })
-                    .child(caption(count.to_string(), &p))
+                    .child(caption(count.to_string(), p))
                     .child(div().size(px(7.)).rounded_full().bg(color))
                     .context_menu(self.server_menu(ix, cx)),
             );
         }
-        list.into_any_element()
+        list
     }
 
     fn render_projects(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1103,91 +1141,7 @@ impl AppView {
             for project in projects_in_order(&by_name, &active) {
                 let sessions: Vec<Rc<Session>> =
                     active.iter().filter(|s| s.project_id == project.id).cloned().collect();
-                let key = format!("{server_id}/{}", project.id);
-                let folded = prefs.folded_projects.contains(&key) || sessions.is_empty();
-                let pressing = most_pressing(sessions.iter()).cloned();
-                let k = key.clone();
-                let has = !sessions.is_empty();
-                let (pid, name) = (project.id.clone(), project.name.clone());
-                list = list.child(
-                    h_flex()
-                        .id(SharedString::from(format!("project-{key}")))
-                        .group(PROJECT_GROUP)
-                        .gap_2()
-                        .px_2()
-                        .py_1p5()
-                        .mt_1()
-                        .rounded_md()
-                        .when(has, |d| d.cursor_pointer().hover(|d| d.bg(p.surface0.opacity(0.5))))
-                        .child(badges::project_badge(&project.name, 18., &p))
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_sm()
-                                .child(project.name.clone()),
-                        )
-                        // Folded, what's inside: its most pressing state and how many.
-                        .when(folded, |d| {
-                            d.when_some(pressing.filter(|s| urgency(s) > 0), |d, s| d.child(status_dot(&s, &p)))
-                                .when(has, |d| d.child(caption(sessions.len().to_string(), &p)))
-                        })
-                        .child(
-                            div()
-                                .invisible()
-                                .group_hover(PROJECT_GROUP, |d| d.visible())
-                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                                .child(
-                                    Button::new(SharedString::from(format!("new-in-{key}")))
-                                        .ghost()
-                                        .xsmall()
-                                        .icon(IconName::Plus)
-                                        .tooltip(format!("New Session in {name}"))
-                                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                                            cx.stop_propagation();
-                                            this.new_session_on(ix, Some(pid.clone()), window, cx)
-                                        })),
-                                ),
-                        )
-                        .when(has, |d| {
-                            d.child(
-                                Icon::new(if folded {
-                                    IconName::ChevronRight
-                                } else {
-                                    IconName::ChevronDown
-                                })
-                                .xsmall()
-                                .text_color(p.overlay),
-                            )
-                        })
-                        .when(has, |d| {
-                            d.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
-                                let k = k.clone();
-                                update_prefs(cx, |p| {
-                                    if p.folded_projects.contains(&k) {
-                                        p.folded_projects.retain(|x| *x != k);
-                                    } else {
-                                        p.folded_projects.push(k);
-                                    }
-                                });
-                            }))
-                        })
-                        .context_menu(self.project_menu(ix, project.id.clone(), cx)),
-                );
-                if !folded {
-                    let rows: Vec<SessionRow> = needs_you_first(&sessions)
-                        .into_iter()
-                        .map(|session| SessionRow {
-                            conn: ix,
-                            server_id: server_id.clone(),
-                            session,
-                        })
-                        .collect();
-                    let mut inner = v_flex().id(SharedString::from(format!("sessions-{key}"))).gap_0p5();
-                    inner = self.render_rows_in(&rows, selected.as_deref(), false, PROJECT_INDENT, inner, cx);
-                    list = list.child(inner);
-                }
+                list = self.project_section(ix, &project, &sessions, None, selected.as_deref(), list, cx);
             }
             if !archived.is_empty() {
                 let open = self.archives_open.contains(&server_id);
@@ -1225,6 +1179,162 @@ impl AppView {
             }
         }
         list.into_any_element()
+    }
+
+    /// A project's header and, unless it's folded shut, its sessions under
+    /// it. `server` names its server, where the list mixes several servers'.
+    #[allow(clippy::too_many_arguments)]
+    fn project_section(
+        &self,
+        ix: usize,
+        project: &Project,
+        sessions: &[Rc<Session>],
+        server: Option<String>,
+        selected: Option<&str>,
+        mut list: gpui_kit::Stateful<gpui_kit::Div>,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Stateful<gpui_kit::Div> {
+        let p = Palette::of(cx);
+        let c = self.conns[ix].read(cx);
+        let server_id = c.server_id.clone();
+        let connected = c.is_connected();
+        let key = format!("{server_id}/{}", project.id);
+        let has = !sessions.is_empty();
+        let folded = prefs(cx).folded_projects.contains(&key) || !has;
+        let pressing = most_pressing(sessions.iter()).cloned();
+        let k = key.clone();
+        let (pid, name) = (project.id.clone(), project.name.clone());
+        list = list.child(
+            h_flex()
+                .id(SharedString::from(format!("project-{key}")))
+                .group(PROJECT_GROUP)
+                .gap_2()
+                .px_2()
+                .py_1p5()
+                .mt_1()
+                .rounded_md()
+                .when(has, |d| d.cursor_pointer().hover(|d| d.bg(p.surface0.opacity(0.5))))
+                .child(badges::project_badge(&project.name, 18., &p))
+                .child(
+                    h_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_1p5()
+                        .child(div().min_w_0().truncate().text_sm().child(project.name.clone()))
+                        .when_some(server, |d, server| {
+                            d.child(caption(server, &p).flex_shrink_0().max_w(px(110.)).truncate())
+                        }),
+                )
+                // Folded, what's inside: its most pressing state and how many.
+                .when(folded, |d| {
+                    d.when_some(pressing.filter(|s| urgency(s) > 0), |d, s| d.child(status_dot(&s, &p)))
+                        .when(has, |d| d.child(caption(sessions.len().to_string(), &p)))
+                })
+                .child(
+                    div()
+                        .invisible()
+                        .group_hover(PROJECT_GROUP, |d| d.visible())
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            Button::new(SharedString::from(format!("new-in-{key}")))
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::Plus)
+                                .tooltip(format!("New Session in {name}"))
+                                .disabled(!connected)
+                                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    this.new_session_on(ix, Some(pid.clone()), window, cx)
+                                })),
+                        ),
+                )
+                .when(has, |d| {
+                    d.child(
+                        Icon::new(if folded {
+                            IconName::ChevronRight
+                        } else {
+                            IconName::ChevronDown
+                        })
+                        .xsmall()
+                        .text_color(p.overlay),
+                    )
+                })
+                .when(has, |d| {
+                    d.on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                        let k = k.clone();
+                        update_prefs(cx, |p| {
+                            if p.folded_projects.contains(&k) {
+                                p.folded_projects.retain(|x| *x != k);
+                            } else {
+                                p.folded_projects.push(k);
+                            }
+                        });
+                    }))
+                })
+                .context_menu(self.project_menu(ix, project.id.clone(), cx)),
+        );
+        if !folded {
+            let rows: Vec<SessionRow> = needs_you_first(sessions)
+                .into_iter()
+                .map(|session| SessionRow {
+                    conn: ix,
+                    server_id: server_id.clone(),
+                    session,
+                })
+                .collect();
+            let mut inner = v_flex().id(SharedString::from(format!("sessions-{key}"))).gap_0p5();
+            inner = self.render_rows_in(&rows, selected, false, PROJECT_INDENT, inner, cx);
+            list = list.child(inner);
+        }
+        list
+    }
+
+    /// Every server's projects in one list, as the Inbox has every server's
+    /// sessions, with the Inbox's archive and its servers after them.
+    fn render_all_projects(&self, cx: &mut Context<Self>) -> AnyElement {
+        let p = Palette::of(cx);
+        let selected = self.selected_id(cx);
+        let several = self.conns.len() > 1;
+        let any_connected = self.conns.iter().any(|c| c.read(cx).is_connected());
+        let servers: Vec<ServerLists> = self
+            .conns
+            .iter()
+            .map(|c| {
+                let index = &c.read(cx).index;
+                ServerLists {
+                    projects: index.projects_by_name(),
+                    active: index.active_sessions(),
+                }
+            })
+            .collect();
+        let mut list = v_flex()
+            .id("all-projects")
+            .flex_1()
+            .overflow_y_scroll()
+            .px_2()
+            .pb_2()
+            .gap_0p5();
+        for ix in self.failed_servers(cx) {
+            list = list.child(self.offline_notice(ix, &p, cx));
+        }
+        if any_connected && servers.iter().all(|s| s.active.is_empty()) {
+            list = list.child(caption("Start a session", &p).px_2());
+        }
+        for entry in all_projects(&servers) {
+            // With several servers, a project says whose it is.
+            let server = several.then(|| self.conns[entry.server].read(cx).name.clone());
+            list = self.project_section(
+                entry.server,
+                &entry.project,
+                &entry.sessions,
+                server,
+                selected.as_deref(),
+                list,
+                cx,
+            );
+        }
+        list = self.archived_section(list, selected.as_deref(), &p, cx);
+        self.servers_section(list, &p, cx).into_any_element()
     }
 
     #[allow(clippy::too_many_arguments)]
