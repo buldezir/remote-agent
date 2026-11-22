@@ -455,16 +455,12 @@ impl AppView {
                                         .gap_1()
                                         // The branch is cut short first, down to its
                                         // first letters, and only then the place.
-                                        .when(!place.is_empty(), |d| {
-                                            let mut place = div().min_w_0().truncate().child(place);
-                                            place.style().flex_shrink = Some(0.001);
-                                            d.child(place)
-                                        })
+                                        .when(!place.is_empty(), |d| d.child(div().min_w_0().truncate().child(place)))
                                         .when_some(branch, |d, b| {
                                             d.child(
                                                 Icon::new(L::GitBranch).xsmall().text_color(p.overlay).flex_shrink_0(),
                                             )
-                                            .child(div().min_w(px(40.)).truncate().child(b))
+                                            .child(cut_first(div().min_w(px(40.)).truncate().child(b)))
                                         }),
                                 )
                                 .when(worktree, |d| d.child(marks())),
@@ -1226,9 +1222,11 @@ impl AppView {
                         .flex_1()
                         .min_w_0()
                         .gap_1p5()
+                        // The server is cut short first, down to its first
+                        // letters, and only then the project's name.
                         .child(div().min_w_0().truncate().text_sm().child(project.name.clone()))
                         .when_some(server, |d, server| {
-                            d.child(caption(server, &p).flex_shrink_0().max_w(px(110.)).truncate())
+                            d.child(cut_first(caption(server, &p).min_w(px(40.)).truncate()))
                         }),
                 )
                 // Folded, what's inside: its most pressing state and how many.
@@ -1754,6 +1752,14 @@ fn activity(s: &Session, c: &ServerConn, p: &Palette) -> AnyElement {
         .line_clamp(2)
         .child(text)
         .into_any_element()
+}
+
+/// An element that a line too narrow for it and its neighbours cuts short
+/// before them, down to its minimum width. (A weight below 1 on the others
+/// wouldn't do: flexbox then takes only that fraction of the overflow.)
+fn cut_first(mut d: gpui_kit::Div) -> gpui_kit::Div {
+    d.style().flex_shrink = Some(1000.);
+    d
 }
 
 /// The name the session rows' hover styles look up.
