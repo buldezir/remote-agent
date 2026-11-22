@@ -10,13 +10,13 @@ use std::time::Duration;
 
 use chrono::Utc;
 use gpui_kit::assets::IconName as L;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::hover_card::HoverCard;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     Anchor, AnyElement, App, ClickEvent, Context, Entity, FontWeight, HighlightStyle, Hsla, InteractiveElement as _,
@@ -366,14 +366,23 @@ impl AppView {
                         .top(px(-3.))
                         .invisible()
                         .group_hover(ROW_GROUP, |d| d.visible())
+                        // Its fill at rest: the kit would mix a custom
+                        // colour towards black.
+                        .rounded(cx.theme().radius)
+                        .bg(p.overlay.opacity(0.3))
                         // The row mustn't open too.
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
                             Button::new(SharedString::from(format!("archive-{}-{}", row.server_id, s.id)))
-                                .ghost()
+                                // The kit's ghost colours barely show on a
+                                // hovered row in dark mode: a fill of its own.
+                                .custom(
+                                    ButtonCustomVariant::new(cx)
+                                        .hover(p.overlay.opacity(0.6))
+                                        .active(p.overlay.opacity(0.8))
+                                        .foreground(p.text),
+                                )
                                 .small()
-                                // The kit's ghost foreground is too faint on a
-                                // hovered row in dark mode.
                                 .icon(Icon::new(IconName::Check).text_color(p.text))
                                 .tooltip("Archive")
                                 .on_click(move |_: &ClickEvent, window, cx| {
