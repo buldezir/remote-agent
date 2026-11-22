@@ -190,19 +190,24 @@ impl NewSessionView {
                 .and_then(|v| serde_json::from_value(v).ok())
                 .unwrap_or_default();
             let _ = this.update_in(cx, |this, window, cx| {
+                // An answer for a server chosen before this one.
+                if this.server_id(cx) != server {
+                    return;
+                }
                 this.settings = Some(s);
                 this.choose_agent(window, cx);
             });
         })
         .detach();
-        self.choose_agent(window, cx);
         cx.notify();
     }
 
     /// The server's default agent where it's usable, else the one used last
-    /// here, else the first usable; once the agents are in.
+    /// here, else the first usable; once the agents and the settings are in
+    /// (a failed `server.settings` counts as none), as on iOS. Choosing
+    /// before the settings came would take the last one, and keep it.
     fn choose_agent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.agent.read(cx).harness.is_some() {
+        if self.agent.read(cx).harness.is_some() || self.settings.is_none() {
             cx.notify();
             return;
         }
