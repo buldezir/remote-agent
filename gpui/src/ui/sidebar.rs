@@ -371,8 +371,10 @@ impl AppView {
                         .child(
                             Button::new(SharedString::from(format!("archive-{}-{}", row.server_id, s.id)))
                                 .ghost()
-                                .xsmall()
-                                .icon(IconName::Check)
+                                .small()
+                                // The kit's ghost foreground is too faint on a
+                                // hovered row in dark mode.
+                                .icon(Icon::new(IconName::Check).text_color(p.text))
                                 .tooltip("Archive")
                                 .on_click(move |_: &ClickEvent, window, cx| {
                                     cx.stop_propagation();
