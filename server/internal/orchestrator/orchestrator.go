@@ -855,7 +855,7 @@ func (o *Orchestrator) Shutdown() {
 }
 
 func titleFrom(prompt string) string {
-	line, _, _ := strings.Cut(strings.TrimSpace(prompt), "\n")
+	line, _, _ := strings.Cut(strings.TrimSpace(model.MentionDisplay(prompt)), "\n")
 	if line == "" {
 		return "New session"
 	}

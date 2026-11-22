@@ -80,7 +80,8 @@ struct UserBubble: View {
                         .padding(.bottom, 2)
                 }
                 if !text.isEmpty {
-                    Text(FindHighlight.text(text, highlight))
+                    // Mentions of sessions as @title, as find reads them.
+                    Text(FindHighlight.text(SessionMentions.mentionDisplay(text), highlight))
                         .messageFont()
                         .textSelection(.enabled)
                         .padding(.horizontal, 10)

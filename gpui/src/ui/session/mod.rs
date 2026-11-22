@@ -30,6 +30,7 @@ use crate::store::session::{Outgoing, SessionState};
 use crate::store::tool_runs::{ToolRun, TranscriptRow, tool_runs, transcript_rows};
 use crate::ui::command_picker::{CommandPicker, CommandSource, Lookup};
 use crate::ui::dialogs;
+use crate::ui::mention_picker::{MentionPicker, SessionSource, sync_tokens};
 use crate::ui::state::{AppPrefs, prefs, update_prefs};
 use crate::ui::terminal::TerminalView;
 
@@ -96,6 +97,31 @@ impl CommandSource for SessionCommands {
     }
 }
 
+/// The server's sessions, for mentions in the composer.
+struct ServerSessions {
+    conn: Entity<ServerConn>,
+    session_id: String,
+}
+
+impl SessionSource for ServerSessions {
+    fn sessions(&self, cx: &App) -> Vec<Rc<Session>> {
+        self.conn.read(cx).index.sessions.values().cloned().collect()
+    }
+
+    fn self_id(&self) -> &str {
+        &self.session_id
+    }
+
+    fn project_name(&self, project_id: &str, cx: &App) -> Option<String> {
+        self.conn
+            .read(cx)
+            .index
+            .projects
+            .get(project_id)
+            .map(|p| p.name.clone())
+    }
+}
+
 /// Find in the session.
 pub(crate) struct Find {
     pub input: Entity<InputState>,
@@ -127,6 +153,7 @@ pub struct SessionView {
     pub(crate) attachments: Vec<Attachment>,
     next_attachment: u64,
     pub(crate) commands: Entity<CommandPicker>,
+    pub(crate) mentions: Entity<MentionPicker>,
     pub(crate) find: Option<Find>,
     /// The item a search opened the session at, lit for a moment.
     pub(crate) flash: Option<String>,
@@ -179,6 +206,13 @@ impl SessionView {
             };
             CommandPicker::new(composer.clone(), source, cx)
         });
+        let mentions = cx.new(|cx| {
+            let source = ServerSessions {
+                conn: conn.clone(),
+                session_id: session_id.clone(),
+            };
+            MentionPicker::new(composer.clone(), source, cx)
+        });
         let speech = cx.new(SpeechState::new);
         let subscriptions = vec![
             cx.observe_in(&conn, window, |this, _, window, cx| {
@@ -198,6 +232,7 @@ impl SessionView {
             }),
             // Shows or hides it as its lookup ends.
             cx.observe(&commands, |_, _, cx| cx.notify()),
+            cx.observe(&mentions, |_, _, cx| cx.notify()),
             cx.observe_global::<AppPrefs>(|this, cx| this.restyle(cx)),
             cx.observe_global::<gpui_kit::component::Theme>(|this, cx| this.restyle(cx)),
         ];
@@ -205,6 +240,7 @@ impl SessionView {
         // The prompt written here before, and not sent.
         if let Some(text) = prefs(cx).drafts.get(&session_id).cloned() {
             composer.update(cx, |c, cx| c.set_value(text, window, cx));
+            sync_tokens(&composer, cx);
         }
         composer.update(cx, |c, cx| c.focus(window, cx));
         let mut this = Self {
@@ -224,6 +260,7 @@ impl SessionView {
             attachments: Vec::new(),
             next_attachment: 0,
             commands,
+            mentions,
             find: None,
             flash: None,
             jump_to,
@@ -878,6 +915,7 @@ impl SessionView {
                     format!("{base} {text}")
                 };
                 self.composer.update(cx, |c, cx| c.set_value(joined, window, cx));
+                sync_tokens(&self.composer, cx);
                 if matches!(event, SpeechEvent::Final(_)) {
                     self.dictation_base = None;
                 }
@@ -885,6 +923,7 @@ impl SessionView {
             SpeechEvent::Cancelled => {
                 if let Some(base) = self.dictation_base.take() {
                     self.composer.update(cx, |c, cx| c.set_value(base, window, cx));
+                    sync_tokens(&self.composer, cx);
                 }
             }
             SpeechEvent::Error(e) => {

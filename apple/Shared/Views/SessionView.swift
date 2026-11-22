@@ -17,6 +17,8 @@ struct SessionView: View {
     /// opened without a prompt.
     var onForked: (Session, _ empty: Bool) -> Void
     @State private var commands: [SlashCommand] = []
+    /// The row of the picker that shows, command or session, that the keys
+    /// are on, and whether Escape closed it for this text.
     @State private var commandIndex = 0
     @State private var commandsDismissed = false
     @State private var commandsError = false
@@ -420,6 +422,7 @@ struct SessionView: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 4) {
             commandSuggestions
+            mentionPicker
             if !attachments.isEmpty {
                 AttachmentStrip(attachments: attachments, connection: connection)
             }
@@ -450,6 +453,94 @@ struct SessionView: View {
     private var suggestions: [SlashCommand] {
         guard composerFocused, session?.archived != true, !commandsDismissed else { return [] }
         return SlashCommand.suggestions(for: store.draft, from: commands + (harness?.commands ?? []))
+    }
+
+    /// Where the prompt's cursor is: the end of the text until the user moves
+    /// it. Nil while a range is selected, which no picker completes.
+    private var promptCursor: String.Index? {
+        let text = store.draft
+        guard let indices = promptSelection?.indices else { return text.endIndex }
+        guard case .selection(let range) = indices, range.isEmpty else { return nil }
+        // An index left from an earlier text stays inside this one.
+        return min(range.lowerBound, text.endIndex)
+    }
+
+    /// The `@` being typed before the cursor, when the picker may show.
+    private var mentionQuery: SessionMentions.Query? {
+        guard composerFocused, session?.archived != true, !commandsDismissed, let cursor = promptCursor else { return nil }
+        return SessionMentions.mentionQuery(store.draft, cursor: cursor)
+    }
+
+    /// The server's other sessions that match the `@` being typed.
+    private var mentionSuggestions: [Session] {
+        guard let q = mentionQuery else { return [] }
+        // By id, so that sessions as recent as each other keep their order.
+        let sessions = connection.sessions.values.sorted { $0.id < $1.id }
+        return SessionMentions.mentionSuggestions(q.query, sessions: sessions, selfID: store.sessionID)
+    }
+
+    /// How many rows the picker that shows has: the commands', else the
+    /// sessions'. Only one shows at a time: a command starts the prompt, and
+    /// an `@` that starts a mention follows a space or starts the prompt.
+    private var suggestionCount: Int {
+        let commands = suggestions
+        return commands.isEmpty ? mentionSuggestions.count : commands.count
+    }
+
+    /// Replaces the `@` being typed with a mention of the session, and puts
+    /// the cursor after it.
+    private func completeMention(_ session: Session) {
+        guard let cursor = promptCursor, let q = SessionMentions.mentionQuery(store.draft, cursor: cursor) else { return }
+        let (text, end) = SessionMentions.completeMention(store.draft, cursor: cursor, query: q, title: session.title, id: session.id)
+        store.draft = text
+        promptSelection = TextSelection(insertionPoint: end)
+        composerFocused = true
+    }
+
+    /// The server's other sessions, to mention one: where the command
+    /// suggestions show, while an `@` is being typed.
+    @ViewBuilder private var mentionPicker: some View {
+        let list = mentionSuggestions
+        if let first = list.first {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(list.enumerated()), id: \.element.id) { index, session in
+                            Button { completeMention(session) } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(session.title.isEmpty ? "Untitled" : session.title)
+                                            .scaledFont(.footnote)
+                                            .foregroundStyle(Palette.text)
+                                            .lineLimit(1)
+                                        if let project = connection.projects[session.projectId] {
+                                            Text(project.name).scaledFont(.caption2).foregroundStyle(Palette.subtext).lineLimit(1)
+                                        }
+                                    }
+                                    Spacer(minLength: 4)
+                                    SessionAge(date: session.updatedAt)
+                                        .scaledFont(.caption2)
+                                        .foregroundStyle(Palette.subtext)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .frame(minHeight: 44)
+                                .padding(8)
+                                .background(index == commandIndex ? Palette.surface0 : Palette.mantle)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 220)
+                .onChange(of: list.map(\.id)) { _, _ in proxy.scrollTo(first.id, anchor: .top) }
+                .onChange(of: commandIndex) { _, index in
+                    if list.indices.contains(index) { proxy.scrollTo(list[index].id) }
+                }
+            }
+            .background(Palette.mantle, in: RoundedRectangle(cornerRadius: Metrics.Corner.field))
+            .accessibilityLabel("Session suggestions")
+        }
     }
 
     private func completeCommand(_ command: SlashCommand) {
@@ -519,22 +610,30 @@ struct SessionView: View {
             .lineLimit(1...6)
             .focused($composerFocused)
             .onKeyPress(.downArrow) {
-                guard !suggestions.isEmpty else { return .ignored }
-                commandIndex = min(commandIndex + 1, suggestions.count - 1)
+                let count = suggestionCount
+                guard count > 0 else { return .ignored }
+                commandIndex = min(commandIndex + 1, count - 1)
                 return .handled
             }
             .onKeyPress(.upArrow) {
-                guard !suggestions.isEmpty else { return .ignored }
+                guard suggestionCount > 0 else { return .ignored }
                 commandIndex = max(commandIndex - 1, 0)
                 return .handled
             }
             .onKeyPress(.escape) {
-                guard !suggestions.isEmpty else { return .ignored }
+                guard suggestionCount > 0 else { return .ignored }
                 commandsDismissed = true
                 return .handled
             }
             .onKeyPress(keys: [.tab, .return]) { press in
-                guard !press.modifiers.contains(.shift), suggestions.indices.contains(commandIndex) else { return .ignored }
+                guard !press.modifiers.contains(.shift) else { return .ignored }
+                if suggestions.isEmpty {
+                    let sessions = mentionSuggestions
+                    guard sessions.indices.contains(commandIndex) else { return .ignored }
+                    completeMention(sessions[commandIndex])
+                    return .handled
+                }
+                guard suggestions.indices.contains(commandIndex) else { return .ignored }
                 let selected = suggestions[commandIndex]
                 if press.key == .return && store.draft == selected.prompt {
                     if mainAction == .send && canSend { mainButtonTapped() }

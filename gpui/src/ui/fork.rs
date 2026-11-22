@@ -66,7 +66,7 @@ impl ForkView {
                     .transcript
                     .iter()
                     .find(|i| i.turn() == t.id && i.kind == ItemKind::UserMessage)
-                    .and_then(|i| i.text.clone())
+                    .and_then(|i| i.text.as_deref().map(crate::store::mentions::mention_display))
                     .map(|t| first_line(&t, 48))
                     .filter(|t| !t.is_empty());
                 let label = match prompt {

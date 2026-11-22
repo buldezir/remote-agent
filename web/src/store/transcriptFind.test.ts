@@ -47,6 +47,13 @@ describe("TranscriptFind", () => {
     expect(toolCommand(null)).toBe("");
   });
 
+  it("reads a prompt's session mentions as the transcript shows them", () => {
+    const prompt: Item = { ...tool("x"), kind: "user_message", tool: undefined, text: "see @[Fix the login bug](session:s-1) now" };
+    expect(searchText(prompt)).toBe("see @Fix the login bug now");
+    expect(findMatches([prompt], "session:")).toEqual([]);
+    expect(findMatches([prompt], "@fix the")).toEqual(["t"]);
+  });
+
   it("reads plans, proposed plans and questions", () => {
     const byId = new Map(items.map((i) => [i.id, i]));
     expect(searchText(byId.get("i8")!)).toBe("Run tests\nFix bug");

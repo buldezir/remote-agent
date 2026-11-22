@@ -23,7 +23,7 @@ import (
 // searchVersion names what the index holds. IndexForSearch indexes
 // everything again when the stored one differs, as after a change to what it
 // indexes.
-const searchVersion = "1"
+const searchVersion = "2"
 
 // maxSearchText caps an item's indexed text, such as a prompt with a log
 // pasted into it.

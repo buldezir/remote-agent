@@ -329,6 +329,7 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 				in.Text = strings.TrimSuffix(note+"\n\n"+in.Text, "\n\n")
 			}
 		}
+		in = a.withMentions(in, q.input.Text)
 	}
 	if err := a.rt.Prompt(ctx, in); err != nil {
 		a.endTurn(ctx, harness.TurnEnded{Status: model.TurnFailed, Error: err.Error()})
@@ -1044,7 +1045,7 @@ func (a *actor) steerLocked(ctx context.Context, i int) (ok bool, err error) {
 	if isCommand(q.input) {
 		return false, errorf(CodeInvalid, "a slash command can't join a running turn; it waits for the turn to end")
 	}
-	if err := s.Steer(ctx, q.input); errors.Is(err, harness.ErrNoTurn) {
+	if err := s.Steer(ctx, a.withMentions(q.input, q.input.Text)); errors.Is(err, harness.ErrNoTurn) {
 		return false, nil
 	} else if err != nil {
 		return false, err

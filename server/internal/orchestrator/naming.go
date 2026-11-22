@@ -102,7 +102,7 @@ func (o *Orchestrator) nameSession(sessionID, projectName, text string, title, b
 		return
 	}
 	o.askNames(sessionID, func(context.Context) (string, bool) {
-		return namingPrompt(projectName, text, branch), true
+		return namingPrompt(projectName, model.MentionDisplay(text), branch), true
 	}, title, branch)
 }
 
@@ -310,7 +310,7 @@ func workOf(items []*model.Item, dir string) work {
 		}
 		switch it.Kind {
 		case model.ItemUserMessage:
-			if t := strings.TrimSpace(it.Text); t != "" {
+			if t := strings.TrimSpace(model.MentionDisplay(it.Text)); t != "" {
 				w.requests = append(w.requests, t)
 			}
 		case model.ItemAssistantMessage:

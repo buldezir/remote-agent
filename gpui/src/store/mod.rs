@@ -8,6 +8,7 @@ pub mod dock;
 pub mod identity;
 pub mod index;
 pub mod limits;
+pub mod mentions;
 pub mod prefs;
 pub mod pull_request;
 pub mod search;

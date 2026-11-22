@@ -40,7 +40,9 @@ func SearchText(it *Item) string {
 		return ""
 	}
 	switch it.Kind {
-	case ItemUserMessage, ItemAssistantMessage, ItemNotice, ItemError:
+	case ItemUserMessage:
+		return MentionDisplay(it.Text) // mentions as the clients show them
+	case ItemAssistantMessage, ItemNotice, ItemError:
 		return it.Text
 	case ItemToolCall:
 		if it.Tool == nil {

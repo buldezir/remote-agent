@@ -1,5 +1,6 @@
 package dev.remoteagent.app.ui
 
+import dev.remoteagent.core.protocol.mentionDisplay
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -188,16 +189,18 @@ fun UserBubble(
 ) {
     val faded = pending || cancelled
     val shape = RoundedCornerShape(Metrics.Corner.bubble)
+    // Mentions of sessions show as @title, as find searches them.
+    val shown = mentionDisplay(text)
     Row(Modifier.fillMaxWidth().testTag(if (draft) "draft-bubble" else "user-bubble"), horizontalArrangement = Arrangement.End) {
         Spacer(Modifier.width(40.dp))
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (images.isNotEmpty()) {
                 ImageGallery(images, height = 120.dp, alignEnd = true, modifier = Modifier.alpha(if (faded) 0.55f else 1f).padding(bottom = 2.dp))
             }
-            if (text.isNotEmpty()) {
+            if (shown.isNotEmpty()) {
                 SelectionContainer {
                     Text(
-                        findHighlighted(text), style = messageStyle(), color = if (draft) palette.text else palette.onAccent,
+                        findHighlighted(shown), style = messageStyle(), color = if (draft) palette.text else palette.onAccent,
                         modifier = Modifier
                             .then(
                                 if (draft) Modifier.background(palette.accent.copy(alpha = 0.12f), shape).dashedOutline(palette.accent, Metrics.Corner.bubble)

@@ -433,9 +433,9 @@ impl Item {
             return String::new();
         }
         match self.kind {
-            ItemKind::UserMessage | ItemKind::AssistantMessage | ItemKind::Notice | ItemKind::Error => {
-                self.text.clone().unwrap_or_default()
-            }
+            // Mentions as transcripts show them.
+            ItemKind::UserMessage => crate::store::mentions::mention_display(self.text.as_deref().unwrap_or("")),
+            ItemKind::AssistantMessage | ItemKind::Notice | ItemKind::Error => self.text.clone().unwrap_or_default(),
             ItemKind::ToolCall => {
                 let Some(tool) = &self.tool else { return String::new() };
                 let mut s = tool.title.clone().unwrap_or_default();

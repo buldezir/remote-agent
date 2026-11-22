@@ -1,0 +1,50 @@
+{
+  "_comment": "Shared by every client's @ session mentions: RAKit's SessionMentions, web/src/store/sessionMentions.ts, android/core's SessionMentions and gpui's store/mentions.rs. A | in a text marks the cursor; count it in the client's own string indices. A mention is @[title](session:<id>), which rad tells the agent to read (server/internal/model/mentions.go).",
+  "self": "s-self",
+  "sessions": [
+    { "id": "s-self", "title": "This session", "updatedAt": "2026-11-22T12:00:00Z" },
+    { "id": "s-login", "title": "Fix the login bug", "updatedAt": "2026-11-22T10:00:00Z" },
+    { "id": "s-blog", "title": "Blog post about logs", "updatedAt": "2026-11-22T11:00:00Z" },
+    { "id": "s-catalog", "title": "Catalog export", "updatedAt": "2026-11-21T09:00:00Z" },
+    { "id": "s-old", "title": "Login page redesign", "updatedAt": "2026-11-01T09:00:00Z", "archived": true },
+    { "id": "s-untitled", "title": "", "updatedAt": "2026-11-20T09:00:00Z" }
+  ],
+  "query": [
+    { "text": "@|", "query": "" },
+    { "text": "see @lo|", "query": "lo" },
+    { "text": "see @fix the|", "query": "fix the" },
+    { "text": "see @lo| and more", "query": "lo" },
+    { "text": "line one\n@cat|", "query": "cat" },
+    { "text": "mail me@lo|", "query": null },
+    { "text": "@lo\nmore|", "query": null },
+    { "text": "see @ lo|", "query": null },
+    { "text": "see @[Fix](session:s-login)|", "query": null },
+    { "text": "see @lo|g", "query": "lo" },
+    { "text": "plain text|", "query": null },
+    { "text": "@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|", "query": null }
+  ],
+  "suggestions": [
+    { "query": "", "ids": ["s-blog", "s-login", "s-catalog", "s-untitled", "s-old"] },
+    { "query": "log", "ids": ["s-old", "s-blog", "s-login", "s-catalog"] },
+    { "query": "LOGIN", "ids": ["s-old", "s-login"] },
+    { "query": "bug", "ids": ["s-login"] },
+    { "query": "the login", "ids": ["s-login"] },
+    { "query": "zzz", "ids": [] }
+  ],
+  "complete": [
+    { "text": "@|", "id": "s-login", "result": "@[Fix the login bug](session:s-login) |" },
+    { "text": "see @lo| now", "id": "s-login", "result": "see @[Fix the login bug](session:s-login) |now" },
+    { "text": "see @lo|now", "id": "s-login", "result": "see @[Fix the login bug](session:s-login) |now" },
+    { "text": "see @|", "id": "s-untitled", "result": "see @[Untitled](session:s-untitled) |" }
+  ],
+  "mentionText": [
+    { "title": "Fix the login bug", "id": "s-login", "text": "@[Fix the login bug](session:s-login)" },
+    { "title": "  Arrays [a] and\nmaps\t ", "id": "x", "text": "@[Arrays (a) and maps](session:x)" },
+    { "title": "", "id": "x", "text": "@[Untitled](session:x)" }
+  ],
+  "display": [
+    { "text": "see @[Fix the login bug](session:s-login) and @[Old (v1)](session:0193-b).", "display": "see @Fix the login bug and @Old (v1)." },
+    { "text": "not @[x](other:1) nor @[y](session:)", "display": "not @[x](other:1) nor @[y](session:)" },
+    { "text": "no mentions", "display": "no mentions" }
+  ]
+}

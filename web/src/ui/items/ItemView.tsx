@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { Draft, HarnessInfo, ImageRef, Item, JSONValue, Plan, Turn } from "../../protocol/models";
+import { mentionDisplay } from "../../store/sessionMentions";
 import type { SessionStore } from "../../store/sessionStore";
 import { capitalized, runParts, runTitle, runTools, runWorking, type ToolRun } from "../../store/toolRuns";
 import { ImageGallery } from "../images";
@@ -70,7 +71,7 @@ export function ItemView({ item, store, harness }: { item: Item; store: SessionS
   }
 }
 
-/** A prompt. Queued on the server, it offers to send it now, to steer it into
+/** A prompt, with its session mentions as `@title`. Queued on the server, it offers to send it now, to steer it into
  *  the running turn where the agent can take it, or to cancel it; in the
  *  outbox (`pending` without `onSendNow`) it only waits. A `draft` is drawn in
  *  outline, with `note` under it. */
@@ -105,7 +106,7 @@ export function UserBubble({
       )}
       {text && (
         <div className="bubble" style={{ opacity: faded ? 0.55 : 1 }}>
-          {text}
+          {mentionDisplay(text)}
         </div>
       )}
       {pending &&

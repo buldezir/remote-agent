@@ -2,6 +2,7 @@ import { TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { effortsForModel, type Session } from "../protocol/models";
 import { useObserved } from "../store/observable";
+import { mentionDisplay } from "../store/sessionMentions";
 import { useConnection } from "./context";
 import { AgentOptions, custom, HarnessChoiceRow, newWorktree } from "./NewSession";
 import { Modal, Spinner } from "./primitives";
@@ -27,7 +28,7 @@ export function ForkSession({
   const turns = useMemo(() => {
     const prompts = new Map<string, string>();
     for (const it of store.transcript) {
-      if (it.kind === "user_message" && it.turnId && !prompts.has(it.turnId)) prompts.set(it.turnId, (it.text ?? "").trim().split("\n")[0]);
+      if (it.kind === "user_message" && it.turnId && !prompts.has(it.turnId)) prompts.set(it.turnId, mentionDisplay(it.text ?? "").trim().split("\n")[0]);
     }
     return store.sortedTurns
       .filter((t) => t.status !== "running")

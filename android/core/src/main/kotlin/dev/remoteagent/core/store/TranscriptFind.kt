@@ -3,6 +3,7 @@ package dev.remoteagent.core.store
 import dev.remoteagent.core.protocol.Approval
 import dev.remoteagent.core.protocol.Item
 import dev.remoteagent.core.protocol.ItemKind
+import dev.remoteagent.core.protocol.mentionDisplay
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -25,7 +26,9 @@ object TranscriptFind {
     fun searchText(item: Item): String {
         if (!item.parentItemId.isNullOrEmpty()) return ""
         return when (item.kind) {
-            ItemKind.USER_MESSAGE, ItemKind.ASSISTANT_MESSAGE, ItemKind.NOTICE, ItemKind.ERROR -> item.text ?: ""
+            // Mentions of sessions as the transcript shows them.
+            ItemKind.USER_MESSAGE -> mentionDisplay(item.text ?: "")
+            ItemKind.ASSISTANT_MESSAGE, ItemKind.NOTICE, ItemKind.ERROR -> item.text ?: ""
             ItemKind.TOOL_CALL -> {
                 val tool = item.tool ?: return ""
                 var s = tool.title ?: ""

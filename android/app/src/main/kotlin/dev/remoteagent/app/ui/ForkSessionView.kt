@@ -1,5 +1,6 @@
 package dev.remoteagent.app.ui
 
+import dev.remoteagent.core.protocol.mentionDisplay
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -49,7 +50,7 @@ internal fun forkPoints(turns: Collection<Turn>, transcript: List<Item>): List<F
     val prompts = HashMap<String, String>()
     for (item in transcript) {
         val id = item.turnId ?: continue
-        if (item.kind == ItemKind.USER_MESSAGE && id !in prompts) prompts[id] = item.text.orEmpty()
+        if (item.kind == ItemKind.USER_MESSAGE && id !in prompts) prompts[id] = mentionDisplay(item.text.orEmpty())
     }
     return turns.filter { it.status != TurnStatus.RUNNING }.sortedByDescending { it.n }.map { t ->
         val line = prompts[t.id]?.lineSequence()?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }

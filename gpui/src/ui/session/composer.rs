@@ -25,6 +25,7 @@ use crate::ui::badges::{harness_icon, model_name};
 use crate::ui::command_picker::CommandPicker;
 use crate::ui::common::caption;
 use crate::ui::dialogs::{self, Choice};
+use crate::ui::mention_picker::{MentionPicker, sync_tokens};
 use crate::ui::palette::Palette;
 use crate::ui::prompt_box::{self, PromptBox};
 
@@ -68,6 +69,9 @@ impl SessionView {
     // MARK: Sending
 
     pub(crate) fn composer_enter(&mut self, shift: bool, secondary: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !shift && self.mentions.update(cx, |m, cx| m.enter(window, cx)) {
+            return;
+        }
         if !shift && self.commands.update(cx, |c, cx| c.enter(window, cx)) {
             return;
         }
@@ -115,6 +119,7 @@ impl SessionView {
                         .collect::<Vec<_>>()
                         .join("\n");
                     this.composer.update(cx, |c, cx| c.set_value(back, window, cx));
+                    sync_tokens(&this.composer, cx);
                     let mut taken = taken;
                     taken.append(&mut this.attachments);
                     this.attachments = taken;
@@ -210,6 +215,7 @@ impl SessionView {
             c.set_value(text, window, cx);
             c.focus(window, cx);
         });
+        sync_tokens(&self.composer, cx);
         for image in draft.images {
             let key = self.next_key();
             self.attachments.push(Attachment {
@@ -624,11 +630,14 @@ impl SessionView {
         let save_draft = self.can_save_draft(cx);
         let drafting = save_draft && self.uploads_done() && !self.saving_draft;
         let attachments = self.render_attachments(&p, cx);
-        let suggestions = self
-            .commands
-            .read(cx)
-            .visible(cx)
-            .then(|| self.commands.clone().into_any_element());
+        let suggestions = if self.mentions.read(cx).visible(cx) {
+            Some(self.mentions.clone().into_any_element())
+        } else {
+            self.commands
+                .read(cx)
+                .visible(cx)
+                .then(|| self.commands.clone().into_any_element())
+        };
         let this = cx.entity().downgrade();
         let plus =
             Button::new("attach")
@@ -725,7 +734,8 @@ impl SessionView {
             ));
         }
         let (footer_start, footer_end) = self.footer(cx);
-        let input = CommandPicker::capture_keys(&self.commands, div(), window)
+        let input = MentionPicker::capture_keys(&self.mentions, div(), window);
+        let input = CommandPicker::capture_keys(&self.commands, input, window)
             .capture_action(cx.listener(|this, _: &Paste, window, cx| {
                 if this.paste_images(window, cx) {
                     cx.stop_propagation();

@@ -2,15 +2,18 @@
 // of SearchText and ToolCommand in server/internal/model/search.go, as
 // RAKit's TranscriptFind.
 import type { Item, JSONValue } from "../protocol/models";
+import { mentionDisplay } from "./sessionMentions";
 
 /** The text of an item that find and rad's search look in: prompts,
  *  replies, notices and errors, a tool call's title and command, a plan,
- *  and a proposed plan's or a question's text. Reasoning, tool output,
+ *  and a proposed plan's or a question's text, with a prompt's session
+ *  mentions as the transcript shows them. Reasoning, tool output,
  *  approvals of tool calls and sub-agents' items aren't searched. */
 export function searchText(item: Item): string {
   if (item.parentItemId) return "";
   switch (item.kind) {
     case "user_message":
+      return mentionDisplay(item.text ?? "");
     case "assistant_message":
     case "notice":
     case "error":

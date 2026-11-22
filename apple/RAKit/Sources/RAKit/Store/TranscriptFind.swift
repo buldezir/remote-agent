@@ -5,13 +5,16 @@ import Foundation
 public enum TranscriptFind {
     /// The text of an item that find looks in, as rad's `model.SearchText`:
     /// prompts, replies, notices and errors, a tool call's title and command,
-    /// a plan, and a proposed plan's or a question's text. Reasoning, tool
+    /// a plan, and a proposed plan's or a question's text. A prompt's mentions
+    /// of sessions read as the transcript shows them (`@title`). Reasoning, tool
     /// output, approvals of tool calls (their tool call has the same title)
     /// and sub-agents' items, which the transcript folds away, aren't searched.
     public static func searchText(_ item: Item) -> String {
         if let parent = item.parentItemId, !parent.isEmpty { return "" }
         switch item.kind {
-        case .userMessage, .assistantMessage, .notice, .error:
+        case .userMessage:
+            return SessionMentions.mentionDisplay(item.text ?? "")
+        case .assistantMessage, .notice, .error:
             return item.text ?? ""
         case .toolCall:
             guard let tool = item.tool else { return "" }

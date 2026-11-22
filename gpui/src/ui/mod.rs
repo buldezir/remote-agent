@@ -13,6 +13,7 @@ pub mod diff;
 pub mod dock;
 pub mod fonts;
 pub mod fork;
+pub mod mention_picker;
 pub mod new_session;
 pub mod palette;
 pub mod panes;

@@ -961,8 +961,10 @@ pub(crate) fn input_preview(name: &str, input: &Value, p: &Palette) -> AnyElemen
     code_block(Some(name), &last_lines(&pretty, 40), p).into_any_element()
 }
 
-/// The user's prompt, selectable like the agent's replies.
+/// The user's prompt, selectable like the agent's replies, with mentions of
+/// other sessions as @title.
 pub(crate) fn user_bubble(id: &str, text: &str, p: &Palette) -> Div {
+    let text = crate::store::mentions::mention_display(text);
     v_flex()
         .font_family(crate::ui::fonts::message())
         .gap_1()
@@ -972,7 +974,7 @@ pub(crate) fn user_bubble(id: &str, text: &str, p: &Palette) -> Div {
         .bg(p.user_bubble)
         .child(div().text_sm().child(gpui_kit::base::SelectableText::new(
             SharedString::from(format!("prompt-{id}")),
-            text.to_string(),
+            text,
         )))
 }
 

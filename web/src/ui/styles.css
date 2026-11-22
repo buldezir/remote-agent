@@ -2082,6 +2082,9 @@ button.form-row:hover:not(:disabled) { background: var(--surface0); }
 .command-suggestions small { display: block; color: var(--subtext); }
 .command-suggestions .command-scope { text-transform: capitalize; }
 .command-discovery-status { color: var(--subtext); }
+.command-suggestions .mention-title { align-self: center; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-suggestions .mention-title.untitled { color: var(--subtext); }
+.command-suggestions .mention-caption { flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: center; }
 
 /* Wide settings keep server management beside the saved-server list. */
 .settings-tabs { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--surface0); }

@@ -112,6 +112,8 @@ Without `agent`, a session gets the server's `defaultAgent` while it's signed in
 
 `session` is an id or a unique start of one (six characters or more). A session's agent can't send to, wait for, stop or archive its own session; it may rename it, save a draft in it and read its changes. It may archive and unarchive only the sessions it started, and the ones those started in turn. The sessions it starts or forks get its own mode with its own agent, or else the mode the agent's sessions take when an agent starts them (the default mode, but Auto for Claude Code and Codex, whose default, Yolo, never asks): no other mode, so that it can't start one that asks the user less than it does. They begin with a `notice` ("Started by the agent of “…”."), and may start sessions in turn, three deep at most. Approvals and questions of the sessions it starts go to the user, as any session's do; no tool answers them. A device's tools have none of these limits.
 
+**Mentions.** A prompt mentions another session of the same rad as `@[title](session:<id>)`, which the clients' composers write when the user picks a session after typing `@`. The user's message keeps the prompt as written; the prompt rad hands the agent gets a note after it, in `<rad-mentions>`, that lists the sessions it mentions (but its own) and tells the agent to read them with `read_session`. An agent without rad's MCP server gets the prompt as it is. Clients show a mention as `@title`, and search and find match it in that form (`model.SearchText`). The rules for the `@` query, the list and the text written are shared by the clients' tests in `protocol/vectors/session_mentions.json`.
+
 ## Frames
 
 | Direction | Shape |

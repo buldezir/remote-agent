@@ -33,6 +33,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import dev.remoteagent.core.protocol.commandQuery
 import dev.remoteagent.core.protocol.commandSuggestions
+import dev.remoteagent.core.protocol.completeMention
+import dev.remoteagent.core.protocol.mentionQuery
+import dev.remoteagent.core.protocol.mentionSuggestions
 import androidx.compose.foundation.background
 import dev.remoteagent.app.platform.Dictation
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +66,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import java.time.Instant
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -205,6 +210,8 @@ private fun SessionScreen(
     val synced by store.synced.collectAsStateWithLifecycle()
 
     val session = storeSession ?: sessions[store.sessionID]
+    // The server's sessions, newest first, for the composer's @ mentions.
+    val mentionables = remember(sessions) { sessions.values.sortedByDescending { it.updatedAt } }
     val harness = session?.let { s -> harnesses?.firstOrNull { it.id == s.harness } }
     val project = session?.let { projects[it.projectId] }
     val running = session?.status == SessionStatus.RUNNING || session?.status == SessionStatus.AWAITING_APPROVAL
@@ -744,6 +751,8 @@ private fun SessionScreen(
                     // The keyboard has its own dictation key.
                     onFocus = { focused = it; if (it) dictation.stop() }, onSend = { send() }, onStop = { run { store.interrupt() } },
                     onSteer = if (canSend && !archived && store.canSteer(draft, harness)) ({ send(steer = true) }) else null,
+                    mentionables = mentionables, selfId = store.sessionID,
+                    mentionDetail = { s -> listOfNotNull(projects[s.projectId]?.name, relative(s.updatedAt, Instant.now())).joinToString(" · ") },
                 )
             }
             if (below) {
@@ -1040,18 +1049,40 @@ private fun Composer(
     onStop: () -> Unit,
     // Ctrl+Shift+Enter on a hardware keyboard: into the running turn; null: it can't.
     onSteer: (() -> Unit)? = null,
+    // The server's sessions, which an @ in the prompt can mention; [selfId] is this one's.
+    mentionables: List<Session> = emptyList(),
+    selfId: String = "",
+    // A mentionable session's caption, such as its project and age.
+    mentionDetail: (Session) -> String? = { null },
 ) {
     var focusedNow by remember { mutableStateOf(false) }
     var field by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    // Text that comes from elsewhere (a draft to edit, dictation, a
+    // completed command) puts the cursor at its end.
+    val value = if (field.text == draft) field else TextFieldValue(draft, TextRange(draft.length))
     var commandIndex by remember(draft) { mutableStateOf(0) }
     var commandsDismissed by remember(draft) { mutableStateOf(false) }
     val suggestions = if (focusedNow && enabled && !commandsDismissed) commandSuggestions(draft, commands) else emptyList()
+    // An @ being typed before the cursor lists the sessions it can mention.
+    val cursor = value.selection.takeIf { it.collapsed }?.end
+    val mention = if (focusedNow && enabled && !commandsDismissed && suggestions.isEmpty() && cursor != null) mentionQuery(value.text, cursor) else null
+    val mentionRows = mention?.let { mentionSuggestions(it.query, mentionables, selfId) }.orEmpty()
+    // The rows the arrow keys move through: the commands', else the mentions'.
+    val rowCount = if (suggestions.isNotEmpty()) suggestions.size else mentionRows.size
     val suggestionList = rememberLazyListState()
-    LaunchedEffect(draft, suggestions, commandIndex) {
-        if (suggestions.isNotEmpty()) suggestionList.scrollToItem(commandIndex.coerceAtMost(suggestions.lastIndex))
+    LaunchedEffect(draft, rowCount, commandIndex) {
+        if (rowCount > 0) suggestionList.scrollToItem(commandIndex.coerceAtMost(rowCount - 1))
     }
     fun complete(command: SlashCommand) {
         onDraft(command.prompt + " ")
+        focusRequester.requestFocus()
+    }
+    // Puts the mention in place of the @ and its query, with the cursor after it.
+    fun pickMention(session: Session) {
+        val q = mention ?: return
+        val done = completeMention(value.text, cursor ?: return, q, session.title, session.id)
+        field = TextFieldValue(done.text, TextRange(done.cursor))
+        onDraft(done.text)
         focusRequester.requestFocus()
     }
     LaunchedEffect(Unit) { if (focusPrompt) focusRequester.requestFocus() }
@@ -1080,6 +1111,26 @@ private fun Composer(
                 }
             }
         }
+        if (mentionRows.isNotEmpty()) {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp).testTag("mention-suggestions"), state = suggestionList) {
+                itemsIndexed(mentionRows, key = { _, s -> s.id }) { i, s ->
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .background(if (i == commandIndex) palette.surface0 else palette.mantle)
+                            .clickable { pickMention(s) }.padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            s.title.ifBlank { "Untitled" }, style = Type.footnote, color = palette.text,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                        )
+                        mentionDetail(s)?.let { Text(it, style = Type.caption2, color = palette.subtext, maxLines = 1) }
+                    }
+                }
+            }
+        }
         if (focusedNow && enabled && !commandsDismissed && commandQuery(draft) != null && (loadingCommands || commandsError)) {
             Text(if (loadingCommands) "Loading skills…" else "Skills unavailable. Try typing / again.", style = Type.caption, color = palette.subtext)
         }
@@ -1091,9 +1142,6 @@ private fun Composer(
         ) {
             AttachMenu(attachments, enabled = enabled)
             val style = messageStyle().copy(color = palette.text)
-            // Text that comes from elsewhere (a draft to edit, dictation, a
-            // completed command) puts the cursor at its end.
-            val value = if (field.text == draft) field else TextFieldValue(draft, TextRange(draft.length))
             BasicTextField(
                 value = value,
                 onValueChange = {
@@ -1111,14 +1159,19 @@ private fun Composer(
                     .onFocusChanged { focusedNow = it.isFocused; onFocus(it.isFocused) }
                     // A hardware keyboard's Return sends; Shift-Return is a new line.
                     .onPreviewKeyEvent {
-                        if (it.type == KeyEventType.KeyDown && suggestions.isNotEmpty() && !it.isShiftPressed) {
+                        if (it.type == KeyEventType.KeyDown && rowCount > 0 && !it.isShiftPressed) {
                             when (it.key) {
-                                Key.DirectionDown -> { commandIndex = minOf(commandIndex + 1, suggestions.lastIndex); return@onPreviewKeyEvent true }
+                                Key.DirectionDown -> { commandIndex = minOf(commandIndex + 1, rowCount - 1); return@onPreviewKeyEvent true }
                                 Key.DirectionUp -> { commandIndex = maxOf(commandIndex - 1, 0); return@onPreviewKeyEvent true }
                                 Key.Escape -> { commandsDismissed = true; return@onPreviewKeyEvent true }
                                 Key.Enter, Key.Tab -> {
-                                    val selected = suggestions[commandIndex.coerceAtMost(suggestions.lastIndex)]
-                                    if (it.key == Key.Enter && draft == selected.prompt) onSend() else complete(selected)
+                                    val index = commandIndex.coerceAtMost(rowCount - 1)
+                                    if (suggestions.isNotEmpty()) {
+                                        val selected = suggestions[index]
+                                        if (it.key == Key.Enter && draft == selected.prompt) onSend() else complete(selected)
+                                    } else {
+                                        pickMention(mentionRows[index])
+                                    }
                                     return@onPreviewKeyEvent true
                                 }
                             }

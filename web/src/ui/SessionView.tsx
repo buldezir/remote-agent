@@ -25,9 +25,10 @@ import {
 import { lazy, Suspense, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { commandQuery, commandSuggestions } from "../protocol/commandSuggestions";
 import type { Draft, SlashCommand } from "../protocol/models";
-import { contextFraction, modelName, type BackgroundTask, type HarnessInfo, type Session } from "../protocol/models";
+import { contextFraction, modelName, parseDate, type BackgroundTask, type HarnessInfo, type Session } from "../protocol/models";
 import { Attachments } from "../store/attachments";
 import { useObserved } from "../store/observable";
+import { completeMention, mentionQuery, mentionSuggestions } from "../store/sessionMentions";
 import type { SessionStore } from "../store/sessionStore";
 import { runContaining, transcriptRows } from "../store/toolRuns";
 import { findMatches } from "../store/transcriptFind";
@@ -43,6 +44,7 @@ import { ErrorAlert, Menu, Spinner, type MenuEntry } from "./primitives";
 import { PullRequestButton } from "./PullRequest";
 import { focusDone, useFocusItem, usePageInFront, useWide } from "./router";
 import { RenameSession, UnarchiveConfirm } from "./SessionRow";
+import { shortAge } from "./sidebarLayout";
 import { useSettings } from "./settings";
 import { storage } from "../store/storage";
 
@@ -791,6 +793,38 @@ function Composer({
     document.getElementById(`command-option-${commandIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [draft, commands, commandIndex]);
 
+  // Typing `@` lists the server's other sessions, to mention one.
+  const [cursor, setCursor] = useState(() => store.draft.length);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionsDismissed, setMentionsDismissed] = useState(false);
+  // Where the cursor goes once a picked mention is in the field.
+  const pendingCursor = useRef<number>(undefined);
+  const mention = focused && !archived && !mentionsDismissed ? mentionQuery(draft, cursor) : undefined;
+  const mentionList = mention ? mentionSuggestions(mention.query, [...connection.sessions.values()], store.sessionID) : [];
+  const pickMention = (s: Session) => {
+    if (!mention) return;
+    const r = completeMention(draft, cursor, mention, s.title, s.id);
+    pendingCursor.current = r.cursor;
+    setDraft(r.text);
+    setCursor(r.cursor);
+    field.current?.focus();
+  };
+  useEffect(() => setMentionsDismissed(false), [draft]);
+  useEffect(() => setMentionIndex(0), [mention?.start, mention?.query]);
+  useEffect(() => {
+    document.getElementById(`mention-option-${mentionIndex}`)?.scrollIntoView({ block: "nearest" });
+  }, [mentionIndex, mention?.query]);
+  // Then, and after any change to the draft not typed (an edit, dictation),
+  // the cursor is where the field has it.
+  useLayoutEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    const at = pendingCursor.current;
+    pendingCursor.current = undefined;
+    if (at !== undefined) el.setSelectionRange(at, at);
+    setCursor(el.selectionStart);
+  }, [draft]);
+
   useEffect(() => {
     if (dictation.error) {
       onError(dictation.error);
@@ -923,27 +957,66 @@ function Composer({
             ))}
           </div>
         )}
+        {mentionList.length > 0 && (
+          <div className="command-suggestions" role="listbox" id="mention-suggestions" aria-label="Sessions to mention">
+            {mentionList.map((s, index) => {
+              const project = connection.projects.get(s.projectId)?.name;
+              const age = shortAge(parseDate(s.updatedAt));
+              return (
+                <button key={s.id} id={`mention-option-${index}`} type="button" role="option"
+                  aria-selected={index === mentionIndex}
+                  onMouseDown={(e) => e.preventDefault()} onClick={() => pickMention(s)}>
+                  <span className={"mention-title" + (s.title.trim() ? "" : " untitled")}>{s.title.trim() || "Untitled"}</span>
+                  <small className="mention-caption">{project ? `${project} · ${age}` : age}</small>
+                </button>
+              );
+            })}
+          </div>
+        )}
         {focused && wantsCommands && !commandsDismissed && (loadingCommands || commandsError) && (
           <small className="command-discovery-status">{loadingCommands ? "Loading skills…" : "Skills unavailable. Try typing / again."}</small>
         )}
         <div className="composer-row">
           <AttachButton attachments={attachments} disabled={readOnly} />
           <textarea
-            aria-controls={suggestions.length ? "command-suggestions" : undefined}
-            aria-expanded={suggestions.length > 0}
+            aria-controls={suggestions.length ? "command-suggestions" : mentionList.length ? "mention-suggestions" : undefined}
+            aria-expanded={suggestions.length > 0 || mentionList.length > 0}
             aria-autocomplete="list"
-            aria-activedescendant={suggestions.length ? `command-option-${Math.min(commandIndex, suggestions.length - 1)}` : undefined}
+            aria-activedescendant={
+              suggestions.length
+                ? `command-option-${Math.min(commandIndex, suggestions.length - 1)}`
+                : mentionList.length
+                  ? `mention-option-${Math.min(mentionIndex, mentionList.length - 1)}`
+                  : undefined
+            }
             ref={field}
             className="composer-field"
             rows={1}
             value={draft}
             placeholder={placeholder}
             disabled={readOnly}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setCursor(e.target.selectionStart);
+            }}
+            onSelect={(e) => setCursor(e.currentTarget.selectionStart)}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) return;
+              if (mentionList.length && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setMentionIndex(Math.max(0, Math.min(mentionList.length - 1, mentionIndex + (e.key === "ArrowDown" ? 1 : -1))));
+                  return;
+                }
+                if (e.key === "Escape") { e.preventDefault(); setMentionsDismissed(true); return; }
+                if (e.key === "Enter" || e.key === "Tab") {
+                  e.preventDefault();
+                  pickMention(mentionList[Math.min(mentionIndex, mentionList.length - 1)]);
+                  return;
+                }
+              }
               if (suggestions.length && !e.shiftKey) {
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                   e.preventDefault();
