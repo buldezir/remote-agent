@@ -67,7 +67,7 @@ impl SessionView {
                         .pl(px(40.))
                         .gap_1()
                         .when_some(images, |d, g| d.child(g))
-                        .when(!o.text.is_empty(), |d| d.child(user_bubble(&o.text, &p)))
+                        .when(!o.text.is_empty(), |d| d.child(user_bubble(&o.command_id, &o.text, &p)))
                         .child(caption("Sending…", &p))
                         .into_any_element(),
                     0,
@@ -245,7 +245,7 @@ impl SessionView {
             .gap_1()
             .when(faded, |d| d.opacity(0.75))
             .when_some(images, |d, g| d.child(g))
-            .when(!text.is_empty(), |d| d.child(user_bubble(text, p)));
+            .when(!text.is_empty(), |d| d.child(user_bubble(&it.id, text, p)));
         if it.status == ItemStatus::Queued {
             let steer = self.can_steer(text, cx);
             let (now, steer_id, cancel) = (it.id.clone(), it.id.clone(), it.id.clone());
@@ -961,7 +961,8 @@ pub(crate) fn input_preview(name: &str, input: &Value, p: &Palette) -> AnyElemen
     code_block(Some(name), &last_lines(&pretty, 40), p).into_any_element()
 }
 
-pub(crate) fn user_bubble(text: &str, p: &Palette) -> Div {
+/// The user's prompt, selectable like the agent's replies.
+pub(crate) fn user_bubble(id: &str, text: &str, p: &Palette) -> Div {
     v_flex()
         .font_family(crate::ui::fonts::message())
         .gap_1()
@@ -969,7 +970,10 @@ pub(crate) fn user_bubble(text: &str, p: &Palette) -> Div {
         .py_2()
         .rounded_lg()
         .bg(p.user_bubble)
-        .child(div().text_sm().child(text.to_string()))
+        .child(div().text_sm().child(gpui_kit::base::SelectableText::new(
+            SharedString::from(format!("prompt-{id}")),
+            text.to_string(),
+        )))
 }
 
 pub(crate) fn tool_icon(kind: ToolKind) -> gpui_kit::component::Icon {
