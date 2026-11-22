@@ -90,6 +90,52 @@ pub fn format_of(data: &[u8]) -> Option<ImageFormat> {
     })
 }
 
+/// The file extension for an image of this format.
+pub fn extension(format: ImageFormat) -> &'static str {
+    match format {
+        ImageFormat::Png => "png",
+        ImageFormat::Jpeg => "jpg",
+        ImageFormat::Gif => "gif",
+        ImageFormat::Webp => "webp",
+        ImageFormat::Tiff => "tiff",
+        ImageFormat::Bmp => "bmp",
+        ImageFormat::Svg => "svg",
+        ImageFormat::Ico => "ico",
+        ImageFormat::Pnm => "pnm",
+    }
+}
+
+/// The name Save offers for an image, which has none of its own: "Image"
+/// and the start of its id, so that two saved images don't clash.
+pub fn file_name(id: &str, format: ImageFormat) -> String {
+    let short: String = safe_id(id)
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(8)
+        .collect();
+    let ext = extension(format);
+    if short.is_empty() {
+        format!("Image.{ext}")
+    } else {
+        format!("Image {short}.{ext}")
+    }
+}
+
+/// The image as the pasteboard should carry it: PNG, JPEG and GIF as they
+/// are, anything else (WebP, which few apps paste) as PNG.
+pub fn for_clipboard(image: &Image) -> Result<Image, String> {
+    match image.format {
+        ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::Gif => Ok(image.clone()),
+        _ => {
+            let img = image::load_from_memory(&image.bytes).map_err(|_| "The image couldn't be read.".to_string())?;
+            let mut out = Vec::new();
+            img.write_to(&mut Cursor::new(&mut out), Format::Png)
+                .map_err(|_| "The image couldn't be copied.".to_string())?;
+            Ok(Image::from_bytes(ImageFormat::Png, out))
+        }
+    }
+}
+
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(60)))
@@ -244,5 +290,21 @@ mod tests {
         let out = prepare(&encode(&photo, Format::Jpeg)).unwrap();
         assert!(matches!(out.format, ImageFormat::Jpeg));
         assert!(prepare(b"not an image").is_err());
+    }
+
+    #[test]
+    fn names_saved_images() {
+        assert_eq!(file_name("01a2-0507-7bc5", ImageFormat::Png), "Image 01a20507.png");
+        assert_eq!(file_name("../", ImageFormat::Jpeg), "Image.jpg");
+    }
+
+    #[test]
+    fn copies_webp_as_png() {
+        let webp = encode(&DynamicImage::new_rgba8(3, 2), Format::WebP);
+        let out = for_clipboard(&Image::from_bytes(ImageFormat::Webp, webp)).unwrap();
+        assert!(matches!(out.format, ImageFormat::Png));
+        assert_eq!(image::load_from_memory(&out.bytes).unwrap().dimensions(), (3, 2));
+        let png = Image::from_bytes(ImageFormat::Png, encode(&DynamicImage::new_rgba8(1, 1), Format::Png));
+        assert_eq!(for_clipboard(&png).unwrap().bytes, png.bytes);
     }
 }

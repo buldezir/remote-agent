@@ -89,6 +89,7 @@ fn main() {
                 KeyBinding::new("ctrl-cmd-s", ToggleSidebar, None),
             ]);
             ui::terminal::bind_keys(cx);
+            ui::viewer::bind_keys(cx);
             // The release build updates through Sparkle; the development
             // bundle from the Mac that built it, over ssh.
             ui::sparkle::start();
