@@ -6,6 +6,7 @@ mod composer;
 mod dock;
 mod header;
 mod transcript;
+mod usage;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};

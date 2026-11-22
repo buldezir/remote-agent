@@ -23,7 +23,7 @@ use super::{AttachState, Attachment, SessionView, explain};
 use crate::images::{Loaded, Prepared, prepare};
 use crate::protocol::{CommandList, ImageRef, WorkspaceKind};
 use crate::store::search::{command_query, command_suggestions};
-use crate::ui::badges::{context_percent, harness_icon, model_name};
+use crate::ui::badges::{harness_icon, model_name};
 use crate::ui::common::caption;
 use crate::ui::dialogs::{self, Choice};
 use crate::ui::palette::Palette;
@@ -695,7 +695,6 @@ impl SessionView {
     /// The row under the box: where the session works, which it keeps, and
     /// its permissions, which it can change.
     fn footer(&self, cx: &mut Context<Self>) -> (Vec<AnyElement>, Vec<AnyElement>) {
-        let p = Palette::of(cx);
         let Some(s) = self.session(cx) else {
             return (Vec::new(), Vec::new());
         };
@@ -728,15 +727,13 @@ impl SessionView {
                 s.workspace.branch.clone().unwrap_or_else(|| "Detached HEAD".into()),
             ));
         }
-        if let Some(pct) = context_percent(&s) {
-            end.push(
-                div()
-                    .px_1()
-                    .text_size(gpui_kit::rems(prompt_box::PILL_TEXT))
-                    .text_color(p.overlay)
-                    .child(format!("{pct}% context"))
-                    .into_any_element(),
-            );
+        // How full the context is; a click shows the rest of its usage.
+        if let Some(pill) = s
+            .context
+            .as_ref()
+            .and_then(|usage| super::usage::context_pill(self.conn.clone(), s.id.clone(), usage, cx))
+        {
+            end.push(pill);
         }
         if let Some(h) = harness.filter(|h| !h.modes.is_empty()) {
             let current = s.mode.clone().unwrap_or_default();

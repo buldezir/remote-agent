@@ -80,25 +80,38 @@ pub fn limits_gauge(l: &UsageLimits, now: DateTime<Utc>) -> String {
     parts.join(" · ")
 }
 
-/// The lines behind the gauge, on hover.
+/// The lines behind the gauge, on hover: a limit that holds, each window,
+/// then the notes.
 pub fn limits_details(l: &UsageLimits, now: DateTime<Utc>) -> Vec<String> {
+    let mut lines: Vec<String> = limit_reached(l, now).into_iter().collect();
+    lines.extend(
+        l.windows
+            .iter()
+            .map(|w| format!("{}: {}", w.label, window_detail(w, now))),
+    );
+    lines.extend(limits_notes(l, now));
+    lines
+}
+
+/// "Limit reached · resets in 2h 14m", while the limit the agent hit holds.
+pub fn limit_reached(l: &UsageLimits, now: DateTime<Utc>) -> Option<String> {
+    limited_now(l, now).then(|| format!("Limit reached{}", resets_in(parse(&l.resets_at), now)))
+}
+
+/// A window's use and its reset: "34% used · resets in 2h 14m", or
+/// "reset 5m ago" once it has.
+pub fn window_detail(w: &UsageWindow, now: DateTime<Utc>) -> String {
+    let resets = parse(&w.resets_at);
+    match resets.filter(|r| *r <= now) {
+        Some(r) => format!("reset {} ago", limit_duration(now - r, false)),
+        None => format!("{}% used{}", window_percent(w, now), resets_in(resets, now)),
+    }
+}
+
+/// What the details say after the windows: extra usage, the plan, and how
+/// old the agent's report is.
+pub fn limits_notes(l: &UsageLimits, now: DateTime<Utc>) -> Vec<String> {
     let mut lines = Vec::new();
-    if limited_now(l, now) {
-        lines.push(format!("Limit reached{}", resets_in(parse(&l.resets_at), now)));
-    }
-    for w in &l.windows {
-        let resets = parse(&w.resets_at);
-        if let Some(r) = resets.filter(|r| *r <= now) {
-            lines.push(format!("{}: reset {} ago", w.label, limit_duration(now - r, false)));
-            continue;
-        }
-        lines.push(format!(
-            "{}: {}% used{}",
-            w.label,
-            window_percent(w, now),
-            resets_in(resets, now)
-        ));
-    }
     if l.overage {
         lines.push("Using extra usage".into());
     }

@@ -130,13 +130,26 @@ pub const PILL_TEXT: f32 = 0.9;
 /// A small, quiet button: an icon and a label, at `PILL_TEXT` of the
 /// interface's size, which the kit's sizes can't give its own label.
 pub fn pill(id: impl Into<gpui_kit::ElementId>, icon: Option<Icon>, label: impl Into<String>) -> Button {
+    tinted_pill(id, icon, label, None)
+}
+
+/// A pill whose icon and label take a colour of their own, when given one.
+pub fn tinted_pill(
+    id: impl Into<gpui_kit::ElementId>,
+    icon: Option<Icon>,
+    label: impl Into<String>,
+    color: Option<gpui_kit::Hsla>,
+) -> Button {
     let label: String = label.into();
     Button::new(id).ghost().xsmall().h(rems(1.5)).px_1p5().child(
         h_flex()
             .gap_1()
             .text_size(rems(PILL_TEXT))
             .line_height(rems(1.2))
-            .when_some(icon, |d, i| d.child(i.size(rems(PILL_TEXT))))
+            .when_some(color, |d, color| d.text_color(color))
+            .when_some(icon, |d, i| {
+                d.child(i.size(rems(PILL_TEXT)).when_some(color, |i, color| i.text_color(color)))
+            })
             .child(label),
     )
 }
