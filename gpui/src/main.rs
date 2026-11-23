@@ -28,6 +28,7 @@ actions!(
         Quit,
         NewSession,
         PairServer,
+        PairThisMac,
         OpenSettings,
         CheckForUpdate,
         SearchSessions,
@@ -112,6 +113,7 @@ fn main() {
                         MenuItem::action("New Session", NewSession),
                         MenuItem::separator(),
                         MenuItem::action("Pair a Server…", PairServer),
+                        MenuItem::action("Pair with This Mac", PairThisMac),
                     ],
                     disabled: false,
                 },
@@ -213,6 +215,7 @@ fn main() {
             }
             forward::<NewSession>(window, view.clone(), cx);
             forward::<PairServer>(window, view.clone(), cx);
+            forward::<PairThisMac>(window, view.clone(), cx);
             forward::<OpenSettings>(window, view.clone(), cx);
             forward::<CheckForUpdate>(window, view.clone(), cx);
             forward::<SearchSessions>(window, view.clone(), cx);

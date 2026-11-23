@@ -32,7 +32,7 @@ use crate::store::sidebar::{
     Collection, Layout, ServerLists, all_projects, inbox_groups, is_busy, most_pressing, needs_you, needs_you_first,
     projects_in_order, short_age_of, stands_out, urgency,
 };
-use crate::ui::app::{AppView, Detail};
+use crate::ui::app::{AppView, Detail, SshInstall};
 use crate::ui::badges;
 use crate::ui::common::{busy_dot, caption, sidebar_toggle, status_dot, top_bar};
 use crate::ui::dialogs;
@@ -1644,6 +1644,31 @@ impl AppView {
                             "Pair a server"
                         }),
                 )
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("This Mac"))
+                .child(
+                    h_flex()
+                        .gap_3()
+                        .child(div().flex_1().min_w_0().text_sm().text_color(p.subtext).child(
+                            "Pairs with rad here. Without one, this Mac gets the latest release in ~/.local/bin, \
+                             running as a background service.",
+                        ))
+                        .child(
+                            Button::new("pair-this-mac")
+                                .primary()
+                                .label(if self.local_install.running {
+                                    "Pairing…"
+                                } else {
+                                    "Pair This Mac"
+                                })
+                                .loading(self.local_install.running)
+                                .on_click(
+                                    cx.listener(|this, _: &ClickEvent, window, cx| this.pair_this_mac(window, cx)),
+                                ),
+                        ),
+                )
+                .child(Self::render_install_steps(&self.local_install, &p))
+                .child(div().h(px(1.)).my_2().bg(p.surface0))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("Another computer"))
                 .child(div().text_sm().text_color(p.subtext).child(
                     "Run `rad serve` on your computer, then `rad pair --print-url`, and paste the link it prints.",
                 ))
@@ -1691,13 +1716,12 @@ impl AppView {
                                 ),
                         ),
                 )
-                .child(self.render_ssh_steps(&p)),
+                .child(Self::render_install_steps(&self.ssh_install, &p)),
         )
     }
 
-    /// Install on a server over SSH's steps: done, running, or failed, and why.
-    fn render_ssh_steps(&self, p: &Palette) -> impl IntoElement {
-        let state = &self.ssh_install;
+    /// An install's steps (over SSH, or on this Mac): done, running, or failed, and why.
+    fn render_install_steps(state: &SshInstall, p: &Palette) -> impl IntoElement {
         let last = state.steps.len().saturating_sub(1);
         v_flex()
             .gap_1()

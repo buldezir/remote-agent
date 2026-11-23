@@ -148,6 +148,13 @@ pub struct PairingLink {
 }
 
 pub fn parse_pairing_link(text: &str) -> Option<PairingLink> {
+    parse_link(text).filter(|l| !l.urls.is_empty())
+}
+
+/// A pairing link whose URLs may all be gone: rad listening on every
+/// interface of a Mac without Tailscale names none of them
+/// (`local_pair` adds loopback's).
+pub(crate) fn parse_link(text: &str) -> Option<PairingLink> {
     let s = text.trim();
     if !s.starts_with("remoteagent://pair") {
         return None;
@@ -169,7 +176,7 @@ pub fn parse_pairing_link(text: &str) -> Option<PairingLink> {
             _ => {}
         }
     }
-    if code.is_empty() || urls.is_empty() {
+    if code.is_empty() {
         return None;
     }
     if name.is_empty() {
@@ -254,6 +261,10 @@ mod tests {
         assert_eq!(link.code, "abc");
         assert_eq!(link.urls, ["http://100.1.2.3:7421", "http://127.0.0.1:7421"]);
         assert!(parse_pairing_link("remoteagent://pair?code=abc").is_none(), "no URLs");
+        assert_eq!(
+            parse_link("remoteagent://pair?code=abc").unwrap().urls,
+            Vec::<String>::new()
+        );
         assert!(
             parse_pairing_link("remoteagent://pair?url=http://h:1").is_none(),
             "no code"

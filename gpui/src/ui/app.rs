@@ -24,7 +24,7 @@ use crate::store::prefs::WindowFrame;
 use crate::store::search::{Hit, merge_search_results, search_active};
 use crate::store::servers::{SavedServer, ServerStore, custom_home, home_dir, pair, parse_pairing_link};
 use crate::store::sidebar::{Collection, Layout, OpenedSession, stands_out};
-use crate::store::ssh_install;
+use crate::store::ssh_install::{self, Target};
 use crate::store::tokens::Tokens;
 use crate::ui::common::{sidebar_toggle, top_bar};
 use crate::ui::dock;
@@ -80,6 +80,8 @@ pub struct AppView {
     /// Install on a server over SSH: the host, and how it's going.
     pub(crate) ssh_input: Entity<InputState>,
     pub(crate) ssh_install: SshInstall,
+    /// The same on this Mac: Pair This Mac.
+    pub(crate) local_install: SshInstall,
     pub(crate) search_input: Entity<InputState>,
     pub(crate) search: Search,
     /// The Inbox's Archived section is open.
@@ -180,6 +182,7 @@ impl AppView {
             pairing: false,
             ssh_input,
             ssh_install: SshInstall::default(),
+            local_install: SshInstall::default(),
             search_input,
             search: Search::default(),
             archive_open: false,
@@ -359,40 +362,62 @@ impl AppView {
     /// Installs rad on the host in `ssh_input` if it has none, starts it,
     /// and pairs with it (`store::ssh_install`), listing the steps as they go.
     pub(crate) fn install_over_ssh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.ssh_install.running {
-            return;
-        }
         let host = self.ssh_input.read(cx).value().trim().to_string();
-        if host.is_empty() {
+        if !host.is_empty() {
+            self.install(Target::Ssh(host), window, cx);
+        }
+    }
+
+    /// The same on this Mac: no link to paste, no ssh.
+    pub(crate) fn pair_this_mac(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !matches!(self.detail, Detail::Pair) {
+            self.show_pairing(cx);
+        }
+        self.install(Target::Local, window, cx);
+    }
+
+    fn install_state(&mut self, target: &Target) -> &mut SshInstall {
+        match target {
+            Target::Ssh(_) => &mut self.ssh_install,
+            Target::Local => &mut self.local_install,
+        }
+    }
+
+    fn install(&mut self, target: Target, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.install_state(&target);
+        if state.running {
             return;
         }
-        self.ssh_install = SshInstall {
+        *state = SshInstall {
             running: true,
             ..Default::default()
         };
         cx.notify();
         let (tx, rx) = async_channel::unbounded::<String>();
+        let t = target.clone();
         let task = cx.background_spawn(async move {
-            ssh_install::install_and_pair(&host, &|step| {
+            ssh_install::install_and_pair(&t, &|step| {
                 let _ = tx.send_blocking(step);
             })
         });
         cx.spawn_in(window, async move |this, cx| {
             while let Ok(step) = rx.recv().await {
                 let _ = this.update(cx, |this, cx| {
-                    this.ssh_install.steps.push(step);
+                    this.install_state(&target).steps.push(step);
                     cx.notify();
                 });
             }
             let result = task.await;
             let _ = this.update_in(cx, |this, window, cx| {
-                this.ssh_install.running = false;
+                this.install_state(&target).running = false;
                 match result.and_then(|saved| this.add_server(saved, window, cx)) {
                     Ok(()) => {
-                        this.ssh_install = SshInstall::default();
-                        this.ssh_input.update(cx, |input, cx| input.set_value("", window, cx));
+                        *this.install_state(&target) = SshInstall::default();
+                        if let Target::Ssh(_) = target {
+                            this.ssh_input.update(cx, |input, cx| input.set_value("", window, cx));
+                        }
                     }
-                    Err(e) => this.ssh_install.error = Some(e),
+                    Err(e) => this.install_state(&target).error = Some(e),
                 }
                 cx.notify();
             });
@@ -1050,6 +1075,7 @@ impl Render for AppView {
             .key_context("Workspace")
             .on_action(cx.listener(|this, _: &NewSession, window, cx| this.new_session(window, cx)))
             .on_action(cx.listener(|this, _: &PairServer, _, cx| this.show_pairing(cx)))
+            .on_action(cx.listener(|this, _: &PairThisMac, window, cx| this.pair_this_mac(window, cx)))
             .on_action(cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(None, window, cx)))
             .on_action(cx.listener(|_, _: &CheckForUpdate, window, cx| {
                 if crate::ui::sparkle::available() {

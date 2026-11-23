@@ -1,8 +1,9 @@
 //! Installing rad on a server over ssh, and pairing with it, for a server
-//! this Mac reaches with `ssh <host>` without a password.
+//! this Mac reaches with `ssh <host>` without a password; or the same on this
+//! Mac (Pair This Mac), with the scripts run by `/bin/sh` here.
 //!
-//! 1. Look for rad on the server: on the login shell's PATH, or in
-//!    `~/.local/bin`, where this puts it.
+//! 1. Look for rad on the server: on the login shell's PATH, in
+//!    `~/.local/bin`, where this puts it, or in Remote Agent Server.
 //! 2. Without one, download the latest release's `rad-<os>-<arch>.tar.gz` on
 //!    this Mac, check it against the release's `SHA256SUMS`, and unpack it into
 //!    the server's `~/.local/bin` through ssh.
@@ -10,8 +11,11 @@
 //! 4. Unless rad already answers there, `rad install-service`: systemd on
 //!    Linux (with lingering, or rad stops as this ssh session ends), launchd
 //!    on a Mac. Then wait for it to answer.
+//!    On this Mac, a rad of Remote Agent Server's is started by opening the
+//!    app, which runs it.
 //! 5. Redeem the code from this Mac at the link's addresses, then at the
-//!    address ssh connects to, as the pairing page does with a pasted link.
+//!    address ssh connects to, as the pairing page does with a pasted link;
+//!    on this Mac, at loopback first.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -20,7 +24,7 @@ use std::time::Duration;
 
 use sha2::{Digest as _, Sha256};
 
-use crate::store::servers::{PairingLink, SavedServer, pair, parse_pairing_link};
+use crate::store::servers::{PairingLink, SavedServer, pair, parse_link};
 use crate::store::ssh::{self, quote, tail};
 
 /// Where the latest release's assets are (GitHub redirects to the tag's).
@@ -28,11 +32,53 @@ const RELEASES: &str = "https://github.com/buldezir/remote-agent/releases/latest
 /// rad's port when the link doesn't say.
 const DEFAULT_PORT: u16 = 7421;
 
+/// Where rad goes: a host over ssh, or this Mac.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Target {
+    Ssh(String),
+    Local,
+}
+
+impl Target {
+    /// A POSIX script run there, with nothing on its stdin.
+    fn script(&self, script: &str) -> Command {
+        match self {
+            Target::Ssh(host) => ssh::script(host, script),
+            Target::Local => {
+                let mut c = Command::new(local_shell());
+                c.args(["-c", script]).stdin(Stdio::null());
+                c
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Target {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Target::Ssh(host) => f.write_str(host),
+            Target::Local => f.write_str("this Mac"),
+        }
+    }
+}
+
+/// `/bin/sh`, or `$RA_GPUI_LOCAL_SH`: tests put in a stand-in that runs the
+/// script in a scratch home, as `$RA_GPUI_SSH` does for ssh.
+fn local_shell() -> String {
+    std::env::var("RA_GPUI_LOCAL_SH")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .unwrap_or_else(|| "/bin/sh".into())
+}
+
 /// Installs rad on `host` if it has none, starts it, and pairs. `report`
 /// hears each step as it starts ("Downloading rad-linux-amd64.tar.gz…").
 /// Blocking.
-pub fn install_and_pair(host: &str, report: &dyn Fn(String)) -> Result<SavedServer, String> {
-    report(format!("Connecting to {host}…"));
+pub fn install_and_pair(host: &Target, report: &dyn Fn(String)) -> Result<SavedServer, String> {
+    report(match host {
+        Target::Ssh(host) => format!("Connecting to {host}…"),
+        Target::Local => "Looking for rad on this Mac…".into(),
+    });
     let probe = probe(host)?;
     let rad = match probe.rad.clone() {
         Some(rad) => {
@@ -59,8 +105,16 @@ pub fn install_and_pair(host: &str, report: &dyn Fn(String)) -> Result<SavedServ
     // Whether rad answers there, or the server can't say.
     let mut state = health(host, &own, 1)?;
     if state != Health::Serving {
-        report("Starting rad as a background service…".into());
-        start(host, &rad, &probe.path)?;
+        match server_app(host, &rad) {
+            Some(app) => {
+                report("Opening Remote Agent Server…".into());
+                open_app(app)?;
+            }
+            None => {
+                report("Starting rad as a background service…".into());
+                start(host, &rad, &probe.path)?;
+            }
+        }
         report("Waiting for rad to answer…".into());
         state = health(host, &own, 30)?;
         if state == Health::Down {
@@ -71,11 +125,11 @@ pub fn install_and_pair(host: &str, report: &dyn Fn(String)) -> Result<SavedServ
         }
     }
 
-    let ssh_host = ssh::hostname(host);
-    let link = PairingLink {
-        urls: pairing_urls(&link.urls, ssh_host.as_deref(), port),
-        ..link
+    let urls = match host {
+        Target::Ssh(host) => pairing_urls(&link.urls, ssh::hostname(host).as_deref(), port),
+        Target::Local => own,
     };
+    let link = PairingLink { urls, ..link };
     report(format!("Pairing with {}…", link.name));
     // Without curl or wget on the server, rad may not answer yet.
     let tries = if state == Health::Unknown { 10 } else { 1 };
@@ -85,6 +139,12 @@ pub fn install_and_pair(host: &str, report: &dyn Fn(String)) -> Result<SavedServ
         match pair(&link) {
             Ok(saved) => return Ok(saved),
             Err(e) if e.code == "unreachable" && attempt < tries => std::thread::sleep(Duration::from_millis(1500)),
+            Err(e) if e.code == "unreachable" && *host == Target::Local => {
+                return Err(format!(
+                    "rad runs on this Mac, but doesn't answer at {}.",
+                    link.urls.join(" or ")
+                ));
+            }
             Err(e) if e.code == "unreachable" => {
                 return Err(format!(
                     "rad runs on {host}, but this Mac can't reach it at {}. Open port {port} in the server's \
@@ -116,7 +176,7 @@ struct Probe {
 
 /// Prints `@@key=value` lines: the login shell's PATH (a non-interactive
 /// ssh gets a shorter one, without `~/.local/bin` or the agents' folders),
-/// and rad, when it's on it or in `~/.local/bin`. A program called rad that
+/// and rad, when it's on it, in `~/.local/bin` or in Remote Agent Server. A program called rad that
 /// isn't ours doesn't count.
 const PROBE: &str = r#"
 printf '@@os=%s\n' "$(uname -s)"
@@ -125,7 +185,9 @@ printf '@@home=%s\n' "$HOME"
 p=$("${SHELL:-/bin/sh}" -lc 'printf "\n@@PATH=%s\n" "$PATH"' </dev/null 2>/dev/null | sed -n 's/^@@PATH=//p' | tail -n 1)
 [ -n "$p" ] && PATH=$p
 printf '@@path=%s\n' "$PATH"
-for rad in "$(command -v rad 2>/dev/null)" "$HOME/.local/bin/rad"; do
+for rad in "$(command -v rad 2>/dev/null)" "$HOME/.local/bin/rad" \
+    "/Applications/Remote Agent Server.app/Contents/MacOS/rad" \
+    "$HOME/Applications/Remote Agent Server.app/Contents/MacOS/rad"; do
     [ -n "$rad" ] && [ -x "$rad" ] || continue
     v=$("$rad" version 2>/dev/null) || continue
     case "$v" in rad\ *) ;; *) continue ;; esac
@@ -134,8 +196,8 @@ for rad in "$(command -v rad 2>/dev/null)" "$HOME/.local/bin/rad"; do
 done
 "#;
 
-fn probe(host: &str) -> Result<Probe, String> {
-    let out = run(ssh::script(host, PROBE), host)?;
+fn probe(host: &Target) -> Result<Probe, String> {
+    let out = run(host.script(PROBE), host)?;
     if !out.status.success() {
         return Err(format!("Looking around on {host} failed: {}", tail(&out.stderr)));
     }
@@ -263,14 +325,15 @@ printf '@@rad=%s\n@@version=%s\n' "$d/rad" "$("$d/rad" version)"
 "#;
 
 /// Copies the tarball to `host` and unpacks it. Returns rad's path and version.
-fn upload(host: &str, tarball: &Path) -> Result<(String, String), String> {
+fn upload(host: &Target, tarball: &Path) -> Result<(String, String), String> {
     let bytes = std::fs::read(tarball).map_err(|e| e.to_string())?;
-    let mut child = ssh::script(host, UPLOAD)
+    let mut child = host
+        .script(UPLOAD)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Couldn't run ssh: {e}"))?;
+        .map_err(|e| format!("Couldn't run {}: {e}", program(host)))?;
     let mut stdin = child.stdin.take().expect("piped");
     // From a thread of its own, so that a full stdout pipe can't stall it.
     let writer = std::thread::spawn(move || stdin.write_all(&bytes));
@@ -288,10 +351,13 @@ fn upload(host: &str, tarball: &Path) -> Result<(String, String), String> {
     }
 }
 
-fn pairing_link(host: &str, rad: &str) -> Result<PairingLink, String> {
-    let out = run(ssh::script(host, &format!("{} pair --print-url", quote(rad))), host)?;
+/// A link without addresses (rad on every interface of a machine without
+/// Tailscale, unless it shows LAN addresses) still pairs: at the address ssh
+/// connects to, or loopback.
+fn pairing_link(host: &Target, rad: &str) -> Result<PairingLink, String> {
+    let out = run(host.script(&format!("{} pair --print-url", quote(rad))), host)?;
     let text = String::from_utf8_lossy(&out.stdout);
-    let link = text.lines().rev().find_map(parse_pairing_link);
+    let link = text.lines().rev().find_map(parse_link);
     match link {
         Some(link) if out.status.success() => Ok(link),
         _ => Err(format!("`rad pair` failed on {host}: {}", tail(&out.stderr))),
@@ -308,7 +374,7 @@ enum Health {
 
 /// Asks rad's `/v1/health` at `urls` from the server itself, up to `tries`
 /// times a second apart. Exits 0 when one answers, 2 without curl or wget.
-fn health(host: &str, urls: &[String], tries: u32) -> Result<Health, String> {
+fn health(host: &Target, urls: &[String], tries: u32) -> Result<Health, String> {
     let urls: Vec<String> = urls.iter().map(|u| quote(&format!("{u}/v1/health"))).collect();
     let script = format!(
         r#"
@@ -327,7 +393,7 @@ done
 "#,
         urls = urls.join(" ")
     );
-    let out = run(ssh::script(host, &script), host)?;
+    let out = run(host.script(&script), host)?;
     Ok(match out.status.code() {
         Some(0) => Health::Serving,
         Some(2) => Health::Unknown,
@@ -338,7 +404,7 @@ done
 /// `rad install-service` with the login shell's PATH, after turning on
 /// lingering on Linux where it can without a password (`sudo -n`), which
 /// keeps rad running once this ssh session ends.
-fn start(host: &str, rad: &str, path: &str) -> Result<(), String> {
+fn start(host: &Target, rad: &str, path: &str) -> Result<(), String> {
     let script = format!(
         r#"
 PATH={path}; export PATH
@@ -353,7 +419,7 @@ fi
         path = quote(path),
         rad = quote(rad)
     );
-    let out = run(ssh::script(host, &script), host)?;
+    let out = run(host.script(&script), host)?;
     let text = String::from_utf8_lossy(&out.stdout);
     if !out.status.success() {
         // A rad we couldn't ask (no curl or wget) that runs already.
@@ -376,10 +442,37 @@ fi
     Ok(())
 }
 
-/// Runs an ssh command, turning ssh's own failure into the error.
-fn run(mut c: Command, host: &str) -> Result<Output, String> {
-    let out = c.output().map_err(|e| format!("Couldn't run ssh: {e}"))?;
-    if out.status.code() == Some(ssh::FAILED) {
+/// The Server app whose rad this is, on this Mac: opening it starts rad,
+/// which it runs as its child, where a service of rad's own would clash.
+fn server_app<'a>(host: &Target, rad: &'a str) -> Option<&'a str> {
+    let (app, _) = rad.split_once(".app/Contents/MacOS/")?;
+    (*host == Target::Local).then(|| &rad[..app.len() + 4])
+}
+
+fn open_app(app: &str) -> Result<(), String> {
+    let out = Command::new("/usr/bin/open")
+        .args(["-g", app])
+        .output()
+        .map_err(|e| format!("Couldn't run open: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("Couldn't open {app}: {}", tail(&out.stderr)));
+    }
+    Ok(())
+}
+
+fn program(host: &Target) -> &'static str {
+    match host {
+        Target::Ssh(_) => "ssh",
+        Target::Local => "sh",
+    }
+}
+
+/// Runs a script there, turning ssh's own failure into the error.
+fn run(mut c: Command, host: &Target) -> Result<Output, String> {
+    let out = c.output().map_err(|e| format!("Couldn't run {}: {e}", program(host)))?;
+    if let Target::Ssh(host) = host
+        && out.status.code() == Some(ssh::FAILED)
+    {
         return Err(format!("ssh {host} failed: {}", tail(&out.stderr)));
     }
     Ok(out)
@@ -394,7 +487,7 @@ fn tilde(path: &str, home: &str) -> String {
 }
 
 /// A base URL's host and port: `http://[::1]:7421` is `::1` and 7421.
-fn host_port(url: &str) -> (&str, Option<u16>) {
+pub(crate) fn host_port(url: &str) -> (&str, Option<u16>) {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     if let Some(v6) = rest.strip_prefix('[') {
         let (host, after) = v6.split_once(']').unwrap_or((v6, ""));
@@ -406,15 +499,15 @@ fn host_port(url: &str) -> (&str, Option<u16>) {
     }
 }
 
-fn port_of(urls: &[String]) -> Option<u16> {
+pub(crate) fn port_of(urls: &[String]) -> Option<u16> {
     urls.iter().find_map(|u| host_port(u).1)
 }
 
-fn is_loopback(host: &str) -> bool {
+pub(crate) fn is_loopback(host: &str) -> bool {
     host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback())
 }
 
-fn base_url(host: &str, port: u16) -> String {
+pub(crate) fn base_url(host: &str, port: u16) -> String {
     if host.contains(':') {
         format!("http://[{host}]:{port}")
     } else {
@@ -538,6 +631,23 @@ mod tests {
             "a server on this Mac keeps loopback"
         );
         assert_eq!(pairing_urls(&link[..1], None, 7421), ["http://100.1.2.3:7421"]);
+    }
+
+    #[test]
+    fn starts_the_server_apps_rad_by_opening_the_app() {
+        let rad = "/Applications/Remote Agent Server.app/Contents/MacOS/rad";
+        assert_eq!(
+            server_app(&Target::Local, rad),
+            Some("/Applications/Remote Agent Server.app")
+        );
+        assert_eq!(server_app(&Target::Ssh("mini".into()), rad), None, "not over ssh");
+        assert_eq!(server_app(&Target::Local, "/Users/me/.local/bin/rad"), None);
+    }
+
+    #[test]
+    fn names_the_target() {
+        assert_eq!(Target::Ssh("box".into()).to_string(), "box");
+        assert_eq!(Target::Local.to_string(), "this Mac");
     }
 
     #[test]
