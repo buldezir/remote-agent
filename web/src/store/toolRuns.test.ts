@@ -1,7 +1,7 @@
 // The vectors every client's ToolRuns shares (RAKit, android/core, gpui).
 import { describe, expect, it } from "vitest";
 import type { Item, ItemKind, ItemStatus, ToolKind, Turn, TurnStatus } from "../protocol/models";
-import { runContaining, runParts, runTitle, runTools, runWorking, toolRuns, transcriptRows, type TranscriptRow } from "./toolRuns";
+import { isRadTool, runContaining, runParts, runTitle, runTools, runWorking, toolRuns, transcriptRows, type TranscriptRow } from "./toolRuns";
 
 const item = (id: string, kind: ItemKind, turn: string | undefined = "t1", status: ItemStatus = "completed"): Item => ({
   id,
@@ -130,6 +130,22 @@ describe("ToolRuns", () => {
     expect(runTitle(runParts(runTools(toolRuns(items, turns)[0])))).toBe("Read 2 files");
     // Nor does reasoning on its own.
     expect(toolRuns([item("r1", "reasoning"), item("r2", "reasoning"), tool("x", "read")], turns)).toEqual([]);
+  });
+
+  it("leaves rad's own calls on their own", () => {
+    const items = [
+      tool("a", "execute"),
+      tool("mcp__rad__start_session", "other"),
+      tool("rad.wait_for_session", "other"),
+      tool("b", "read"),
+      tool("mcp__other__start_session", "other"),
+      tool("rad.nope", "other"),
+    ];
+    // rad's calls start and drive other sessions, so they show between runs;
+    // other servers' tools, and names rad doesn't have, fold.
+    expect(ids(transcriptRows(items, turns))).toEqual(["a", "mcp__rad__start_session", "rad.wait_for_session", "tools:b shut"]);
+    expect(isRadTool("rad/read_session")).toBe(true);
+    expect(isRadTool("Bash")).toBe(false);
   });
 
   it("keeps runs within a turn", () => {

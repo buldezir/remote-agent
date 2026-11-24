@@ -7,7 +7,9 @@
 //! A run is the tool calls and the agent's thinking between two pieces of
 //! conversation (a prompt, a reply, an approval, a plan, a notice, an error),
 //! within one turn. It folds with two tool calls or more. A call that waits
-//! for approval, failed, or shows images stands on its own, between runs. A
+//! for approval, failed, shows images or is one of rad's own tools (it starts
+//! or drives another session, `store::rad_tools`) stands on its own, between
+//! runs. A
 //! run is live while its turn runs and nothing has come after it: it shows
 //! open, unless the user shut it, and folds once the agent replies or the
 //! turn ends. A prompt queued while the agent works isn't conversation yet:
@@ -17,6 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::protocol::{Item, ItemKind, ItemStatus, ToolKind, Turn, TurnStatus};
+use crate::store::rad_tools::rad_tool;
 
 /// The fewest tool calls that fold: one on its own stays as it is.
 pub const TOOL_RUN_MINIMUM: usize = 2;
@@ -67,12 +70,15 @@ impl ToolRun {
 }
 
 /// An item can be part of a run: reasoning, and tool calls that neither wait
-/// for approval, failed, nor show images.
+/// for approval, failed, show images, nor are rad's own.
 pub fn folds(it: &Item) -> bool {
     match it.kind {
         ItemKind::Reasoning => true,
         ItemKind::ToolCall => {
-            it.status != ItemStatus::Pending && it.status != ItemStatus::Failed && it.images.is_empty()
+            it.status != ItemStatus::Pending
+                && it.status != ItemStatus::Failed
+                && it.images.is_empty()
+                && !it.tool.as_ref().is_some_and(|t| rad_tool(&t.name).is_some())
         }
         _ => false,
     }
@@ -541,6 +547,24 @@ mod tests {
             tool("x", T::Read, "t1", DONE, &[]),
         ];
         assert!(tool_runs(&alone, &turns()).is_empty());
+    }
+
+    #[test]
+    fn leave_rads_own_calls_alone() {
+        let items = vec![
+            tool("a", T::Execute, "t1", DONE, &[]),
+            tool("mcp__rad__start_session", T::Other, "t1", DONE, &[]),
+            tool("rad.wait_for_session", T::Other, "t1", DONE, &[]),
+            tool("b", T::Read, "t1", DONE, &[]),
+            tool("mcp__other__start_session", T::Other, "t1", DONE, &[]),
+            tool("rad.nope", T::Other, "t1", DONE, &[]),
+        ];
+        // rad's calls start and drive other sessions, so they show between
+        // runs; other servers' tools, and names rad doesn't have, fold.
+        assert_eq!(
+            row_ids(&transcript_rows(&items, &turns(), &HashMap::new(), true)),
+            ["a", "mcp__rad__start_session", "rad.wait_for_session", "tools:b shut"]
+        );
     }
 
     #[test]

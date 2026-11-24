@@ -129,6 +129,19 @@ struct ToolRunsTests {
         #expect(ToolRuns.runs([item("r1", .reasoning), item("r2", .reasoning), tool("x", .read)], turns: turns).isEmpty)
     }
 
+    @Test func radToolsStandAlone() {
+        let items = [
+            tool("a", .execute), tool("mcp__rad__start_session", .other), tool("rad.wait_for_session", .other),
+            tool("b", .read), tool("mcp__other__start_session", .other), tool("rad.nope", .other),
+        ]
+        // rad's calls start and drive other sessions, so they show between runs;
+        // other servers' tools, and names rad doesn't have, fold.
+        #expect(ids(ToolRuns.rows(items, turns: turns)) ==
+                ["a", "mcp__rad__start_session", "rad.wait_for_session", "tools:b shut"])
+        #expect(ToolRuns.isRadTool("rad/read_session"))
+        #expect(!ToolRuns.isRadTool("Bash"))
+    }
+
     @Test func runsStayWithinATurn() {
         let items = [tool("a", .execute), tool("b", .execute, turn: "t2"), tool("c", .execute, turn: "t2")]
         #expect(ids(ToolRuns.rows(items, turns: turns)) == ["a", "tools:b open", "b", "c"])

@@ -9,7 +9,8 @@ import Foundation
 /// A run is the tool calls and the agent's thinking between two pieces of
 /// conversation (a prompt, a reply, an approval, a plan, a notice, an error),
 /// within one turn. It folds with two tool calls or more. A call that waits
-/// for approval, failed, or shows images stands on its own, between runs. A
+/// for approval, failed, shows images or is one of rad's own tools (it
+/// starts or drives another session) stands on its own, between runs. A
 /// run is live while its turn runs and nothing has come after it: it shows
 /// open, unless the user shut it, so that the user can watch the agent work,
 /// and folds once the agent replies or the turn ends. A prompt queued while
@@ -102,16 +103,35 @@ public enum ToolRuns {
     }
 
     /// Whether an item can be part of a run: reasoning, and tool calls that
-    /// neither wait for approval, failed, nor show images.
+    /// neither wait for approval, failed, show images, nor are rad's own.
     public static func folds(_ item: Item) -> Bool {
         switch item.kind {
         case .reasoning:
             true
         case .toolCall:
             item.status != .pending && item.status != .failed && (item.images ?? []).isEmpty
+                && !isRadTool(item.tool?.name ?? "")
         default:
             false
         }
+    }
+
+    /// rad's tools, which agents call through its MCP server to start and
+    /// drive other sessions (`server/internal/api/mcp.go`).
+    static let radTools: Set<String> = [
+        "list_projects", "list_agents", "list_sessions", "start_session", "send_prompt", "read_session",
+        "wait_for_session", "stop_session", "rename_session", "fork_session", "save_draft",
+        "archive_session", "unarchive_session", "search_sessions", "read_diff", "list_branches",
+    ]
+
+    /// Whether a tool call's name is one of rad's tools: Claude Code's
+    /// `mcp__rad__start_session`, Codex's `rad.start_session`, or an ACP
+    /// agent's `rad/…`, `rad__…`, `rad:…` or `rad_…`.
+    public static func isRadTool(_ name: String) -> Bool {
+        for prefix in ["mcp__rad__", "rad.", "rad/", "rad__", "rad:", "rad_"] where name.hasPrefix(prefix) {
+            if radTools.contains(name.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)) { return true }
+        }
+        return false
     }
 
     enum Segment {

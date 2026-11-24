@@ -16,7 +16,8 @@ import dev.remoteagent.core.protocol.TurnStatus
  * A run is the tool calls and the agent's thinking between two pieces of
  * conversation (a prompt, a reply, an approval, a plan, a notice, an error),
  * within one turn. It folds with two tool calls or more. A call that waits
- * for approval, failed, or shows images stands on its own, between runs. A
+ * for approval, failed, shows images or is one of rad's own tools (it starts
+ * or drives another session) stands on its own, between runs. A
  * run is live while its turn runs and nothing has come after it: it shows
  * open, unless the user shut it, so that the user can watch the agent work,
  * and folds once the agent replies or the turn ends. A prompt queued while
@@ -115,13 +116,29 @@ object ToolRuns {
 
     /**
      * Whether an item can be part of a run: reasoning, and tool calls that
-     * neither wait for approval, failed, nor show images.
+     * neither wait for approval, failed, show images, nor are rad's own.
      */
     fun folds(item: Item): Boolean = when (item.kind) {
         ItemKind.REASONING -> true
-        ItemKind.TOOL_CALL -> item.status != ItemStatus.PENDING && item.status != ItemStatus.FAILED && item.images.isNullOrEmpty()
+        ItemKind.TOOL_CALL -> item.status != ItemStatus.PENDING && item.status != ItemStatus.FAILED && item.images.isNullOrEmpty() &&
+            !isRadTool(item.tool?.name ?: "")
         else -> false
     }
+
+    /** rad's tools, which agents call through its MCP server to start and drive other sessions (`server/internal/api/mcp.go`). */
+    private val radTools = setOf(
+        "list_projects", "list_agents", "list_sessions", "start_session", "send_prompt", "read_session",
+        "wait_for_session", "stop_session", "rename_session", "fork_session", "save_draft",
+        "archive_session", "unarchive_session", "search_sessions", "read_diff", "list_branches",
+    )
+
+    /**
+     * Whether a tool call's name is one of rad's tools: Claude Code's
+     * `mcp__rad__start_session`, Codex's `rad.start_session`, or an ACP
+     * agent's `rad/…`, `rad__…`, `rad:…` or `rad_…`.
+     */
+    fun isRadTool(name: String): Boolean =
+        listOf("mcp__rad__", "rad.", "rad/", "rad__", "rad:", "rad_").any { name.startsWith(it) && name.removePrefix(it).trim() in radTools }
 
     private fun segments(items: List<Item>, turns: Map<String, Turn>): List<Segment> {
         val lastOfTurn = HashMap<String, Int>()

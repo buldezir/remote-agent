@@ -138,6 +138,19 @@ class ToolRunsTests {
     }
 
     @Test
+    fun radToolsStandAlone() {
+        val items = listOf(
+            tool("a", ToolKind.EXECUTE), tool("mcp__rad__start_session", ToolKind.OTHER), tool("rad.wait_for_session", ToolKind.OTHER),
+            tool("b", ToolKind.READ), tool("mcp__other__start_session", ToolKind.OTHER), tool("rad.nope", ToolKind.OTHER),
+        )
+        // rad's calls start and drive other sessions, so they show between runs;
+        // other servers' tools, and names rad doesn't have, fold.
+        assertEquals(listOf("a", "mcp__rad__start_session", "rad.wait_for_session", "tools:b shut"), ids(ToolRuns.rows(items, turns)))
+        assertTrue(ToolRuns.isRadTool("rad/read_session"))
+        assertFalse(ToolRuns.isRadTool("Bash"))
+    }
+
+    @Test
     fun runsStayWithinATurn() {
         val items = listOf(tool("a", ToolKind.EXECUTE), tool("b", ToolKind.EXECUTE, turn = "t2"), tool("c", ToolKind.EXECUTE, turn = "t2"))
         assertEquals(listOf("a", "tools:b open", "b", "c"), ids(ToolRuns.rows(items, turns)))
