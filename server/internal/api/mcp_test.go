@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"remote-agent/internal/harness/fake"
 	"remote-agent/internal/model"
@@ -572,4 +573,115 @@ func TestMCPDiffAndBranches(t *testing.T) {
 		t.Errorf("branches = %+v", branches)
 	}
 	dev.fails("list_branches", map[string]any{"project": "/elsewhere"}, "no project")
+}
+
+// A turn an agent gave a session reports back to the agent's session when
+// it ends, unless the agent waited for it, stopped it, or asked for none.
+func TestMCPReports(t *testing.T) {
+	s := startServer(t)
+	ctx := context.Background()
+	dev := s.mcp(t, s.token(t))
+	dir := filepath.Join(s.root, "app")
+	os.MkdirAll(dir, 0o755)
+	var parent mcpSession
+	dev.ok("start_session", map[string]any{"project": dir, "prompt": "hello", "mode": "auto"}, &parent)
+	dev.ok("wait_for_session", map[string]any{"session": parent.ID}, nil)
+	agent := s.mcp(t, s.orch.AgentToken(parent.ID))
+
+	// reports are the parent's report items; it waits for n of them, and for
+	// the parent's turns to end.
+	reports := func(n int) []*model.Item {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			items, _ := s.st.Items(ctx, parent.ID)
+			var out []*model.Item
+			started := true
+			for _, it := range items {
+				if it.Report != nil {
+					out = append(out, it)
+					started = started && it.TurnID != ""
+				}
+			}
+			sess, _ := s.st.Session(ctx, parent.ID)
+			if len(out) >= n && started && sess.Status != model.SessionRunning || time.Now().After(deadline) {
+				return out
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+
+	var child mcpSession
+	agent.ok("start_session", map[string]any{"project": dir, "prompt": "help me", "title": "Helper"}, &child)
+	got := reports(1)
+	if len(got) != 1 {
+		t.Fatalf("reports = %d, want 1", len(got))
+	}
+	rep := got[0]
+	if want := fmt.Sprintf("@[Helper](session:%s) finished.", child.ID); rep.Text != want || rep.TurnID == "" || rep.Status != model.ItemCompleted {
+		t.Errorf("report = %q (%s, turn %q), want %q", rep.Text, rep.Status, rep.TurnID, want)
+	}
+	if rep.Report.SessionID != child.ID || rep.Report.Title != "Helper" || rep.Report.Status != model.TurnCompleted {
+		t.Errorf("report = %+v", rep.Report)
+	}
+	// The agent read the session's reply in it: the fake echoes its prompt.
+	items, _ := s.st.Items(ctx, parent.ID)
+	last := items[len(items)-1]
+	if last.Kind != model.ItemAssistantMessage || !strings.Contains(last.Text, "<rad-report>") || !strings.Contains(last.Text, "Echo: help me") {
+		t.Errorf("parent's reply = %q", last.Text)
+	}
+	// read_session tells it from the user's prompts.
+	if text := dev.ok("read_session", map[string]any{"session": parent.ID}, nil); !strings.Contains(text, "Report (from rad, not the user):\n@[Helper]") {
+		t.Errorf("read = %s", text)
+	}
+
+	// Waiting for it, the agent hears it there.
+	agent.ok("send_prompt", map[string]any{"session": child.ID, "prompt": "slow, please"}, nil)
+	var done struct {
+		Done bool `json:"done"`
+	}
+	if agent.ok("wait_for_session", map[string]any{"session": child.ID}, &done); !done.Done {
+		t.Fatal("not done")
+	}
+	// With report false, it hears nothing.
+	agent.ok("send_prompt", map[string]any{"session": child.ID, "prompt": "quietly", "report": false}, nil)
+	dev.ok("wait_for_session", map[string]any{"session": child.ID}, nil)
+	// Stopping it, it knows.
+	agent.ok("send_prompt", map[string]any{"session": child.ID, "prompt": "slow again"}, nil)
+	agent.ok("stop_session", map[string]any{"session": child.ID}, nil)
+	dev.ok("wait_for_session", map[string]any{"session": child.ID}, nil)
+	// A prompt the user sends reports to nobody.
+	dev.ok("send_prompt", map[string]any{"session": child.ID, "prompt": "from the user"}, nil)
+	dev.ok("wait_for_session", map[string]any{"session": child.ID}, nil)
+	time.Sleep(200 * time.Millisecond)
+	if got := reports(1); len(got) != 1 {
+		t.Errorf("reports = %d, want still 1", len(got))
+	}
+
+	// Stopped by someone else, or failed, it says so.
+	agent.ok("send_prompt", map[string]any{"session": child.ID, "prompt": "slow once more"}, nil)
+	time.Sleep(100 * time.Millisecond)
+	dev.ok("stop_session", map[string]any{"session": child.ID}, nil)
+	agent.ok("send_prompt", map[string]any{"session": child.ID, "prompt": "fail"}, nil)
+	got = reports(3)
+	if len(got) != 3 || got[1].Report.Status != model.TurnInterrupted || !strings.HasSuffix(got[1].Text, "was stopped.") ||
+		got[2].Report.Status != model.TurnFailed || !strings.Contains(got[2].Text, "failed") {
+		for _, r := range got {
+			t.Logf("report %q %+v", r.Text, r.Report)
+		}
+		t.Errorf("reports = %d, want stopped and failed", len(got))
+	}
+
+	// While the agent works, the report joins its turn.
+	dev.ok("send_prompt", map[string]any{"session": parent.ID, "prompt": "slow, a long one: " + strings.Repeat("word ", 40)}, nil)
+	agent.ok("send_prompt", map[string]any{"session": child.ID, "prompt": "quick"}, nil)
+	got = reports(4)
+	turns, _ := s.st.Turns(ctx, parent.ID)
+	if len(got) != 4 || got[3].TurnID != turns[len(turns)-1].ID {
+		t.Errorf("the report = %+v, want it in the parent's last turn %s", got[len(got)-1], turns[len(turns)-1].ID)
+	}
+	items, _ = s.st.Items(ctx, parent.ID)
+	if last := items[len(items)-1]; !strings.Contains(last.Text, "Steered: <rad-report>") {
+		t.Errorf("parent's reply = %q", last.Text)
+	}
 }

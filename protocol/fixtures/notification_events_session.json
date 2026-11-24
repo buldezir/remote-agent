@@ -453,6 +453,28 @@
       {
         "stream": "session:s1",
         "seq": 15,
+        "type": "item.upserted",
+        "item": {
+          "id": "i13",
+          "sessionId": "s1",
+          "turnId": "t1",
+          "order": 13,
+          "kind": "user_message",
+          "status": "completed",
+          "text": "@[Fix the docs](session:s3) finished.",
+          "report": {
+            "sessionId": "s3",
+            "title": "Fix the docs",
+            "status": "completed"
+          },
+          "createdAt": "2026-10-09T12:00:00Z",
+          "updatedAt": "2026-10-09T12:00:05Z"
+        },
+        "ts": "2026-10-09T12:00:05Z"
+      },
+      {
+        "stream": "session:s1",
+        "seq": 16,
         "type": "future.event",
         "id": "x",
         "ts": "2026-10-09T12:00:05Z"

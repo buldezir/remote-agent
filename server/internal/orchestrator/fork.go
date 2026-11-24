@@ -461,6 +461,9 @@ func transcriptLine(it *model.Item, clip func(string) string) string {
 		if n := len(it.Images); n > 0 {
 			text += fmt.Sprintf(" [%d image(s)]", n)
 		}
+		if it.Report != nil {
+			return "Report (from rad, not the user):\n" + text
+		}
 		return "User:\n" + text
 	case model.ItemAssistantMessage:
 		if it.ParentItemID != "" {

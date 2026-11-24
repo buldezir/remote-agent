@@ -24,6 +24,9 @@
 //	"limit"    fail the turn on its plan's 5-hour limit, which the next turn
 //	           starts afresh
 //	"limits <n>" set the 5-hour limit's use to n%
+//	"delegate" start a session with rad's MCP tools (start_session), which
+//	           reports back when its turn ends; "delegate and wait" waits
+//	           for it with wait_for_session instead (delegate.go)
 //
 // Its plan's usage limits are an account's, which every turn reports, using
 // a little more of them (limits.go).
@@ -296,6 +299,10 @@ func (r *runtime) turn(ctx context.Context, n int, text string, images int) {
 			}
 		}
 		r.emitItem(tool)
+	}
+
+	if strings.Contains(text, "delegate") {
+		r.delegate(ctx, key, strings.Contains(text, "and wait"))
 	}
 
 	if strings.Contains(text, "tools") && !r.toolRun(ctx, key, delay) {

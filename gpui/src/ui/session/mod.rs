@@ -5,6 +5,7 @@
 mod composer;
 mod dock;
 mod header;
+mod rad_calls;
 mod transcript;
 mod usage;
 
@@ -434,6 +435,7 @@ impl SessionView {
                 self.highlight(&it.id).hash(&mut h);
                 self.run_steps.contains(&it.id).hash(&mut h);
                 self.asked_about(it, cx).hash(&mut h);
+                self.named_session_title(it, cx).hash(&mut h);
                 if let Some(a) = self.answers.get(&it.id) {
                     a.hash(&mut h);
                 }

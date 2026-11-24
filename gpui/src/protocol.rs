@@ -394,6 +394,17 @@ pub struct ImageRef {
     pub size: i64,
 }
 
+/// The session a report is from, and how its turn ended.
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Report {
+    pub session_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub status: TurnStatus,
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Item {
@@ -415,6 +426,9 @@ pub struct Item {
     #[serde(default)]
     pub images: Vec<ImageRef>,
     pub limit: Option<UsageWindow>,
+    /// User messages that rad wrote, not the user: another session's report,
+    /// when a turn ended that this session's agent gave it with rad's tools.
+    pub report: Option<Report>,
     #[serde(default)]
     pub created_at: String,
     #[serde(default)]
@@ -1210,7 +1224,7 @@ mod tests {
         match Frame::parse(&fixture("notification_synchronized.json")).unwrap() {
             Frame::Notification(Notification::Synchronized {
                 stream,
-                seq: 15,
+                seq: 16,
                 reset: true,
             }) => {
                 assert_eq!(stream, "session:s1")
@@ -1252,6 +1266,13 @@ mod tests {
                 .any(|i| i.kind == ItemKind::Approval && i.approval.is_some())
         );
         assert!(events.iter().any(|e| e.turn.is_some()));
+        // A report back from another session, which rad wrote, not the user.
+        let report = items.iter().find_map(|i| i.report.as_ref()).unwrap();
+        assert_eq!(
+            (report.session_id.as_str(), report.title.as_str(), report.status),
+            ("s3", "Fix the docs", TurnStatus::Completed)
+        );
+        assert!(items[0].report.is_none());
     }
 
     #[test]

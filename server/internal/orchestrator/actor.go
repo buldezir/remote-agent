@@ -29,6 +29,7 @@ type queuedPrompt struct {
 	item     *model.Item
 	input    harness.Input
 	queuedAt time.Time
+	reportTo string // the session whose agent sent it, which its turn reports to (reports.go)
 }
 
 type pendingApproval struct {
@@ -53,8 +54,9 @@ type actor struct {
 	turn      *model.Turn
 	lastTurnN int
 	queue     []queuedPrompt
-	holds     int    // sendNow calls interrupting the turn; the queue waits for them
-	note      string // prepended to the next prompt (e.g. after a revert)
+	holds     int      // sendNow calls interrupting the turn; the queue waits for them
+	note      string   // prepended to the next prompt (e.g. after a revert)
+	reportTo  []string // the sessions whose agents the running turn reports to (reports.go)
 
 	keyToID   map[string]string          // adapter item key -> item id (per runtime)
 	items     map[string]*model.Item     // live items of the current turn, by id
@@ -220,7 +222,7 @@ func (a *actor) promptLocked(ctx context.Context, text string, refs []model.Imag
 	}
 	busy := a.turn != nil || a.holds > 0
 	a.o.log.Info("prompt", a.logAttrs(append(attrs, "queued", busy, "device", clientOf(ctx))...)...)
-	q := queuedPrompt{it, harness.Input{Text: text, Images: files}, time.Now()}
+	q := queuedPrompt{it, harness.Input{Text: text, Images: files}, time.Now(), reportToOf(ctx)}
 	if busy {
 		a.queue = append(a.queue, q)
 		cp := *it // the queued item is updated when its turn starts
@@ -276,6 +278,9 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 			e := a.newItem(model.ItemError, model.ItemCompleted)
 			e.Text = "Could not start " + a.sess.Harness + ": " + err.Error()
 			a.sess.Status, a.sess.Error = model.SessionError, err.Error()
+			a.reportTo = nil
+			a.addReport(q.reportTo)
+			to := a.takeReports()
 			a.write(ctx, func(w *store.W) error {
 				if err := a.putItem(w, q.item); err != nil {
 					return err
@@ -285,11 +290,13 @@ func (a *actor) startTurn(ctx context.Context, q queuedPrompt) error {
 				}
 				return a.putSession(w)
 			})
+			a.o.sendReports(*a.sess, "", model.TurnFailed, e.Text, to)
 			a.failQueue(ctx)
 			return err
 		}
 	}
 	turn := a.newTurn(ctx)
+	a.addReport(q.reportTo)
 	a.o.log.Info("turn started", "session", a.sess.ID, "turn", turn.N, "waited", time.Since(q.queuedAt).Round(time.Millisecond))
 	q.item.TurnID, q.item.Status = turn.ID, model.ItemCompleted
 	if q.item.Order < a.sess.ItemCount {
@@ -351,6 +358,7 @@ func (a *actor) newTurn(ctx context.Context) *model.Turn {
 	turn.CheckpointBefore = a.checkpoint(ctx, n, "before")
 	a.refreshBranch(ctx)
 	a.turn, a.lastTurnN = turn, n
+	a.reportTo = nil
 	a.sess.Status, a.sess.Error = model.SessionRunning, ""
 	return turn
 }
@@ -793,6 +801,7 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 	a.syncStatus()
 	a.sess.Unread = true
 	a.logTurnEnd(turn)
+	reportTo := a.takeReports() // before the status is written, which ends the waits
 	switch {
 	case ev.Status == model.TurnFailed && harness.IsAuthError(ev.Error):
 		line, _, _ := strings.Cut(strings.TrimSpace(ev.Error), "\n")
@@ -812,6 +821,7 @@ func (a *actor) endTurn(ctx context.Context, ev harness.TurnEnded) {
 		return a.putSession(w)
 	})
 	a.items = carried
+	a.o.sendReports(*a.sess, turn.ID, turn.Status, turn.Error, reportTo)
 	if slices.Contains(renamesAfter, turn.N) && ev.Status != model.TurnFailed && !a.sess.CustomTitle && !a.sess.Archived && !a.archiving && !a.deleted {
 		a.o.renameFromWork(a.sess.ID, a.projectName(), "")
 	}
@@ -969,6 +979,7 @@ func (a *actor) reapIfIdle(timeout time.Duration) {
 
 func (a *actor) interrupt(ctx context.Context, force bool) error {
 	a.mu.Lock()
+	a.dropReport(reportToOf(ctx)) // the agent that stops it knows
 	a.failQueue(ctx)
 	if a.turn == nil || a.rt == nil {
 		a.mu.Unlock()
@@ -1051,6 +1062,7 @@ func (a *actor) steerLocked(ctx context.Context, i int) (ok bool, err error) {
 		return false, err
 	}
 	a.queue = slices.Delete(a.queue, i, i+1)
+	a.addReport(q.reportTo)
 	a.o.log.Info("steered", "session", a.sess.ID, "turn", a.turn.N, "waited", time.Since(q.queuedAt).Round(time.Millisecond), "device", clientOf(ctx))
 	q.item.TurnID, q.item.Status = a.turn.ID, model.ItemCompleted
 	if q.item.Order < a.sess.ItemCount {

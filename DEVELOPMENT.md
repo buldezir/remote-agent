@@ -70,6 +70,7 @@ To exercise the UI without spending tokens, run `rad serve --fake` and pick **Fa
 - `/compact`: marks the transcript with *Context compacted* and reports less context in use
 - `limit`: fails the turn on the plan's 5-hour limit, as Claude Code and Codex do when it's spent; the next turn starts the 5 hours afresh
 - `limits <n>`: sets the 5-hour limit's use to n%, such as `limits 85` to see the gauge turn amber
+- `delegate`: starts a session in the same folder with rad's MCP tools (`start_session`, shown as Claude Code's `mcp__rad__start_session`), which reports back when its turn ends (`delegate and wait` waits for it with `wait_for_session` instead); only on a `rad serve`, whose agents get its MCP server
 
 Its plan's usage limits are shared by its sessions, as an account's are: rad reads them as it starts (5h 12%, week 34%), and each turn uses a little more. It also says how many images came with a prompt, and a fork's first reply says which conversation it was forked from. In every folder it has two sessions of its own to continue, as if it ran them in a terminal: "Fix the login redirect", from two hours ago, and "Add a dark theme to the settings page", written to just now, so the list warns about it. The first reply in one you picked up says so. `rad debug run --image shot.png "…"` attaches one from the command line.
 

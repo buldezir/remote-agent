@@ -302,8 +302,18 @@ export interface Item {
   images?: ImageRef[];
   /** Errors: the turn failed because the agent hit this usage limit. */
   limit?: UsageWindow;
+  /** User messages that rad wrote, not the user: another session's report,
+   *  when a turn ended that this session's agent gave it with rad's tools. */
+  report?: Report;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The session a report is from, and how its turn ended. */
+export interface Report {
+  sessionId: string;
+  title: string;
+  status: TurnStatus;
 }
 
 /** How much of its plan's usage an agent's account has used, in each window

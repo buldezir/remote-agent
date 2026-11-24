@@ -83,6 +83,9 @@ func fixtures() map[string]any {
 	limitItem := item("i12", 12, model.ItemError, model.ItemCompleted)
 	limitItem.Text = "Claude Code's 5-hour limit is reached; it resets at 15:00 UTC."
 	limitItem.Limit = &model.UsageWindow{ID: "five_hour", Label: "5h", UsedPercent: 100, ResetsAt: &fiveHourReset, WindowMinutes: 300}
+	report := item("i13", 13, model.ItemUserMessage, model.ItemCompleted)
+	report.Text = "@[Fix the docs](session:s3) finished."
+	report.Report = &model.Report{SessionID: "s3", Title: "Fix the docs", Status: model.TurnCompleted}
 	limits := &model.UsageLimits{Harness: "claude", Windows: []model.UsageWindow{
 		{ID: "five_hour", Label: "5h", UsedPercent: 100, ResetsAt: &fiveHourReset, WindowMinutes: 300},
 		{ID: "weekly", Label: "week", UsedPercent: 61, ResetsAt: &weekReset, WindowMinutes: 10080},
@@ -98,7 +101,7 @@ func fixtures() map[string]any {
 	}
 	add(model.Event{Type: model.EvSessionUpserted, Session: sess})
 	add(model.Event{Type: model.EvTurnUpserted, Turn: turn})
-	for _, it := range []*model.Item{user, reasoning, tool, assistant, approval, question, planApproval, plan, notice, errItem, sub, limitItem} {
+	for _, it := range []*model.Item{user, reasoning, tool, assistant, approval, question, planApproval, plan, notice, errItem, sub, limitItem, report} {
 		add(model.Event{Type: model.EvItemUpserted, Item: it})
 	}
 	add(model.Event{Type: "future.event", ID: "x"}) // clients must ignore unknown types

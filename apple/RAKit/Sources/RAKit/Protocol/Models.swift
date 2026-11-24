@@ -125,6 +125,13 @@ public struct PullRequest: Codable, Hashable, Sendable {
 }
 
 /// The session a fork continues, and the turn it continues after.
+/// The session a report is from, and how its turn ended.
+public struct Report: Codable, Hashable, Sendable {
+    public var sessionId: String
+    public var title: String
+    public var status: TurnStatus
+}
+
 public struct ForkedFrom: Codable, Hashable, Sendable {
     public var sessionId: String
     public var turn: Int
@@ -373,6 +380,9 @@ public struct Item: Codable, Hashable, Identifiable, Sendable {
     /// Errors: the turn failed because the agent hit this usage limit
     /// (`UsageLimitsFormat.limitNotice`).
     public var limit: UsageWindow?
+    /// User messages that rad wrote, not the user: another session's report,
+    /// when a turn ended that this session's agent gave it with rad's tools.
+    public var report: Report?
     public var createdAt: Date
     public var updatedAt: Date
 

@@ -48,6 +48,8 @@ type Orchestrator struct {
 	inflight map[string]*sync.Mutex
 	tokens   map[string]string // the MCP token of each session's agent -> the session
 	parents  map[string]string // a session an agent started with rad's tools -> that agent's session
+	waiters  map[[2]string]int // a session and the session whose agent waits for it -> how many waits (reports.go)
+	reports  sync.WaitGroup    // reports on their way (reports.go)
 
 	bg     context.Context // the system agent's calls; cancelled by Shutdown
 	stopBg context.CancelFunc
@@ -70,7 +72,7 @@ func New(st *store.Store, reg *harness.Registry, opt Options) *Orchestrator {
 	}
 	bg, stopBg := context.WithCancel(context.Background())
 	return &Orchestrator{st: st, reg: reg, opt: opt, log: opt.Log, actors: map[string]*actor{}, inflight: map[string]*sync.Mutex{},
-		tokens: map[string]string{}, parents: map[string]string{}, bg: bg, stopBg: stopBg,
+		tokens: map[string]string{}, parents: map[string]string{}, waiters: map[[2]string]int{}, bg: bg, stopBg: stopBg,
 		limits: limitsState{tried: map[string]time.Time{}, wake: make(chan struct{}, 1)}, prs: newPRState()}
 }
 
@@ -838,6 +840,7 @@ func (o *Orchestrator) Run(ctx context.Context) {
 func (o *Orchestrator) Shutdown() {
 	o.stopBg()
 	defer o.naming.Wait()
+	defer o.reports.Wait()
 	o.mu.Lock()
 	actors := make([]*actor, 0, len(o.actors))
 	for _, a := range o.actors {

@@ -18,6 +18,7 @@ import dev.remoteagent.core.protocol.ImportableSession
 import dev.remoteagent.core.protocol.ItemKind
 import dev.remoteagent.core.protocol.OptionKind
 import dev.remoteagent.core.protocol.PullRequest
+import dev.remoteagent.core.protocol.Report
 import dev.remoteagent.core.protocol.SearchResults
 import dev.remoteagent.core.protocol.SnippetPart
 import dev.remoteagent.core.protocol.ServerInfo
@@ -29,6 +30,7 @@ import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.SubscribeResult
 import dev.remoteagent.core.protocol.TerminalList
 import dev.remoteagent.core.protocol.TerminalMessage
+import dev.remoteagent.core.protocol.TurnStatus
 import dev.remoteagent.core.protocol.UpdateInfo
 import dev.remoteagent.core.protocol.UsageLimits
 import dev.remoteagent.core.protocol.UsageWindow
@@ -72,7 +74,7 @@ class FixtureTests {
     fun sessionEvents() {
         val n = assertIs<ServerMessage.Events>(notification("notification_events_session.json"))
         val events = n.events
-        assertEquals(15, events.size)
+        assertEquals(16, events.size)
         val session = assertNotNull(events[0].session)
         assertEquals(SessionStatus.AWAITING_APPROVAL, session.status)
         assertEquals(Workspace.Kind.WORKTREE, session.workspace.kind)
@@ -81,12 +83,12 @@ class FixtureTests {
         assertEquals("Then update the changelog", session.draft?.text)
         assertEquals(0.0123, events[1].turn?.usage?.costUsd)
         val items = events.mapNotNull { it.item }
-        assertEquals(12, items.size)
+        assertEquals(13, items.size)
         assertEquals(
             listOf(
                 ItemKind.USER_MESSAGE, ItemKind.REASONING, ItemKind.TOOL_CALL, ItemKind.ASSISTANT_MESSAGE, ItemKind.APPROVAL,
                 ItemKind.APPROVAL, ItemKind.APPROVAL, ItemKind.PLAN, ItemKind.NOTICE, ItemKind.ERROR, ItemKind.ASSISTANT_MESSAGE,
-                ItemKind.ERROR,
+                ItemKind.ERROR, ItemKind.USER_MESSAGE,
             ),
             items.map { it.kind },
         )
@@ -114,6 +116,9 @@ class FixtureTests {
             UsageWindow("five_hour", "5h", 100, Instant.parse("2026-10-09T15:00:00Z"), windowMinutes = 300),
             items[11].limit,
         )
+        // A report back from another session, which rad wrote, not the user.
+        assertNull(items[0].report)
+        assertEquals(Report("s3", "Fix the docs", TurnStatus.COMPLETED), items[12].report)
         // Unknown event types decode without payload instead of failing the batch.
         assertEquals("future.event", events.last().type)
     }
@@ -408,9 +413,9 @@ class FixtureTests {
 
     @Test
     fun notifications() {
-        assertEquals(ServerMessage.Synchronized("session:s1", 15, true), notification("notification_synchronized.json"))
+        assertEquals(ServerMessage.Synchronized("session:s1", 16, true), notification("notification_synchronized.json"))
         assertEquals(ServerMessage.Resync("session:s1"), notification("notification_resync.json"))
-        assertEquals(SubscribeResult("session:s1", 15), result<SubscribeResult>("response_subscribe.json"))
+        assertEquals(SubscribeResult("session:s1", 16), result<SubscribeResult>("response_subscribe.json"))
     }
 
     private fun terminal(name: String) = WireCoding.json.decodeFromString(TerminalMessage.serializer(), fixture(name))

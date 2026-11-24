@@ -170,6 +170,13 @@ type ForkedFrom struct {
 	Turn      int    `json:"turn"`
 }
 
+// Report names the session a report is from, and how its turn ended.
+type Report struct {
+	SessionID string     `json:"sessionId"`
+	Title     string     `json:"title"`
+	Status    TurnStatus `json:"status"` // completed, failed or interrupted
+}
+
 // Draft is a prompt the user saved in a session to send later: from any
 // device, with session.sendDraft.
 type Draft struct {
@@ -255,9 +262,13 @@ type Item struct {
 	Plan         *Plan      `json:"plan,omitempty"`
 	Images       []ImageRef `json:"images,omitempty"`
 	// Limit: an error's turn failed because the agent hit this usage limit.
-	Limit     *UsageWindow `json:"limit,omitempty"`
-	CreatedAt time.Time    `json:"createdAt"`
-	UpdatedAt time.Time    `json:"updatedAt"`
+	Limit *UsageWindow `json:"limit,omitempty"`
+	// Report: a user message rad wrote, not the user: another session's
+	// report, when a turn ended that this session's agent asked it for with
+	// rad's tools.
+	Report    *Report   `json:"report,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // ImageRef points to an image rad keeps; clients fetch the bytes with

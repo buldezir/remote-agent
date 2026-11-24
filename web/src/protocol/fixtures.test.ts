@@ -48,7 +48,7 @@ describe("fixtures", () => {
     const n = load("notification_events_session.json");
     expect(n.method).toBe("events");
     const events: Event[] = n.params.events;
-    expect(events).toHaveLength(15);
+    expect(events).toHaveLength(16);
     const session = events[0].session!;
     expect(session.status).toBe("awaiting_approval");
     expect(session.draft?.images).toHaveLength(1);
@@ -58,7 +58,7 @@ describe("fixtures", () => {
     expect(session.customTitle).toBe(true);
     expect(events[1].turn?.usage?.costUsd).toBe(0.0123);
     const items = events.flatMap((e) => (e.item ? [e.item] : []));
-    expect(items).toHaveLength(12);
+    expect(items).toHaveLength(13);
     expect(items.map((i) => i.kind)).toEqual([
       "user_message",
       "reasoning",
@@ -72,6 +72,7 @@ describe("fixtures", () => {
       "error",
       "assistant_message",
       "error",
+      "user_message",
     ]);
     expect(items[0].images?.[0].mimeType).toBe("image/png");
     expect(aspectRatio(items[0].images![0])).toBe(1170 / 2532);
@@ -95,6 +96,9 @@ describe("fixtures", () => {
     expect(items[9].limit).toBeUndefined();
     expect(items[11].limit).toEqual({ id: "five_hour", label: "5h", usedPercent: 100, resetsAt: "2026-10-09T15:00:00Z", windowMinutes: 300 });
     expect(parseDate(items[11].limit?.resetsAt)).toBe(Date.UTC(2026, 9, 9, 15));
+    // A report back from another session, which rad wrote, not the user.
+    expect(items[0].report).toBeUndefined();
+    expect(items[12].report).toEqual({ sessionId: "s3", title: "Fix the docs", status: "completed" });
     // Unknown event types come through, for the stores to skip.
     expect(events[events.length - 1].type).toBe("future.event");
     expect(Number.isNaN(parseDate(items[0].createdAt))).toBe(false);
@@ -323,9 +327,9 @@ describe("fixtures", () => {
   });
 
   it("notifications", () => {
-    expect(load("notification_synchronized.json").params).toEqual({ stream: "session:s1", seq: 15, reset: true });
+    expect(load("notification_synchronized.json").params).toEqual({ stream: "session:s1", seq: 16, reset: true });
     expect(load("notification_resync.json").params.stream).toBe("session:s1");
-    expect(load("response_subscribe.json").result).toEqual({ stream: "session:s1", seq: 15 });
+    expect(load("response_subscribe.json").result).toEqual({ stream: "session:s1", seq: 16 });
   });
 });
 

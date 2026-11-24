@@ -94,13 +94,13 @@ TerminalMessage {
 | `list_projects` | — | the projects |
 | `list_agents` | — | the installed, signed-in agents, with their models, efforts and modes, their `limits` where they report them (`UsageLimits`, below), and `default`: the server's `defaultAgent` (below), when it's one of them |
 | `list_sessions` | `project?`, `archived?` | the sessions, newest first |
-| `start_session` | `project`, `prompt`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `worktreePath?`, `title?`, `draft?` | `session.create`; a folder under `roots` becomes a project; `draft`: keep the prompt as the session's draft, and start no turn |
-| `send_prompt` | `session`, `prompt`, `steer?` | `session.prompt` (`steer`: into the running turn, as below); `list_agents` says `steers` for agents that take it |
+| `start_session` | `project`, `prompt`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `worktreePath?`, `title?`, `draft?`, `report?` | `session.create`; a folder under `roots` becomes a project; `draft`: keep the prompt as the session's draft, and start no turn |
+| `send_prompt` | `session`, `prompt`, `steer?`, `report?` | `session.prompt` (`steer`: into the running turn, as below); `list_agents` says `steers` for agents that take it |
 | `read_session` | `session`, `turns?` (default 1; 0: all) | the status and transcript, as text, with prompts and replies whole |
 | `wait_for_session` | `session`, `timeoutSeconds?` (default 600, at most 3600) | waits until the agent stops working; its status and last reply |
 | `stop_session` | `session` | `session.interrupt` |
 | `rename_session` | `session`, `title` | `session.rename` (empty: rad names it again) |
-| `fork_session` | `session`, `turn?`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `worktreePath?`, `prompt?`, `draft?` | `session.fork`; `draft` needs a `prompt` |
+| `fork_session` | `session`, `turn?`, `agent?`, `model?`, `effort?`, `mode?`, `worktree?`, `branch?`, `worktreePath?`, `prompt?`, `draft?`, `report?` | `session.fork`; `draft` needs a `prompt` |
 | `save_draft` | `session`, `text` | `session.saveDraft`, without images (empty: remove the draft) |
 | `archive_session` | `session` | `session.archive`, keeping its worktree |
 | `unarchive_session` | `session` | `session.unarchive` |
@@ -111,6 +111,8 @@ TerminalMessage {
 Without `agent`, a session gets the server's `defaultAgent` while it's signed in, else the calling agent's own, else Claude Code; with the default agent and no `model` (or the default's), the default's model and effort fill in what the call leaves out. A fork that a device asks for keeps its source's agent, and a fork with its source's agent its model and effort.
 
 `session` is an id or a unique start of one (six characters or more). A session's agent can't send to, wait for, stop or archive its own session; it may rename it, save a draft in it and read its changes. It may archive and unarchive only the sessions it started, and the ones those started in turn. The sessions it starts or forks get its own mode with its own agent, or else the mode the agent's sessions take when an agent starts them (the default mode, but Auto for Claude Code and Codex, whose default, Yolo, never asks): no other mode, so that it can't start one that asks the user less than it does. They begin with a `notice` ("Started by the agent of “…”."), and may start sessions in turn, three deep at most. Approvals and questions of the sessions it starts go to the user, as any session's do; no tool answers them. A device's tools have none of these limits.
+
+**Reports.** A turn that a session's agent starts with `start_session`, `send_prompt` or `fork_session` reports back to it when it ends, unless the call says `report: false`: rad sends the agent's session a prompt of its own, a `user_message` with `report` and the text `@[title](session:<id>) finished.` (or `failed: …`, or `was stopped.`), which the Mac client draws as a report, and the other clients as a prompt with the session's pill. The agent gets a `<rad-report>` instead, with how the turn ended and the session's last reply. The report steers into the agent's running turn where its agent takes steering, else waits for it or starts one. There's none while the agent waits for that session with `wait_for_session`, which tells it there, nor when it stopped the turn itself, nor once rad shuts down; and none for prompts that the user or a device sends. `read_session` shows a report as one, not as the user's prompt.
 
 **Mentions.** A prompt mentions another session of the same rad as `@[title](session:<id>)`, which the clients' composers write when the user picks a session after typing `@`. The user's message keeps the prompt as written; the prompt rad hands the agent gets a note after it, in `<rad-mentions>`, that lists the sessions it mentions (but its own) and tells the agent to read them with `read_session`. An agent without rad's MCP server gets the prompt as it is. Clients show a mention as a pill, `@title`, and search and find match it in that form (`model.SearchText`). The rules for the `@` query, the list and the text written are shared by the clients' tests in `protocol/vectors/session_mentions.json`.
 
@@ -243,6 +245,7 @@ Item {
   images?: [ImageRef],                     // user_message: attached to the prompt; tool_call: in the tool's output (a screenshot, an image file read);
                                            // assistant_message: the rad-image:<id> links in its text, in order
   limit?: UsageWindow,                     // error: the turn failed because the agent hit this usage limit (see "Usage limits")
+  report?: { sessionId, title, status },   // user_message: written by rad, not the user: a session's report back to this one's agent (see "Reports"); status is its turn's
   createdAt, updatedAt
 }
 

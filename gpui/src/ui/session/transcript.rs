@@ -239,6 +239,9 @@ impl SessionView {
     }
 
     fn render_user(&mut self, it: &Rc<Item>, text: &str, p: &Palette, cx: &mut Context<Self>) -> AnyElement {
+        if it.report.is_some() {
+            return self.render_report(it, text, p, cx);
+        }
         let faded = matches!(it.status, ItemStatus::Queued | ItemStatus::Cancelled);
         let images = self.gallery(&it.id, &it.images, 120., true, p, cx);
         let mut col = v_flex()
@@ -251,61 +254,65 @@ impl SessionView {
                 d.child(user_bubble(&it.id, text, &self.server_id(cx), p))
             });
         if it.status == ItemStatus::Queued {
-            let steer = self.can_steer(text, cx);
-            let (now, steer_id, cancel) = (it.id.clone(), it.id.clone(), it.id.clone());
-            col = col.child(
-                h_flex()
-                    .gap_1()
-                    .child(caption("Queued", p))
-                    .child(
-                        Button::new(SharedString::from(format!("now-{}", it.id)))
-                            .xsmall()
-                            .ghost()
-                            .label("Send now")
-                            .tooltip("Stop the current turn and send this prompt now")
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.run(
-                                    "session.sendNow",
-                                    json!({"sessionId": this.session_id, "itemId": now}),
-                                    cx,
-                                )
-                            })),
-                    )
-                    .when(steer, |d| {
-                        d.child(
-                            Button::new(SharedString::from(format!("steer-{}", it.id)))
-                                .xsmall()
-                                .ghost()
-                                .label("Steer")
-                                .tooltip("Add this prompt to what the agent is doing, without stopping it")
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.run(
-                                        "session.steer",
-                                        json!({"sessionId": this.session_id, "itemId": steer_id}),
-                                        cx,
-                                    )
-                                })),
-                        )
-                    })
-                    .child(
-                        Button::new(SharedString::from(format!("cancel-{}", it.id)))
-                            .xsmall()
-                            .ghost()
-                            .label("Cancel")
-                            .tooltip("Don't send this prompt")
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.run(
-                                    "session.cancelQueued",
-                                    json!({"sessionId": this.session_id, "itemId": cancel}),
-                                    cx,
-                                )
-                            })),
-                    ),
-            );
+            col = col.child(self.queued_controls(it, text, p, cx));
         } else if it.status == ItemStatus::Cancelled {
             col = col.child(caption("Not sent", p));
         }
         col.into_any_element()
+    }
+
+    /// A queued prompt's buttons: send it now, steer it into the turn, or
+    /// don't send it.
+    pub(crate) fn queued_controls(&mut self, it: &Item, text: &str, p: &Palette, cx: &mut Context<Self>) -> Div {
+        let steer = self.can_steer(text, cx);
+        let (now, steer_id, cancel) = (it.id.clone(), it.id.clone(), it.id.clone());
+        h_flex()
+            .gap_1()
+            .child(caption("Queued", p))
+            .child(
+                Button::new(SharedString::from(format!("now-{}", it.id)))
+                    .xsmall()
+                    .ghost()
+                    .label("Send now")
+                    .tooltip("Stop the current turn and send this prompt now")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.run(
+                            "session.sendNow",
+                            json!({"sessionId": this.session_id, "itemId": now}),
+                            cx,
+                        )
+                    })),
+            )
+            .when(steer, |d| {
+                d.child(
+                    Button::new(SharedString::from(format!("steer-{}", it.id)))
+                        .xsmall()
+                        .ghost()
+                        .label("Steer")
+                        .tooltip("Add this prompt to what the agent is doing, without stopping it")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.run(
+                                "session.steer",
+                                json!({"sessionId": this.session_id, "itemId": steer_id}),
+                                cx,
+                            )
+                        })),
+                )
+            })
+            .child(
+                Button::new(SharedString::from(format!("cancel-{}", it.id)))
+                    .xsmall()
+                    .ghost()
+                    .label("Cancel")
+                    .tooltip("Don't send this prompt")
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.run(
+                            "session.cancelQueued",
+                            json!({"sessionId": this.session_id, "itemId": cancel}),
+                            cx,
+                        )
+                    })),
+            )
     }
 
     /// Steering a prompt into the running turn: for agents that take it, and
@@ -368,6 +375,9 @@ impl SessionView {
         let Some(tool) = &it.tool else {
             return div().into_any_element();
         };
+        if let Some(row) = self.render_rad_tool(it, p, cx) {
+            return row;
+        }
         let open = self.open_items.contains(&it.id);
         let title = tool
             .title

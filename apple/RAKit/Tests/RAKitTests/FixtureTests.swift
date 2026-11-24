@@ -18,7 +18,7 @@ struct FixtureTests {
     @Test func sessionEvents() throws {
         let n = try WireCoding.decoder().decode(Notification<EventsParams>.self, from: load("notification_events_session.json"))
         #expect(n.method == "events")
-        #expect(n.params.events.count == 15)
+        #expect(n.params.events.count == 16)
         let session = try #require(n.params.events[0].session)
         #expect(session.status == .awaitingApproval)
         #expect(session.workspace.kind == .worktree)
@@ -27,8 +27,8 @@ struct FixtureTests {
         let turn = try #require(n.params.events[1].turn)
         #expect(turn.usage?.costUsd == 0.0123)
         let items = n.params.events.compactMap(\.item)
-        #expect(items.count == 12)
-        #expect(items.map(\.kind) == [.userMessage, .reasoning, .toolCall, .assistantMessage, .approval, .approval, .approval, .plan, .notice, .error, .assistantMessage, .error])
+        #expect(items.count == 13)
+        #expect(items.map(\.kind) == [.userMessage, .reasoning, .toolCall, .assistantMessage, .approval, .approval, .approval, .plan, .notice, .error, .assistantMessage, .error, .userMessage])
         #expect(items[0].images?.first?.mimeType == "image/png")
         #expect(items[0].images?.first?.aspectRatio == 1170.0 / 2532.0)
         #expect(items[2].images?.first?.width == nil)  // WebP: no dimensions
@@ -52,6 +52,9 @@ struct FixtureTests {
         let limit = try #require(items[11].limit)
         #expect(limit == UsageWindow(id: "five_hour", label: "5h", usedPercent: 100,
                                      resetsAt: WireCoding.parseDate("2026-10-09T15:00:00Z"), windowMinutes: 300))
+        // A report back from another session, which rad wrote, not the user.
+        #expect(items[0].report == nil)
+        #expect(items[12].report == Report(sessionId: "s3", title: "Fix the docs", status: .completed))
         // Unknown event types decode without payload instead of failing the batch.
         #expect(n.params.events.last?.type == "future.event")
     }

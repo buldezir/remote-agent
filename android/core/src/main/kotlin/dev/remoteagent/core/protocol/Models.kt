@@ -407,9 +407,18 @@ data class Item(
     val images: List<ImageRef>? = null,
     /** An error's turn failed because the agent hit this usage limit (`UsageLimitsFormat.limitNotice`). */
     val limit: UsageWindow? = null,
+    /**
+     * User messages that rad wrote, not the user: another session's report,
+     * when a turn ended that this session's agent gave it with rad's tools.
+     */
+    val report: Report? = null,
     val createdAt: Instant,
     val updatedAt: Instant,
 )
+
+/** The session a report is from, and how its turn ended. */
+@Serializable
+data class Report(val sessionId: String, val title: String, val status: TurnStatus)
 
 /**
  * How much of its plan's usage an agent's account has used, in the windows

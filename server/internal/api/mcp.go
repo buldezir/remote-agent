@@ -38,7 +38,9 @@ const (
 const mcpInstructions = "rad runs coding agents on this machine for the user, who follows them in the Remote Agent app. " +
 	"These tools start and drive other sessions, each with an agent of its own, in the projects on this machine. " +
 	"The user sees every session in the app, and answers their approvals and questions there: you can't. " +
-	"Use them when the user asks you to hand work to other agents, or to run work in parallel: start_session, then wait_for_session and read_session."
+	"Use them when the user asks you to hand work to other agents, or to run work in parallel: start_session, then wait_for_session and read_session. " +
+	"When a turn you gave a session ends, rad tells you in a message of its own, a <rad-report> with its last reply, unless you were waiting for it: " +
+	"you needn't wait for sessions that can finish while you go on with your work."
 
 // caller is who calls a tool: the agent of a session, or a device.
 type caller struct {
@@ -78,6 +80,10 @@ func (s *Server) mcpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := orchestrator.WithClient(context.WithValue(r.Context(), callerKey{}, who), cmpOr(who.device, "agent of "+who.session))
+	if who.session != "" {
+		// The turns its prompts start report back to it (orchestrator/reports.go).
+		ctx = orchestrator.ReportTo(ctx, who.session)
+	}
 	out := s.mcpServer().Handle(ctx, body)
 	if out == nil {
 		w.WriteHeader(http.StatusAccepted)
@@ -104,6 +110,8 @@ func (s *Server) mcpServer() *mcp.Server {
 		return o
 	}
 	session := str("A session's id, from list_sessions (a unique start of it will do).")
+	reportProp := map[string]any{"type": "boolean", "description": "When the turn this request starts ends, rad sends you a <rad-report> message with how it ended and the session's last reply, " +
+		"as a prompt: into your turn if you're working, else starting one. Not while you wait for the session with wait_for_session, which tells you instead. Default: true."}
 	draftProp := map[string]any{"type": "boolean", "description": "Don't send the request: keep it as the session's draft, for the user to read, change and send from the app. " +
 		"The session starts no turn until then. Default: send it."}
 	agentProps := map[string]any{
@@ -141,21 +149,22 @@ func (s *Server) mcpServer() *mcp.Server {
 			}), Call: s.toolListSessions},
 		{Name: "start_session", Title: "Start a session",
 			Description: "Starts a session in a project, with an agent of its own, and sends it the first request. It returns at once; " +
-				"follow it with wait_for_session and read_session. The user sees it in the app and answers its approvals there.",
+				"rad reports back to you when the session's turn ends (see report), or follow it with wait_for_session and read_session. The user sees it in the app and answers its approvals there.",
 			Input: object([]string{"project", "prompt"}, with(map[string]any{
 				"project": str("The project's id or folder, from list_projects. A folder under rad's roots becomes a project."),
 				"prompt":  str("The request for the session's agent. It knows nothing of your conversation: say everything it needs."),
 				"title":   str("The session's title. Default: one made from the request."),
 				"draft":   draftProp,
+				"report":  reportProp,
 				"branch": str("With worktree, the branch: an existing branch that no checkout has is checked out in the new worktree; any other name is a new branch from the project's HEAD. " +
 					"Default: a new branch named after the request."),
 				"worktreePath": str("An existing worktree of the project to work in, such as another session's folder from list_sessions, instead of making one (worktree and branch then don't apply). " +
 					"Other sessions may be working there too."),
 			})), Call: s.toolStartSession},
 		{Name: "send_prompt", Title: "Send a prompt",
-			Description: "Sends a request to a session's agent. While the agent works, it waits its turn, unless it steers. It returns at once.",
+			Description: "Sends a request to a session's agent. While the agent works, it waits its turn, unless it steers. It returns at once, and rad reports back when the turn ends (see report).",
 			Input: object([]string{"session", "prompt"}, map[string]any{
-				"session": session, "prompt": str("The request."),
+				"session": session, "prompt": str("The request."), "report": reportProp,
 				"steer": map[string]any{"type": "boolean", "description": "While the agent works, add the request to what it's doing, for it to read at its next step, rather than wait for it to finish. Agents that can't (steers in list_agents) get it once they finish."},
 			}), Call: s.toolSendPrompt},
 		{Name: "read_session", Title: "Read a session", ReadOnly: true,
@@ -187,6 +196,7 @@ func (s *Server) mcpServer() *mcp.Server {
 				"turn":    map[string]any{"type": "integer", "minimum": 1, "description": "The turn to go on after. Default: the last one that ended."},
 				"prompt":  str("A request to send the fork at once. Default: none."),
 				"draft":   draftProp,
+				"report":  reportProp,
 				"worktreePath": str("An existing worktree of the project to work in as it is now, such as the forked session's own folder from list_sessions, instead of making one (worktree and branch then don't apply). " +
 					"The session it forks may go on working there too."),
 			})), Call: s.toolForkSession},
@@ -513,10 +523,12 @@ func (s *Server) toolStartSession(ctx context.Context, raw json.RawMessage) (any
 		Title        string `json:"title"`
 		WorktreePath string `json:"worktreePath"`
 		Draft        bool   `json:"draft"`
+		Report       *bool  `json:"report"`
 	}](raw)
 	if err != nil {
 		return nil, err
 	}
+	ctx = withReport(ctx, p.Report)
 	if strings.TrimSpace(p.Prompt) == "" {
 		return nil, errors.New("the prompt is empty")
 	}
@@ -558,10 +570,12 @@ func (s *Server) toolSendPrompt(ctx context.Context, raw json.RawMessage) (any, 
 		Session string `json:"session"`
 		Prompt  string `json:"prompt"`
 		Steer   bool   `json:"steer"`
+		Report  *bool  `json:"report"`
 	}](raw)
 	if err != nil {
 		return nil, err
 	}
+	ctx = withReport(ctx, p.Report)
 	sess, err := s.other(ctx, p.Session)
 	if err != nil {
 		return nil, err
@@ -631,6 +645,15 @@ func (s *Server) toolReadSession(ctx context.Context, raw json.RawMessage) (any,
 	return strings.TrimSpace(b.String()), nil
 }
 
+// withReport turns off the report back to the calling agent when it asks for
+// none (report: false).
+func withReport(ctx context.Context, report *bool) context.Context {
+	if report != nil && !*report {
+		return orchestrator.ReportTo(ctx, "")
+	}
+	return ctx
+}
+
 // statusText says what a session's agent is doing, for an agent to read.
 func statusText(sess *model.Session) string {
 	switch sess.Status {
@@ -660,6 +683,11 @@ func (s *Server) toolWaitForSession(ctx context.Context, raw json.RawMessage) (a
 	}
 	sess, err := s.other(ctx, p.Session)
 	if err != nil {
+		return nil, err
+	}
+	// What it waits for reports here, not with a prompt.
+	defer s.orch.Waiting(sess.ID, callerOf(ctx).session)()
+	if sess, err = s.st.Session(ctx, sess.ID); err != nil { // as it is now that it's waited on
 		return nil, err
 	}
 	wait := defaultWait
@@ -739,10 +767,12 @@ func (s *Server) toolForkSession(ctx context.Context, raw json.RawMessage) (any,
 		Prompt       string `json:"prompt"`
 		WorktreePath string `json:"worktreePath"`
 		Draft        bool   `json:"draft"`
+		Report       *bool  `json:"report"`
 	}](raw)
 	if err != nil {
 		return nil, err
 	}
+	ctx = withReport(ctx, p.Report)
 	if p.Draft && strings.TrimSpace(p.Prompt) == "" {
 		return nil, errors.New("a draft needs a prompt")
 	}

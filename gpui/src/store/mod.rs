@@ -11,6 +11,7 @@ pub mod limits;
 pub mod mentions;
 pub mod prefs;
 pub mod pull_request;
+pub mod rad_tools;
 pub mod search;
 pub mod servers;
 pub mod session;
