@@ -237,6 +237,36 @@ struct ConnectionTests {
         #expect(store.outbox.values.map(\.text) == ["hello"])
     }
 
+    @Test func answersShowAsSentUntilTheTranscriptHasThem() async throws {
+        let server = try TestServer()
+        let c = try await connect(to: server)
+        defer { c.stop(); server.stop() }
+        let store = c.sessionStore("s1")
+        func approval(_ id: String, _ status: String, seq: Int64) throws -> Event {
+            try WireCoding.decoder().decode(Event.self, from: Data(
+                #"{"stream":"session:s1","seq":\#(seq),"type":"item.upserted","item":{"id":"\#(id)","sessionId":"s1","order":\#(seq),"kind":"approval","status":"\#(status)","approval":{"title":"Pick","options":[{"id":"submit","label":"Submit","kind":"allow_once"}]},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}}"#.utf8))
+        }
+        store._testSynchronized(seq: 0, reset: true)
+        store._testApply([try approval("a", "pending", seq: 1), try approval("gone", "pending", seq: 2)])
+        let item = try #require(store.items["a"])
+        let option = try #require(item.approval?.options.first)
+
+        try await store.respond(to: item, option: option)
+        #expect(store.answering == ["a": "submit"])
+        // Still pending in the transcript: a second answer isn't sent.
+        try await store.respond(to: item, option: option)
+        #expect(server.calls.filter { $0.method == "approval.respond" }.count == 1)
+
+        // The transcript has the answer.
+        store._testApply([try approval("a", "resolved", seq: 3)])
+        #expect(store.answering.isEmpty)
+
+        // A failed answer can be given again.
+        let gone = try #require(store.items["gone"])
+        await #expect(throws: (any Error).self) { try await store.respond(to: gone, option: option) }
+        #expect(store.answering.isEmpty)
+    }
+
     @Test func steersPrompts() async throws {
         let server = try TestServer()
         let c = try await connect(to: server)

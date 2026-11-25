@@ -1,6 +1,7 @@
-import { CircleCheck, CircleMinus, CircleX, ClipboardList, Clock, Hand, MessageCircleQuestion } from "lucide-react";
+import { CircleCheck, CircleMinus, CircleX, ClipboardList, Clock, Hand, LoaderCircle, MessageCircleQuestion } from "lucide-react";
 import { useState } from "react";
 import type { Approval, ApprovalOption, Item, Question } from "../../protocol/models";
+import { useObserved } from "../../store/observable";
 import type { SessionStore } from "../../store/sessionStore";
 import { Markdown } from "../Markdown";
 import { Confirm } from "../primitives";
@@ -16,8 +17,10 @@ function PendingApproval({ item, approval: a, store }: { item: Item; approval: A
   const [own, setOwn] = useState<Record<string, string>>({}); // answers in the user's own words
   const [askingReason, setAskingReason] = useState<ApprovalOption>();
   const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  useObserved(store);
+  // The option whose answer is on its way, until the transcript has it.
+  const sending = store.answering.get(item.id);
 
   const Icon = a.special === "question" ? MessageCircleQuestion : a.special === "plan" ? ClipboardList : Hand;
   // The labels chosen, then the user's own words.
@@ -28,15 +31,12 @@ function PendingApproval({ item, approval: a, store }: { item: Item; approval: A
   const allAnswered = (a.questions ?? []).every((q) => answerOf(q).length > 0);
 
   const respond = async (o: ApprovalOption, message?: string) => {
-    setBusy(true);
     setError(undefined);
     const flat = Object.fromEntries((a.questions ?? []).map((q) => [q.question, answerOf(q).join(", ")]).filter(([, v]) => v));
     try {
       await store.respond(item, o.id, message || undefined, a.special === "question" ? flat : undefined);
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -74,7 +74,13 @@ function PendingApproval({ item, approval: a, store }: { item: Item; approval: A
               {q.options.map((o) => {
                 const on = (answers[q.question] ?? []).includes(o.label);
                 return (
-                  <button key={o.label} className={"chip" + (on ? " on" : "")} onClick={() => pick(q, o.label)} aria-pressed={on}>
+                  <button
+                    key={o.label}
+                    className={"chip" + (on ? " on" : "")}
+                    onClick={() => pick(q, o.label)}
+                    aria-pressed={on}
+                    disabled={sending !== undefined}
+                  >
                     {on ? <CircleCheck size={14} /> : <span className="chip-dot" />}
                     <span>
                       {o.label}
@@ -92,6 +98,7 @@ function PendingApproval({ item, approval: a, store }: { item: Item; approval: A
                     placeholder={q.options.length ? "Other…" : "Your answer…"}
                     value={own[q.question] ?? ""}
                     onChange={(e) => type(q, e.target.value)}
+                    disabled={sending !== undefined}
                   />
                 </label>
               )}
@@ -107,10 +114,23 @@ function PendingApproval({ item, approval: a, store }: { item: Item; approval: A
           <button
             key={o.id}
             className={"button prominent " + (o.kind === "deny" ? "deny" : o.kind === "allow_session" ? "allow-session" : "allow")}
-            disabled={busy || (a.special === "question" && o.kind !== "deny" && !allAnswered)}
-            onClick={() => (o.kind === "deny" && a.special !== "question" ? setAskingReason(o) : void respond(o))}
+            // The one sending keeps its colour, with the spinner, and takes
+            // no second click.
+            disabled={sending !== undefined ? sending !== o.id : a.special === "question" && o.kind !== "deny" && !allAnswered}
+            aria-busy={sending === o.id || undefined}
+            onClick={() => {
+              if (sending !== undefined) return;
+              if (o.kind === "deny" && a.special !== "question") setAskingReason(o);
+              else void respond(o);
+            }}
           >
-            {o.label}
+            {sending === o.id ? (
+              <>
+                <LoaderCircle size={14} className="spinner" /> Sending…
+              </>
+            ) : (
+              o.label
+            )}
           </button>
         ))}
       </div>

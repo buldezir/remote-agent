@@ -3,7 +3,7 @@
 //! a view shows it. RAKit's `ServerConnection`, on GPUI's main thread.
 //! Views observe it and redraw when it notifies.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::rc::Rc;
 use std::time::Duration;
@@ -377,6 +377,52 @@ impl ServerConn {
             }
             result
         })
+    }
+
+    /// Answers an approval. The store's `answering` shows it as sent at once,
+    /// until the transcript has the answer; None when an answer to it is
+    /// already on its way, and nothing is sent.
+    pub fn respond(
+        &mut self,
+        session_id: &str,
+        approval_id: &str,
+        option_id: &str,
+        answers: Option<BTreeMap<String, String>>,
+        message: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Option<Task<Result<(), RpcError>>> {
+        if let Some(store) = self.stores.get_mut(session_id)
+            && !store.begin_answer(approval_id, option_id)
+        {
+            return None;
+        }
+        cx.notify();
+        let mut params = json!({
+            "commandId": uuid::Uuid::new_v4().to_string(),
+            "sessionId": session_id,
+            "approvalId": approval_id,
+            "optionId": option_id,
+        });
+        if let Some(answers) = answers {
+            params["answers"] = json!(answers);
+        }
+        if let Some(m) = message.filter(|m| !m.is_empty()) {
+            params["message"] = json!(m);
+        }
+        let call = self.call("approval.respond", params);
+        let (session_id, approval_id) = (session_id.to_string(), approval_id.to_string());
+        Some(cx.spawn(async move |this, cx| {
+            let result = call.await.map(|_| ());
+            if result.is_err() {
+                let _ = this.update(cx, |conn, cx| {
+                    if let Some(store) = conn.stores.get_mut(&session_id) {
+                        store.answer_failed(&approval_id);
+                    }
+                    cx.notify();
+                });
+            }
+            result
+        }))
     }
 
     /// Uploads an image the user attached; it's in the cache once it's in.

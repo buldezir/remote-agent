@@ -3,7 +3,7 @@ import Network
 import RAKit
 
 /// A WebSocket server on loopback that stands in for rad: it answers
-/// `server.info`, `session.prompt`, the drafts' calls, the index's
+/// `server.info`, `session.prompt`, `approval.respond` (an error for the approval `gone`), the drafts' calls, the index's
 /// `subscribe`, the commits', imports', searches', renames' and unarchives' calls and pings, and records the calls. `quiet()`
 /// makes the sockets open so far ignore everything, as a socket that died
 /// while the Mac slept does: nothing comes back, and nothing says it closed.
@@ -124,6 +124,9 @@ final class TestServer: @unchecked Sendable {
                 + (unarchives ? #","unarchive":true"# : "") + "}"
         case "session.commands":
             send(c, Data(#"{"id":\#(id),"error":{"code":"method_not_found","message":"old server"}}"#.utf8), opcode: .text)
+            return
+        case "approval.respond" where params?["approvalId"] as? String == "gone":
+            send(c, Data(#"{"id":\#(id),"error":{"code":"conflict","message":"approval is no longer pending"}}"#.utf8), opcode: .text)
             return
         case "subscribe" where params?["stream"] as? String == "index":
             let events = index.enumerated().map { i, s in

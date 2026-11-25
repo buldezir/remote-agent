@@ -166,6 +166,35 @@ describe("SessionStore", () => {
     expect(s.outbox.size).toBe(0);
   });
 
+  it("shows an answer as sent until the transcript has it", async () => {
+    const h = host();
+    const s = new SessionStore("s", h);
+    s.synchronized(0, true);
+    const approval = (seq: number, id: string, status: string): Event => ({
+      ...event(seq, id, seq, "", "approval"),
+      item: { ...event(seq, id, seq, "", "approval").item!, status, approval: { title: "Pick", options: [{ id: "submit", label: "Submit", kind: "allow_once" }] } },
+    });
+    s.apply([approval(1, "a", "pending"), approval(2, "gone", "pending")]);
+    const item = s.items.get("a")!;
+
+    await s.respond(item, "submit");
+    expect([...s.answering]).toEqual([["a", "submit"]]);
+    // Still pending in the transcript: a second answer isn't sent.
+    await s.respond(item, "submit");
+    expect(h.calls.filter(([m]) => m === "approval.respond")).toHaveLength(1);
+
+    // The transcript has the answer.
+    s.apply([approval(3, "a", "resolved")]);
+    expect(s.answering.size).toBe(0);
+
+    // A failed answer can be given again.
+    h.call = async () => {
+      throw new Error("approval is no longer pending");
+    };
+    await expect(s.respond(s.items.get("gone")!, "submit")).rejects.toThrow("no longer pending");
+    expect(s.answering.size).toBe(0);
+  });
+
   it("sends the draft through the outbox", async () => {
     const h = host();
     const s = new SessionStore("s", h);

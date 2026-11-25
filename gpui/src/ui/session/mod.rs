@@ -439,6 +439,7 @@ impl SessionView {
                 if let Some(a) = self.answers.get(&it.id) {
                     a.hash(&mut h);
                 }
+                self.answering(&it.id, cx).hash(&mut h);
                 if let Some(store) = self.store(cx) {
                     store.children_of(&it.id).len().hash(&mut h);
                 }
@@ -649,6 +650,8 @@ impl SessionView {
         );
     }
 
+    /// Answers an approval, unless an answer to it is on its way: the card
+    /// shows it as sent until the transcript has it.
     pub(crate) fn respond(
         &mut self,
         approval_id: &str,
@@ -657,19 +660,26 @@ impl SessionView {
         message: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        let mut params = json!({
-            "commandId": uuid::Uuid::new_v4().to_string(),
-            "sessionId": self.session_id,
-            "approvalId": approval_id,
-            "optionId": option_id,
-        });
-        if let Some(answers) = answers {
-            params["answers"] = json!(answers);
-        }
-        if let Some(m) = message.filter(|m| !m.is_empty()) {
-            params["message"] = json!(m);
-        }
-        self.run("approval.respond", params, cx);
+        let session_id = self.session_id.clone();
+        let Some(call) = self.conn.update(cx, |c, cx| {
+            c.respond(&session_id, approval_id, option_id, answers, message, cx)
+        }) else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            if let Err(e) = call.await {
+                let _ = this.update(cx, |this, cx| {
+                    this.error = Some(explain(&e));
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// The option whose answer to an approval is on its way, if one is.
+    pub(crate) fn answering<'a>(&self, approval_id: &str, cx: &'a App) -> Option<&'a str> {
+        self.store(cx)?.answering.get(approval_id).map(String::as_str)
     }
 
     /// Denies with a reason the user may give.
@@ -680,6 +690,9 @@ impl SessionView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.answering(&approval_id, cx).is_some() {
+            return;
+        }
         let this = cx.entity().downgrade();
         dialogs::prompt_text(
             window,

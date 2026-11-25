@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use crate::protocol::{Event, ImageRef, Item, ItemKind, Session, Turn};
+use crate::protocol::{Event, ImageRef, Item, ItemKind, ItemStatus, Session, Turn};
 
 use super::sync::StreamSync;
 
@@ -29,6 +29,11 @@ pub struct SessionState {
     pub transcript: Vec<Rc<Item>>,
     children: HashMap<String, Vec<Rc<Item>>>,
     pub outbox: Vec<Outgoing>,
+    /// Approvals answered from this device whose answer is on its way: the
+    /// approval's id → the option chosen. It lasts until the item stops being
+    /// pending, not only until the call returns, so that a busy server can't
+    /// be sent a second answer while the card still shows the question.
+    pub answering: HashMap<String, String>,
     /// The session was deleted on rad; its stream says so.
     pub removed: bool,
     /// Views showing the session; the stream is subscribed while any does.
@@ -126,6 +131,10 @@ impl SessionState {
             .collect();
         self.outbox
             .retain(|o| !confirmed.contains(&outgoing_key(&o.text, &o.images)));
+        // Answers the transcript shows as given; one whose item isn't known stays.
+        let items = &self.items;
+        self.answering
+            .retain(|id, _| items.get(id).is_none_or(|it| it.status == ItemStatus::Pending));
         self.transcript = top;
         self.children = kids;
         self.version += 1;
@@ -149,6 +158,25 @@ impl SessionState {
     pub fn drop_outgoing(&mut self, command_id: &str) {
         self.outbox.retain(|o| o.command_id != command_id);
         self.version += 1;
+    }
+
+    /// Marks an approval as answered with `option_id`, until the transcript
+    /// has the answer. False when an answer to it is already on its way, and
+    /// a second must not be sent.
+    pub fn begin_answer(&mut self, approval_id: &str, option_id: &str) -> bool {
+        if self.answering.contains_key(approval_id) {
+            return false;
+        }
+        self.answering.insert(approval_id.into(), option_id.into());
+        self.version += 1;
+        true
+    }
+
+    /// The answer didn't get through: the approval can be answered again.
+    pub fn answer_failed(&mut self, approval_id: &str) {
+        if self.answering.remove(approval_id).is_some() {
+            self.version += 1;
+        }
     }
 }
 
@@ -239,6 +267,44 @@ mod tests {
         );
         s.drop_outgoing("c2");
         assert!(s.outbox.is_empty());
+    }
+
+    fn approval(id: &str, status: &str, seq: i64) -> Event {
+        let json = format!(
+            r#"{{"stream":"session:s1","seq":{seq},"type":"item.upserted","item":{{"id":"{id}","sessionId":"s1","order":{seq},"kind":"approval","status":"{status}","approval":{{"title":"Pick","options":[{{"id":"submit","label":"Submit","kind":"allow_once"}}]}},"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z"}}}}"#
+        );
+        serde_json::from_str(&json).unwrap()
+    }
+
+    #[test]
+    fn answers_show_as_sent_until_the_transcript_has_them() {
+        let mut s = SessionState::new("s1", None);
+        s.sync.begin_replay();
+        s.synchronized(0, true);
+        s.apply(vec![approval("a", "pending", 1), approval("gone", "pending", 2)]);
+
+        assert!(s.begin_answer("a", "submit"));
+        assert_eq!(s.answering.get("a").map(String::as_str), Some("submit"));
+        // Still pending in the transcript: a second answer isn't sent.
+        assert!(!s.begin_answer("a", "deny"));
+        assert_eq!(s.answering.get("a").map(String::as_str), Some("submit"));
+        // An answer to an approval the transcript doesn't have yet stays.
+        assert!(s.begin_answer("unknown", "submit"));
+        let mut ev = user_message("u1", 3, "hi");
+        ev.seq = 3;
+        s.apply(vec![ev]);
+        assert!(s.answering.contains_key("a") && s.answering.contains_key("unknown"));
+
+        // The transcript has the answer.
+        s.apply(vec![approval("a", "resolved", 4)]);
+        assert!(!s.answering.contains_key("a"));
+        assert!(s.answering.contains_key("unknown"));
+
+        // A failed answer can be given again.
+        assert!(s.begin_answer("gone", "submit"));
+        s.answer_failed("gone");
+        assert!(!s.answering.contains_key("gone"));
+        assert!(s.begin_answer("gone", "submit"));
     }
 
     #[test]

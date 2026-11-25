@@ -33,6 +33,11 @@ export class SessionStore extends Observable {
   removed = false;
   /** Optimistic user messages not yet confirmed by the server, keyed by commandId. */
   outbox = new Map<string, Outgoing>();
+  /** Approvals answered from this device whose answer is on its way: the
+   *  approval's id → the option chosen. It lasts until the item stops being
+   *  pending, not only until the call returns, so that a busy server can't
+   *  be sent a second answer while the card still shows the question. */
+  answering = new Map<string, string>();
 
   lastSeq = 0;
   live = false;
@@ -185,6 +190,11 @@ export class SessionStore extends Observable {
     for (const [id, out] of this.outbox) {
       if (confirmed.has(outgoingKey(out.text, out.images))) this.outbox.delete(id);
     }
+    // Answers the transcript shows as given.
+    for (const id of this.answering.keys()) {
+      const it = this.items.get(id);
+      if (it && it.status !== "pending") this.answering.delete(id);
+    }
     this.transcript = top;
     this.children = kids;
     this.changed();
@@ -330,15 +340,27 @@ export class SessionStore extends Observable {
     }
   }
 
+  /** Answers an approval. `answering` shows it as sent at once, until the
+   *  transcript has the answer; a second answer meanwhile is dropped. */
   async respond(approval: Item, optionId: string, message?: string, answers?: Record<string, string>) {
-    await this.c.call("approval.respond", {
-      commandId: crypto.randomUUID(),
-      sessionId: this.sessionID,
-      approvalId: approval.id,
-      optionId,
-      message,
-      answers,
-    });
+    const c = this.c;
+    if (this.answering.has(approval.id)) return;
+    this.answering.set(approval.id, optionId);
+    this.changed();
+    try {
+      await c.call("approval.respond", {
+        commandId: crypto.randomUUID(),
+        sessionId: this.sessionID,
+        approvalId: approval.id,
+        optionId,
+        message,
+        answers,
+      });
+    } catch (e) {
+      this.answering.delete(approval.id);
+      this.changed();
+      throw e;
+    }
   }
 
   async setMode(mode: string) {

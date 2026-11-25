@@ -4,6 +4,8 @@ import dev.remoteagent.core.net.PairingLink
 import dev.remoteagent.core.net.ServerMessage
 import dev.remoteagent.core.net.RpcError
 import dev.remoteagent.core.net.params
+import dev.remoteagent.core.protocol.Approval
+import dev.remoteagent.core.protocol.ApprovalOption
 import dev.remoteagent.core.protocol.Draft
 import dev.remoteagent.core.protocol.Event
 import dev.remoteagent.core.protocol.HarnessCaps
@@ -12,6 +14,7 @@ import dev.remoteagent.core.protocol.ImageRef
 import dev.remoteagent.core.protocol.Item
 import dev.remoteagent.core.protocol.ItemKind
 import dev.remoteagent.core.protocol.ItemStatus
+import dev.remoteagent.core.protocol.OptionKind
 import dev.remoteagent.core.protocol.Session
 import dev.remoteagent.core.protocol.SessionStatus
 import dev.remoteagent.core.protocol.Turn
@@ -194,6 +197,41 @@ class SessionStoreTests {
         val s = SessionStore("s", h)
         assertFailsWith<IllegalStateException> { s.send("hello") }
         assertTrue(s.outbox.value.isEmpty())
+    }
+
+    @Test
+    fun answersShowAsSentUntilTheTranscriptHasThem() = runTest {
+        val h = Host(this)
+        val s = SessionStore("s", h)
+        val submit = ApprovalOption("submit", "Submit", OptionKind.ALLOW_ONCE)
+        fun approval(id: String, status: ItemStatus, seq: Long) = Event(
+            stream = "session:s", seq = seq, type = "item.upserted",
+            item = Item(
+                id = id, sessionId = "s", order = seq, kind = ItemKind.APPROVAL, status = status,
+                approval = Approval(title = "Pick", options = listOf(submit)),
+                createdAt = Instant.parse("2026-01-01T00:00:00Z"), updatedAt = Instant.parse("2026-01-01T00:00:00Z"),
+            ),
+        )
+        s.synchronized(0, true)
+        s.apply(listOf(approval("a", ItemStatus.PENDING, 1), approval("gone", ItemStatus.PENDING, 2)))
+        val item = assertNotNull(s.items["a"])
+        val option = assertNotNull(item.approval?.options?.firstOrNull())
+
+        s.respond(item, option)
+        assertEquals(mapOf("a" to "submit"), s.answering.value)
+        // Still pending in the transcript: a second answer isn't sent.
+        s.respond(item, option)
+        assertEquals(1, h.calls.count { it.first == "approval.respond" })
+
+        // The transcript has the answer.
+        s.apply(listOf(approval("a", ItemStatus.RESOLVED, 3)))
+        assertTrue(s.answering.value.isEmpty())
+
+        // A failed answer can be given again.
+        val gone = assertNotNull(s.items["gone"])
+        h.fail = RpcError("conflict", "approval is no longer pending")
+        assertFailsWith<RpcError> { s.respond(gone, option) }
+        assertTrue(s.answering.value.isEmpty())
     }
 
     @Test

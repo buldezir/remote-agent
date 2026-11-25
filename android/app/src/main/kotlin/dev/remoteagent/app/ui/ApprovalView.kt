@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -42,6 +43,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.remoteagent.core.protocol.Approval
 import dev.remoteagent.core.protocol.ApprovalOption
 import dev.remoteagent.core.protocol.Item
@@ -65,8 +67,10 @@ private fun PendingCard(item: Item, a: Approval, store: SessionStore) {
     val answers = remember(item.id) { mutableStateMapOf<String, Set<String>>() }
     val own = remember(item.id) { mutableStateMapOf<String, String>() } // answers in the user's own words
     var askingReason by remember { mutableStateOf<ApprovalOption?>(null) }
-    var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    // The option whose answer is on its way, until the transcript has it.
+    val answering by store.answering.collectAsStateWithLifecycle()
+    val sending = answering[item.id]
 
     // The labels chosen, then the user's own words.
     fun answerOf(q: Question): List<String> {
@@ -75,7 +79,6 @@ private fun PendingCard(item: Item, a: Approval, store: SessionStore) {
     }
 
     fun respond(o: ApprovalOption, message: String?) {
-        busy = true
         error = null
         val flat = (a.questions ?: emptyList()).associate { it.question to answerOf(it).joinToString(", ") }.filterValues { it.isNotEmpty() }
         connection.scope.launch {
@@ -85,8 +88,6 @@ private fun PendingCard(item: Item, a: Approval, store: SessionStore) {
                 throw e
             } catch (e: Exception) {
                 error = e.message
-            } finally {
-                busy = false
             }
         }
     }
@@ -116,7 +117,7 @@ private fun PendingCard(item: Item, a: Approval, store: SessionStore) {
                 Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) { AgentMarkdown(a.planText!!) }
             a.special == Approval.Special.QUESTION -> for (q in a.questions ?: emptyList()) {
                 QuestionView(
-                    q, answers[q.question] ?: emptySet(), own[q.question].orEmpty(),
+                    q, answers[q.question] ?: emptySet(), own[q.question].orEmpty(), enabled = sending == null,
                     onTap = { label ->
                         val set = answers[q.question] ?: emptySet()
                         answers[q.question] = if (q.multiSelect == true) (if (label in set) set - label else set + label) else setOf(label)
@@ -140,9 +141,15 @@ private fun PendingCard(item: Item, a: Approval, store: SessionStore) {
                     OptionKind.ALLOW_SESSION -> palette.blue
                     else -> palette.green
                 }
-                val enabled = !busy && !(a.special == Approval.Special.QUESTION && o.kind != OptionKind.DENY && !allAnswered)
+                // The one sending keeps its colour, with the spinner; it
+                // takes no second tap (`respond` returns).
+                val enabled = sending?.let { it == o.id } ?: !(a.special == Approval.Special.QUESTION && o.kind != OptionKind.DENY && !allAnswered)
                 Button(
-                    onClick = { if (o.kind == OptionKind.DENY && a.special != Approval.Special.QUESTION) askingReason = o else respond(o, null) },
+                    onClick = {
+                        if (sending == null) {
+                            if (o.kind == OptionKind.DENY && a.special != Approval.Special.QUESTION) askingReason = o else respond(o, null)
+                        }
+                    },
                     enabled = enabled,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     shape = RoundedCornerShape(Metrics.Corner.card),
@@ -152,7 +159,15 @@ private fun PendingCard(item: Item, a: Approval, store: SessionStore) {
                         disabledContainerColor = color.copy(alpha = 0.35f), disabledContentColor = palette.onAccent.copy(alpha = 0.7f),
                     ),
                 ) {
-                    Text(o.label, style = Type.footnote.copy(fontWeight = FontWeight.SemiBold), maxLines = 2, textAlign = TextAlign.Center)
+                    val label = Type.footnote.copy(fontWeight = FontWeight.SemiBold)
+                    if (sending == o.id) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(Modifier.size(12.dp), color = palette.onAccent, strokeWidth = 1.5.dp)
+                            Text("Sending…", style = label, maxLines = 2, textAlign = TextAlign.Center)
+                        }
+                    } else {
+                        Text(o.label, style = label, maxLines = 2, textAlign = TextAlign.Center)
+                    }
                 }
             }
         }
@@ -187,7 +202,9 @@ private fun DenyReasonDialog(onDeny: (String) -> Unit, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun QuestionView(q: Question, selected: Set<String>, own: String, onTap: (String) -> Unit, onType: (String) -> Unit) {
+private fun QuestionView(
+    q: Question, selected: Set<String>, own: String, enabled: Boolean, onTap: (String) -> Unit, onType: (String) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(q.question, style = Type.footnote.copy(fontWeight = FontWeight.Medium), color = palette.text)
         for (o in q.options) {
@@ -195,7 +212,7 @@ private fun QuestionView(q: Question, selected: Set<String>, own: String, onTap:
             Row(
                 Modifier.fillMaxWidth()
                     .background(if (on) palette.accent.copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(Metrics.Corner.card))
-                    .clickable { onTap(o.label) }.padding(6.dp).testTag("choice"),
+                    .clickable(enabled = enabled) { onTap(o.label) }.padding(6.dp).testTag("choice"),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.Top,
             ) {
@@ -222,6 +239,7 @@ private fun QuestionView(q: Question, selected: Set<String>, own: String, onTap:
                 BasicTextField(
                     own, onType,
                     modifier = Modifier.weight(1f).testTag("own-answer"),
+                    enabled = enabled,
                     textStyle = Type.footnote.copy(color = palette.text),
                     maxLines = 6,
                     cursorBrush = SolidColor(palette.accent),

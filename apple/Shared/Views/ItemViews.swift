@@ -557,11 +557,12 @@ struct ApprovalView: View {
     @State private var own: [String: String] = [:]  // answers in the user's own words
     @State private var denyReason = ""
     @State private var askingReason: ApprovalOption?
-    @State private var busy = false
     @State private var error: String?
     @Environment(\.findHighlight) private var highlight
 
     private var approval: Approval? { item.approval }
+    /// The option whose answer is on its way, until the transcript has it.
+    private var sending: String? { store.answering[item.id] }
 
     var body: some View {
         if item.status == .pending, let approval {
@@ -590,6 +591,7 @@ struct ApprovalView: View {
                     .frame(maxHeight: 320)
             } else if a.special == .question {
                 ForEach(a.questions ?? [], id: \.question) { q in questionView(q) }
+                    .disabled(sending != nil)
             } else if let input = a.input {
                 ToolInputPreview(name: a.toolName, input: input)
             }
@@ -665,17 +667,30 @@ struct ApprovalView: View {
         HStack(spacing: 8) {
             ForEach(a.options) { o in
                 Button {
+                    guard sending == nil else { return }
                     if o.kind == .deny && a.special != .question { askingReason = o } else { respond(o, message: nil) }
                 } label: {
-                    Text(o.label).scaledFont(.footnote, weight: .semibold).lineLimit(2)
-                        .foregroundStyle(Palette.onAccent)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Group {
+                        if sending == o.id {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.mini).tint(Palette.onAccent)
+                                Text("Sending…")
+                            }
+                        } else {
+                            Text(o.label)
+                        }
+                    }
+                    .scaledFont(.footnote, weight: .semibold).lineLimit(2)
+                    .foregroundStyle(Palette.onAccent)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.roundedRectangle(radius: Metrics.Corner.card))
                 .controlSize(.small)
                 .tint(o.kind == .deny ? Palette.red : o.kind == .allowSession ? Palette.blue : Palette.green)
-                .disabled(busy || (a.special == .question && o.kind != .deny && !allAnswered(a)))
+                // The one sending keeps its colour, with the spinner; it
+                // takes no second tap (`respond` returns).
+                .disabled(sending.map { $0 != o.id } ?? (a.special == .question && o.kind != .deny && !allAnswered(a)))
             }
         }
         // When one label wraps, the other buttons grow to its height.
@@ -687,14 +702,12 @@ struct ApprovalView: View {
     }
 
     private func respond(_ o: ApprovalOption, message: String?) {
-        busy = true
         error = nil
         var flat: [String: String] = [:]
         for q in approval?.questions ?? [] where !answer(q).isEmpty {
             flat[q.question] = answer(q).joined(separator: ", ")
         }
         Task {
-            defer { busy = false }
             do {
                 try await store.respond(to: item, option: o, message: message?.isEmpty == true ? nil : message,
                                         answers: approval?.special == .question ? flat : nil)

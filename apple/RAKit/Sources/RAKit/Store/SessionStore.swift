@@ -15,6 +15,11 @@ public final class SessionStore {
     public private(set) var removed = false
     /// Optimistic user messages not yet confirmed by the server, keyed by commandId.
     public private(set) var outbox: [String: Outgoing] = [:]
+    /// Approvals answered from this device whose answer is on its way: the
+    /// approval's id → the option chosen. It lasts until the item stops being
+    /// pending, not only until the call returns, so that a busy server can't
+    /// be sent a second answer while the card still shows the question.
+    public private(set) var answering: [String: String] = [:]
     /// The prompt being written and not sent yet. It outlives the session's
     /// view, and the app, but stays on this device.
     public var draft: String {
@@ -168,6 +173,9 @@ public final class SessionStore {
         // Drop optimistic messages the server has confirmed.
         let confirmed = Set(top.filter { $0.kind == .userMessage }.map { Outgoing(text: $0.text ?? "", images: $0.images ?? []) })
         outbox = outbox.filter { !confirmed.contains($0.value) }
+        // Answers the transcript shows as given.
+        let answered = answering.keys.filter { items[$0].map { $0.status != .pending } ?? false }
+        for id in answered { answering[id] = nil }
         transcript = top
         children = kids
     }
@@ -286,14 +294,23 @@ public final class SessionStore {
         }
     }
 
+    /// Answers an approval. `answering` shows it as sent at once, until the
+    /// transcript has the answer; a second answer meanwhile is dropped.
     public func respond(to approval: Item, option: ApprovalOption, message: String? = nil, answers: [String: String]? = nil) async throws {
         guard let c = connection else { throw RPCError.disconnected }
+        guard answering[approval.id] == nil else { return }
         struct P: Encodable, Sendable {
             var commandId: String; var sessionId: String; var approvalId: String; var optionId: String
             var message: String?; var answers: [String: String]?
         }
-        let _: Empty = try await c.call("approval.respond", P(commandId: UUID().uuidString, sessionId: sessionID,
-                                                              approvalId: approval.id, optionId: option.id, message: message, answers: answers))
+        answering[approval.id] = option.id
+        do {
+            let _: Empty = try await c.call("approval.respond", P(commandId: UUID().uuidString, sessionId: sessionID,
+                                                                  approvalId: approval.id, optionId: option.id, message: message, answers: answers))
+        } catch {
+            answering[approval.id] = nil
+            throw error
+        }
     }
 
     /// An image's bytes, from the cache or the server.

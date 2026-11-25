@@ -1612,6 +1612,8 @@ a.mention-pill:focus-visible {
   font-weight: 600;
   padding: 6px 8px;
 }
+.approval-buttons .spinner { color: inherit; }
+.chip:disabled, .chip-input:disabled { cursor: default; }
 .button.allow { background: var(--green); }
 .button.allow-session { background: var(--blue); }
 .button.deny { background: var(--red); }

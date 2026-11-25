@@ -71,6 +71,14 @@ class SessionStore(val sessionID: String, private val host: SessionHost?) {
     /** Optimistic user messages not yet confirmed by the server, keyed by commandId, in the order sent. */
     private val _outbox = MutableStateFlow<Map<String, Outgoing>>(emptyMap())
     val outbox: StateFlow<Map<String, Outgoing>> = _outbox.asStateFlow()
+    /**
+     * Approvals answered from this device whose answer is on its way: the
+     * approval's id → the option chosen. It lasts until the item stops being
+     * pending, not only until the call returns, so that a busy server can't
+     * be sent a second answer while the card still shows the question.
+     */
+    private val _answering = MutableStateFlow<Map<String, String>>(emptyMap())
+    val answering: StateFlow<Map<String, String>> = _answering.asStateFlow()
 
     private val turnMap = HashMap<String, Turn>()
     private val itemMap = HashMap<String, Item>()
@@ -220,6 +228,8 @@ class SessionStore(val sessionID: String, private val host: SessionHost?) {
         // Drop optimistic messages the server has confirmed.
         val confirmed = top.filter { it.kind == ItemKind.USER_MESSAGE }.map { key(it.text ?: "", it.images ?: emptyList()) }.toSet()
         _outbox.value = _outbox.value.filterValues { key(it.text, it.images) !in confirmed }
+        // Answers the transcript shows as given.
+        _answering.value = _answering.value.filterKeys { id -> itemMap[id]?.let { it.status == ItemStatus.PENDING } ?: true }
         _transcript.value = top
         _children.value = kids
     }
@@ -346,18 +356,30 @@ class SessionStore(val sessionID: String, private val host: SessionHost?) {
         }
     }
 
+    /**
+     * Answers an approval. `answering` shows it as sent at once, until the
+     * transcript has the answer; a second answer meanwhile is dropped.
+     */
     suspend fun respond(approval: Item, option: ApprovalOption, message: String? = null, answers: Map<String, String>? = null) {
-        c.callRaw(
-            "approval.respond",
-            params(
-                "commandId" to UUID.randomUUID().toString(),
-                "sessionId" to sessionID,
-                "approvalId" to approval.id,
-                "optionId" to option.id,
-                "message" to message,
-                "answers" to answers?.let { a -> JsonObject(a.mapValues { JsonPrimitive(it.value) }) },
-            ),
-        )
+        val c = c
+        if (approval.id in _answering.value) return
+        _answering.value = _answering.value + (approval.id to option.id)
+        try {
+            c.callRaw(
+                "approval.respond",
+                params(
+                    "commandId" to UUID.randomUUID().toString(),
+                    "sessionId" to sessionID,
+                    "approvalId" to approval.id,
+                    "optionId" to option.id,
+                    "message" to message,
+                    "answers" to answers?.let { a -> JsonObject(a.mapValues { JsonPrimitive(it.value) }) },
+                ),
+            )
+        } catch (e: Throwable) {
+            _answering.value = _answering.value - approval.id
+            throw e
+        }
     }
 
     suspend fun setMode(mode: String) {

@@ -569,15 +569,25 @@ impl SessionView {
                 }
             }
         }
-        // Under what they answer, the first to allow it the default.
+        // Under what they answer, the first to allow it the default. While
+        // an answer is on its way, its button keeps its colour with a spinner
+        // and takes no click, and the others are off.
+        let sending = self.answering(&it.id, cx).map(str::to_string);
         let mut buttons = h_flex().gap_2().flex_wrap();
         let mut allowed = false;
         for opt in &a.options {
             let (approval, option) = (it.id.clone(), opt.id.clone());
             let deny = opt.kind == OptionKind::Deny;
+            let chosen = sending.as_deref() == Some(opt.id.as_str());
             let button = Button::new(SharedString::from(format!("opt-{}-{}", it.id, opt.id)))
                 .small()
-                .label(opt.label.clone())
+                .label(if chosen {
+                    "Sending…".to_string()
+                } else {
+                    opt.label.clone()
+                })
+                .loading(chosen)
+                .disabled(sending.is_some() && !chosen)
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     if deny {
                         this.deny_with_reason(approval.clone(), option.clone(), window, cx);
@@ -606,6 +616,7 @@ impl SessionView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let count = a.questions.len();
+        let sending = self.answering(&it.id, cx).map(str::to_string);
         let chosen = self
             .answers
             .get(&it.id)
@@ -621,6 +632,7 @@ impl SessionView {
                 let mut b = Button::new(SharedString::from(format!("q-{}-{qi}-{oi}", it.id)))
                     .small()
                     .label(opt.label.clone())
+                    .disabled(sending.is_some())
                     .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                         this.choose_answer(&approval, qi, oi, multi, count, window, cx)
                     }));
@@ -667,19 +679,32 @@ impl SessionView {
                     .child(div().text_sm().child(q.question.clone()))
                     .when(!q.options.is_empty(), |d| d.child(options))
                     .when_some(own, |d, input| {
-                        d.child(div().w_full().max_w(px(480.)).child(Input::new(&input).small()))
+                        d.child(
+                            div()
+                                .w_full()
+                                .max_w(px(480.))
+                                .child(Input::new(&input).small().disabled(sending.is_some())),
+                        )
                     }),
             );
         }
         let mut buttons = h_flex().gap_2().flex_wrap();
         for opt in &a.options {
             let (approval, option) = (it.id.clone(), opt.id.clone());
+            let this_one = sending.as_deref() == Some(opt.id.as_str());
+            let others = sending.is_some() && !this_one;
             if opt.kind == OptionKind::Deny {
                 buttons = buttons.child(
                     Button::new(SharedString::from(format!("deny-{}", it.id)))
                         .small()
                         .outline()
-                        .label(opt.label.clone())
+                        .label(if this_one {
+                            "Sending…".to_string()
+                        } else {
+                            opt.label.clone()
+                        })
+                        .loading(this_one)
+                        .disabled(others)
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.respond(&approval, &option, None, None, cx)
                         })),
@@ -690,12 +715,15 @@ impl SessionView {
                     Button::new(SharedString::from(format!("answer-{}-{}", it.id, opt.id)))
                         .small()
                         .primary()
-                        .label(if opt.kind == OptionKind::AllowOnce {
+                        .label(if this_one {
+                            "Sending…".to_string()
+                        } else if opt.kind == OptionKind::AllowOnce {
                             "Answer".to_string()
                         } else {
                             opt.label.clone()
                         })
-                        .disabled(!complete)
+                        .loading(this_one)
+                        .disabled(if sending.is_some() { others } else { !complete })
                         .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.respond(&approval, &option, Some(answers.clone()), None, cx)
                         })),
