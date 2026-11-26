@@ -3,6 +3,7 @@ package gitx
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -454,5 +455,104 @@ func TestHeadFiles(t *testing.T) {
 				t.Error("HeadFiles outside a repo succeeded")
 			}
 		})
+	}
+}
+
+// freshTree is the tree a checkpoint took with a new index each time: HEAD,
+// then git add -A.
+func freshTree(t *testing.T, dir string) string {
+	t.Helper()
+	idx := filepath.Join(t.TempDir(), "index")
+	cmd := func(args ...string) string {
+		c := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		c.Env = append(os.Environ(), "GIT_INDEX_FILE="+idx)
+		out, err := c.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if _, err := Head(ctx, dir); err == nil {
+		cmd("read-tree", "HEAD")
+	}
+	cmd("add", "-A")
+	return cmd("write-tree")
+}
+
+// The checkpoint index stays between checkpoints, for its stat cache, and
+// still takes exactly what a fresh index would.
+func TestCheckpointIndexMatchesAFreshOne(t *testing.T) {
+	dir := newRepo(t)
+	writeFile(t, dir, ".gitignore", "*.log\n")
+	writeFile(t, dir, "a.txt", "a\n")
+	writeFile(t, dir, "kept.log", "tracked though ignored\n")
+	git(t, dir, "add", "-f", "kept.log")
+	commitAll(t, dir, "init")
+
+	n := 0
+	check := func(step string) {
+		t.Helper()
+		n++
+		sha := checkpoint(t, dir, fmt.Sprint(n))
+		if got, want := git(t, dir, "rev-parse", sha+"^{tree}"), freshTree(t, dir); got != want {
+			t.Errorf("%s: checkpoint has %v, a fresh index %v", step, treeFiles(t, dir, sha), treeFiles(t, dir, want))
+		}
+	}
+
+	// The user's index, which the first checkpoint starts from, has an
+	// ignored file staged with add -f.
+	writeFile(t, dir, "staged.log", "s\n")
+	git(t, dir, "add", "-f", "staged.log")
+	writeFile(t, dir, "big.bin", "v1")
+	check("first")
+	if _, err := os.Stat(filepath.Join(dir, ".git", treeIndex)); err != nil {
+		t.Fatalf("no checkpoint index: %v", err)
+	}
+
+	writeFile(t, dir, "big.bin", "v2")
+	os.Remove(filepath.Join(dir, "a.txt"))
+	check("changed and deleted")
+
+	writeFile(t, dir, ".gitignore", "*.log\n*.bin\n") // big.bin is ignored now
+	check("ignored since")
+
+	writeFile(t, dir, "late.bin", "l")
+	git(t, dir, "add", "-f", "late.bin") // committed while ignored
+	git(t, dir, "commit", "-q", "-m", "late")
+	check("committed while ignored")
+
+	writeFile(t, dir, "a.txt", "back\n")
+	writeFile(t, dir, "sub/new.txt", "n\n")
+	check("added")
+
+	// An index git can't read is made again.
+	writeFile(t, dir, ".git/"+treeIndex, "garbage")
+	check("broken index")
+}
+
+// Each worktree has a checkpoint index of its own, and an unborn branch
+// takes the untracked files.
+func TestCheckpointIndexPerWorktree(t *testing.T) {
+	repo := newRepo(t)
+	writeFile(t, repo, "a.txt", "a\n")
+	if got := treeFiles(t, repo, checkpoint(t, repo, "unborn")); !slices.Equal(got, []string{"a.txt"}) {
+		t.Errorf("unborn checkpoint files = %v", got)
+	}
+	commitAll(t, repo, "init")
+	wt := filepath.Join(t.TempDir(), "wt")
+	if err := AddWorktree(ctx, repo, wt, "ra/test", ""); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, wt, "b.txt", "b\n")
+	writeFile(t, repo, "c.txt", "c\n")
+	if got := treeFiles(t, wt, checkpoint(t, wt, "wt")); !slices.Equal(got, []string{"a.txt", "b.txt"}) {
+		t.Errorf("worktree checkpoint files = %v", got)
+	}
+	if got := treeFiles(t, repo, checkpoint(t, repo, "main")); !slices.Equal(got, []string{"a.txt", "c.txt"}) {
+		t.Errorf("main checkpoint files = %v", got)
+	}
+	idx, err := gitPath(ctx, wt, treeIndex)
+	if err != nil || !strings.Contains(idx, filepath.Join("worktrees", "wt")) {
+		t.Errorf("worktree index at %s (%v)", idx, err)
 	}
 }

@@ -1,8 +1,8 @@
 // Package gitx wraps the git CLI for worktrees, checkpoints and diffs.
 //
 // Checkpoints snapshot the whole working tree (tracked and untracked files,
-// honoring .gitignore) into a commit referenced by a hidden ref, using a
-// temporary index so the user's index and HEAD are never touched.
+// honoring .gitignore) into a commit referenced by a hidden ref, using an
+// index of rad's own so the user's index and HEAD are never touched.
 package gitx
 
 import (
@@ -13,8 +13,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var identityEnv = []string{
@@ -23,8 +25,16 @@ var identityEnv = []string{
 }
 
 func run(ctx context.Context, dir string, env []string, args ...string) (string, error) {
+	return runInput(ctx, dir, env, "", args...)
+}
+
+// runInput is run, with input on git's stdin.
+func runInput(ctx context.Context, dir string, env []string, input string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "LC_ALL=C"), env...)
+	if input != "" {
+		cmd.Stdin = strings.NewReader(input)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -190,74 +200,210 @@ func Dirty(ctx context.Context, dir string) bool {
 
 // Checkpoint snapshots dir's working tree into a commit stored at ref and returns its sha.
 func Checkpoint(ctx context.Context, dir, ref, message string) (string, error) {
-	env, done, err := tempIndex(ctx, dir)
+	var sha string
+	err := withTreeIndex(ctx, dir, func(top string, env []string) error {
+		env = append(env, identityEnv...)
+		tree, err := run(ctx, top, env, "write-tree")
+		if err != nil {
+			return err
+		}
+		args := []string{"commit-tree", "--no-gpg-sign", strings.TrimSpace(tree), "-m", message}
+		if head, _ := Head(ctx, top); head != "" {
+			args = append(args, "-p", head)
+		}
+		out, err := run(ctx, top, env, args...)
+		sha = strings.TrimSpace(out)
+		return err
+	})
 	if err != nil {
 		return "", err
 	}
-	defer done()
-	env = append(env, identityEnv...)
-	head, _ := Head(ctx, dir)
-	tree, err := run(ctx, dir, env, "write-tree")
-	if err != nil {
-		return "", err
-	}
-	args := []string{"commit-tree", "--no-gpg-sign", strings.TrimSpace(tree), "-m", message}
-	if head != "" {
-		args = append(args, "-p", head)
-	}
-	sha, err := run(ctx, dir, env, args...)
-	if err != nil {
-		return "", err
-	}
-	sha = strings.TrimSpace(sha)
 	if _, err := run(ctx, dir, nil, "update-ref", ref, sha); err != nil {
 		return "", err
 	}
 	return sha, nil
 }
 
-// tempIndex stages dir's whole working tree in an index of its own, so
-// that the user's index stays as it is. env points git at it, and done
-// removes it.
-func tempIndex(ctx context.Context, dir string) (env []string, done func(), err error) {
-	f, err := os.CreateTemp("", "rad-index-*")
+// treeIndex is the name, in a worktree's git dir, of rad's own index: the
+// whole working tree, staged as a checkpoint takes it.
+const treeIndex = "rad-index"
+
+// treeIndexLocks holds a mutex per tree index, so that two sessions in one
+// folder take turns with it.
+var treeIndexLocks sync.Map
+
+// withTreeIndex stages dir's whole working tree in rad's own index, and
+// calls fn with the repository's top folder and the environment that points
+// git at that index. The user's index stays as it is.
+//
+// The index stays between calls, so that git's stat cache spares it hashing
+// the files that haven't changed: a fresh index hashed every file, untracked
+// ones too, at every checkpoint, which takes seconds in a tree with large
+// files. Should it fail, it's made again from nothing.
+func withTreeIndex(ctx context.Context, dir string, fn func(top string, env []string) error) error {
+	out, err := run(ctx, dir, nil, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
-	idx := f.Name()
-	f.Close()
-	os.Remove(idx) // git wants to create it
-	done = func() { os.Remove(idx) }
-	env = []string{"GIT_INDEX_FILE=" + idx}
-	if head, _ := Head(ctx, dir); head != "" {
-		if _, err := run(ctx, dir, env, "read-tree", "HEAD"); err != nil {
-			done()
-			return nil, nil, err
+	top := strings.TrimSpace(out)
+	idx, err := gitPath(ctx, top, treeIndex)
+	if err != nil {
+		return err
+	}
+	key := idx
+	if real, err := filepath.EvalSymlinks(filepath.Dir(idx)); err == nil {
+		key = filepath.Join(real, treeIndex)
+	}
+	mu, _ := treeIndexLocks.LoadOrStore(key, new(sync.Mutex))
+	mu.(*sync.Mutex).Lock()
+	defer mu.(*sync.Mutex).Unlock()
+
+	env := []string{"GIT_INDEX_FILE=" + idx}
+	err = stageTree(ctx, top, idx, env, true)
+	if err == nil {
+		err = fn(top, env)
+	}
+	if err != nil && ctx.Err() == nil {
+		// Its objects may have been pruned, or the user's index it started
+		// from may be one git can't use elsewhere: start again from HEAD.
+		os.Remove(idx)
+		if err = stageTree(ctx, top, idx, env, false); err == nil {
+			err = fn(top, env)
 		}
 	}
-	if _, err := run(ctx, dir, env, "add", "-A"); err != nil {
-		done()
-		return nil, nil, err
+	return err
+}
+
+// stageTree brings the index at idx in line with the working tree at top:
+// what HEAD has and is still there, and the files .gitignore doesn't
+// ignore. A new index starts as a copy of the user's, when seed allows,
+// for its stat cache, or else from HEAD.
+func stageTree(ctx context.Context, top, idx string, env []string, seed bool) error {
+	head, _ := Head(ctx, top)
+	if _, err := os.Stat(idx); err != nil {
+		if !seed || !copyUserIndex(ctx, top, idx) {
+			os.Remove(idx) // git wants to create it
+			if head != "" {
+				if _, err := run(ctx, top, env, "read-tree", "HEAD"); err != nil {
+					return err
+				}
+			}
+		}
 	}
-	return env, done, nil
+	if _, err := run(ctx, top, env, "add", "-A"); err != nil {
+		return err
+	}
+	// add -A keeps what the index has. Drop files it has that are ignored
+	// now and not in HEAD (untracked when staged, or staged by the user
+	// with add -f), and add those HEAD has that it lacks (committed while
+	// ignored, since it was made): a fresh index has neither.
+	ignored, err := run(ctx, top, env, "ls-files", "-z", "--cached", "--ignored", "--exclude-standard")
+	if err != nil {
+		return err
+	}
+	if drop := splitNUL(ignored); len(drop) > 0 {
+		if head != "" {
+			added, err := run(ctx, top, env, "diff-index", "--cached", "--name-only", "-z", "--diff-filter=A", "HEAD")
+			if err != nil {
+				return err
+			}
+			notInHead := map[string]bool{}
+			for _, p := range splitNUL(added) {
+				notInHead[p] = true
+			}
+			drop = slices.DeleteFunc(drop, func(p string) bool { return !notInHead[p] })
+		}
+		if len(drop) > 0 {
+			if _, err := runInput(ctx, top, env, strings.Join(drop, "\x00"), "update-index", "-z", "--force-remove", "--stdin"); err != nil {
+				return err
+			}
+		}
+	}
+	if head == "" {
+		return nil
+	}
+	missing, err := run(ctx, top, env, "diff-index", "--cached", "--name-only", "-z", "--diff-filter=D", "HEAD")
+	if err != nil {
+		return err
+	}
+	var restore []string
+	for _, p := range splitNUL(missing) {
+		if fi, err := os.Lstat(filepath.Join(top, p)); err == nil && !fi.IsDir() {
+			restore = append(restore, p)
+		}
+	}
+	if len(restore) > 0 {
+		if _, err := runInput(ctx, top, env, strings.Join(restore, "\x00"), "update-index", "-z", "--add", "--stdin"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyUserIndex copies the worktree's own index to idx, and reports whether
+// it did.
+func copyUserIndex(ctx context.Context, top, idx string) bool {
+	src, err := gitPath(ctx, top, "index")
+	if err != nil {
+		return false
+	}
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return false
+	}
+	tmp := idx + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return false
+	}
+	if err := os.Rename(tmp, idx); err != nil {
+		os.Remove(tmp)
+		return false
+	}
+	return true
+}
+
+// gitPath is the path of name in dir's git dir, as git rev-parse --git-path
+// resolves it: a linked worktree's own, for an index.
+func gitPath(ctx context.Context, dir, name string) (string, error) {
+	out, err := run(ctx, dir, nil, "rev-parse", "--git-path", name)
+	if err != nil {
+		return "", err
+	}
+	p := strings.TrimSpace(out)
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(dir, p)
+	}
+	return p, nil
+}
+
+func splitNUL(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, "\x00") {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Uncommitted lists dir's changes since its last commit, untracked files
 // included, as committing everything would take them, and their patch cut
 // to max bytes. The user's index stays as it is.
 func Uncommitted(ctx context.Context, dir string, max int) (files []FileStat, patchText string, truncated bool, err error) {
-	env, done, err := tempIndex(ctx, dir)
+	err = withTreeIndex(ctx, dir, func(top string, env []string) error {
+		// --cached without a commit compares with HEAD, or with nothing on a
+		// branch that has no commits yet.
+		var err error
+		if files, err = diffFiles(ctx, top, env, "--cached"); err != nil {
+			return err
+		}
+		patchText, truncated, err = patch(ctx, top, env, max, "--cached")
+		return err
+	})
 	if err != nil {
 		return nil, "", false, err
 	}
-	defer done()
-	// --cached without a commit compares with HEAD, or with nothing on a
-	// branch that has no commits yet.
-	if files, err = diffFiles(ctx, dir, env, "--cached"); err != nil {
-		return nil, "", false, err
-	}
-	patchText, truncated, err = patch(ctx, dir, env, max, "--cached")
-	return files, patchText, truncated, err
+	return files, patchText, truncated, nil
 }
 
 // SetRef points ref at sha.
